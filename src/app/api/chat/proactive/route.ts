@@ -617,9 +617,19 @@ export async function POST(request: NextRequest) {
       effectiveUserName
     );
 
-    // Build post-history instructions section (for prompt viewer)
+    // Build post-history instructions section (for prompt viewer).
+    // FASE 11 (refactor): el post-history ahora es el MERGE de character.postHistoryInstructions
+    // + proactiveSuffix (ambos resueltos). buildPostHistorySection resuelve las keys internamente,
+    // así que le pasamos la cadena mergeada cruda y la resuelve de forma idempotente.
+    const _mergedForViewerParts: string[] = [];
+    if (effectiveCharacter.postHistoryInstructions?.trim()) {
+      _mergedForViewerParts.push(effectiveCharacter.postHistoryInstructions.trim());
+    }
+    // Nota: proactiveSuffixResolved todavía no está definido aquí (se define más abajo).
+    // Por eso postHistorySection sólo refleja el character.postHistoryInstructions aquí;
+    // la sección "✨ Sufijo (Post-History Proactivo)" de abajo muestra el suffix por separado.
     const postHistorySection = buildPostHistorySection(
-      effectiveCharacter.postHistoryInstructions,
+      _mergedForViewerParts.length > 0 ? _mergedForViewerParts.join('\n\n') : undefined,
       keyContext
     );
 
@@ -846,16 +856,47 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
     const proactiveSuffixResolved = resolveAllKeys(rawProactiveSuffix, keyContext);
     const proactiveMessageResolved = resolveAllKeys(rawProactiveMessage, keyContext);
 
-    // Ensamblar la instrucción final: Prefix + Message + Suffix.
-    const proactiveInstructionParts: string[] = [];
-    if (proactivePrefixResolved) proactiveInstructionParts.push(proactivePrefixResolved);
-    if (proactiveMessageResolved) proactiveInstructionParts.push(proactiveMessageResolved);
-    if (proactiveSuffixResolved) proactiveInstructionParts.push(proactiveSuffixResolved);
-    const proactiveInstruction = proactiveInstructionParts.join('\n\n');
+    // ─── FASE 11 (refactor): Prefix = system prompt, Message = instrucción, Suffix = post-history ───
+    // Para que el prompt proactivo estructure IGUAL que un chat normal:
+    //   - proactivePrefix  → se PRE-pend al system prompt (actúa como system prompt adicional)
+    //   - proactiveMessage → va dentro del bloque [Proactive Message Instruction]
+    //   - proactiveSuffix  → fluye al slot de post-history instructions (como character.postHistoryInstructions)
+    //
+    // Antes (FASE 11 v1) los tres se concatenaban y se appendeaban al system prompt, lo que
+    // hacía que el suffix NO funcionara como post-history. Ahora cada uno va a su lugar correcto.
+    const proactiveInstruction = proactiveMessageResolved;
 
-    // Build the final system prompt
+    // Build the final system prompt:
+    //   1. systemPrompt (character card sections: description, personality, scenario, etc.)
+    //   2. proactivePrefix (si existe) — actúa como system prompt adicional
+    //   3. [Proactive Message Instruction] + message (caso seleccionado por atributo)
     let finalSystemPrompt = systemPrompt;
-    finalSystemPrompt += `\n\n[Proactive Message Instruction]\n${proactiveInstruction}`;
+    if (proactivePrefixResolved) {
+      finalSystemPrompt += `\n\n${proactivePrefixResolved}`;
+    }
+    if (proactiveInstruction) {
+      finalSystemPrompt += `\n\n[Proactive Message Instruction]\n${proactiveInstruction}`;
+    }
+
+    // ─── Merge post-history instructions: character + proactiveSuffix ───
+    // El suffix funciona EXACTAMENTE como character.postHistoryInstructions en un chat normal:
+    // se pasa a buildChatMessages() como el arg postHistoryInstructions y se coloca DESPUÉS
+    // del historial de chat. Si el personaje ya tiene postHistoryInstructions, se mergean
+    // con el suffix separados por \n\n (ambos aplican).
+    // Estas variables se declaran aquí y se usan en TODOS los call sites de abajo
+    // (buildChatMessages y buildCompletionPrompt).
+    const mergedPostHistoryRawParts: string[] = [];
+    const charPostHistoryRaw = effectiveCharacter.postHistoryInstructions?.trim();
+    if (charPostHistoryRaw) mergedPostHistoryRawParts.push(charPostHistoryRaw);
+    if (proactiveSuffixResolved) mergedPostHistoryRawParts.push(proactiveSuffixResolved);
+    // El post-history mergeado se PASA CRUDO a buildChatMessages (ella lo resuelve internamente,
+    // igual que en stream/route.ts). Pero como el suffix ya vino resuelto (resolveAllKeys arriba),
+    // le pasamos la cadena mergeada final (charPostHistory sin resolver + suffix resuelto).
+    // buildChatMessages vuelve a resolver las keys del arg postHistoryInstructions, lo cual es
+    // idempotente para texto ya resuelto (las {{...}} inexistentes se limpian a ''). Por eso
+    // es seguro pasar la cadena mergeada.
+    const mergedPostHistoryInstructions: string | undefined =
+      mergedPostHistoryRawParts.length > 0 ? mergedPostHistoryRawParts.join('\n\n') : undefined;
 
     // ─── FASE 9: Contexto para Proactividad ───
     // Inject deep conversation context into the system prompt for more coherent proactive messages.
@@ -1166,7 +1207,21 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
       nudgeContent += cooldownInstruction;
     }
 
-    // Add proactive instruction, context, and nudge sections to prompt viewer
+    // Add proactive prefix, instruction, context, suffix and nudge sections to prompt viewer.
+    // FASE 11 (refactor): el orden refleja ahora la estructura real del prompt enviado al LLM:
+    //   - Prefix → va al system prompt (antes del bloque [Proactive Message Instruction])
+    //   - Message → va en el bloque [Proactive Message Instruction] dentro del system prompt
+    //   - FASE 9 context → se appendea al system prompt (después del bloque)
+    //   - Suffix → va al slot de post-history instructions (junto con character.postHistoryInstructions)
+    //   - Nudge → va como mensaje final del usuario (lo que dispara la iniciativa del personaje)
+    if (proactivePrefixResolved) {
+      allPromptSections.push({
+        type: 'system',
+        label: '✨ Prefijo Proactivo (System Prompt)',
+        content: proactivePrefixResolved,
+        color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+      });
+    }
     allPromptSections.push(
       {
         type: 'instructions',
@@ -1182,6 +1237,14 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
         label: '🧠 Contexto para Proactividad (FASE 9)',
         content: proactiveContextSections.join('\n\n'),
         color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+      });
+    }
+    if (proactiveSuffixResolved) {
+      allPromptSections.push({
+        type: 'post_history',
+        label: '✨ Sufijo Proactivo (Post-History)',
+        content: proactiveSuffixResolved,
+        color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
       });
     }
     allPromptSections.push(
@@ -1317,7 +1380,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  effectiveCharacter.postHistoryInstructions?.trim(),
+                  mergedPostHistoryInstructions,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1449,7 +1512,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  effectiveCharacter.postHistoryInstructions?.trim(),
+                  mergedPostHistoryInstructions,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1570,7 +1633,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  effectiveCharacter.postHistoryInstructions?.trim(),
+                  mergedPostHistoryInstructions,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1685,7 +1748,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                     allMessages,
                     effectiveCharacter,
                     effectiveUserName,
-                    effectiveCharacter.postHistoryInstructions?.trim(),
+                    mergedPostHistoryInstructions,
                     undefined, true, embeddingsContext,
                     lorebookChatInjections,
                   exampleMessages
@@ -1788,7 +1851,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                     messages: allMessages,
                     character: effectiveCharacter,
                     userName: effectiveUserName,
-                    postHistoryInstructions: effectiveCharacter.postHistoryInstructions?.trim(),
+                    postHistoryInstructions: mergedPostHistoryInstructions,
                     embeddingsContext: embeddingsContext,
                     exampleMessages: exampleMessages,
                     allCharacters: allCharacters  // Pass all characters for proper speaker attribution
@@ -1805,7 +1868,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  effectiveCharacter.postHistoryInstructions?.trim(),
+                  mergedPostHistoryInstructions,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1919,7 +1982,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                     allMessages,
                     effectiveCharacter,
                     effectiveUserName,
-                    effectiveCharacter.postHistoryInstructions?.trim(),
+                    mergedPostHistoryInstructions,
                     undefined, true, embeddingsContext,
                     lorebookChatInjections,
                   exampleMessages
@@ -1987,7 +2050,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                     messages: allMessages,
                     character: effectiveCharacter,
                     userName: effectiveUserName,
-                    postHistoryInstructions: effectiveCharacter.postHistoryInstructions?.trim(),
+                    postHistoryInstructions: mergedPostHistoryInstructions,
                     embeddingsContext: embeddingsContext,
                     exampleMessages: exampleMessages,
                     allCharacters: allCharacters  // Pass all characters for proper speaker attribution
