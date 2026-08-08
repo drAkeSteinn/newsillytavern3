@@ -1,0 +1,704 @@
+     1→---
+     2→
+     3→# Task ID: EXPLORE-1
+     4→**Agent:** Explore
+     5→**Task:** Research proactive messages system + lorebook attribute system for upcoming "proactive messages" redesign.
+     6→
+     7→## Work Log
+     8→
+     9→### Files Read
+    10→- `/home/z/my-project/newsillytavern2/src/types/index.ts` (selective: ProactiveMessagesConfig, MicroReactionConfig, Lorebook types, AttributeDefinition, SessionStats)
+    11→- `/home/z/my-project/newsillytavern2/src/components/tavern/proactive-messages-panel.tsx` (full, 1126 lines)
+    12→- `/home/z/my-project/newsillytavern2/src/hooks/use-proactive-messages.tsx` (full, 846 lines)
+    13→- `/home/z/my-project/newsillytavern2/src/app/api/chat/proactive/route.ts` (full, 2029 lines)
+    14→- `/home/z/my-project/newsillytavern2/src/lib/lorebook/attribute-evaluator.ts` (full, 574 lines — DEAD CODE)
+    15→- `/home/z/my-project/newsillytavern2/src/lib/lorebook/attribute-resolver.ts` (full, 467 lines — LIVE)
+    16→- `/home/z/my-project/newsillytavern2/src/lib/lorebook/injector.ts` (full, 254 lines)
+    17→- `/home/z/my-project/newsillytavern2/src/lib/lorebook/entry-key-builder.ts` (full, 160 lines)
+    18→- `/home/z/my-project/newsillytavern2/src/lib/lorebook/scanner.ts` (first 300 of 608 lines)
+    19→- `/home/z/my-project/newsillytavern2/src/lib/lorebook/index.ts` (full, 43 lines)
+    20→- `/home/z/my-project/newsillytavern2/src/lib/key-resolver.ts` (selective: resolveLorebookAttributeKeys, resolveLorebookEntryKeys, resolveAllKeys, buildKeyResolutionContext)
+    21→- `/home/z/my-project/newsillytavern2/src/lib/llm/prompt-builder.ts` (selective: buildLorebookSectionForPrompt lines 713-761)
+    22→- `/home/z/my-project/newsillytavern2/src/components/tavern/lorebook-panel.tsx` (selective: LorebookEntryEditor lines 680-1320)
+    23→- `/home/z/my-project/newsillytavern2/src/components/tavern/lorebook-attribute-editor.tsx` (first 300 of 857 lines — DEAD CODE)
+    24→
+    25→---
+    26→
+    27→## 1. Exact TypeScript Type Definitions (verbatim)
+    28→
+    29→### `ProactiveMessagesConfig` — `src/types/index.ts` lines 1277–1337
+    30→
+    31→```ts
+    32→export interface ProactiveMessagesConfig {
+    33→  enabled: boolean;                   // Master toggle
+    34→  intervalSeconds: number;            // How often (in seconds) to send a proactive message
+    35→  minMessagesBeforeStart: number;     // Minimum messages in the chat before proactive starts
+    36→  maxPerSession: number;              // Max proactive messages per session (0 = unlimited)
+    37→  customPrompt?: string;              // Optional custom instruction for proactive message generation
+    38→  nudgeTemplate?: string;             // Optional nudge message template (replaces default "[La escena continúa] {{user}} parece distraído...")
+    39→  allowedStates: ('idle' | 'user_away')[];  // When to trigger (idle = no user activity, user_away = tab not focused)
+    40→
+    41→  // ─── FASE 3: Proactividad Inteligente ───
+    42→  /** Pool of alternative nudge templates that rotate to add variety */
+    43→  nudgeTemplates?: string[];
+    44→  /** Number of recent messages to include as context in the nudge (0 = disabled, default 3) */
+    45→  contextMessagesCount?: number;
+    46→  /** Minutes before the character can repeat a similar topic (0 = disabled) */
+    47→  thematicCooldownMinutes?: number;
+    48→  /** Enable proactivity in group chats */
+    49→  groupChatEnabled?: boolean;
+    50→  /** Strategy for group chat proactive messages */
+    51→  groupChatStrategy?: 'any_speaker' | 'mentioned_only' | 'emotional_reaction';
+    52→
+    53→  // ─── FASE 9: Contexto para Proactividad ───
+    54→  /** Include emotional state context in proactive system prompt */
+    55→  includeEmotionalContext?: boolean;
+    56→  /** Include relationship context in proactive system prompt */
+    57→  includeRelationshipContext?: boolean;
+    58→  /** Include active quests context in proactive system prompt */
+    59→  includeQuestContext?: boolean;
+    60→  /** Max characters per context message (0 = no limit, default 300) */
+    61→  contextMessageMaxChars?: number;
+    62→  /** Inject context into system prompt (true) instead of only the nudge (false) */
+    63→  contextInSystemPrompt?: boolean;
+    64→  /** Detect and retomar abandoned conversation topics */
+    65→  retomarAbandonedTopics?: boolean;
+    66→  /** Number of turns of silence before a topic is considered "abandoned" (default 10) */
+    67→  abandonedTopicThreshold?: number;
+    68→}
+    69→
+    70→export const DEFAULT_PROACTIVE_MESSAGES_CONFIG: ProactiveMessagesConfig = {
+    71→  enabled: false,
+    72→  intervalSeconds: 300,               // 5 minutes default
+    73→  minMessagesBeforeStart: 5,          // Wait for at least 5 messages
+    74→  maxPerSession: 0,                   // Unlimited
+    75→  customPrompt: '',
+    76→  nudgeTemplate: '',
+    77→  allowedStates: ['idle'],
+    78→  // FASE 3 defaults
+    79→  nudgeTemplates: [],
+    80→  contextMessagesCount: 3,
+    81→  thematicCooldownMinutes: 0,
+    82→  groupChatEnabled: false,
+    83→  groupChatStrategy: 'any_speaker',
+    84→  // FASE 9 defaults
+    85→  includeEmotionalContext: true,
+    86→  includeRelationshipContext: true,
+    87→  includeQuestContext: true,
+    88→  contextMessageMaxChars: 300,
+    89→  contextInSystemPrompt: true,
+    90→  retomarAbandonedTopics: false,
+    91→  abandonedTopicThreshold: 10,
+    92→};
+    93→```
+    94→
+    95→### `ProactiveMessageInfo` — `src/types/index.ts` lines 1340–1349 (stored in `ChatMessage.metadata`)
+    96→
+    97→```ts
+    98→export interface ProactiveMessageInfo {
+    99→  isProactive: true;
+   100→  triggeredAt: string;
+   101→  reason: 'timer_idle' | 'timer_away';
+   102→  characterName: string;
+   103→  /** Index of the nudge template used (for rotation tracking) */
+   104→  nudgeIndex?: number;
+   105→  /** Brief topic/theme of the proactive message (for cooldown tracking) */
+   106→  topic?: string;
+   107→}
+   108→```
+   109→
+   110→### `MicroReactionConfig` — `src/types/index.ts` lines 824–836
+   111→
+   112→```ts
+   113→export interface MicroReactionConfig {
+   114→  enabled: boolean;
+   115→  maxReactionsPerMessage: number;  // Limit reactions per message (default: 2)
+   116→  reactionChance: number;         // 0-1 probability of reacting (default: 0.3)
+   117→  triggers: ('mention' | 'emotional' | 'topic')[];  // What triggers reactions
+   118→}
+   119→
+   120→export const DEFAULT_MICRO_REACTION_CONFIG: MicroReactionConfig = {
+   121→  enabled: false,
+   122→  maxReactionsPerMessage: 2,
+   123→  reactionChance: 0.3,
+   124→  triggers: ['mention', 'emotional'],
+   125→};
+   126→```
+   127→
+   128→### Lorebook Attribute Types — `src/types/index.ts` lines 2419–2565
+   129→
+   130→```ts
+   131→export type LorebookPosition =
+   132→  | 0   // After system prompt
+   133→  | 1   // After user message
+   134→  | 2   // Before user message
+   135→  | 3   // After assistant message
+   136→  | 4   // Before assistant message
+   137→  | 5   // At top of chat
+   138→  | 6   // At bottom of chat (newest messages)
+   139→  | 7;  // Outlet (custom position, use outletName field)
+   140→
+   141→export type LorebookEntryType = 'traditional' | 'attribute';
+   142→
+   143→/**
+   144→ * Operators for attribute comparison in lorebook entries.
+   145→ */
+   146→export type AttributeComparator = '<' | '<=' | '>' | '>=' | '==' | '!=' | 'contains' | 'not_contains';
+   147→
+   148→/**
+   149→ * Mode for attribute entry evaluation.
+   150→ * - 'static': single condition, inject entry.content if met
+   151→ * - 'dynamic': multiple conditions, each with its own content
+   152→ */
+   153→export type AttributeEntryMode = 'static' | 'dynamic';
+   154→
+   155→/**
+   156→ * Static condition for attribute lorebook entries.
+   157→ * If the condition is met, the entry's `content` field is injected.
+   158→ */
+   159→export interface LorebookStaticCondition {
+   160→  operator: AttributeComparator;
+   161→  value: number | string;
+   162→}
+   163→
+   164→/**
+   165→ * Dynamic condition for attribute lorebook entries.
+   166→ * Each condition has its own content that gets injected when met.
+   167→ * Multiple conditions can match simultaneously (contents are concatenated).
+   168→ */
+   169→export interface LorebookDynamicCondition {
+   170→  id: string;
+   171→  operator: AttributeComparator;
+   172→  value: number | string;
+   173→  content: string;
+   174→  /**
+   175→   * Priority of this condition (higher = more important).
+   176→   * Used in 'first-match' resolution mode: only the highest-priority matching condition wins.
+   177→   * In 'concat-all' mode, conditions are concatenated in priority order (highest first).
+   178→   * Default: 0
+   179→   */
+   180→  priority?: number;
+   181→}
+   182→
+   183→/**
+   184→ * Configuration for attribute-based lorebook entries.
+   185→ */
+   186→export interface LorebookAttributeConfig {
+   187→  /** Target character ID: '__user__' for persona, '__char__' for current character, or specific character ID */
+   188→  characterId: string;
+   189→  /** Attribute key to check (e.g., 'vida', 'mana') */
+   190→  attributeKey: string;
+   191→  /** Evaluation mode */
+   192→  mode: AttributeEntryMode;
+   193→  /**
+   194→   * Injection key for this attribute entry.
+   195→   * When conditions are met, {{injectionKey}} in prompt text is replaced with the resolved content.
+   196→   * Example: 'estadoHeroe' → {{estadoHeroe}} in character description resolves to the entry's content.
+   197→   */
+   198→  injectionKey: string;
+   199→  /** Condition for static mode */
+   200→  staticCondition?: LorebookStaticCondition;
+   201→  /** Conditions for dynamic mode (multiple, each with own content) */
+   202→  dynamicConditions?: LorebookDynamicCondition[];
+   203→  /** Optional fallback content when no dynamic condition matches */
+   204→  fallbackContent?: string;
+   205→  /**
+   206→   * Resolution mode for dynamic conditions:
+   207→   * - 'concat-all': All matching conditions are concatenated (default). Ordered by priority (highest first).
+   208→   * - 'first-match': Only the highest-priority matching condition wins. When multiple match, only the top one is used.
+   209→   * Default: 'concat-all'
+   210→   */
+   211→  dynamicResolution?: 'concat-all' | 'first-match';
+   212→}
+   213→
+   214→export interface LorebookEntry {
+   215→  uid: number;                    // Unique identifier
+   216→  key: string[];                  // Primary keywords (supports regex with /pattern/flags)
+   217→  keysecondary: string[];         // Secondary keywords (optional, supports regex)
+   218→  comment: string;                // Entry title/description
+   219→  content: string;                // Content to inject
+   220→  constant: boolean;              // Always active
+   221→  selective: boolean;             // Use secondary keys
+   222→  order: number;                  // Insertion order (higher = later)
+   223→  position: LorebookPosition;     // Where to inject
+   224→  outletName?: string;            // Outlet name (used when position = 7)
+   225→  disable: boolean;               // Entry disabled
+   226→  excludeRecursion: boolean;      // Exclude from recursive scanning
+   227→  preventRecursion: boolean;      // Prevent this entry from triggering others
+   228→  delayUntilRecursion: boolean;   // Only activate during recursion
+   229→  probability: number;            // Activation probability (0-100)
+   230→  useProbability: boolean;        // Use probability check
+   231→  depth: number;                  // Scan depth (messages to scan back)
+   232→  selectLogic: number;            // 0 = AND_ANY, 1 = NOT_ALL, 2 = NOT_ANY, 3 = AND_ALL
+   233→  group: string;                  // Group name
+   234→  groupOverride: boolean;         // Override group settings
+   235→  groupWeight: number;            // Weight within group (for random selection)
+   236→  scanDepth: number | null;       // Custom scan depth (null = use global)
+   237→  caseSensitive: boolean | null;  // Case sensitive matching (null = use global)
+   238→  matchWholeWords: boolean | null; // Match whole words only
+   239→  useGroupScoring: boolean | null; // Use group scoring
+   240→  automationId: string;           // Automation ID
+   241→  role: number | null;            // Role (0 = system, 1 = user, 2 = assistant)
+   242→  vectorized: boolean;            // Vectorized for semantic search
+   243→  displayIndex: number;           // Display order in UI
+   244→  extensions: Record<string, unknown>; // Extension data
+   245→  /** Entry type: traditional (keyword-triggered) or attribute (stat-based) */
+   246→  entryType: LorebookEntryType;
+   247→  /** Attribute configuration (only when entryType = 'attribute') */
+   248→  attributeConfig?: LorebookAttributeConfig;
+   249→}
+   250→```
+   251→
+   252→### Supporting Attribute Types — `src/types/index.ts`
+   253→
+   254→```ts
+   255→// Line 4145
+   256→export type AttributeType = 'number' | 'keyword' | 'text';
+   257→
+   258→// Line 4192
+   259→export interface AttributeDefinition {
+   260→  id: string;
+   261→  name: string;              // Display name: "Vida", "Maná", "Resistencia"
+   262→  key: string;               // Template key: "vida" → {{vida}}
+   263→  type: AttributeType;
+   264→  defaultValue: number | string;
+   265→  min?: number;
+   266→  max?: number;
+   267→  thresholdEffects?: ThresholdEffect[];
+   268→  keys?: string[];           // Alternative detection keys
+   269→  caseSensitive?: boolean;
+   270→  outputFormat?: string;
+   271→  // ... (more fields)
+   272→}
+   273→
+   274→// Line 4391
+   275→export interface CharacterStatsConfig {
+   276→  enabled: boolean;
+   277→  attributes: AttributeDefinition[];
+   278→  skills: SkillDefinition[];
+   279→  intentions: IntentionDefinition[];
+   280→  invitations: InvitationDefinition[];
+   281→  solicitudDefinitions: SolicitudDefinition[];
+   282→  blockHeaders: StatsBlockHeaders;
+   283→  timerEnabled?: boolean;
+   284→  timerTickSeconds?: number;
+   285→  timerMaxAccumulatedTicks?: number;
+   286→}
+   287→
+   288→// Line 4422
+   289→export interface CharacterSessionStats {
+   290→  attributeValues: Record<string, number | string>;
+   291→  lastUpdated: Record<string, number>;
+   292→  changeLog?: StatChangeLogEntry[];
+   293→  emotionalState?: string;
+   294→  emotionalStateLastEval?: number;
+   295→  emotionalStateTurnCount?: number;
+   296→}
+   297→
+   298→// Line 4439
+   299→export interface SessionStats {
+   300→  characterStats: Record<string, CharacterSessionStats>;
+   301→  solicitudes: SessionSolicitudes;
+   302→  // ... event tracking fields ...
+   303→  initialized: boolean;
+   304→  lastModified: number;
+   305→  lastTimerUpdate?: number;
+   306→  keywordCycleIndex?: Record<string, number>;
+   307→}
+   308→```
+   309→
+   310→---
+   311→
+   312→## 2. Proactive Trigger Flow (End-to-End)
+   313→
+   314→### Step 1 — Timer fires (client-side hook)
+   315→**File:** `src/hooks/use-proactive-messages.tsx`
+   316→
+   317→- `useProactiveMessages({ isGenerating, onProactiveMessage, onProactiveStreamStart, onProactiveStreamToken, onProactiveStreamEnd })` (line 82)
+   318→- Two intervals: `countdownRef` (1s — updates `nextIn` for UI display, lines 794-798) and `timerRef` (5s — checks if it's time to fire, lines 801-817).
+   319→- `lastActivityTimeRef` is reset to `Date.now()` whenever a new message arrives (effect at lines 196-208).
+   320→- When `elapsed = Date.now() - lastActivityTimeRef.current >= intervalMs`:
+   321→  - Checks `document.hidden` and `config.allowedStates` to determine if `user_away` or `idle` trigger is permitted (lines 808-814).
+   322→  - Calls `generateProactiveMessage(reason)` (line 815, defined at line 211).
+   323→
+   324→### Step 2 — Pre-flight checks
+   325→**File:** `src/hooks/use-proactive-messages.tsx` lines 211-265
+   326→
+   327→`generateProactiveMessage(reason: 'timer_idle' | 'timer_away' | 'manual')`:
+   328→1. Group chat strategy enforcement (lines 216-246): for `mentioned_only` strategy, checks recent messages for character name; for `emotional_reaction`, scans for emotional keywords + character emotional state.
+   329→2. Checks `messageCount >= config.minMessagesBeforeStart` (line 248).
+   330→3. Checks `sessionCountRef.current < config.maxPerSession` (line 259).
+   331→4. Re-reads latest store state to capture fresh `questTemplates`, `questSettings`, `settings`, `soundTriggers`, `characters`, `hudTemplates`, `hudSessionState` (line 271).
+   332→5. Builds `allCharactersWithPersona` (adds `__user__` pseudo-character if persona has statsConfig enabled, lines 290-297).
+   333→6. Builds `hudContext` from active HUD template (lines 300-303).
+   334→7. Gathers sessionQuests and summary (lines 306-307).
+   335→8. Builds `inventoryData` from Zustand store (lines 342-357).
+   336→
+   337→### Step 3 — POST to API
+   338→**File:** `src/hooks/use-proactive-messages.tsx` lines 309-369
+   339→
+   340→```ts
+   341→const response = await fetch('/api/chat/proactive', {
+   342→  method: 'POST',
+   343→  body: JSON.stringify({
+   344→    character, messages, llmConfig, userName, persona, lorebooks,
+   345→    sessionStats, proactiveConfig, reason, lastActivityAt,
+   346→    allCharacters: allCharactersWithPersona,
+   347→    questTemplates, sessionQuests, questSettings, hudContext,
+   348→    embeddingsChat: { ...settings.embeddingsChat, customNamespaces: activeCharacter?.embeddingNamespaces },
+   349→    toolsSettings: settings.tools, summary, contextConfig: settings.context,
+   350→    sessionId, characterId, soundTriggers, settings,
+   351→    characterMemory: useTavernStore.getState().getCharacterMemory(activeCharacter.id),
+   352→    inventoryData,
+   353→    usedNudgeIndices: usedNudgeIndicesRef.current,
+   354→    recentTopics: recentTopicsRef.current.filter(...).map(t => t.topic),
+   355→    isGroupChat: !!activeGroupId,
+   356→  }),
+   357→});
+   358→```
+   359→
+   360→### Step 4 — API route constructs the prompt
+   361→**File:** `src/app/api/chat/proactive/route.ts` (POST handler at line 289)
+   362→
+   363→4.1 **Validate + extract** (lines 295-395): pulls `character`, `messages`, `llmConfig`, `proactiveConfig`, `lorebooks`, `sessionStats`, `allCharacters`, `hudContext`, `questTemplates`, `sessionQuests`, `questSettings`, `soundTriggers`, `summary`, `embeddingsChat`, `characterMemory`, `sessionId`, `characterId`, `inventoryData`, `toolsSettings` from body.
+   364→
+   365→4.2 **Build context window** (line 407): `selectContextMessages(messages, llmConfig, contextConfig)`.
+   366→
+   367→4.3 **Build lorebook section** (lines 413-422):
+   368→```ts
+   369→const { plan: lorebookPlan, lorebookAttributeKeys, lorebookEntryKeyMap, lorebookDebugEntries }
+   370→  = buildLorebookSectionForPrompt(messages, lorebooks, { scanDepth, userName, charName },
+   371→    { sessionStats, characterId: effectiveCharacter?.id, characters: allCharacters });
+   372→```
+   373→- Internally calls `resolveLorebookAttributeKeys(lorebooks, attributeContext)` → returns `Record<injectionKey, resolvedContent>`.
+   374→- Also calls `buildLorebookEntryKeyMap(lorebooks)` → returns `Record<key, entry.content>` for traditional entries.
+   375→
+   376→4.4 **Embeddings retrieval** (lines 445-515): uses recent chat history (last `searchContextDepth * 2` messages) as the search query.
+   377→
+   378→4.5 **Build base system prompt** (lines 520-535):
+   379→```ts
+   380→const { prompt: systemPrompt, sections: systemSections, lorebookChatInjections, exampleMessages }
+   381→  = buildSystemPrompt(effectiveCharacter, effectiveUserName, persona, lorebookPlan,
+   382→      sessionStats, allCharacters, soundTriggers, soundSettings,
+   383→      questTemplates, sessionQuests, questSettings,
+   384→      lorebookAttributeKeys, inventoryData, lorebookEntryKeyMap);
+   385→```
+   386→This builds the standard character/persona/scenario/personality prompt with `{{injectionKey}}` and `{{key}}` already resolved via `resolveAllKeys` inside `buildSystemPrompt`.
+   387→
+   388→4.6 **Build key resolution context** (lines 546-583):
+   389→```ts
+   390→const resolvedStats = resolveStats({ characterId, statsConfig, sessionStats, allCharacters, ... });
+   391→const keyContext = buildKeyResolutionContext(
+   392→  effectiveCharacter, effectiveUserName, persona, resolvedStats,
+   393→  sessionStats, soundTriggers, soundSettings, streamPersonaResolvedStats,
+   394→  questTemplates, sessionQuests, questSettings,
+   395→  outletSections, lorebookAttributeKeys, inventoryData
+   396→);
+   397→```
+   398→
+   399→4.7 **Build proactive instruction** (lines 709-755):
+   400→- `defaultInstruction` (lines 710-718): Spanish instruction text with `{{user}}` placeholder telling character how to behave proactively.
+   401→- `groupChatInstructions` (lines 723-748): three strategy variants (`any_speaker`, `mentioned_only`, `emotional_reaction`).
+   402→- Selection logic (lines 753-754):
+   403→  ```ts
+   404→  const rawProactiveInstruction = proactiveConfig.customPrompt?.trim()
+   405→    || (isGroupChat ? groupChatInstruction : defaultInstruction);
+   406→  const proactiveInstruction = resolveAllKeys(rawProactiveInstruction, keyContext);
+   407→  ```
+   408→- Appended to finalSystemPrompt (line 759):
+   409→  ```ts
+   410→  finalSystemPrompt += `\n\n[Proactive Message Instruction]\n${proactiveInstruction}`;
+   411→  ```
+   412→
+   413→4.8 **FASE 9: Context sections** (lines 770-934): builds optional context blocks (emotional state, relationship, quests, recent msgs, abandoned topics, thematic cooldown) and appends them to `finalSystemPrompt` if `contextInSystemPrompt === true`.
+   414→
+   415→4.9 **Build nudge message** (lines 990-1068):
+   416→- Pool = `nudgeTemplate` (primary) + `nudgeTemplates[]` (rotating alternatives) (lines 998-1012).
+   417→- Rotation: skips indices in `clientUsedNudgeIndices`, picks random unused; if all used, picks random from full pool (lines 1014-1026).
+   418→- Default nudge (line 995): `[La escena continúa] {{user}} parece distraído así que {{char}} decide hacer o decir algo para que todo continúe.`
+   419→- Context snippet (lines 1029-1049): if `!contextInSystemPrompt`, appends recent msgs as `[Contexto reciente de la conversación]`.
+   420→- Cooldown instruction (lines 1051-1057): if `!contextInSystemPrompt`, appends `[Evita repetir estos temas recientes: ...]`.
+   421→- Resolve keys (line 1060): `nudgeContent = resolveAllKeys(rawNudgeMessage, keyContext)`.
+   422→- Append context + cooldown (lines 1062-1068).
+   423→
+   424→4.10 **Assemble final messages** (lines 1097-1116):
+   425→```ts
+   426→let allMessages = summaryMessage ? [summaryMessage, ...finalContextWindow.messages] : [...finalContextWindow.messages];
+   427→allMessages = [...allMessages, {
+   428→  id: 'nudge-' + Date.now(),
+   429→  role: 'user', characterId: effectiveCharacter.id,
+   430→  content: nudgeContent, isDeleted: false,
+   431→  timestamp: new Date().toISOString(),
+   432→  swipeId: 'nudge', swipeIndex: 0, swipes: [nudgeContent],
+   433→}];
+   434→```
+   435→
+   436→4.11 **Build provider call** (lines 1182-1896): switches on `llmConfig.provider` (test-mock, z-ai, openai/vllm/lm-studio/custom, anthropic, ollama, grok, text-generation-webui/koboldcpp, default). For each provider, calls `buildChatMessages(finalSystemPrompt, allMessages, character, userName, postHistoryInstructions, ..., lorebookChatInjections, exampleMessages)` then streams response tokens to the client as SSE `token` events.
+   437→
+   438→### Step 5 — SSE events sent to client
+   439→**File:** `src/app/api/chat/proactive/route.ts` lines 1119-2020
+   440→
+   441→Event order:
+   442→1. `proactive_start` (line 1123) — `{ characterId, characterName, reason, nudgeIndex }`
+   443→2. `prompt_data` (line 1132) — `{ promptSections }` (for prompt viewer dialog)
+   444→3. `lorebook_debug` (line 1139, conditional) — attribute resolution debug data
+   445→4. `embeddings_context` (line 1147, conditional)
+   446→5. `token` (multiple, line 1946) — streamed content chunks
+   447→6. `tool_call_start` / `tool_call_result` / `quest_activation` / `action_activation` / `stat_activation` / `solicitud_activation` / `memory_activation` (during tool rounds)
+   448→7. `done` (line 2003) — `{ toolsUsed, questActivations, isProactive, characterId, characterName, reason, shouldExtract }`
+   449→
+   450→### Step 6 — Client handles SSE and injects the message
+   451→**File:** `src/hooks/use-proactive-messages.tsx` lines 377-741
+   452→
+   453→- Reads SSE stream with `response.body.getReader()`, parses `data: {...}` lines.
+   454→- On `proactive_start` (line 410): pushes `nudgeIndex` to `usedNudgeIndicesRef`.
+   455→- On `token` (line 420): accumulates `accumulatedContent` + calls `onProactiveStreamToken`.
+   456→- On `done` (line 566):
+   457→  - Strips char-name prefix from `accumulatedContent` if present (line 573).
+   458→  - Increments `sessionCountRef` (line 578).
+   459→  - Builds `ProactiveMessageInfo` (lines 582-590) with `isProactive: true`, `triggeredAt`, `reason`, `characterName`, `nudgeIndex`, `topic: extractTopic(cleanedMessage)`.
+   460→  - Tracks topic for cooldown (lines 593-598).
+   461→  - Calls `onProactiveMessage({ characterId, content, metadata })` (line 613) or falls back to direct `addMessage(sessionId, {...})` (line 619).
+   462→  - Resets `lastActivityTimeRef` (line 630).
+   463→  - Shows toast notification (line 632).
+   464→  - If `parsed.shouldExtract`, fires background POST to `/api/embeddings/extract-memory` (lines 640-738).
+   465→
+   466→---
+   467→
+   468→## 3. Lorebook Attribute Evaluation Flow
+   469→
+   470→### Traditional vs Attribute Entries
+   471→- **Traditional entries** (`entryType === 'traditional'`): scanned via `scanner.ts scanForLorebookEntries` → injected via `injector.ts buildLorebookInjectionPlan` at one of 7 positions (after system, top/bottom of chat, around messages, outlets). Also exposed via `{{key}}` substitution through `entry-key-builder.ts buildLorebookEntryKeyMap`.
+   472→- **Attribute entries** (`entryType === 'attribute'`): NOT scanned. Resolved via `attribute-resolver.ts resolveLorebookAttributeKeys` → returns `Record<injectionKey, resolvedContent>`. The content replaces `{{injectionKey}}` placeholders in any prompt text via `key-resolver.ts resolveLorebookAttributeKeys`.
+   473→
+   474→### Attribute Resolution Flow
+   475→**File:** `src/lib/lorebook/attribute-resolver.ts` — `resolveLorebookAttributeKeys(lorebooks, context)` (line 81)
+   476→
+   477→**Phase 1 — Collect** (lines 103-116): gather all `entryType === 'attribute'` entries that are non-disabled and have an `attributeConfig.injectionKey`. Sort by `entry.order` ascending (lower order = higher priority).
+   478→
+   479→**Phase 2 — Resolve each entry** (lines 133-229):
+   480→For each entry, in priority order:
+   481→1. If `injectionKey` already has a resolved match from a higher-priority entry → skip and emit debug entry with `operator: '(skipped)'` (lines 138-161).
+   482→2. Resolve `__user__` / `__char__` to actual character ID via `resolveCharacterId(config.characterId, context)` (lines 374-388).
+   483→3. Read attribute value from `sessionStats.characterStats[resolvedCharId].attributeValues[attributeKey]` via `getAttributeValue(characterId, attributeKey, context)` (lines 393-405). Returns `null` if missing.
+   484→4. Call `resolveSingleAttributeEntry(entry, context)` (line 199 → defined at line 278).
+   485→
+   486→**`resolveSingleAttributeEntry`** (lines 278-341):
+   487→- **Static mode** (lines 300-306): if `evaluateCondition(attrValue, staticCondition.operator, staticCondition.value)` returns true → return `entry.content` formatted with `<START>` dialogue processing. Else return `null`.
+   488→- **Dynamic mode** (lines 308-337):
+   489→  - Filter `dynamicConditions` where `evaluateCondition(attrValue, cond.operator, cond.value)` is true (lines 310-311).
+   490→  - If matches found:
+   491→    - Sort by `priority` descending (lines 318 / 323).
+   492→    - `first-match` mode (lines 316-320): return only the top match's content.
+   493→    - `concat-all` mode (lines 322-328): return all matched contents joined with `\n\n`, ordered by priority desc.
+   494→  - If no matches: return `fallbackContent` if set (lines 332-334), else `null`.
+   495→
+   496→**Phase 3 — Build final map** (lines 239-251):
+   497→- For each `injectionKey` seen across all entries:
+   498→  - If any entry matched → use the highest-priority matched content.
+   499→  - If no entry matched → empty string `""` (so `{{injectionKey}}` becomes nothing in the prompt).
+   500→
+   501→### `evaluateCondition` — operator evaluation
+   502→**File:** `src/lib/lorebook/attribute-resolver.ts` lines 423-467
+   503→
+   504→```ts
+   505→function evaluateCondition(attrValue, operator: AttributeComparator, compareValue): boolean {
+   506→  // String operators (always case-insensitive)
+   507→  if (operator === 'contains') return String(attrValue).toLowerCase().includes(String(compareValue).toLowerCase());
+   508→  if (operator === 'not_contains') return !String(attrValue).toLowerCase().includes(String(compareValue).toLowerCase());
+   509→
+   510→  // Try numeric comparison first
+   511→  const numAttr = typeof attrValue === 'number' ? attrValue : parseFloat(String(attrValue));
+   512→  const numComp = typeof compareValue === 'number' ? compareValue : parseFloat(String(compareValue));
+   513→  const bothNumeric = !isNaN(numAttr) && !isNaN(numComp);
+   514→
+   515→  if (bothNumeric) {
+   516→    switch (operator) {
+   517→      case '<':  return numAttr <  numComp;
+   518→      case '<=': return numAttr <= numComp;
+   519→      case '>':  return numAttr >  numComp;
+   520→      case '>=': return numAttr >= numComp;
+   521→      case '==': return numAttr === numComp;
+   522→      case '!=': return numAttr !== numComp;
+   523→      default: return false;
+   524→    }
+   525→  }
+   526→
+   527→  // Text comparison (one or both values are non-numeric)
+   528→  const strAttr  = String(attrValue).toLowerCase();
+   529→  const strComp  = String(compareValue).toLowerCase();
+   530→  switch (operator) {
+   531→    case '==': return strAttr === strComp;
+   532→    case '!=': return strAttr !== strComp;
+   533→    case '<': case '<=': case '>': case '>=': return false;  // numeric-only
+   534→    default: return false;
+   535→  }
+   536→}
+   537→```
+   538→
+   539→### {{key}} Substitution Mechanism
+   540→**File:** `src/lib/key-resolver.ts`
+   541→
+   542→`resolveAllKeys(text, context)` (line 945) runs 7 phases in order:
+   543→1. `resolveTemplateVariables` — `{{user}}`, `{{char}}`, `{{userpersona}}`, `{{persona}}`, conditionals `{{#if}}`, `{{#user}}`, `{{#char}}`, `{{outlet::name}}` (uses `context.outletSections`).
+   544→2. `resolveStatsKeys` — `{{attributeKey}}` (e.g., `{{vida}}`) from `context.resolvedStats`.
+   545→3. `resolveEventKeys` — `{{solicitante}}`, `{{solicitado}}`, `{{eventos}}`.
+   546→4. `resolveSoundKeys` — `{{sonidos}}`.
+   547→5. `resolveQuestKeys` / `resolveAvailableQuestsKey` — `{{activeQuests}}`, `{{availableQuests}}`.
+   548→6. `resolveLorebookAttributeKeys` (line 620) — `{{injectionKey}}` from attribute entries. **Case-insensitive regex replacement.** After replacement, re-runs `resolveTemplateVariables` + `resolveStatsKeys` on the result (because injected content may itself contain `{{char}}`, `{{vida}}`, etc.).
+   549→6.1. `resolveLorebookEntryKeys` (line 686) — `{{key}}` from traditional entries' `entry.key[]` array. Same case-insensitive + re-resolve pattern.
+   550→6.5. `resolveInventoryKeys` — `{{slots}}`, `{{currency}}`.
+   551→7. `resolveRemainingKeys` — strips any unresolved `{{...}}` to empty string (cleanup).
+   552→
+   553→**Key sorting:** Both `resolveLorebookAttributeKeys` (line 636) and `resolveLorebookEntryKeys` (line 702) sort keys by **length descending** to avoid partial replacement (e.g., replace `{{estadoHeroe}}` before `{{estado}}`).
+   554→
+   555→### Lorebook Attribute Editor UI
+   556→**File:** `src/components/tavern/lorebook-panel.tsx` — `LorebookEntryEditor` component (lines 688-1441)
+   557→
+   558→For `entryType === 'attribute'` entries, the UI shows (lines 934-1258):
+   559→- **Injection Key** input (line 947-955): sanitized to `[a-zA-Z0-9_]`. Hint: `Usa {{injectionKey}} en la descripción, system prompt, etc.`
+   560→- **Character selector** (lines 960-989): `__user__` (Persona), `__char__` (Personaje actual), or specific character IDs.
+   561→- **Attribute selector** (lines 992-1014): filtered by selected character's `statsConfig.attributes`.
+   562→- **Comparison mode toggle** (lines 1018-1038): Static / Dynamic.
+   563→- **Static condition** (lines 1041-1091): comparator dropdown (filtered by attribute type: numeric → `==,!=,<,<=,>,>=`; text/keyword → `==,!=,contains,not_contains`), value input.
+   564→- **Dynamic conditions list** (lines 1094-1256):
+   565→  - Resolution toggle (lines 1112-1133): `concat-all` (Concatenar todo) / `first-match` (Solo mayor prioridad).
+   566→  - Each condition card: priority number input, comparator dropdown, value input, content textarea, reorder up/down buttons, delete button.
+   567→  - **Fallback content** textarea (lines 1246-1255): used when no dynamic condition matches.
+   568→- **Main content textarea** (lines 1262-1278): always visible; in static mode this is what's injected on match; in dynamic mode it's faded out and labeled "Contenido base (no usado en modo dinámico)".
+   569→
+   570→### Scanner (Traditional entries only)
+   571→**File:** `src/lib/lorebook/scanner.ts` lines 120-248
+   572→
+   573→`scanForLorebookEntries(messages, lorebooks, options)`:
+   574→- Skips attribute entries (line 164).
+   575→- For each non-disabled entry:
+   576→  - Constants (`entry.constant === true`) → always included (line 171).
+   577→  - Otherwise scans last `entry.scanDepth ?? settings.scanDepth ?? options ?? 5` messages.
+   578→  - Supports regex keys (`/pattern/flags`) via `isRegexKey` + `parseRegexKey`.
+   579→  - Plain-text matching with optional case sensitivity and whole-word matching.
+   580→  - `selectLogic`: 0=AND_ANY, 1=NOT_ALL, 2=NOT_ANY, 3=AND_ALL.
+   581→- Returns sorted by `entry.order` ascending.
+   582→
+   583→---
+   584→
+   585→## 4. Files to Modify for the Redesign
+   586→
+   587→### (a) Prefix / Message / Suffix system prompt sections
+   588→
+   589→**Type changes** — `src/types/index.ts`:
+   590→- Add new optional fields to `ProactiveMessagesConfig` (around line 1313): `proactivePrefix?: string`, `proactiveMessage?: string`, `proactiveSuffix?: string`. The existing `customPrompt` (used as "instruction") and `nudgeTemplate` (used as the final user message) are conceptually the "message body" and the "user-side nudge". Consider deprecating `customPrompt` in favor of a unified 3-section structure: prefix goes into `finalSystemPrompt`, message goes into both system prompt + nudge user message, suffix goes at the very end of the system prompt (or as post-history instructions).
+   591→
+   592→**API route** — `src/app/api/chat/proactive/route.ts`:
+   593→- Lines 709-759 (proactiveInstruction construction): replace with `prefix + "\n\n" + message + "\n\n" + suffix` assembly. Resolve each via `resolveAllKeys(..., keyContext)`.
+   594→- Lines 990-1068 (nudge construction): if `proactiveMessage` is set, use it as the nudge content; otherwise fall back to `nudgeTemplate`/`nudgeTemplates[]` for backward compat.
+   595→- Lines 1106-1116 (nudge appended as user message): keep behavior, but make sure suffix is appended to `finalSystemPrompt` BEFORE the nudge message.
+   596→
+   597→**UI** — `src/components/tavern/proactive-messages-panel.tsx`:
+   598→- Replace or augment the existing "Instrucción Personalizada" card (lines 373-397) and "Mensaje de Impulso (Nudge) Principal" card (lines 399-426) with three cards: Prefix, Message, Suffix — each a `Textarea` with template variable reference.
+   599→
+   600→### (b) Attribute-based conditions for proactive
+   601→
+   602→**Type changes** — `src/types/index.ts`:
+   603→- Define a new interface mirroring `LorebookStaticCondition` / `LorebookDynamicCondition`:
+   604→  ```ts
+   605→  export interface ProactiveAttributeCondition {
+   606→    id: string;
+   607→    characterId: string;          // '__user__' | '__char__' | specific id
+   608→    attributeKey: string;
+   609→    operator: AttributeComparator;
+   610→    value: number | string;
+   611→  }
+   612→  ```
+   613→- Add to `ProactiveMessagesConfig`: `attributeConditions?: ProactiveAttributeCondition[]`, `attributeConditionLogic?: 'AND' | 'OR'`, plus per-condition dynamic content if needed (mirroring `LorebookDynamicCondition`).
+   614→
+   615→**Hook** — `src/hooks/use-proactive-messages.tsx`:
+   616→- In `generateProactiveMessage` (around lines 248-265, after the min/max message checks), evaluate conditions against `useTavernStore.getState().sessions.find(...).sessionStats.characterStats` (already used at line 237 for `emotionalState`). If conditions fail, return early (skip the API call). This is the most efficient place — saves an LLM round-trip when conditions don't match.
+   617→
+   618→**Alternatively (server-side evaluation)** — `src/app/api/chat/proactive/route.ts`:
+   619→- After line 422 (after `buildLorebookSectionForPrompt`), evaluate conditions using the existing `evaluateCondition` function from `attribute-resolver.ts`. If conditions fail, return a 200 with `{ skipped: true, reason: 'conditions_not_met' }` and have the client treat it as a no-op.
+   620→
+   621→### (c) Multiple cases per condition with linear/random mode
+   622→
+   623→**Type changes** — `src/types/index.ts`:
+   624→- Mirror `LorebookDynamicCondition`:
+   625→  ```ts
+   626→  export interface ProactiveCase {
+   627→    id: string;
+   628→    priority?: number;
+   629→    content: string;             // nudge message body OR full proactive message
+   630→    condition?: ProactiveAttributeCondition;  // optional per-case condition (if not set, always matches)
+   631→  }
+   632→  ```
+   633→- Add to `ProactiveMessagesConfig`: `cases?: ProactiveCase[]`, `caseResolution?: 'concat-all' | 'first-match' | 'linear' | 'random'`.
+   634→
+   635→**API route** — `src/app/api/chat/proactive/route.ts`:
+   636→- Extend the nudge pool selection (lines 990-1027) to support `caseResolution`:
+   637→  - `linear`: pick `cases[usedCasesCount % cases.length]` (track a counter sent by client, like `usedNudgeIndices`).
+   638→  - `random`: pick random unused case (mirror the rotation logic at lines 1014-1026).
+   639→  - `first-match` / `concat-all`: evaluate each case's `condition` (if any) using `evaluateCondition`, then either take top-priority match or concatenate all matches (mirror `resolveSingleAttributeEntry` lines 308-329).
+   640→
+   641→**Hook** — `src/hooks/use-proactive-messages.tsx`:
+   642→- Add a `usedCaseIndicesRef = useRef<number[]>([])` (mirror `usedNudgeIndicesRef` at line 101).
+   643→- Pass `usedCaseIndices` in the API request body (around line 359).
+   644→- On `proactive_start` SSE event, push the selected case index to the ref (mirror line 415).
+   645→
+   646→### (d) Lorebook key substitution in proactive messages — ALREADY WORKS
+   647→
+   648→**Verified working** — `src/app/api/chat/proactive/route.ts`:
+   649→- Line 755: `resolveAllKeys(rawProactiveInstruction, keyContext)` — resolves `{{injectionKey}}` (from attribute lorebook entries) AND `{{key}}` (from traditional lorebook entries) in `customPrompt`.
+   650→- Line 1060: `resolveAllKeys(rawNudgeMessage, keyContext)` — same resolution on the nudge template.
+   651→- Line 1158: `resolveAllKeys(rawPostHistoryInstructions, keyContext)` — same on post-history instructions.
+   652→- The `keyContext` (built at lines 568-583) includes `lorebookAttributeKeys` and (implicitly via `buildKeyResolutionContext`) `lorebookEntryKeys`.
+   653→
+   654→No changes needed for (d) — just verify the user knows they can use `{{anyLorebookKey}}` or `{{anyInjectionKey}}` in `customPrompt`, `nudgeTemplate`, `nudgeTemplates[]`, and `postHistoryInstructions`.
+   655→
+   656→---
+   657→
+   658→## 5. Existing Patterns to Reuse
+   659→
+   660→1. **Attribute operator evaluation** — `evaluateCondition(attrValue, operator, compareValue)` in `src/lib/lorebook/attribute-resolver.ts` lines 423-467. Handles 8 operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `contains`, `not_contains`), numeric-vs-string auto-detection, case-insensitive string comparison. Should be extracted to a shared utility (e.g., `src/lib/attributes/evaluate.ts`) so the proactive hook/route can import it without coupling to the lorebook module.
+   661→
+   662→2. **Priority resolution** — `resolveSingleAttributeEntry` in `src/lib/lorebook/attribute-resolver.ts` lines 278-341, specifically lines 316-329. Sorts matching conditions by `priority` descending and either takes the top match (`first-match`) or joins all with `\n\n` (`concat-all`). This is exactly the pattern needed for proactive case selection.
+   663→
+   664→3. **Rotation / random-without-recent-repeat** — `/api/chat/proactive/route.ts` lines 1014-1026. Finds unused indices by filtering out `clientUsedNudgeIndices`, picks random unused; if all used, picks random from full pool. Client tracks state in `usedNudgeIndicesRef` (`use-proactive-messages.tsx` line 101) and sends it in the request body (line 359). This pattern can be directly applied to proactive cases for `linear`/`random` modes.
+   665→
+   666→4. **{{key}} substitution (case-insensitive + re-resolve)** — `resolveLorebookAttributeKeys` (`key-resolver.ts` lines 620-667) and `resolveLorebookEntryKeys` (lines 686-733). Both:
+   667→   - Sort keys by length descending to prevent partial replacement.
+   668→   - Use case-insensitive regex `\{\{escapedKey\}\}` with `gi` flag.
+   669→   - After replacement, **re-run** `resolveTemplateVariables` and `resolveStatsKeys` on the result, because injected content may itself contain `{{char}}`, `{{vida}}`, etc. This recursive resolution is critical for layered templates.
+   670→
+   671→5. **`buildKeyResolutionContext` factory** — `src/lib/key-resolver.ts` lines 1027-1063. Already accepts every piece of data needed: `lorebookAttributeKeys`, `lorebookEntryKeys`, `outletSections`, `inventoryData`, `resolvedStats`, `personaResolvedStats`, `questTemplates`, etc. The proactive route already builds this (lines 568-583) and passes it to every `resolveAllKeys` call.
+   672→
+   673→6. **`resolveAllKeys` main entry** — `src/lib/key-resolver.ts` lines 945-984. Single function that runs all 7 resolution phases. Always use this (never call individual phase functions directly) to ensure consistent resolution order.
+   674→
+   675→7. **SSE streaming pattern** — The proactive route returns a `ReadableStream` (line 1119) and uses `controller.enqueue(createSSEJSON({...}))` to emit typed events. Client-side reader parses `data: {...}` lines split by `\n\n`. This is the established pattern for any new event types (e.g., a `case_selected` event before `proactive_start` if the redesign needs to communicate which case won).
+   676→
+   677→8. **ProactiveMessageInfo metadata** — `src/types/index.ts` lines 1340-1349. Already has `nudgeIndex` and `topic` fields. Add `caseIndex?: number` (or `caseId?: string`) for the redesign's case tracking.
+   678→
+   679→---
+   680→
+   681→## Stage Summary
+   682→
+   683→**Status:** COMPLETE — research only, no files modified.
+   684→
+   685→**Key takeaways for the redesign:**
+   686→
+   687→1. **Dead code identified** — Two files are stale and should NOT be used as references:
+   688→   - `src/lib/lorebook/attribute-evaluator.ts` (574 lines) — imports nonexistent types (`AttributeRequirement`, `AttributeOperator`, `AttributeEntryConfig`, etc.) from `@/types`; not exported from `@/lib/lorebook/index.ts`; has zero live consumers. The actual attribute evaluation logic lives in `attribute-resolver.ts`.
+   689→   - `src/components/tavern/lorebook-attribute-editor.tsx` (857 lines) — also imports nonexistent types; only referenced by itself; the LIVE attribute editor UI is inline inside `src/components/tavern/lorebook-panel.tsx` (component `LorebookEntryEditor`, lines 688-1441).
+   690→
+   691→2. **Lorebook key substitution in proactive messages already works** — Both `{{injectionKey}}` (from attribute entries) and `{{key}}` (from traditional entries) are substituted in `customPrompt`, `nudgeTemplate`, `nudgeTemplates[]`, and `postHistoryInstructions` via `resolveAllKeys`. No new work needed for requirement (d).
+   692→
+   693→3. **Prefix/message/suffix is a natural extension** — The current code already has implicit sections: `finalSystemPrompt` (character + persona + lorebook + proactive instruction + FASE 9 context), `nudgeContent` (final user message), `postHistoryInstructions` (suffix-like). Adding explicit `proactivePrefix` / `proactiveMessage` / `proactiveSuffix` fields to `ProactiveMessagesConfig` and assembling them in `route.ts` lines 709-759 is straightforward.
+   694→
+   695→4. **Attribute conditions for proactive should evaluate client-side** — In `use-proactive-messages.tsx` `generateProactiveMessage`, after the min/max message checks (around line 265), the hook has access to `useTavernStore.getState().sessions` (already used at line 237 for emotional state). Evaluate conditions there to avoid wasting an LLM call when the character "shouldn't" be proactive right now.
+   696→
+   697→5. **Multiple cases with linear/random mode should reuse the rotation pattern** — The nudge-pool rotation logic at `route.ts` lines 998-1026 + `use-proactive-messages.tsx` `usedNudgeIndicesRef` is a clean, working pattern. Add `usedCaseIndicesRef` on the client, send `usedCaseIndices` in the request body, and extend the pool-selection switch to handle `linear`/`random`/`first-match`/`concat-all` modes.
+   698→
+   699→6. **`evaluateCondition` should be extracted** — Currently it's a non-exported function inside `attribute-resolver.ts` (lines 423-467). For the proactive redesign to reuse it without importing the whole lorebook module, extract it to a shared utility like `src/lib/attributes/condition-evaluator.ts` and have both `attribute-resolver.ts` and the new proactive condition evaluator import from there.
+   700→
+   701→7. **ProactiveMessageInfo needs a `caseIndex`/`caseId` field** — For tracking which proactive case was selected (analogous to `nudgeIndex`), add this to `src/types/index.ts` line 1340.
+   702→
+   703→8. **The UI panel `proactive-messages-panel.tsx` is well-structured** — Each section is a self-contained `<Card>` with `updateSettings({...})` calls. New sections (attribute conditions, cases list, prefix/message/suffix textareas) can be added as additional `<Card>` components following the same pattern. The component already accepts `config` and `onChange` props (lines 81-87) which is all that's needed.
+   704→

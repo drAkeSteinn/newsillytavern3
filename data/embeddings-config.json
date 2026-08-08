@@ -1,0 +1,8 @@
+{
+  "ollamaUrl": "http://localhost:11434",
+  "model": "bge-m3:567m",
+  "dimension": 1024,
+  "similarityThreshold": 0.5,
+  "maxResults": 5,
+  "updatedAt": "2026-08-08T21:29:16.356Z"
+}

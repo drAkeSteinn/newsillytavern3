@@ -1,0 +1,9 @@
+{
+  "activeAtmospherePresetId": null,
+  "atmosphereSettings": {
+    "enabled": false,
+    "intensity": 0.5,
+    "autoChange": false,
+    "weatherEffects": false
+  }
+}

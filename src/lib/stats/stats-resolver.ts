@@ -1,0 +1,1021 @@
+// ============================================
+// Stats Handler - Pre-LLM resolution of stats keys
+// ============================================
+//
+// This handler resolves {{key}} templates in character content
+// and builds blocks for skills/intentions/invitations injection
+//
+// Keys resolved:
+// - {{attributeKey}} → "AttributeName: value" (e.g., {{vida}} → "Vida: 50")
+// - {{acciones}} → Block of available skills
+// - {{intenciones}} → Block of available intentions
+// - {{peticiones}} → Block of available invitations (from target's solicitudes)
+// - {{solicitudes}} → Block of received requests
+
+import type {
+  CharacterStatsConfig,
+  SessionStats,
+  CharacterSessionStats,
+  AttributeDefinition,
+  SkillDefinition,
+  IntentionDefinition,
+  InvitationDefinition,
+  SolicitudDefinition,
+  ResolvedStats,
+  SolicitudInstance,
+  CharacterCard,
+  QuestTemplate,
+} from '@/types';
+import {
+  evaluateRequirements,
+  filterSkillsByRequirements,
+  filterIntentionsByRequirements,
+  filterInvitationsByRequirements,
+} from '@/store/slices/statsSlice';
+import {
+  resolveAllKeys,
+  buildKeyResolutionContext,
+} from '@/lib/key-resolver';
+
+// ============================================
+// Types
+// ============================================
+
+export interface StatsResolutionContext {
+  characterId: string;
+  statsConfig: CharacterStatsConfig | undefined;
+  sessionStats: SessionStats | undefined;
+  // For resolving invitations - need access to other characters' solicitudDefinitions
+  allCharacters?: CharacterCard[];
+  // For resolving {{user}} and {{char}} in descriptions
+  userName?: string;
+  characterName?: string;
+  // For resolving objective names in skill rewards
+  questTemplates?: QuestTemplate[];
+  // For comprehensive key resolution ({{userpersona}}, {{eventos}}, stat keys, etc.)
+  personaDescription?: string;
+  personaResolvedStats?: ResolvedStats | null;
+  // Lorebook entry keys for resolving {{key}} in action descriptions
+  // Built by buildLorebookEntryKeyMap() from active lorebooks
+  lorebookEntryKeys?: Record<string, string>;
+}
+
+export interface ResolvedAttribute {
+  key: string;
+  name: string;
+  value: number | string;
+  formatted: string;
+}
+
+// Extended invitation for display (includes data from target's solicitudDefinition)
+export interface ResolvedInvitation {
+  id: string;
+  name: string;
+  peticionKey: string;               // Key to ACTIVATE the peticion (used by sender)
+  solicitudKey: string;              // Key to COMPLETE the solicitud (used by receiver)
+  peticionDescription: string;       // Description shown to SOLICITANTE (who asks)
+  solicitudDescription: string;      // Description shown to SOLICITADO (who receives)
+  completionDescription?: string;    // Description saved when completed
+  targetCharacterId: string;
+  targetCharacterName: string;
+  solicitudId: string;
+}
+
+// ============================================
+// Main Resolution Functions
+// ============================================
+
+/**
+ * Get character session stats
+ */
+export function getCharacterSessionStats(
+  sessionStats: SessionStats | undefined,
+  characterId: string
+): CharacterSessionStats | null {
+  if (!sessionStats?.characterStats?.[characterId]) {
+    return null;
+  }
+  return sessionStats.characterStats[characterId];
+}
+
+/**
+ * Get attribute value (from session or default)
+ */
+export function getAttributeValue(
+  attribute: AttributeDefinition,
+  sessionStats: CharacterSessionStats | null
+): number | string {
+  if (sessionStats?.attributeValues?.[attribute.key] !== undefined) {
+    return sessionStats.attributeValues[attribute.key];
+  }
+  return attribute.defaultValue;
+}
+
+/**
+ * Format attribute value for prompt
+ * 
+ * Format:
+ * - Number type: "Nombre: (valor/max)" e.g., "Resistencia física: (40/100)"
+ * - Keyword/Text type: "Nombre: valor" e.g., "Detección: mágica"
+ * - Custom outputFormat takes precedence if defined
+ */
+export function formatAttributeValue(
+  attribute: AttributeDefinition,
+  value: number | string
+): string {
+  // Use new outputFormat field first (custom format takes precedence)
+  if (attribute.outputFormat) {
+    return attribute.outputFormat.replace('{value}', String(value));
+  }
+  // Fallback to legacy keywordFormat for backward compatibility
+  if (attribute.keywordFormat) {
+    return attribute.keywordFormat.replace('{value}', String(value));
+  }
+  
+  // Default formatting based on attribute type
+  const attributeType = attribute.type || 'number';
+  
+  if (attributeType === 'number') {
+    // For numeric attributes, show (current/max) format
+    const max = attribute.max ?? 100;
+    return `${attribute.name}: (${value}/${max})`;
+  } else {
+    // For keyword and text types, show just the value
+    return `${attribute.name}: ${value}`;
+  }
+}
+
+/**
+ * Resolve a single attribute key
+ */
+export function resolveAttributeKey(
+  key: string,
+  statsConfig: CharacterStatsConfig | undefined,
+  sessionStats: CharacterSessionStats | null
+): string | null {
+  if (!statsConfig?.attributes) return null;
+  
+  const attribute = statsConfig.attributes.find(a => a.key === key);
+  if (!attribute) return null;
+  
+  const value = getAttributeValue(attribute, sessionStats);
+  return formatAttributeValue(attribute, value);
+}
+
+/**
+ * Resolve all attributes for a character
+ */
+export function resolveAllAttributes(
+  statsConfig: CharacterStatsConfig | undefined,
+  sessionStats: CharacterSessionStats | null
+): ResolvedAttribute[] {
+  if (!statsConfig?.attributes) return [];
+  
+  return statsConfig.attributes.map(attribute => {
+    const value = getAttributeValue(attribute, sessionStats);
+    return {
+      key: attribute.key,
+      name: attribute.name,
+      value,
+      formatted: formatAttributeValue(attribute, value),
+    };
+  });
+}
+
+/**
+ * Resolve template keys in text using the full key resolution pipeline
+ * Now handles ALL key types: {{user}}, {{char}}, {{userpersona}}, {{eventos}},
+ * {{solicitante}}, {{solicitado}}, stat attribute keys, etc.
+ *
+ * Falls back to basic regex replacement when full context is not available.
+ */
+function resolveTemplateKeys(
+  text: string,
+  userName?: string,
+  characterName?: string,
+  solicitanteName?: string,
+  solicitadoName?: string,
+  fullContext?: {
+    characterName: string;
+    userName: string;
+    personaDescription?: string;
+    sessionStats?: SessionStats;
+    characterId?: string;
+    resolvedStats?: import('@/types').ResolvedStats | null;
+    personaResolvedStats?: import('@/types').ResolvedStats | null;
+    lorebookEntryKeys?: Record<string, string>;
+  }
+): string {
+  if (!text) return text;
+
+  // If full context is available, use the comprehensive resolver
+  if (fullContext) {
+    const keyContext = buildKeyResolutionContext(
+      { id: '', name: fullContext.characterName } as import('@/types').CharacterCard,
+      fullContext.userName,
+      fullContext.personaDescription
+        ? { name: fullContext.userName, description: fullContext.personaDescription } as import('@/types').Persona
+        : undefined,
+      fullContext.resolvedStats,
+      fullContext.sessionStats,
+      undefined, // soundTriggers
+      undefined, // soundSettings
+      fullContext.personaResolvedStats,
+      undefined, // questTemplates
+      undefined, // sessionQuests
+      undefined, // questSettings
+      undefined, // outletSections
+      undefined, // lorebookAttributeKeys
+      undefined, // inventoryData
+      fullContext.lorebookEntryKeys
+    );
+    // Override characterId for event keys
+    (keyContext as Record<string, unknown>).characterId = fullContext.characterId;
+    return resolveAllKeys(text, keyContext);
+  }
+
+  // Fallback: basic regex replacement for common keys
+  let result = text;
+  if (userName) {
+    result = result.replace(/\{\{user\}\}/gi, userName);
+  }
+  if (characterName) {
+    result = result.replace(/\{\{char\}\}/gi, characterName);
+  }
+  if (solicitanteName) {
+    result = result.replace(/\{\{solicitante\}\}/gi, solicitanteName);
+  }
+  if (solicitadoName) {
+    result = result.replace(/\{\{solicitado\}\}/gi, solicitadoName);
+  }
+  return result;
+}
+
+/**
+ * Find objective name by completion key
+ */
+function findObjectiveNameByKey(
+  objectiveKey: string,
+  questTemplates: { objectives?: { completion?: { key?: string; keys?: string[] }; description?: string }[] }[]
+): string | null {
+  const normalizedKey = objectiveKey.toLowerCase().trim();
+  
+  for (const template of questTemplates) {
+    for (const objective of template.objectives || []) {
+      const keys = [
+        objective.completion?.key,
+        ...(objective.completion?.keys || [])
+      ].filter(Boolean);
+      
+      for (const key of keys) {
+        if (key?.toLowerCase().trim() === normalizedKey) {
+          return objective.description || null;
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Build skills/actions block for injection
+ *
+ * NEW READABLE FORMAT:
+ * [ACCIONES DEL PERSONAJE]
+ * El personaje puede realizar las siguientes acciones:
+ *
+ * • Examen psicológico
+ *   Tipo: ejecución
+  *   Descripción: Sabes aplicar examen psicológico...
+  *   Resultado esperado: Completará "Analizar al usuario"
+  */
+export function buildSkillsBlock(
+  skills: SkillDefinition[],
+  attributeValues: Record<string, number | string>,
+  header: string,
+  questTemplates: { objectives?: { completion?: { key?: string; keys?: string[] }; description?: string }[] }[] = [],
+  characterName?: string,
+  sessionStats?: SessionStats,
+  userName?: string,
+  fullContext?: {
+    characterId?: string;
+    personaDescription?: string;
+    resolvedStats?: import('@/types').ResolvedStats | null;
+    personaResolvedStats?: import('@/types').ResolvedStats | null;
+    userName?: string;
+    characterName?: string;
+    sessionStats?: SessionStats;
+    lorebookEntryKeys?: Record<string, string>;
+  }
+): string {
+  const availableSkills = filterSkillsByRequirements(skills, attributeValues, sessionStats);
+
+  if (availableSkills.length === 0) {
+    return '';
+  }
+
+  const charName = characterName || '{{char}}';
+  
+  // Build instruction text that goes BEFORE the header
+  // This ensures the LLM sees the rules before the action list
+  const introLines: string[] = [];
+  if (header.includes('ACCIONES')) {
+    introLines.push(`${charName} DEBE usar acciones SIEMPRE que realice algo significativo en el roleplay. Las acciones son la forma principal de interactuar con el mundo. Cada vez que ${charName} haga algo más allá de hablar (moverse, atacar, usar habilidades, reaccionar físicamente, etc.), DEBE usar la TOOL "manage_action" con la key correspondiente.`);
+    introLines.push('');
+    introLines.push('REGLAS DE USO DE ACCIONES:');
+    introLines.push('- USA ACCIONES ACTIVAMENTE. No esperes a que haya objetivos o misiones para usarlas.');
+    introLines.push('- Cada acción narrativa importante DEBE ir acompañada de un manage_action call.');
+    introLines.push('- Si una acción describe algo que el personaje hace físicamente, úsala.');
+    introLines.push('- Puedes usar múltiples acciones en una sola respuesta si la situación lo requiere.');
+    introLines.push('- NUNCA dejes de usar una acción disponible cuando el personaje la podría realizar.');
+    introLines.push('');
+    introLines.push('Si una acción indica "Puede completar", usa la TOOL "manage_quest" o "manage_solicitud" con la key correspondiente para marcar como completado inmediatamente después de realizar la acción.');
+  }
+  const introText = introLines.length > 0 ? introLines.join('\n') : '';
+
+  // Build the block: instructions → header → action list
+  const lines: string[] = [];
+  if (introText) {
+    lines.push(introText);
+  }
+  lines.push(header);
+
+  // Build full context for comprehensive key resolution if data is available
+  const keyFullContext = (userName && characterName) ? {
+    characterName,
+    userName,
+    personaDescription: fullContext?.personaDescription,
+    sessionStats,
+    characterId: fullContext?.characterId,
+    resolvedStats: fullContext?.resolvedStats,
+    personaResolvedStats: fullContext?.personaResolvedStats,
+    lorebookEntryKeys: fullContext?.lorebookEntryKeys,
+  } : undefined;
+
+  availableSkills.forEach((skill) => {
+    // Resolve template keys in skill text fields using full key resolution
+    const resolvedName = resolveTemplateKeys(skill.name, userName, characterName, undefined, undefined, keyFullContext);
+    const resolvedDescription = resolveTemplateKeys(skill.description, userName, characterName, undefined, undefined, keyFullContext);
+
+    // Check for custom inject format first
+    if (skill.injectFormat) {
+      const resolvedInjectFormat = resolveTemplateKeys(skill.injectFormat, userName, characterName, undefined, undefined, keyFullContext);
+      const formatted = resolvedInjectFormat
+        .replace('{name}', resolvedName)
+        .replace('{description}', resolvedDescription)
+        .replace('{key}', skill.activationKey || skill.key || '');
+      lines.push(`- ${formatted}`);
+    } else {
+      // New readable format
+      lines.push(`- Nombre: ${resolvedName}`);
+
+      // Type (preparacion/ejecucion)
+      if (skill.type) {
+        const tipoLabel = skill.type === 'preparacion' ? 'preparación' : 'ejecución';
+        lines.push(`  Tipo: ${tipoLabel}`);
+      }
+
+      lines.push(`  Descripción: ${resolvedDescription}`);
+
+      // Collect objectives and solicitudes that this skill can complete
+      const objectives: string[] = [];
+      const solicitudes: string[] = [];
+
+      for (const reward of skill.activationRewards || []) {
+        if (reward.type === 'objective' && reward.objective?.objectiveKey) {
+          const objectiveName = findObjectiveNameByKey(reward.objective.objectiveKey, questTemplates);
+          objectives.push(objectiveName || reward.objective.objectiveKey);
+        } else if (reward.type === 'solicitud' && reward.solicitud?.solicitudKey) {
+          solicitudes.push(reward.solicitud.solicitudName || reward.solicitud.solicitudKey);
+        }
+      }
+
+      // Build "Puede completar" section
+      if (objectives.length > 0 || solicitudes.length > 0) {
+        lines.push(`  Puede completar:`);
+        for (const obj of objectives) {
+          lines.push(`    - Objetivo: ${obj}`);
+        }
+        for (const sol of solicitudes) {
+          lines.push(`    - Solicitud: ${sol}`);
+        }
+      }
+    }
+  });
+
+  return lines.join('\n');
+}
+
+/**
+ * Build intentions block for injection
+ *
+ * Format (same as skills):
+ * 1) Intention Name
+ *    - Descripción: description text
+ *    - key de activación: activation_key (only if key exists)
+ *
+ * Numbers are dynamic based on available intentions count.
+ */
+export function buildIntentionsBlock(
+  intentions: IntentionDefinition[],
+  attributeValues: Record<string, number | string>,
+  header: string,
+  sessionStats?: SessionStats,
+  userName?: string,
+  characterName?: string,
+  fullContext?: {
+    characterId?: string;
+    personaDescription?: string;
+    resolvedStats?: import('@/types').ResolvedStats | null;
+    personaResolvedStats?: import('@/types').ResolvedStats | null;
+    userName?: string;
+    characterName?: string;
+    sessionStats?: SessionStats;
+    lorebookEntryKeys?: Record<string, string>;
+  }
+): string {
+  const availableIntentions = filterIntentionsByRequirements(intentions, attributeValues, sessionStats);
+
+  if (availableIntentions.length === 0) {
+    return '';
+  }
+
+  const lines: string[] = [header];
+
+  // Build full context for comprehensive key resolution if data is available
+  const keyFullContext = (userName && characterName) ? {
+    characterName,
+    userName,
+    personaDescription: fullContext?.personaDescription,
+    sessionStats,
+    characterId: fullContext?.characterId,
+    resolvedStats: fullContext?.resolvedStats,
+    personaResolvedStats: fullContext?.personaResolvedStats,
+    lorebookEntryKeys: fullContext?.lorebookEntryKeys,
+  } : undefined;
+
+  availableIntentions.forEach((intention, index) => {
+    const intentionNumber = index + 1;
+
+    // Resolve template keys in intention text fields using full key resolution
+    const resolvedName = resolveTemplateKeys(intention.name, userName, characterName, undefined, undefined, keyFullContext);
+    const resolvedDescription = resolveTemplateKeys(intention.description, userName, characterName, undefined, undefined, keyFullContext);
+
+    // Check for custom inject format first
+    if (intention.injectFormat) {
+      const resolvedInjectFormat = resolveTemplateKeys(intention.injectFormat, userName, characterName, undefined, undefined, keyFullContext);
+      const formatted = resolvedInjectFormat
+        .replace('{name}', resolvedName)
+        .replace('{description}', resolvedDescription)
+        .replace('{key}', intention.key || '');
+      lines.push(`${intentionNumber}) ${formatted}`);
+    } else {
+      // Default format with description and activation key
+      lines.push(`${intentionNumber}) ${resolvedName}`);
+      lines.push(`   - Descripción: ${resolvedDescription}`);
+
+      // Show activation key only if it exists
+      if (intention.key) {
+        lines.push(`   - key de activación: ${intention.key}`);
+      }
+    }
+  });
+
+  return lines.join('\n');
+}
+
+/**
+ * Build invitations/peticiones block for injection
+ *
+ * NEW FORMAT - Gets key and description from target's solicitudDefinition:
+ * [PETICIONES POSIBLES]
+ * - key: pedir_madera
+ *   dirigido_a: Carpintero
+ *   descripcion: Solicitar madera para construcción
+ *
+ * The invitation must reference a solicitud from another character.
+ * Only shows if the target character meets the requirements of their own solicitud.
+ */
+export function buildInvitationsBlock(
+  invitations: InvitationDefinition[],
+  attributeValues: Record<string, number | string>,
+  header: string,
+  allCharacters?: CharacterCard[],
+  sessionStats?: SessionStats,
+  userName?: string,
+  characterName?: string,
+  fullContext?: {
+    characterId?: string;
+    personaDescription?: string;
+    resolvedStats?: import('@/types').ResolvedStats | null;
+    personaResolvedStats?: import('@/types').ResolvedStats | null;
+    userName?: string;
+    characterName?: string;
+    sessionStats?: SessionStats;
+    lorebookEntryKeys?: Record<string, string>;
+  }
+): string {
+  const availableInvitations = filterInvitationsByRequirements(invitations, attributeValues, sessionStats);
+
+  if (availableInvitations.length === 0) {
+    return '';
+  }
+
+  const lines: string[] = [header];
+
+  availableInvitations.forEach((invitation) => {
+    // Skip if no target configured
+    if (!invitation.objetivo?.characterId || !invitation.objetivo?.solicitudId) {
+      return;
+    }
+
+    // Find target character
+    const targetCharacter = allCharacters?.find(c => c.id === invitation.objetivo!.characterId);
+    if (!targetCharacter) {
+      return;
+    }
+
+    // Find the specific solicitud on the target
+    const solicitud = targetCharacter.statsConfig?.solicitudDefinitions?.find(
+      s => s.id === invitation.objetivo!.solicitudId
+    );
+    if (!solicitud) {
+      return;
+    }
+
+    // Check if target character meets the solicitud's requirements
+    // (the target needs to have the required attributes to fulfill the request)
+    const targetAttributeValues = sessionStats?.characterStats?.[targetCharacter.id]?.attributeValues || {};
+    const targetMeetsRequirements = evaluateRequirements(solicitud.requirements, targetAttributeValues, undefined, solicitud.requirementOperator);
+
+    if (!targetMeetsRequirements) {
+      // Target doesn't meet requirements - don't show this invitation
+      return;
+    }
+
+    // Build full context for comprehensive key resolution
+    const invKeyFullContext = (userName && characterName) ? {
+      characterName,
+      userName,
+      personaDescription: fullContext?.personaDescription,
+      sessionStats,
+      characterId: fullContext?.characterId,
+      resolvedStats: fullContext?.resolvedStats,
+      personaResolvedStats: fullContext?.personaResolvedStats,
+      lorebookEntryKeys: fullContext?.lorebookEntryKeys,
+    } : undefined;
+
+    // Resolve keys in description:
+    // - {{solicitante}} = characterName (who makes the request - current character)
+    // - {{solicitado}} = targetCharacter.name (who receives the request)
+    const resolvedDescription = resolveTemplateKeys(
+      solicitud.peticionDescription,
+      userName,
+      characterName,
+      characterName,       // solicitante = current character (who asks)
+      targetCharacter.name, // solicitado = target (who is asked)
+      invKeyFullContext
+    );
+
+    // Use custom inject format if available
+    if (invitation.injectFormat) {
+      const formatted = invitation.injectFormat
+        .replace('{name}', invitation.name)
+        .replace('{key}', solicitud.peticionKey)
+        .replace('{descripcion}', resolvedDescription)
+        .replace('{objetivo}', targetCharacter.name);
+      lines.push(formatted);
+    } else {
+      // New YAML-like format
+      lines.push(`- key: ${solicitud.peticionKey}`);
+      lines.push(`  dirigido_a: ${targetCharacter.name}`);
+      lines.push(`  descripcion: ${resolvedDescription}`);
+    }
+  });
+
+  // Return empty if no valid invitations after filtering
+  if (lines.length === 1) {
+    return '';
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Resolve invitations to get their actual keys and descriptions
+ * (for use in detection system and UI components)
+ */
+export function resolveInvitations(
+  invitations: InvitationDefinition[],
+  attributeValues: Record<string, number | string>,
+  allCharacters?: CharacterCard[],
+  sessionStats?: SessionStats,
+  userName?: string,
+  characterName?: string
+): ResolvedInvitation[] {
+  const availableInvitations = filterInvitationsByRequirements(invitations, attributeValues, sessionStats);
+  const resolved: ResolvedInvitation[] = [];
+
+  availableInvitations.forEach((invitation) => {
+    if (!invitation.objetivo?.characterId || !invitation.objetivo?.solicitudId) {
+      return;
+    }
+
+    const targetCharacter = allCharacters?.find(c => c.id === invitation.objetivo!.characterId);
+    if (!targetCharacter) {
+      return;
+    }
+
+    const solicitud = targetCharacter.statsConfig?.solicitudDefinitions?.find(
+      s => s.id === invitation.objetivo!.solicitudId
+    );
+    if (!solicitud) {
+      return;
+    }
+
+    // Check if target meets solicitud requirements
+    const targetAttributeValues = sessionStats?.characterStats?.[targetCharacter.id]?.attributeValues || {};
+    const targetMeetsRequirements = evaluateRequirements(solicitud.requirements, targetAttributeValues, undefined, solicitud.requirementOperator);
+
+    if (!targetMeetsRequirements) {
+      return;
+    }
+
+    // Resolve keys in peticionDescription (shown to SOLICITANTE - who asks):
+    // - {{solicitante}} = characterName (who makes the request - current character)
+    // - {{solicitado}} = targetCharacter.name (who receives the request)
+    const resolvedPeticionDescription = resolveTemplateKeys(
+      solicitud.peticionDescription,
+      userName,
+      characterName,
+      characterName,       // solicitante = current character (who asks)
+      targetCharacter.name // solicitado = target (who is asked)
+    );
+
+    // Resolve keys in solicitudDescription (shown to SOLICITADO - who receives):
+    // - {{solicitante}} = characterName (who makes the request)
+    // - {{solicitado}} = targetCharacter.name (current character who receives)
+    const resolvedSolicitudDescription = resolveTemplateKeys(
+      solicitud.solicitudDescription,
+      userName,
+      targetCharacter.name,
+      characterName,        // solicitante = who makes the request
+      targetCharacter.name  // solicitado = who receives
+    );
+
+    // Resolve keys in completionDescription (saved when completed):
+    const resolvedCompletionDescription = solicitud.completionDescription
+      ? resolveTemplateKeys(
+          solicitud.completionDescription,
+          userName,
+          targetCharacter.name,
+          characterName,        // solicitante
+          targetCharacter.name  // solicitado
+        )
+      : undefined;
+
+    resolved.push({
+      id: invitation.id,
+      name: invitation.name,
+      peticionKey: solicitud.peticionKey,
+      solicitudKey: solicitud.solicitudKey,  // Key for completing the solicitud
+      peticionDescription: resolvedPeticionDescription,
+      solicitudDescription: resolvedSolicitudDescription,
+      completionDescription: resolvedCompletionDescription,
+      targetCharacterId: targetCharacter.id,
+      targetCharacterName: targetCharacter.name,
+      solicitudId: solicitud.id,
+    });
+  });
+
+  return resolved;
+}
+
+/**
+ * Build solicitudes block for injection
+ *
+ * Shows requests received from other characters
+ *
+ * FORMAT:
+ * [SOLICITUDES RECIBIDAS]
+ * - key: preparar_troncos
+ *   de: Aitana
+ *   descripcion: Aitana necesita que dejes listos los troncos de abedul.
+ */
+export function buildSolicitudesBlock(
+  solicitudes: SolicitudInstance[],
+  header: string,
+  userName?: string,
+  characterName?: string
+): string {
+  // Filter only pending solicitudes
+  const pendingSolicitudes = solicitudes.filter(s => s.status === 'pending');
+
+  if (pendingSolicitudes.length === 0) {
+    return '';
+  }
+
+  const lines: string[] = [header];
+
+  pendingSolicitudes.forEach((solicitud) => {
+    // Resolve keys in description:
+    // - {{solicitante}} = solicitud.fromCharacterName (who sent the request)
+    // - {{solicitado}} = characterName (current character who receives)
+    const resolvedDescription = resolveTemplateKeys(
+      solicitud.description,
+      userName,
+      characterName,
+      solicitud.fromCharacterName, // solicitante = who sent the request
+      characterName                 // solicitado = current character (who receives)
+    );
+    lines.push(`- key: ${solicitud.key}`);
+    lines.push(`  de: ${solicitud.fromCharacterName}`);
+    lines.push(`  descripcion: ${resolvedDescription}`);
+  });
+
+  return lines.join('\n');
+}
+
+/**
+ * Full stats resolution for a character
+ */
+export function resolveStats(
+  context: StatsResolutionContext
+): ResolvedStats | null {
+  const { characterId, statsConfig, sessionStats } = context;
+  
+  if (!statsConfig || !statsConfig.enabled) {
+    return null;
+  }
+  
+  const charStats = getCharacterSessionStats(sessionStats, characterId);
+  
+  // Resolve all attributes
+  const attributes = resolveAllAttributes(statsConfig, charStats);
+  const attributeValues = charStats?.attributeValues || 
+    Object.fromEntries(
+      (statsConfig.attributes || []).map(a => [a.key, a.defaultValue])
+    );
+  
+  // Build attribute map for template resolution
+  const attributesMap: Record<string, string> = {};
+  for (const attr of attributes) {
+    attributesMap[attr.key] = attr.formatted;
+  }
+
+  // Also include slot values and other dynamically-set attributes from session stats
+  // that aren't already in statsConfig.attributes (e.g., equipment slot keys like {{cabeza}})
+  if (charStats?.attributeValues) {
+    for (const [key, value] of Object.entries(charStats.attributeValues)) {
+      if (!(key in attributesMap) && value !== undefined && value !== null && value !== '') {
+        attributesMap[key] = String(value);
+      } else if (!(key in attributesMap) && value !== undefined && value !== null) {
+        // Include even empty values so the key resolves (to empty string) rather than staying as {{key}}
+        attributesMap[key] = String(value);
+      }
+    }
+  }
+
+  // FASE 5: Include emotional state as {{emocion}} key
+  // This allows the emotion to be resolved in prompts and sprite conditions
+  if (charStats?.emotionalState && !('emocion' in attributesMap)) {
+    attributesMap['emocion'] = charStats.emotionalState;
+  }
+  
+  // Build blocks with full key resolution context
+  // Include a partial resolvedStats with just the attributes map so that
+  // stat attribute keys ({{vida}}, {{mana}}, etc.) in skill/intention descriptions get resolved
+  const partialResolvedStats: ResolvedStats = {
+    attributes: attributesMap,
+    availableSkills: [],
+    availableIntentions: [],
+    availableInvitations: [],
+    availableSolicitudes: [],
+    skillsBlock: '',
+    intentionsBlock: '',
+    invitationsBlock: '',
+    solicitudesBlock: '',
+  };
+
+  const keyFullContext = {
+    characterId,
+    personaDescription: context.personaDescription,
+    personaResolvedStats: context.personaResolvedStats,
+    resolvedStats: partialResolvedStats,
+    userName: context.userName,
+    characterName: context.characterName,
+    sessionStats,
+    lorebookEntryKeys: context.lorebookEntryKeys,
+  };
+
+  // Defensive access: statsConfig may have incomplete properties when sent from frontend
+  // (e.g., only {enabled: true, attributes: [...]} without skills/intentions/blockHeaders)
+  const skills = statsConfig.skills || [];
+  const intentions = statsConfig.intentions || [];
+  const invitations = statsConfig.invitations || [];
+  const blockHeaders = statsConfig.blockHeaders || {};
+
+  const skillsBlock = buildSkillsBlock(
+    skills,
+    attributeValues,
+    blockHeaders.skills || '[ACCIONES DISPONIBLES]',
+    context.questTemplates || [],
+    context.characterName,
+    sessionStats,
+    context.userName,
+    keyFullContext
+  );
+  
+  const intentionsBlock = buildIntentionsBlock(
+    intentions,
+    attributeValues,
+    blockHeaders.intentions || 'Intenciones disponibles:',
+    sessionStats,
+    context.userName,
+    context.characterName,
+    keyFullContext
+  );
+  
+  const invitationsBlock = buildInvitationsBlock(
+    invitations,
+    attributeValues,
+    blockHeaders.invitations || '[PETICIONES DISPONIBLES]',
+    context.allCharacters,
+    sessionStats,
+    context.userName,
+    context.characterName,
+    keyFullContext
+  );
+
+  // Build solicitudes block (requests received from other characters)
+  const solicitudes = sessionStats?.solicitudes?.characterSolicitudes?.[characterId] || [];
+  const solicitudesBlock = buildSolicitudesBlock(
+    solicitudes,
+    blockHeaders.solicitudesRecibidas || '[SOLICITUDES RECIBIDAS]',
+    context.userName,
+    context.characterName
+  );
+
+  // Filter available items
+  const availableSkills = filterSkillsByRequirements(skills, attributeValues, sessionStats);
+  const availableIntentions = filterIntentionsByRequirements(intentions, attributeValues, sessionStats);
+  const availableInvitations = filterInvitationsByRequirements(invitations, attributeValues, sessionStats);
+
+  return {
+    attributes: attributesMap,
+    availableSkills,
+    availableIntentions,
+    availableInvitations,
+    availableSolicitudes: solicitudes.filter(s => s.status === 'pending'),
+    skillsBlock,
+    intentionsBlock,
+    invitationsBlock,
+    solicitudesBlock,
+  };
+}
+
+// ============================================
+// Template Resolution
+// ============================================
+
+/**
+ * Regex pattern for stats keys
+ * Matches {{key}} where key is alphanumeric with underscores
+ */
+const STATS_KEY_PATTERN_SOURCE = '\\{\\{([a-zA-Z_][a-zA-Z0-9_]*)\\}\\}';
+
+/**
+ * Check if a key is a block key (acciones, habilidades, intenciones, invitaciones, peticiones, solicitudes)
+ * Also accepts alternate spellings for backward compatibility
+ */
+export function isBlockKey(key: string): boolean {
+  return key === 'acciones' || key === 'habilidades' || 
+         key === 'intenciones' || key === 'intensiones' || 
+         key === 'invitaciones' || key === 'peticiones' || 
+         key === 'solicitudes';
+}
+
+/**
+ * Resolve all stats keys in a text
+ */
+export function resolveStatsInText(
+  text: string,
+  resolvedStats: ResolvedStats | null
+): string {
+  const pattern = new RegExp(STATS_KEY_PATTERN_SOURCE, 'g');
+  return text.replace(pattern, (match, key) => {
+    // Block keys (acciones, habilidades, intenciones, invitaciones, peticiones, solicitudes)
+    // Return empty string if stats disabled, empty, or no items available
+    // Support both {{acciones}} (new) and {{habilidades}} (legacy)
+    if (key === 'acciones' || key === 'habilidades') {
+      return resolvedStats?.skillsBlock ?? '';
+    }
+    // Accept both "intenciones" (correct Spanish) and "intensiones" (typo, for backward compatibility)
+    if (key === 'intenciones' || key === 'intensiones') {
+      return resolvedStats?.intentionsBlock ?? '';
+    }
+    // Support both {{peticiones}} (new) and {{invitaciones}} (legacy)
+    if (key === 'peticiones' || key === 'invitaciones') {
+      return resolvedStats?.invitationsBlock ?? '';
+    }
+    // New {{solicitudes}} key - requests received from other characters
+    if (key === 'solicitudes') {
+      return resolvedStats?.solicitudesBlock ?? '';
+    }
+
+    // Attribute keys - only replace if defined in stats config
+    // If stats are disabled or attribute not defined, leave the key alone
+    if (resolvedStats?.attributes && key in resolvedStats.attributes) {
+      return resolvedStats.attributes[key];
+    }
+
+    // Unknown key - leave it alone (might be handled by other template systems)
+    return match;
+  });
+}
+
+/**
+ * Get all stats keys from a text
+ */
+export function extractStatsKeys(text: string): string[] {
+  const keys: string[] = [];
+  let match;
+  
+  const pattern = new RegExp(STATS_KEY_PATTERN_SOURCE, 'g');
+  
+  while ((match = pattern.exec(text)) !== null) {
+    if (!keys.includes(match[1])) {
+      keys.push(match[1]);
+    }
+  }
+  
+  return keys;
+}
+
+/**
+ * Check if text contains stats keys
+ */
+export function hasStatsKeys(text: string): boolean {
+  const pattern = new RegExp(STATS_KEY_PATTERN_SOURCE);
+  return pattern.test(text);
+}
+
+// ============================================
+// Prompt Section Builder
+// ============================================
+
+/**
+ * Build prompt sections from resolved stats
+ */
+export function buildStatsPromptSections(
+  resolvedStats: ResolvedStats | null,
+  characterName: string
+): Array<{ type: string; label: string; content: string; color: string }> {
+  if (!resolvedStats) return [];
+  
+  const sections: Array<{ type: string; label: string; content: string; color: string }> = [];
+  
+  // Add attributes section if there are any
+  const attrValues = Object.values(resolvedStats.attributes);
+  if (attrValues.length > 0) {
+    sections.push({
+      type: 'stats',
+      label: `${characterName} Stats`,
+      content: attrValues.join('\n'),
+      color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    });
+  }
+  
+  // Add skills block if available
+  if (resolvedStats.skillsBlock) {
+    sections.push({
+      type: 'skills',
+      label: 'Habilidades',
+      content: resolvedStats.skillsBlock,
+      color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    });
+  }
+  
+  // Add intentions block if available
+  if (resolvedStats.intentionsBlock) {
+    sections.push({
+      type: 'intentions',
+      label: 'Intenciones',
+      content: resolvedStats.intentionsBlock,
+      color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+    });
+  }
+  
+  // Add invitations block if available
+  if (resolvedStats.invitationsBlock) {
+    sections.push({
+      type: 'invitations',
+      label: 'Invitaciones',
+      content: resolvedStats.invitationsBlock,
+      color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+    });
+  }
+  
+  return sections;
+}

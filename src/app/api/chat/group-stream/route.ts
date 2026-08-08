@@ -1,0 +1,2016 @@
+// ============================================
+// Group Stream Route - Simplified with unified key resolution
+// ============================================
+//
+// Key resolution happens in buildGroupSystemPrompt():
+// - Template variables: {{user}}, {{char}}, {{userpersona}}
+// - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+// - All sections are processed consistently
+
+import { NextRequest } from 'next/server';
+import type { ChatMessage, CharacterCard, CharacterGroup, PromptSection, Lorebook, SessionStats, HUDContextConfig, QuestTemplate, SessionQuestInstance, SessionSummary, SolicitudInstance, CharacterStatsConfig, CharacterMemory, InventoryV2Settings, SessionEquipmentEntry, SoundTrigger } from '@/types';
+
+import type { LorebookInjectionPlan, LorebookChatInjection } from '@/lib/lorebook';
+import { DEFAULT_QUEST_SETTINGS } from '@/types';
+import {
+  createSSEJSON,
+  createErrorResponse,
+  createSSEStreamResponse,
+  cleanResponseContent,
+  buildGroupSystemPrompt,
+  buildGroupChatMessages,
+  buildPostHistorySection,
+  buildCompletionPrompt,
+  getEffectiveUserName,
+  createUserMessage,
+  streamZAI,
+  streamOpenAICompatible,
+  streamAnthropic,
+  streamOllama,
+  streamTextGenerationWebUI,
+  buildLorebookSectionForPrompt,
+  buildHUDContextSection,
+  buildInventorySection,
+  buildMemorySection,
+  injectHUDContextIntoMessages,
+  injectHUDContextIntoSections,
+  resolveAllKeys,
+  buildKeyResolutionContext,
+  resolveStats,
+  type InventoryPromptData,
+} from '@/lib/llm';
+import {
+  validateRequest,
+  sanitizeInput
+} from '@/lib/validations';
+import {
+  selectContextMessages,
+  estimateContentTokens,
+  type ContextConfig
+} from '@/lib/context-manager';
+import { detectMentions } from '@/lib/mention-detector';
+import { retrieveEmbeddingsContext, formatEmbeddingsForSSE } from '@/lib/embeddings/chat-context';
+import { processResponseAndReinforceMemories, isReinforcementEnabled } from '@/lib/embeddings/memory-reinforcement';
+import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
+import {
+  getAllToolDefinitions,
+  getToolDefinitionsByIds,
+  resolveToolDefinitionsKeys,
+  executeTool,
+  createToolCallAccumulator,
+  hasToolCalls,
+  buildToolMessagesForOpenAI,
+  buildToolMessagesForOllama,
+  buildToolMessagesForAnthropic,
+  createAnthropicToolState,
+  anthropicStateToToolCalls,
+  parseAllToolCallsFromText,
+  mightContainToolCall,
+  stripToolCallFromText,
+  splitIntoChunks,
+  cleanModelArtifacts,
+  buildPromptBasedToolsSection,
+  type NativeToolCall,
+} from '@/lib/tools';
+import {
+  streamOpenAIWithTools,
+  streamOllamaWithTools,
+  streamAnthropicWithTools,
+  streamGrok,
+  streamGrokWithTools,
+  streamZAIWithTools,
+  streamTextGenerationWebUIWithTools,
+} from '@/lib/llm/providers';
+
+// ============================================
+// Responder Selection Logic
+// ============================================
+
+/**
+ * Result of responder selection including metadata about why certain characters were selected
+ */
+interface ResponderSelectionResult {
+  responders: CharacterCard[];
+  stopForUser: boolean;        // True if a peticion targets the user
+  reasons: Map<string, string>; // characterId -> reason for selection
+}
+
+/**
+ * Get characters that have pending solicitudes (requests they need to respond to)
+ */
+function getCharactersWithPendingSolicitudes(
+  sessionStats: SessionStats | undefined,
+  eligibleCharacterIds: string[]
+): { characterId: string; fromCharacterName: string }[] {
+  if (!sessionStats?.solicitudes?.characterSolicitudes) {
+    return [];
+  }
+
+  const result: { characterId: string; fromCharacterName: string }[] = [];
+
+  for (const characterId of eligibleCharacterIds) {
+    const solicitudes = sessionStats.solicitudes.characterSolicitudes[characterId];
+    if (solicitudes) {
+      const pendingSolicitudes = solicitudes.filter(s => s.status === 'pending');
+      if (pendingSolicitudes.length > 0) {
+        result.push({
+          characterId,
+          fromCharacterName: pendingSolicitudes[0].fromCharacterName
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Check if there are pending solicitudes targeting the user
+ */
+function hasPendingSolicitudesForUser(
+  sessionStats: SessionStats | undefined
+): boolean {
+  if (!sessionStats?.solicitudes?.characterSolicitudes) {
+    return false;
+  }
+
+  const userSolicitudes = sessionStats.solicitudes.characterSolicitudes['__user__'];
+  return userSolicitudes?.some(s => s.status === 'pending') ?? false;
+}
+
+/**
+ * Determine responders based on strategy
+ * Note: Narrators are excluded from normal response flow and handled separately
+ */
+function getResponders(
+  message: string,
+  characters: CharacterCard[],
+  group: CharacterGroup,
+  lastResponderId?: string,
+  sessionStats?: SessionStats
+): ResponderSelectionResult {
+  const strategy = group.activationStrategy;
+  const minResponses = group.minResponsesPerTurn ?? 1;
+  const maxResponses = group.maxResponsesPerTurn ?? 3;
+
+  // Get active members, EXCLUDING narrators (they have their own response logic)
+  const activeMemberIds = (group.members || [])
+    .filter(m => m.isActive && m.isPresent !== false && !m.isNarrator)
+    .map(m => m.characterId);
+
+  // If no members defined, use characterIds (excluding narrators)
+  const eligibleIds = activeMemberIds.length > 0
+    ? activeMemberIds
+    : (group.characterIds || []).filter(id => {
+        const member = (group.members || []).find(m => m.characterId === id);
+        return !member?.isNarrator;
+      });
+
+  // Filter to only characters that exist and are eligible
+  const eligibleCharacters = characters.filter(c => eligibleIds.includes(c.id));
+
+  if (eligibleCharacters.length === 0) {
+    return { responders: [], stopForUser: false, reasons: new Map() };
+  }
+
+  // Get ordered member IDs (excluding narrators)
+  const orderedIds = (group.members || [])
+    .filter(m => !m.isNarrator)
+    .sort((a, b) => a.joinOrder - b.joinOrder)
+    .map(m => m.characterId);
+
+  const reasons = new Map<string, string>();
+
+  switch (strategy) {
+    case 'all': {
+      // All active members respond (no limit for 'all' strategy)
+      eligibleCharacters.forEach(c => reasons.set(c.id, 'Todos responden'));
+      return { responders: eligibleCharacters, stopForUser: false, reasons };
+    }
+
+    case 'reactive': {
+      // ========================================
+      // REACTIVE STRATEGY with Solicitud Support
+      // ========================================
+      // Priority:
+      // 1. If peticion targets user -> STOP, let user respond
+      // 2. Characters with pending solicitudes respond
+      // 3. Mentioned characters respond
+      // 4. Fill to minResponses if needed
+
+      // Check if user has pending solicitudes
+      const stopForUser = hasPendingSolicitudesForUser(sessionStats);
+      if (stopForUser) {
+        console.log('[getResponders] Peticion targets user, stopping turn for user response');
+        return { responders: [], stopForUser: true, reasons: new Map() };
+      }
+
+      // Detect mentions
+      const mentions = detectMentions(message, characters, group);
+      const mentionedIds = mentions.map(m => m.characterId);
+      const mentionedCharacters = eligibleCharacters.filter(c => mentionedIds.includes(c.id));
+      mentionedCharacters.forEach(c => reasons.set(c.id, 'Mencionado en el mensaje'));
+
+      // Get characters with pending solicitudes
+      const charactersWithSolicitudes = getCharactersWithPendingSolicitudes(sessionStats, eligibleIds);
+      const solicitudCharacterIds = charactersWithSolicitudes.map(s => s.characterId);
+      const solicitudCharacters = eligibleCharacters.filter(c => solicitudCharacterIds.includes(c.id));
+
+      // Add solicitud reasons (don't overwrite mention reasons)
+      solicitudCharacters.forEach(c => {
+        if (!reasons.has(c.id)) {
+          const solicitudInfo = charactersWithSolicitudes.find(s => s.characterId === c.id);
+          reasons.set(c.id, `Tiene solicitud pendiente de ${solicitudInfo?.fromCharacterName || 'otro personaje'}`);
+        }
+      });
+
+      // Combine: unique characters from mentions and solicitudes
+      const combinedIds = new Set([...mentionedIds, ...solicitudCharacterIds]);
+      let selectedCharacters = eligibleCharacters.filter(c => combinedIds.has(c.id));
+
+      // If no mentions or solicitudes, fill to minResponses
+      if (selectedCharacters.length === 0) {
+        // Select first eligible character as default
+        selectedCharacters = [eligibleCharacters[0]];
+        reasons.set(eligibleCharacters[0].id, 'Personaje por defecto (sin menciones ni solicitudes)');
+      }
+
+      // Ensure we have at least minResponses (but respect maxResponses)
+      if (selectedCharacters.length < minResponses) {
+        const remaining = eligibleCharacters
+          .filter(c => !combinedIds.has(c.id))
+          .slice(0, minResponses - selectedCharacters.length);
+        remaining.forEach(c => reasons.set(c.id, 'Para alcanzar mínimo de respuestas'));
+        selectedCharacters = [...selectedCharacters, ...remaining];
+      }
+
+      // Limit to maxResponses
+      const limitedResponders = selectedCharacters.slice(0, maxResponses);
+
+      console.log('[getResponders] Reactive selection:', {
+        mentionedIds,
+        solicitudCharacterIds,
+        selectedCount: limitedResponders.length,
+        minResponses,
+        maxResponses,
+        stopForUser
+      });
+
+      return { responders: limitedResponders, stopForUser, reasons };
+    }
+
+    case 'round_robin': {
+      // Take turns in order
+      const sortedIds = orderedIds.length > 0 ? orderedIds : eligibleIds;
+
+      let nextIndex = 0;
+      if (lastResponderId) {
+        const lastIndex = sortedIds.indexOf(lastResponderId);
+        if (lastIndex !== -1) {
+          nextIndex = (lastIndex + 1) % sortedIds.length;
+        }
+      }
+
+      const roundRobinChar = characters.find(c => c.id === sortedIds[nextIndex]);
+      if (roundRobinChar) {
+        reasons.set(roundRobinChar.id, 'Turno rotativo');
+      }
+      return { responders: roundRobinChar ? [roundRobinChar] : [], stopForUser: false, reasons };
+    }
+
+    case 'random': {
+      // Random selection
+      const shuffled = [...eligibleCharacters].sort(() => Math.random() - 0.5);
+      const selected = shuffled.slice(0, Math.min(maxResponses, shuffled.length));
+      selected.forEach(c => reasons.set(c.id, 'Selección aleatoria'));
+      return { responders: selected, stopForUser: false, reasons };
+    }
+
+    case 'smart': {
+      // AI-like decision: mentioned characters + contextually relevant
+      const mentions = detectMentions(message, characters, group);
+      const mentionedIds = mentions.map(m => m.characterId);
+      const mentionedChars = eligibleCharacters.filter(c => mentionedIds.includes(c.id));
+      mentionedChars.forEach(c => reasons.set(c.id, 'Mencionado en el mensaje'));
+
+      // Add contextually relevant characters
+      const remainingChars = eligibleCharacters.filter(c => !mentionedIds.includes(c.id));
+      const additionalCount = Math.max(0, Math.min(maxResponses - mentionedChars.length, 1));
+
+      // Check if character name or tags appear in message
+      const relevantChars = remainingChars.filter(c => {
+        const keywords = [...c.tags, c.name.toLowerCase()];
+        return keywords.some(kw => message.toLowerCase().includes(kw.toLowerCase()));
+      }).slice(0, additionalCount);
+      relevantChars.forEach(c => reasons.set(c.id, 'Contextualmente relevante'));
+
+      const result = [...mentionedChars, ...relevantChars].slice(0, maxResponses);
+
+      // If no one selected, default to first
+      if (result.length === 0 && eligibleCharacters.length > 0) {
+        result.push(eligibleCharacters[0]);
+        reasons.set(eligibleCharacters[0].id, 'Personaje por defecto');
+      }
+
+      return { responders: result, stopForUser: false, reasons };
+    }
+
+    default: {
+      // Default to first active character
+      if (eligibleCharacters.length > 0) {
+        reasons.set(eligibleCharacters[0].id, 'Personaje por defecto');
+      }
+      return { responders: eligibleCharacters.slice(0, 1), stopForUser: false, reasons };
+    }
+  }
+}
+
+// ============================================
+// Group Tool Execution Helper
+// ============================================
+
+interface QuestActivation {
+  type: 'activate_quest' | 'complete_objective' | 'progress_objective';
+  key: string;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Execute detected tool calls for group chat and send SSE events.
+ * Returns { results: display messages, shouldContinue: true, questActivations: quest activations }
+ */
+async function executeGroupToolCalls(
+  toolCalls: NativeToolCall[],
+  availableTools: Array<{ id: string; name: string; label: string; icon: string }>,
+  character: CharacterCard,
+  sessionId: string,
+  userName: string,
+  controller: { enqueue: (chunk: string) => void },
+  sessionQuests?: SessionQuestInstance[],
+  questTemplates?: QuestTemplate[],
+  statsConfig?: CharacterStatsConfig,
+  sessionStats?: SessionStats,
+  allCharacters?: CharacterCard[],
+  characterMemory?: CharacterMemory,
+  lorebooks?: Lorebook[],
+): Promise<{ results: string; shouldContinue: boolean; questActivations: QuestActivation[]; toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> }> {
+  if (toolCalls.length === 0) {
+    return { results: '', shouldContinue: false, questActivations: [], toolsUsed: [] };
+  }
+
+  let allDisplayMessages = '';
+  const questActivations: QuestActivation[] = [];
+  const toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+
+  for (let i = 0; i < toolCalls.length; i++) {
+    const tc = toolCalls[i];
+    const toolDef = availableTools.find(t => t.name === tc.name);
+    const callId = `${Date.now()}_${i}`;
+
+    // Send tool_call_start event
+    controller.enqueue(createSSEJSON({
+      type: 'tool_call_start',
+      toolName: tc.name,
+      toolLabel: toolDef?.label || tc.name,
+      toolIcon: toolDef?.icon || 'Wrench',
+      params: tc.arguments,
+      callId,
+    }));
+
+    console.log(`[GroupStream-Tools] Executing: ${tc.name}`, tc.arguments);
+
+    // Execute the tool
+    const toolResult = await executeTool(
+      tc.name,
+      tc.arguments,
+      {
+        characterId: character.id,
+        characterName: character.name,
+        sessionId,
+        userName,
+        sessionQuests,
+        questTemplates,
+        statsConfig: character.statsConfig,
+        sessionStats,
+        allCharacters,
+        characterMemory,
+        lorebooks,
+      },
+    );
+
+    // Check for quest activation and send SSE event
+    if (toolResult.questActivation) {
+      const activation = toolResult.questActivation;
+      console.log(`[GroupStream-Tools] Quest activation from ${tc.name}:`, activation);
+      
+      controller.enqueue(createSSEJSON({
+        type: 'quest_activation',
+        toolName: tc.name,
+        activationType: activation.type,
+        key: activation.key,
+        metadata: activation.metadata,
+      }));
+      
+      questActivations.push(activation);
+    }
+
+    // Check for action/skill activation and send SSE event
+    if (toolResult.actionActivation) {
+      const action = toolResult.actionActivation;
+      console.log(`[GroupStream-Tools] Action activation from ${tc.name}:`, action.skillName);
+      
+      controller.enqueue(createSSEJSON({
+        type: 'action_activation',
+        toolName: tc.name,
+        skillId: action.skillId,
+        skillName: action.skillName,
+        skillDescription: action.skillDescription,
+        skillCompletedDescription: action.skillCompletedDescription,
+        activationCosts: action.activationCosts,
+        activationRewards: action.activationRewards,
+        characterId: action.characterId,
+      }));
+    }
+
+    // Check for stat modification from modify_stat tool and send SSE event
+    if (toolResult.statActivation) {
+      const stat = toolResult.statActivation;
+      console.log(`[GroupStream-Tools] Stat activation from ${tc.name}:`, stat.attributeKey, stat.oldValue, '→', stat.newValue);
+      
+      controller.enqueue(createSSEJSON({
+        type: 'stat_activation',
+        toolName: tc.name,
+        characterId: stat.characterId,
+        attributeKey: stat.attributeKey,
+        attributeName: stat.attributeName,
+        attributeType: stat.attributeType,
+        oldValue: stat.oldValue,
+        newValue: stat.newValue,
+        reason: stat.reason,
+      }));
+    }
+
+    // Check for solicitud activation/completion and send SSE event
+    if (toolResult.solicitudActivation) {
+      const sol = toolResult.solicitudActivation;
+      console.log(`[GroupStream-Tools] Solicitud activation from ${tc.name}:`, sol.type, sol.solicitudKey);
+      
+      controller.enqueue(createSSEJSON({
+        type: 'solicitud_activation',
+        toolName: tc.name,
+        activationType: sol.type,
+        solicitudKey: sol.solicitudKey,
+        targetCharacterId: sol.targetCharacterId,
+        targetCharacterName: sol.targetCharacterName,
+        fromCharacterId: sol.fromCharacterId,
+        fromCharacterName: sol.fromCharacterName,
+        description: sol.description,
+        completionDescription: sol.completionDescription,
+        peticionKey: sol.peticionKey,
+      }));
+    }
+
+    // Check for memory activation (sync to client-side Character Memory)
+    if (toolResult.memoryActivation) {
+      const mem = toolResult.memoryActivation;
+      console.log(`[GroupStream-Tools] Memory activation from ${tc.name}:`, mem.type);
+      
+      controller.enqueue(createSSEJSON({
+        type: 'memory_activation',
+        toolName: tc.name,
+        activationType: mem.type,
+        characterId: mem.characterId,
+        eventData: mem.eventData,
+        relationshipData: mem.relationshipData,
+        noteContent: mem.noteContent,
+        deleteEventId: mem.deleteEventId,
+        deleteEmbeddingId: mem.deleteEmbeddingId,
+      }));
+    }
+
+    // Send tool_call_result event
+    controller.enqueue(createSSEJSON({
+      type: 'tool_call_result',
+      toolName: tc.name,
+      success: toolResult.success,
+      displayMessage: toolResult.displayMessage,
+      duration: toolResult.duration || 0,
+      callId,
+    }));
+
+    console.log(`[GroupStream-Tools] ${tc.name}: success=${toolResult.success}`);
+
+    toolsUsed.push({
+      name: tc.name,
+      label: toolDef?.label || tc.name,
+      icon: toolDef?.icon || 'Wrench',
+      success: toolResult.success,
+    });
+
+    if (toolResult.displayMessage) {
+      allDisplayMessages += (allDisplayMessages ? '\n' : '') + toolResult.displayMessage;
+    }
+  }
+
+  return { results: allDisplayMessages, shouldContinue: true, questActivations, toolsUsed };
+}
+
+// ============================================
+// Main Route Handler
+// ============================================
+
+export async function POST(request: NextRequest) {
+  try {
+    // Capture auth headers from Z.ai gateway for token resolution
+    // Only use actual JWT tokens - session IDs are NOT valid X-Tokens
+    const incomingXToken = request.headers.get('X-Token');
+    const fcSecurityToken = request.headers.get('x-fc-security-token');
+
+    const body = await request.json();
+
+    // Validate request (automatically detects group request)
+    const validation = validateRequest(null, body);
+    if (!validation.success) {
+      return createErrorResponse(validation.error, 400);
+    }
+
+    const {
+      message,
+      group,
+      characters,
+      messages = [],
+      llmConfig,
+      userName = 'User',
+      persona,
+      lastResponderId,
+      sessionStats,
+      hudContext
+    } = validation.data;
+
+    // Extract lorebooks from body (not validated by validation.ts)
+    const lorebooks: Lorebook[] = body.lorebooks || [];
+
+    // Build allCharacters including persona for cross-character lookups (target requirements, peticiones)
+    const allCharacters: CharacterCard[] = [...(characters || [])];
+    if (persona?.statsConfig?.enabled) {
+      allCharacters.push({
+        id: '__user__',
+        name: persona.name || 'User',
+        statsConfig: persona.statsConfig,
+      } as CharacterCard);
+    }
+
+    // Quest data still needed for buildGroupSystemPrompt {{activeQuests}} key resolution
+    const questTemplates: QuestTemplate[] = body.questTemplates || [];
+    const sessionQuests: SessionQuestInstance[] = body.sessionQuests || [];
+    const questSettings = { ...DEFAULT_QUEST_SETTINGS, ...(body.questSettings || {}) };
+
+    // Extract summaries for memory/context compression
+    const summary: SessionSummary | undefined = body.summary;
+
+    // Extract embeddings chat settings
+    const embeddingsChat: Partial<EmbeddingsChatSettings> = body.embeddingsChat || {};
+    const sessionId: string | undefined = body.sessionId;
+    const characterMemory: CharacterMemory | undefined = body.characterMemory;
+
+    // Extract tools settings for tool/action system (native tool calling only)
+    const toolsSettings: ToolsSettings = {
+      enabled: body.toolsSettings?.enabled ?? true,
+      maxToolCallsPerTurn: body.toolsSettings?.maxToolCallsPerTurn ?? 2,
+      characterConfigs: body.toolsSettings?.characterConfigs || [],
+      usePromptBasedFallback: body.toolsSettings?.usePromptBasedFallback ?? false,
+      disabledTools: body.toolsSettings?.disabledTools || [],
+    };
+
+    // Extract inventory data for Inventory V2 system
+    const inventoryData: InventoryPromptData | undefined = body.inventoryData;
+
+    // Extract Sound data for {{sonidos}} key resolution
+    const soundTriggers: SoundTrigger[] = body.soundTriggers || [];
+    const soundSettings = body.settings?.sound;
+
+    // Cast sessionStats to proper type
+    const typedSessionStats = sessionStats as SessionStats | undefined;
+
+    // Cast hudContext to proper type
+    const typedHUDContext = hudContext as HUDContextConfig | undefined;
+
+    // Extract per-character lorebook map for when group has no lorebooks
+    const characterLorebooksMap: Record<string, string[]> = body.characterLorebooksMap || {};
+
+    // Extract per-character memory map for deduplication (characterId → CharacterMemory)
+    const characterMemoryMap: Record<string, CharacterMemory> = body.characterMemoryMap || {};
+
+    // Determine if we should use per-character lorebooks
+    // When characterLorebooksMap is present (group has no lorebooks), each character
+    // should only see their own lorebooks — NOT a merged plan from all characters.
+    // When characterLorebooksMap is null/empty, the group has its own lorebooks
+    // that are shared across all characters.
+    const useGroupLorebooks = !characterLorebooksMap || Object.keys(characterLorebooksMap).length === 0;
+
+    // Extract narrator-related data
+    const turnCount: number = body.turnCount || 0;
+    const activeQuestsCount: number = sessionQuests.filter(q => q.status === 'active').length;
+    const narratorLastTurn: number = body.narratorLastTurn || -999; // Turn when narrator last spoke
+
+    // Get narrator settings from group
+    const narratorSettings = group.narratorSettings;
+
+    // Find narrator character (if any)
+    const narratorMember = (group.members || []).find(m => m.isNarrator);
+    const narratorCharacter = narratorMember
+      ? characters.find(c => c.id === narratorMember.characterId)
+      : null;
+
+    // Determine if narrator should intervene based on conditions
+    const shouldNarratorIntervene = (): boolean => {
+      if (!narratorCharacter || !narratorSettings) return false;
+
+      const { conditional } = narratorSettings;
+
+      // Check turn interval
+      if (conditional.minTurnInterval > 0) {
+        const turnsSinceLastNarration = turnCount - narratorLastTurn;
+        if (turnsSinceLastNarration < conditional.minTurnInterval) {
+          return false;
+        }
+      }
+
+      // Check if only when no active quests
+      if (conditional.onlyWhenNoActiveQuests && activeQuestsCount > 0) {
+        return false;
+      }
+
+      return true;
+    };
+
+    const narratorCanIntervene = shouldNarratorIntervene();
+
+    if (!llmConfig) {
+      return createErrorResponse('No LLM configuration provided', 400);
+    }
+
+    // Validate API key for providers that require one
+    const providersRequiringApiKey = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'grok'];
+    if (providersRequiringApiKey.includes(llmConfig.provider) && !llmConfig.apiKey) {
+      return createErrorResponse(
+        `API Key is required for ${llmConfig.provider} provider. Please configure it in Settings.`,
+        400
+      );
+    }
+
+    // Validate endpoint for providers that require one
+    const providersRequiringEndpoint = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'ollama', 'text-generation-webui', 'koboldcpp'];
+    if (providersRequiringEndpoint.includes(llmConfig.provider) && !llmConfig.endpoint) {
+      return createErrorResponse(
+        `Endpoint URL is required for ${llmConfig.provider} provider. Please configure it in Settings.`,
+        400
+      );
+    }
+
+    // Resolve Z.ai runtime token from gateway headers
+    let zaiRuntimeToken: string | undefined;
+    if (llmConfig.provider === 'z-ai') {
+      const gatewayToken = incomingXToken || fcSecurityToken || undefined;
+      if (gatewayToken) {
+        zaiRuntimeToken = gatewayToken;
+        console.log(`[Group Stream Route] Z.ai runtime token available (${gatewayToken.length} chars, source: ${incomingXToken ? 'X-Token' : 'fc-security-token'})`);
+      }
+    }
+
+    // Sanitize user message
+    const sanitizedMessage = sanitizeInput(message);
+
+    // Determine which characters should respond
+    const selectionResult = getResponders(sanitizedMessage, characters, group, lastResponderId, typedSessionStats);
+    const { responders, stopForUser, reasons } = selectionResult;
+
+    // If stopForUser is true, return a special response indicating user should respond
+    if (stopForUser) {
+      // Create a stream that immediately returns a "user_turn" event
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(createSSEJSON({
+            type: 'user_turn',
+            reason: 'Hay una petición pendiente dirigida a ti. Espera tu respuesta.'
+          }));
+          controller.close();
+        }
+      });
+      return createSSEStreamResponse(stream);
+    }
+
+    if (responders.length === 0) {
+      return createErrorResponse('No active characters to respond', 400);
+    }
+
+    // Log responder selection reasons
+    console.log('[Group Stream Route] Selected responders:', responders.map(r => ({
+      name: r.name,
+      reason: reasons.get(r.id)
+    })));
+
+    // Get effective user name
+    const effectiveUserName = getEffectiveUserName(persona, userName);
+
+    // Build context configuration from request or use defaults
+    const contextConfig: Partial<ContextConfig> = body.contextConfig || {};
+
+    // Apply sliding window to messages
+    const contextWindow = selectContextMessages(messages, llmConfig, contextConfig);
+
+    // Build group-level lorebook injection plan if group has lorebooks
+    let groupLorebookPlan: LorebookInjectionPlan | null = null;
+    let groupLorebookAttributeKeys: Record<string, string> = {};
+    let groupLorebookEntryKeyMap: Record<string, string> = {};
+    if (useGroupLorebooks && lorebooks.length > 0) {
+      const { plan, lorebookAttributeKeys: _groupAttrKeys, lorebookEntryKeyMap: _groupEntryKeyMap } = buildLorebookSectionForPrompt(
+        messages,
+        lorebooks,
+        {
+          scanDepth: contextConfig.scanDepth,
+          // tokenBudget: let the injector use the lorebook's own setting
+          userName: effectiveUserName,
+          charName: undefined, // group-level lorebook has no specific character
+        },
+        { sessionStats: typedSessionStats, characters: allCharacters }
+      );
+      groupLorebookPlan = plan;
+      groupLorebookAttributeKeys = _groupAttrKeys || {};
+      groupLorebookEntryKeyMap = _groupEntryKeyMap || {};
+    }
+
+    // Note: HUD context section is built inside the character loop
+    // so it can resolve keys for each specific character
+
+    // ========================================
+    // Narrator Integration
+    // ========================================
+    // Build the final responders list with narrator inserted in the correct positions
+    let narratorAddedToResponders = false;
+    if (narratorCharacter && narratorCanIntervene && narratorSettings) {
+      const mode = narratorSettings.responseMode;
+      if (mode === 'turn_start') {
+        responders.unshift(narratorCharacter);
+        narratorAddedToResponders = true;
+      } else if (mode === 'turn_end') {
+        responders.push(narratorCharacter);
+        narratorAddedToResponders = true;
+      } else if (mode === 'before_each') {
+        // Insert narrator before each non-narrator responder
+        const expandedResponders: typeof responders = [];
+        for (const r of responders) {
+          expandedResponders.push(narratorCharacter);
+          expandedResponders.push(r);
+        }
+        responders.length = 0;
+        responders.push(...expandedResponders);
+        narratorAddedToResponders = true;
+      } else if (mode === 'after_each') {
+        // Insert narrator after each non-narrator responder
+        const expandedResponders: typeof responders = [];
+        for (const r of responders) {
+          expandedResponders.push(r);
+          expandedResponders.push(narratorCharacter);
+        }
+        responders.length = 0;
+        responders.push(...expandedResponders);
+        narratorAddedToResponders = true;
+      }
+    }
+
+    // Create a TransformStream for SSE
+    const stream = new ReadableStream({
+      async start(controller) {
+        const responsesThisTurn: Array<{ characterId: string; characterName: string; content: string }> = [];
+        let allQuestActivations: QuestActivation[] = [];
+        let allToolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+        // Track effectiveEmbeddingsChat outside loop for memory reinforcement after all responses
+        let effectiveEmbeddingsChatForReinforcement: typeof embeddingsChat = embeddingsChat;
+
+        try {
+          // Generate responses sequentially
+          for (let i = 0; i < responders.length; i++) {
+            const responder = responders[i];
+
+            // Send character_start event
+            controller.enqueue(createSSEJSON({
+              type: 'character_start',
+              characterId: responder.id,
+              characterName: responder.name,
+              responseIndex: i + 1,
+              totalResponses: responders.length
+            }));
+
+            // Determine lorebook plan for this character
+            // When using group lorebooks (shared), start with the group plan.
+            // When using per-character lorebooks, start with null and let the
+            // per-character override below build the correct plan.
+            let lorebookSectionForCharacter: LorebookInjectionPlan | null = useGroupLorebooks ? groupLorebookPlan : null;
+            let lorebookAttributeKeys: Record<string, string> = useGroupLorebooks ? groupLorebookAttributeKeys : {};
+            let lorebookEntryKeyMap: Record<string, string> = useGroupLorebooks ? groupLorebookEntryKeyMap : {};
+
+            // ========================================
+            // Embeddings Context Retrieval (per-character)
+            // ========================================
+            // If group has custom namespaces, use those; otherwise fall back to character's own namespaces
+            const groupNamespaces = group.embeddingNamespaces;
+            const characterNamespaces = responder.embeddingNamespaces;
+            const effectiveEmbeddingsChat = (groupNamespaces && groupNamespaces.length > 0)
+              ? { ...embeddingsChat, customNamespaces: groupNamespaces }
+              : (characterNamespaces && characterNamespaces.length > 0)
+                ? { ...embeddingsChat, customNamespaces: characterNamespaces }
+                : embeddingsChat;
+            // Update outer scope for memory reinforcement after all responses
+            effectiveEmbeddingsChatForReinforcement = effectiveEmbeddingsChat;
+
+            // Enrich search query with recent context for better semantic matching
+            const searchCtxDepth = effectiveEmbeddingsChat.searchContextDepth || 0;
+            let groupEnrichedQuery = sanitizedMessage;
+            if (searchCtxDepth > 0) {
+              const recentHist = messages
+                .filter(m => !m.isDeleted)
+                .slice(-(searchCtxDepth * 2 + 1))
+                .map(m => m.content?.trim())
+                .filter(Boolean)
+                .slice(0, -1);
+              if (recentHist.length > 0) {
+                groupEnrichedQuery = recentHist.join(' ') + ' ' + sanitizedMessage;
+              }
+            }
+
+            // Safety: smart truncation based on embedding model's context window.
+            try {
+              const { MODEL_CONTEXT_LENGTHS, DEFAULT_CONTEXT_LENGTH, CHARS_PER_TOKEN } = await import('@/lib/embeddings/types');
+              const { loadConfig } = await import('@/lib/embeddings/config-persistence');
+              const embConfig = loadConfig();
+              const modelKey = embConfig.model || 'bge-m3:567m';
+              const modelCtx = MODEL_CONTEXT_LENGTHS[modelKey]
+                || MODEL_CONTEXT_LENGTHS[modelKey.split(':')[0]]
+                || DEFAULT_CONTEXT_LENGTH;
+              const maxQueryChars = Math.floor(modelCtx * 0.75 * CHARS_PER_TOKEN);
+
+              if (groupEnrichedQuery.length > maxQueryChars) {
+                // Keep the most recent part (current message at end)
+                groupEnrichedQuery = groupEnrichedQuery.slice(-maxQueryChars);
+                console.warn(
+                  `[Group Stream] Search query trimmed to ${groupEnrichedQuery.length} chars ` +
+                  `(model: ${modelKey}, context: ${modelCtx} tokens)`
+                );
+              }
+            } catch { /* fallback: Ollama client handles truncation */ }
+
+            // Extract last assistant message for bidirectional search
+            const lastAssistantMsg = messages
+              .filter(m => !m.isDeleted && m.role === 'assistant')
+              .pop()?.content;
+
+            const embeddingsResult = await retrieveEmbeddingsContext(
+              groupEnrichedQuery,
+              responder.id,
+              sessionId,
+              effectiveEmbeddingsChat,
+              group.id,
+              characterMemoryMap[responder.id]?.events?.map(e => ({
+                content: e.content,
+                importance: e.importance,
+              })), // for deduplication with Character Memory
+              lastAssistantMsg, // bidirectional search with last assistant message
+            );
+            
+            if (embeddingsResult.found) {
+              console.log(`[Group Stream] Retrieved ${embeddingsResult.count} embeddings for ${responder.name}`);
+            }
+
+            // If group has no lorebooks, use character's own lorebooks
+            if (!useGroupLorebooks) {
+              const characterLorebookIds = characterLorebooksMap[responder.id] || [];
+              if (characterLorebookIds.length > 0) {
+                const characterLorebooksFiltered = lorebooks.filter(lb =>
+                  characterLorebookIds.includes(lb.id) && lb.active
+                );
+
+                if (characterLorebooksFiltered.length > 0) {
+                  const { plan, lorebookAttributeKeys: charAttrKeys, lorebookEntryKeyMap: charEntryKeyMap } = buildLorebookSectionForPrompt(
+                    messages,
+                    characterLorebooksFiltered,
+                    {
+                      scanDepth: contextConfig.scanDepth,
+                      // tokenBudget: let the injector use the lorebook's own setting
+                      userName: effectiveUserName,
+                      charName: responder.name,
+                    },
+                    { sessionStats: typedSessionStats, characterId: responder.id, characters: allCharacters }
+                  );
+                  lorebookSectionForCharacter = plan;
+                  if (charAttrKeys) lorebookAttributeKeys = charAttrKeys;
+                  if (charEntryKeyMap) lorebookEntryKeyMap = charEntryKeyMap;
+                }
+              } else {
+                lorebookSectionForCharacter = null;
+              }
+            }
+
+            // ========================================
+            // Build system prompt with unified key resolution
+            // ========================================
+            // This handles ALL key resolution internally:
+            // - Template variables: {{user}}, {{char}}, {{userpersona}}
+            // - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+            // - All sections including post-history instructions
+            const { prompt: systemPrompt, sections: promptSections, lorebookChatInjections, exampleMessages } = buildGroupSystemPrompt(
+              responder,
+              group,
+              effectiveUserName,
+              persona,
+              lorebookSectionForCharacter,
+              typedSessionStats,
+              undefined, // postHistoryInstructions
+              allCharacters, // allCharacters - needed for peticiones/solicitudes resolution (includes persona)
+              questTemplates, // Pass quest templates for {{activeQuests}} key resolution
+              sessionQuests,  // Pass session quests for {{activeQuests}} key resolution
+              questSettings,   // Pass quest settings for {{activeQuests}} key resolution
+              lorebookAttributeKeys,
+              inventoryData,     // Pass inventory data for Inventory V2 section
+              lorebookEntryKeyMap // Pass lorebook entry key map for {{entryKey}} resolution
+            );
+
+            // Build key resolution context for this character
+            // Session stats now already include item effects (applied directly to SessionStats
+            // when items are activated/equipped in the store). No need for virtual overlay.
+            const effectiveGroupSessionStats = typedSessionStats;
+
+            let groupPersonaResolvedStats: import('@/types').ResolvedStats | null = null;
+            if (persona?.statsConfig?.enabled && effectiveGroupSessionStats) {
+              groupPersonaResolvedStats = resolveStats({
+                characterId: '__user__',
+                statsConfig: persona.statsConfig,
+                sessionStats: effectiveGroupSessionStats,
+              });
+            }
+            const resolvedStats = resolveStats({
+              characterId: responder.id,
+              statsConfig: responder.statsConfig,
+              sessionStats: effectiveGroupSessionStats,
+              allCharacters: allCharacters,
+              userName: effectiveUserName,
+              characterName: responder.name,
+              questTemplates,
+              personaDescription: persona?.description,
+              personaResolvedStats: groupPersonaResolvedStats,
+            });
+
+            // Build outlet sections map from lorebook plan for {{outlet::name}} macro resolution
+            const outletSections: Record<string, string> = {};
+            if (lorebookSectionForCharacter?.outletSections.length) {
+              for (const outletSection of lorebookSectionForCharacter.outletSections) {
+                const match = outletSection.label.match(/^World Info \((.+)\)$/);
+                const outletName = match ? match[1] : outletSection.label;
+                outletSections[outletName] = outletSection.content;
+              }
+            }
+
+            const keyContext = buildKeyResolutionContext(
+              responder,
+              effectiveUserName,
+              persona,
+              resolvedStats,
+              effectiveGroupSessionStats,  // sessionStats (with inventory effects) for {{eventos}} key resolution
+              soundTriggers,       // sound triggers for {{sonidos}} key resolution
+              soundSettings,       // sound settings for {{sonidos}} template
+              groupPersonaResolvedStats,  // persona resolved stats
+              questTemplates,     // quest templates for {{activeQuests}}
+              sessionQuests,      // session quests for {{activeQuests}}
+              questSettings,      // quest settings
+              outletSections,     // outlet sections for {{outlet::name}}
+              lorebookAttributeKeys,  // lorebook attribute keys for {{injectionKey}}
+              inventoryData       // inventory data for {{inventory}} and {{currency}} key resolution
+            );
+
+            // Build HUD context section for this character (resolves keys!)
+            const hudContextSection = typedHUDContext ? buildHUDContextSection(typedHUDContext, keyContext) : null;
+
+            // Send embeddings context metadata to the client for UI display
+            if (embeddingsResult.found) {
+              controller.enqueue(createSSEJSON({
+                type: 'embeddings_context',
+                data: formatEmbeddingsForSSE(embeddingsResult),
+                characterId: responder.id,
+                characterName: responder.name,
+              }));
+            }
+
+            // Check if this responder is a narrator in the group
+            const responderMember = group.members?.find(m => m.characterId === responder.id);
+            const isResponderNarrator = responderMember?.isNarrator || false;
+
+            // Build character memory section for this responder (from Zustand store)
+            const responderMemory = characterMemoryMap[responder.id];
+            const characterMemorySection = responderMemory
+              ? buildMemorySection(responderMemory, responder.name || 'Character')
+              : null;
+
+            // Build combined embeddings context: [CONTEXTO RELEVANTE] then [MEMORIA RELEVANTE]
+            // Both injected before chat history (not in system prompt)
+            const contextParts: string[] = [];
+            if (embeddingsResult.nonMemoryContextString?.trim()) {
+              contextParts.push(embeddingsResult.nonMemoryContextString);
+            }
+            // Add character memory section BEFORE embeddings memory (with deduplication)
+            // If embeddings already found memory results, skip the character memory to avoid duplication
+            const embeddingsFoundMemory = embeddingsResult.memoryContextString?.trim()?.length > 0;
+            if (characterMemorySection && !embeddingsFoundMemory) {
+              contextParts.push(characterMemorySection.content);
+            }
+            if (embeddingsResult.memoryContextString?.trim()) {
+              contextParts.push(embeddingsResult.memoryContextString);
+            }
+            const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
+
+            // Re-evaluate context window with reserved tokens for summary + embeddings
+            // This reduces chat history when summary/embeddings use significant budget
+            const gSummaryTokens = summary?.content ? estimateContentTokens(`[RECUERDOS ANTERIORES]\n${summary.content}`) : 0;
+            const gEmbeddingsTokens = embeddingsContext ? estimateContentTokens(embeddingsContext) : 0;
+            const gReservedTokens = gSummaryTokens + gEmbeddingsTokens;
+            
+            let groupContextWindow = contextWindow;
+            if (gReservedTokens > 200) {
+              const adjustedGroupConfig: Partial<ContextConfig> = {
+                ...contextConfig,
+                reservedTokens: gReservedTokens,
+              };
+              groupContextWindow = selectContextMessages(messages, llmConfig, adjustedGroupConfig);
+              console.log(`[Group Context Budget] Reserved ${gReservedTokens} tokens (summary: ${gSummaryTokens}, embeddings: ${gEmbeddingsTokens}). Chat messages: ${contextWindow.messages.length} → ${groupContextWindow.messages.length}`);
+            }
+
+            // Build the final system prompt (quest content resolved via {{activeQuests}} key)
+            let finalSystemPrompt = systemPrompt;
+
+            // ===== TOOL/ACTION SYSTEM (Native + Prompt-Based Tool Calling) =====
+            const charToolConfig = toolsSettings.characterConfigs.find(
+              c => c.characterId === responder.id
+            );
+            const charEnabledToolIds = charToolConfig?.enabledTools || [];
+            let charAvailableTools = charEnabledToolIds.length > 0
+              ? getToolDefinitionsByIds(charEnabledToolIds)
+              : getAllToolDefinitions();
+            // Filter out globally disabled tools
+            const charGlobalDisabled = toolsSettings.disabledTools || [];
+            if (charGlobalDisabled.length > 0) {
+              charAvailableTools = charAvailableTools.filter(t => !charGlobalDisabled.includes(t.id));
+            }
+            const charToolsEnabled = toolsSettings.enabled && charAvailableTools.length > 0;
+
+            // Resolve {{keys}} in tool descriptions and parameter descriptions
+            // This ensures {{user}}, {{char}}, {{userpersona}}, stats keys, etc.
+            // are properly replaced before tools are sent to the LLM
+            if (charToolsEnabled && charAvailableTools.length > 0) {
+              charAvailableTools = resolveToolDefinitionsKeys(charAvailableTools, keyContext);
+            }
+
+            const charSupportsTools = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'ollama', 'z-ai', 'grok', 'text-generation-webui', 'koboldcpp'].includes(llmConfig.provider);
+            // If usePromptBasedFallback is true, disable native tools so prompt-based injection is used instead
+            const charShouldUseTools = charToolsEnabled && charSupportsTools && !toolsSettings.usePromptBasedFallback;
+
+            // Only inject text-based tool instructions when native tool calling is NOT available.
+            // Injecting text instructions alongside native tools confuses the model.
+            if (charToolsEnabled && charAvailableTools.length > 0 && !charShouldUseTools) {
+              const toolPromptSection = buildPromptBasedToolsSection(charAvailableTools, responder.name);
+              if (toolPromptSection) {
+                finalSystemPrompt += `\n\n${toolPromptSection}`;
+              }
+            }
+
+            // Build chat messages with previous responses from this turn
+            const previousResponses = responsesThisTurn.map(r => ({
+              characterName: r.characterName,
+              content: r.content
+            }));
+
+            // Check if the last message is already the user's current message
+            const lastMessage = groupContextWindow.messages[groupContextWindow.messages.length - 1];
+            const isLastMessageCurrentUser = lastMessage?.role === 'user' &&
+              lastMessage?.content === sanitizedMessage;
+
+            // Create summary message if summary exists (inject at start of chat history)
+            const summaryMessage = summary ? {
+              id: 'summary-' + Date.now(),
+              role: 'assistant' as const,
+              content: `[RECUERDOS ANTERIORES]\n${summary.content}`,
+              characterId: responder.id,
+              isDeleted: false,
+              timestamp: summary.createdAt,
+              swipeId: 'summary',
+              swipeIndex: 0
+            } : null;
+
+            // Build messages: summary (if exists) + context window messages + user message
+            let baseMessages = isLastMessageCurrentUser
+              ? groupContextWindow.messages
+              : [...groupContextWindow.messages, createUserMessage(sanitizedMessage)];
+            
+            // Inject summary at the START of chat history
+            const messagesForPrompt = summaryMessage 
+              ? [summaryMessage, ...baseMessages] 
+              : baseMessages;
+
+            // Resolve keys in post-history instructions BEFORE passing to buildGroupChatMessages
+            // This ensures {{user}}, {{char}}, {{stats}}, etc. are replaced
+            const rawPostHistoryInstructions = responder.postHistoryInstructions?.trim();
+            const resolvedPostHistoryInstructions = rawPostHistoryInstructions
+              ? resolveAllKeys(rawPostHistoryInstructions, keyContext)
+              : undefined;
+
+            // Build post-history section for prompt viewer (pass raw instructions, function will resolve keys)
+            const postHistorySection = buildPostHistorySection(
+              responder.postHistoryInstructions,
+              keyContext
+            );
+
+            // Note: isResponderNarrator is already defined above
+
+            const { chatMessages, chatHistorySection } = buildGroupChatMessages(
+              finalSystemPrompt,
+              messagesForPrompt,
+              responder,
+              characters,
+              effectiveUserName,
+              previousResponses,
+              resolvedPostHistoryInstructions,  // Post-history instructions AFTER chat (with keys resolved)
+              undefined,  // authorNote
+              isResponderNarrator,  // If responder is narrator, they see all messages
+              embeddingsContext,  // Memory embeddings before chat history
+              lorebookChatInjections,  // Lorebook chat-level injections (positions 1-4)
+              exampleMessages  // SillyTavern-style example dialogue as chat messages
+            );
+
+            // Combine prompt sections with chat history for the viewer
+            // Order: System -> [CONTEXTO] non-memory -> [MEMORIA] memory -> Chat History -> Post-History
+            const personaIndex = promptSections.findIndex(s => s.type === 'persona');
+            const prePersonaSections = personaIndex >= 0 ? promptSections.slice(0, personaIndex + 1) : promptSections;
+            const postPersonaSections = personaIndex >= 0 ? promptSections.slice(personaIndex + 1) : [];
+
+            let allPromptSections: PromptSection[] = chatHistorySection
+              ? [...prePersonaSections, ...postPersonaSections, ...(characterMemorySection && !embeddingsFoundMemory ? [characterMemorySection] : []), ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []), ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []), chatHistorySection, ...(postHistorySection ? [postHistorySection] : [])]
+              : [...prePersonaSections, ...postPersonaSections, ...(characterMemorySection && !embeddingsFoundMemory ? [characterMemorySection] : []), ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []), ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []), ...(postHistorySection ? [postHistorySection] : [])];
+
+            // Inject HUD context into sections if enabled
+            if (hudContextSection && typedHUDContext) {
+              allPromptSections = injectHUDContextIntoSections(allPromptSections, hudContextSection, typedHUDContext.position);
+            }
+
+            // Generate response
+            let fullContent = '';
+
+            try {
+              // Get the appropriate streaming generator based on provider
+              // For tool-aware providers (openai, anthropic, ollama), the stream is consumed inline
+              // and generator is NOT assigned. The `if (generator)` check after the switch handles this.
+              let generator: AsyncGenerator<string> | undefined;
+
+              // Inject HUD context into chat messages if enabled
+              const finalChatMessages = hudContextSection && typedHUDContext
+                ? injectHUDContextIntoMessages(chatMessages, hudContextSection, typedHUDContext.position)
+                : chatMessages;
+
+              switch (llmConfig.provider) {
+                case 'test-mock': {
+                  // Test mode: Simulate LLM response with peticion keys for testing
+                  console.log('[Group Stream Route] Using TEST-MOCK provider for peticiones testing');
+                  
+                  // Use custom mock response from config, or default response
+                  const mockResponse = llmConfig.mockResponse || `*El personaje te mira con interés*
+
+¡Hola! Me alegra verte por aquí. Tenía algo que pedirte...
+
+[peticion_test]
+
+¿Podrías ayudarme con algo?`;
+                  
+                  console.log('[Group Stream Route] Mock response for', responder.name, ':', mockResponse.slice(0, 100) + '...');
+                  
+                  generator = async function* mockGenerator() {
+                    // Stream character by character to simulate real streaming
+                    for (const char of mockResponse) {
+                      yield char;
+                      // Small delay to simulate network latency
+                      await new Promise(resolve => setTimeout(resolve, 15));
+                    }
+                  }();
+                  break;
+                }
+
+                case 'z-ai': {
+                  if (charShouldUseTools) {
+                    const zaiAccumulator = createToolCallAccumulator(charAvailableTools);
+                    let zaiRoundContent = '';
+                    
+                    for await (const chunk of streamZAIWithTools(finalChatMessages, charAvailableTools, zaiAccumulator, zaiRuntimeToken || llmConfig.apiKey || undefined)) {
+                      zaiRoundContent += chunk;
+                      fullContent += chunk;
+                    }
+
+                    if (hasToolCalls(zaiAccumulator) && (zaiAccumulator.finishReason === 'tool_calls' || zaiAccumulator.finishReason === 'stop')) {
+                      if (zaiRoundContent.trim()) {
+                        for (const chunk of splitIntoChunks(zaiRoundContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                        zaiAccumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                      allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                      if (shouldContinue) {
+                        const toolResultPairs = zaiAccumulator.toolCalls.map(tc => ({
+                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+                        }));
+                        const toolMessages = buildToolMessagesForOpenAI(zaiAccumulator.toolCalls, toolResultPairs);
+                        const followUpMessages = [...finalChatMessages, ...toolMessages];
+                        
+                        fullContent = '';
+                        let zaiFollowUpContent = '';
+                        for await (const chunk of streamZAI(followUpMessages as any, zaiRuntimeToken || llmConfig.apiKey || undefined)) {
+                          zaiFollowUpContent += chunk;
+                        }
+                        const cleanedZaiFollowUp = cleanModelArtifacts(zaiFollowUpContent);
+                        fullContent = cleanedZaiFollowUp;
+                        for (const chunk of splitIntoChunks(cleanedZaiFollowUp)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else {
+                      const cleanedContent = cleanModelArtifacts(zaiRoundContent);
+                      for (const chunk of splitIntoChunks(cleanedContent)) {
+                        controller.enqueue(createSSEJSON({
+                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                        }));
+                      }
+                    }
+                  } else {
+                    generator = streamZAI(finalChatMessages, zaiRuntimeToken || llmConfig.apiKey || undefined);
+                  }
+                  break;
+                }
+
+                case 'openai':
+                case 'vllm':
+                case 'lm-studio':
+                case 'custom': {
+                  if (!llmConfig.endpoint) {
+                    throw new Error(`${llmConfig.provider} requires an endpoint URL`);
+                  }
+                  if (charShouldUseTools) {
+                    // Use tool-aware streaming
+                    const openaiMessages = finalChatMessages.map((m, idx) => ({
+                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+                      content: m.content
+                    }));
+                    const accumulator = createToolCallAccumulator(charAvailableTools);
+                    let roundContent = '';
+                    
+                    // BUFFER content for tool call detection
+                    for await (const chunk of streamOpenAIWithTools(openaiMessages as any, llmConfig, llmConfig.provider, charAvailableTools, accumulator)) {
+                      roundContent += chunk;
+                      fullContent += chunk;
+                    }
+
+                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                      // Native tool calls detected! Execute them
+                      if (roundContent.trim()) {
+                        for (const chunk of splitIntoChunks(roundContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                        accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                      allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                      if (shouldContinue) {
+                        const toolResultPairs = accumulator.toolCalls.map(tc => ({
+                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+                        }));
+                        const toolMessages = buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs);
+                        const followUpMessages = [...openaiMessages, ...toolMessages];
+
+                        // Buffer follow-up to clean model artifacts before streaming
+                        fullContent = '';
+                        let nativeFollowUpContent = '';
+                        for await (const chunk of streamOpenAICompatible(followUpMessages as any, llmConfig, llmConfig.provider)) {
+                          nativeFollowUpContent += chunk;
+                        }
+                        const cleanedNativeFollowUp = cleanModelArtifacts(nativeFollowUpContent);
+                        fullContent = cleanedNativeFollowUp;
+                        for (const chunk of splitIntoChunks(cleanedNativeFollowUp)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else if (mightContainToolCall(roundContent)) {
+                      // Check for text-based tool call (model outputting JSON as content)
+                      const textToolCalls = parseAllToolCallsFromText(roundContent);
+                      if (textToolCalls.length > 0) {
+                        console.log(`[GroupStream-Tools] ✓ Text-based tool call(s) detected: ${textToolCalls.map(tc => tc.name).join(', ')}`);
+
+                        const cleanContent = stripToolCallFromText(roundContent);
+                        if (cleanContent.trim()) {
+                          for (const chunk of splitIntoChunks(cleanContent)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
+                        }
+
+                        const nativeCalls: NativeToolCall[] = textToolCalls.map((tc, idx) => ({
+                          id: `text_call_${Date.now()}_${idx}`,
+                          name: tc.name,
+                          arguments: tc.arguments,
+                          rawArguments: JSON.stringify(tc.arguments),
+                        }));
+
+                        const { results: displayMessages, shouldContinue, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                          nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                        if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                        if (shouldContinue) {
+                          fullContent = '';
+                          const toolNames = textToolCalls.map(tc => tc.name).join(', ');
+                          const followUpMessages = [
+                            ...openaiMessages,
+                            { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${displayMessages}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
+                          ] as any;
+                          // Buffer follow-up to clean model artifacts before streaming
+                          let textFollowUpContent = '';
+                          for await (const chunk of streamOpenAICompatible(followUpMessages, llmConfig, llmConfig.provider)) {
+                            textFollowUpContent += chunk;
+                          }
+                          const cleanedTextFollowUp = cleanModelArtifacts(textFollowUpContent);
+                          fullContent = cleanedTextFollowUp;
+                          for (const chunk of splitIntoChunks(cleanedTextFollowUp)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
+                        }
+                      } else {
+                        // Content looked like tool call but couldn't parse - clean and stream as regular text
+                        const cleanedContent = cleanModelArtifacts(roundContent);
+                        for (const chunk of splitIntoChunks(cleanedContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else {
+                      // Regular text response - stream buffered content (clean artifacts)
+                      const cleanedContent = cleanModelArtifacts(roundContent);
+                      for (const chunk of splitIntoChunks(cleanedContent)) {
+                        controller.enqueue(createSSEJSON({
+                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                        }));
+                      }
+                    }
+                  } else {
+                    // Standard streaming without tools
+                    const openaiMessages = finalChatMessages.map((m, idx) => ({
+                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+                      content: m.content
+                    }));
+                    generator = streamOpenAICompatible(openaiMessages, llmConfig, llmConfig.provider);
+                  }
+                  break;
+                }
+
+                case 'anthropic': {
+                  if (!llmConfig.apiKey) {
+                    throw new Error('Anthropic requires an API key');
+                  }
+                  if (charShouldUseTools) {
+                    const anthropicMessages = finalChatMessages.map((m, idx) => ({
+                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+                      content: m.content
+                    }));
+                    const toolState = createAnthropicToolState();
+                    let roundContent = '';
+                    
+                    // BUFFER content for tool call detection
+                    for await (const chunk of streamAnthropicWithTools(anthropicMessages as any, llmConfig, charAvailableTools, toolState)) {
+                      roundContent += chunk;
+                      fullContent += chunk;
+                    }
+
+                    const toolCalls = anthropicStateToToolCalls(toolState);
+                    if (toolCalls.length > 0 && (toolState.stopReason === 'tool_use')) {
+                      if (roundContent.trim()) {
+                        for (const chunk of splitIntoChunks(roundContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                        const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                          toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                        allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                        if (shouldContinue) {
+                        const toolResultPairs = toolCalls.map(tc => ({
+                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+                        }));
+                        const toolMessages = buildToolMessagesForAnthropic(toolCalls, toolResultPairs);
+                        const followUpMessages = [...anthropicMessages, ...toolMessages.flatMap(m => m)];
+
+                        // Buffer follow-up to clean model artifacts before streaming
+                        fullContent = '';
+                        let anthFollowUpContent = '';
+                        for await (const chunk of streamAnthropic(followUpMessages as any, llmConfig)) {
+                          anthFollowUpContent += chunk;
+                        }
+                        const cleanedAnthFollowUp = cleanModelArtifacts(anthFollowUpContent);
+                        fullContent = cleanedAnthFollowUp;
+                        for (const chunk of splitIntoChunks(cleanedAnthFollowUp)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else if (mightContainToolCall(roundContent)) {
+                      const textToolCalls = parseAllToolCallsFromText(roundContent);
+                      if (textToolCalls.length > 0) {
+                        console.log(`[GroupStream-Tools] ✓ Text-based tool call(s) detected (Anthropic): ${textToolCalls.map(tc => tc.name).join(', ')}`);
+                        const cleanContent = stripToolCallFromText(roundContent);
+                        if (cleanContent.trim()) {
+                          for (const chunk of splitIntoChunks(cleanContent)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
+                        }
+                        const nativeCalls: NativeToolCall[] = textToolCalls.map((tc, idx) => ({
+                          id: `text_call_${Date.now()}_${idx}`, name: tc.name,
+                          arguments: tc.arguments, rawArguments: JSON.stringify(tc.arguments),
+                        }));
+                        const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                          nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                        allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                        if (shouldContinue) {
+                          fullContent = '';
+                          const toolNames = textToolCalls.map(tc => tc.name).join(', ');
+                          const followUpMessages = [
+                            ...anthropicMessages,
+                            { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${displayMessages}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
+                          ] as any;
+                          // Buffer follow-up to clean model artifacts before streaming
+                          let anthTextFollowUpContent = '';
+                          for await (const chunk of streamAnthropic(followUpMessages, llmConfig)) {
+                            anthTextFollowUpContent += chunk;
+                          }
+                          const cleanedAnthTextFollowUp = cleanModelArtifacts(anthTextFollowUpContent);
+                          fullContent = cleanedAnthTextFollowUp;
+                          for (const chunk of splitIntoChunks(cleanedAnthTextFollowUp)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
+                        }
+                      } else {
+                        // Content looked like tool call but couldn't parse - clean and stream as regular text
+                        const cleanedContent = cleanModelArtifacts(roundContent);
+                        for (const chunk of splitIntoChunks(cleanedContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else {
+                      // Regular text response - stream buffered content (clean artifacts)
+                      const cleanedContent = cleanModelArtifacts(roundContent);
+                      for (const chunk of splitIntoChunks(cleanedContent)) {
+                        controller.enqueue(createSSEJSON({
+                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                        }));
+                      }
+                    }
+                  } else {
+                    const anthropicMessages = finalChatMessages.map((m, idx) => ({
+                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+                      content: m.content
+                    }));
+                    generator = streamAnthropic(anthropicMessages, llmConfig);
+                  }
+                  break;
+                }
+
+                case 'ollama': {
+                  if (charShouldUseTools) {
+                    // Use /api/chat with tools support
+                    const ollamaMessages = finalChatMessages.map((m, idx) => ({
+                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+                      content: m.content
+                    }));
+                    const accumulator = createToolCallAccumulator(charAvailableTools);
+                    let roundContent = '';
+                    
+                    // BUFFER content for tool call detection
+                    for await (const chunk of streamOllamaWithTools(ollamaMessages as any, llmConfig, charAvailableTools, accumulator)) {
+                      roundContent += chunk;
+                      fullContent += chunk;
+                    }
+
+                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'tool use')) {
+                      if (roundContent.trim()) {
+                        for (const chunk of splitIntoChunks(roundContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                        accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                      allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                      if (shouldContinue) {
+                        const toolResultPairs = accumulator.toolCalls.map(tc => ({
+                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+                        }));
+                        const toolResultMessages = buildToolMessagesForOllama(accumulator.toolCalls, toolResultPairs);
+                        const followUpMessages = [...ollamaMessages, ...toolResultMessages];
+
+                        // Buffer follow-up to clean model artifacts before streaming
+                        fullContent = '';
+                        const combinedPrompt = followUpMessages.map(m =>
+                          `${(m as any).role}: ${(m as any).content}`
+                        ).join('\n') + `\n${responder.name}:`;
+                        let ollamaFollowUpContent = '';
+                        for await (const chunk of streamOllama(combinedPrompt, llmConfig)) {
+                          ollamaFollowUpContent += chunk;
+                        }
+                        const cleanedOllamaFollowUp = cleanModelArtifacts(ollamaFollowUpContent);
+                        fullContent = cleanedOllamaFollowUp;
+                        for (const chunk of splitIntoChunks(cleanedOllamaFollowUp)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else if (mightContainToolCall(roundContent)) {
+                      const textToolCalls = parseAllToolCallsFromText(roundContent);
+                      if (textToolCalls.length > 0) {
+                        console.log(`[GroupStream-Tools] ✓ Text-based tool call(s) detected (Ollama): ${textToolCalls.map(tc => tc.name).join(', ')}`);
+                        const cleanContent = stripToolCallFromText(roundContent);
+                        if (cleanContent.trim()) {
+                          for (const chunk of splitIntoChunks(cleanContent)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
+                        }
+                        const nativeCalls: NativeToolCall[] = textToolCalls.map((tc, idx) => ({
+                          id: `text_call_${Date.now()}_${idx}`, name: tc.name,
+                          arguments: tc.arguments, rawArguments: JSON.stringify(tc.arguments),
+                        }));
+                        const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                          nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                        allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                        if (shouldContinue) {
+                          fullContent = '';
+                          const toolNames = textToolCalls.map(tc => tc.name).join(', ');
+                          const followUpMessages = [
+                            ...ollamaMessages,
+                            { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${displayMessages}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
+                          ] as any;
+                          const combinedPrompt = followUpMessages.map(m =>
+                            `${(m as any).role}: ${(m as any).content}`
+                          ).join('\n') + `\n${responder.name}:`;
+                          // Buffer follow-up to clean model artifacts before streaming
+                          let ollamaTextFollowUpContent = '';
+                          for await (const chunk of streamOllama(combinedPrompt, llmConfig)) {
+                            ollamaTextFollowUpContent += chunk;
+                          }
+                          const cleanedOllamaTextFollowUp = cleanModelArtifacts(ollamaTextFollowUpContent);
+                          fullContent = cleanedOllamaTextFollowUp;
+                          for (const chunk of splitIntoChunks(cleanedOllamaTextFollowUp)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
+                        }
+                      } else {
+                        // Content looked like tool call but couldn't parse - clean and stream as regular text
+                        const cleanedContent = cleanModelArtifacts(roundContent);
+                        for (const chunk of splitIntoChunks(cleanedContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else {
+                      // Regular text response - stream buffered content (clean artifacts)
+                      const cleanedContent = cleanModelArtifacts(roundContent);
+                      for (const chunk of splitIntoChunks(cleanedContent)) {
+                        controller.enqueue(createSSEJSON({
+                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                        }));
+                      }
+                    }
+                  } else {
+                    // Standard completion prompt (no tools)
+                    const prompt = buildCompletionPrompt({
+                      systemPrompt: finalSystemPrompt,
+                      messages: messagesForPrompt,
+                      character: responder,
+                      userName: effectiveUserName,
+                      postHistoryInstructions: resolvedPostHistoryInstructions,
+                      embeddingsContext: embeddingsContext,
+                      exampleMessages: exampleMessages,
+                      allCharacters: characters  // Pass all characters for proper speaker attribution
+                    });
+                    generator = streamOllama(prompt, llmConfig);
+                  }
+                  break;
+                }
+
+                case 'grok': {
+                  console.log(`[GroupStream] Grok case: charShouldUseTools=${charShouldUseTools}`);
+                  const grokMessages = finalChatMessages.map((m, idx) => ({
+                    role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+                    content: m.content
+                  }));
+
+                  if (charShouldUseTools) {
+                    const accumulator = createToolCallAccumulator(charAvailableTools);
+                    let roundContent = '';
+
+                    for await (const chunk of streamGrokWithTools(grokMessages as any, llmConfig, charAvailableTools, accumulator)) {
+                      roundContent += chunk;
+                      fullContent += chunk;
+                    }
+
+                    console.log(`[Grok+Tools] Round buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
+
+                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                      if (roundContent.trim()) {
+                        for (const chunk of splitIntoChunks(roundContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                        accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                      allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                      if (shouldContinue) {
+                        const toolResultPairs = accumulator.toolCalls.map(tc => ({
+                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+                        }));
+                        const toolMessages = buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs);
+                        const followUpMessages = [...grokMessages, ...toolMessages];
+                        
+                        fullContent = '';
+                        let grokFollowUpContent = '';
+                        for await (const chunk of streamGrok(followUpMessages as any, llmConfig)) {
+                          grokFollowUpContent += chunk;
+                        }
+                        const cleanedGrokFollowUp = cleanModelArtifacts(grokFollowUpContent);
+                        fullContent = cleanedGrokFollowUp;
+                        for (const chunk of splitIntoChunks(cleanedGrokFollowUp)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else if (mightContainToolCall(roundContent)) {
+                      const textToolCalls = parseAllToolCallsFromText(roundContent);
+                      if (textToolCalls.length > 0) {
+                        console.log(`[Grok+Tools] Text-based tool call(s) detected: ${textToolCalls.map(tc => tc.name).join(', ')}`);
+                        const cleanContent = stripToolCallFromText(roundContent);
+                        if (cleanContent.trim()) {
+                          for (const chunk of splitIntoChunks(cleanContent)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
+                        }
+                        const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                          textToolCalls.map((tc, idx) => ({
+                            id: `text_call_${Date.now()}_${idx}`,
+                            name: tc.name,
+                            arguments: tc.arguments,
+                            rawArguments: JSON.stringify(tc.arguments)
+                          })), charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                        allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                        if (shouldContinue) {
+                          fullContent = '';
+                          const toolNames = textToolCalls.map(tc => tc.name).join(', ');
+                          const followUpMessages = [
+                            ...grokMessages,
+                            { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${displayMessages}\n\nResponde de forma natural usando esta información.` },
+                          ] as any;
+                          let grokTextFollowUpContent = '';
+                          for await (const chunk of streamGrok(followUpMessages, llmConfig)) {
+                            grokTextFollowUpContent += chunk;
+                          }
+                          const cleanedGrokTextFollowUp = cleanModelArtifacts(grokTextFollowUpContent);
+                          fullContent = cleanedGrokTextFollowUp;
+                          for (const chunk of splitIntoChunks(cleanedGrokTextFollowUp)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
+                        }
+                      } else {
+                        const cleanedContent = cleanModelArtifacts(roundContent);
+                        for (const chunk of splitIntoChunks(cleanedContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else {
+                      const cleanedContent = cleanModelArtifacts(roundContent);
+                      for (const chunk of splitIntoChunks(cleanedContent)) {
+                        controller.enqueue(createSSEJSON({
+                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                        }));
+                      }
+                    }
+                  } else {
+                    generator = streamGrok(grokMessages as any, llmConfig);
+                  }
+                  break;
+                }
+
+                case 'text-generation-webui':
+                case 'koboldcpp': {
+                  console.log(`[GroupStream] TextGenerationWebUI case: charShouldUseTools=${charShouldUseTools}`);
+                  const tgwuMessages = finalChatMessages.map((m, idx) => ({
+                    role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+                    content: m.content
+                  }));
+
+                  if (charShouldUseTools) {
+                    const accumulator = createToolCallAccumulator(charAvailableTools);
+                    let roundContent = '';
+
+                    for await (const chunk of streamTextGenerationWebUIWithTools(tgwuMessages as any, llmConfig, charAvailableTools, accumulator)) {
+                      roundContent += chunk;
+                      fullContent += chunk;
+                    }
+
+                    console.log(`[TextGenWebUI+Tools] Round buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
+
+                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                      if (roundContent.trim()) {
+                        for (const chunk of splitIntoChunks(roundContent)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+                        accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+                        lorebooks
+                      );
+                      allQuestActivations = [...allQuestActivations, ...questActivations];
+                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+                      if (shouldContinue) {
+                        const toolResultPairs = accumulator.toolCalls.map(tc => ({
+                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+                        }));
+                        const toolMessages = buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs);
+                        const followUpMessages = [...tgwuMessages, ...toolMessages];
+                        
+                        fullContent = '';
+                        let tgwuFollowUpContent = '';
+                        for await (const chunk of streamTextGenerationWebUIWithTools(followUpMessages as any, llmConfig, [], accumulator)) {
+                          tgwuFollowUpContent += chunk;
+                        }
+                        const cleanedTgwufollowUp = cleanModelArtifacts(tgwuFollowUpContent);
+                        fullContent = cleanedTgwufollowUp;
+                        for (const chunk of splitIntoChunks(cleanedTgwufollowUp)) {
+                          controller.enqueue(createSSEJSON({
+                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                          }));
+                        }
+                      }
+                    } else {
+                      const cleanedContent = cleanModelArtifacts(roundContent);
+                      for (const chunk of splitIntoChunks(cleanedContent)) {
+                        controller.enqueue(createSSEJSON({
+                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                        }));
+                      }
+                    }
+                  } else {
+                    const prompt = buildCompletionPrompt({
+                      systemPrompt: finalSystemPrompt,
+                      messages: messagesForPrompt,
+                      character: responder,
+                      userName: effectiveUserName,
+                      postHistoryInstructions: resolvedPostHistoryInstructions,
+                      embeddingsContext: embeddingsContext,
+                      exampleMessages: exampleMessages,
+                      allCharacters: characters  // Pass all characters for proper speaker attribution
+                    });
+                    generator = streamTextGenerationWebUI(prompt, llmConfig);
+                  }
+                  break;
+                }
+
+                default: {
+                  const prompt = buildCompletionPrompt({
+                    systemPrompt: finalSystemPrompt,
+                    messages: messagesForPrompt,
+                    character: responder,
+                    userName: effectiveUserName,
+                    postHistoryInstructions: resolvedPostHistoryInstructions,
+                    embeddingsContext: embeddingsContext,
+                    exampleMessages: exampleMessages,
+                    allCharacters: characters  // Pass all characters for proper speaker attribution
+                  });
+                  generator = streamTextGenerationWebUI(prompt, llmConfig);
+                  break;
+                }
+              }
+
+              // Stream the response (for providers that don't handle tool calling inline)
+              if (generator) {
+                for await (const chunk of generator) {
+                  fullContent += chunk;
+                  // Stream token to client
+                  controller.enqueue(createSSEJSON({
+                    type: 'token',
+                    characterId: responder.id,
+                    characterName: responder.name,
+                    content: chunk
+                  }));
+                }
+              }
+
+              // Clean up the response (remove character name prefix if present)
+              const cleanedContent = cleanResponseContent(fullContent, responder.name);
+
+              // Store response for next character's context
+              responsesThisTurn.push({
+                characterId: responder.id,
+                characterName: responder.name,
+                content: cleanedContent
+              });
+
+              // Send character_done event with prompt sections (including chat history)
+              // Include isNarrator flag so frontend can tag the message appropriately
+              controller.enqueue(createSSEJSON({
+                type: 'character_done',
+                characterId: responder.id,
+                characterName: responder.name,
+                fullContent: cleanedContent,
+                promptSections: allPromptSections,
+                isNarrator: isResponderNarrator
+              }));
+
+            } catch (charError) {
+              // Send character_error event but continue with other characters
+              controller.enqueue(createSSEJSON({
+                type: 'character_error',
+                characterId: responder.id,
+                characterName: responder.name,
+                error: charError instanceof Error ? charError.message : 'Unknown error'
+              }));
+            }
+          }
+
+          // ========================================
+          // Memory Reinforcement
+          // Check if responders referenced any existing memories and boost their importance
+          // ========================================
+          if (responsesThisTurn.length > 0) {
+            const reinforcementEnabled = isReinforcementEnabled(effectiveEmbeddingsChatForReinforcement);
+            if (reinforcementEnabled) {
+              // Build memory namespaces from session context
+              const memoryNamespaces: string[] = [];
+              if (sessionId) {
+                // Add per-character memory namespaces for each responder
+                for (const r of responsesThisTurn) {
+                  memoryNamespaces.push(`memory-character-${r.characterId}-${sessionId}`);
+                }
+                if (group.id) memoryNamespaces.push(`memory-group-${group.id}-${sessionId}`);
+              }
+
+              if (memoryNamespaces.length > 0) {
+                // Combine all responses this turn for reinforcement check
+                const allResponseContent = responsesThisTurn
+                  .map(r => r.content)
+                  .filter(c => c && c.length > 50)
+                  .join('\n');
+
+                if (allResponseContent.length > 50) {
+                  // Fire and forget - don't block the response
+                  setTimeout(async () => {
+                    try {
+                      const threshold = effectiveEmbeddingsChatForReinforcement.memoryReinforcementThreshold || 0.7;
+                      const result = await processResponseAndReinforceMemories(
+                        allResponseContent,
+                        memoryNamespaces,
+                        true,
+                        threshold
+                      );
+                      if (result.reinforced > 0) {
+                        console.log(`[MemoryReinforcement] Group: Reinforced ${result.reinforced} memories`);
+                      }
+                    } catch (err) {
+                      console.warn('[MemoryReinforcement] Group failed:', err);
+                    }
+                  }, 0);
+                }
+              }
+            }
+          }
+
+          // Check if memory extraction should trigger
+          // Count by TURNS (user messages) instead of individual messages.
+          // The client will handle the actual extraction call after receiving 'done'.
+          const userMessages = messages.filter(m => m.role === 'user' && !m.isDeleted);
+          const turnCount = userMessages.length;
+          const extractionFrequency = embeddingsChat.memoryExtractionFrequency || 5;
+          const extractionEnabled = embeddingsChat.memoryExtractionEnabled === true;
+          const shouldExtractGroupMemory =
+            extractionEnabled &&
+            responsesThisTurn.length > 0 &&
+            turnCount > 0 &&
+            turnCount % extractionFrequency === 0 &&
+            !!llmConfig;
+
+          console.log(`[Memory] Group chat extraction check: enabled=${extractionEnabled}, turns=${turnCount}, freq=${extractionFrequency}, responders=${responsesThisTurn.length}, shouldExtract=${shouldExtractGroupMemory}`);
+
+          // Send final done event with shouldExtract flag so client can trigger extraction
+          controller.enqueue(createSSEJSON({
+            type: 'done',
+            responses: responsesThisTurn,
+            questActivations: allQuestActivations,
+            toolsUsed: allToolsUsed,
+            shouldExtract: shouldExtractGroupMemory,
+          }));
+          controller.close();
+
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          controller.enqueue(createSSEJSON({ type: 'error', error: errorMessage }));
+          controller.close();
+        }
+      }
+    });
+
+    return createSSEStreamResponse(stream);
+  } catch (error) {
+    return createErrorResponse(
+      error instanceof Error ? error.message : 'Failed to stream group response',
+      500
+    );
+  }
+}

@@ -1,0 +1,425 @@
+// ============================================
+// Chat Generate Route - Refactored with shared modules
+// ============================================
+
+import { NextRequest, NextResponse } from 'next/server';
+import type { CharacterCard, Lorebook, SessionStats, HUDContextConfig, QuestTemplate, SessionQuestInstance, QuestSettings, CharacterMemory } from '@/types';
+import { DEFAULT_QUEST_SETTINGS } from '@/types';
+import {
+  DEFAULT_CHARACTER,
+  buildSystemPrompt,
+  buildChatMessages,
+  buildCompletionPrompt,
+  getEffectiveUserName,
+  processCharacter,
+  createUserMessage,
+  callZAI,
+  callOpenAICompatible,
+  callAnthropic,
+  callOllama,
+  callTextGenerationWebUI,
+  callGrok,
+  GenerateResponse,
+  buildLorebookSectionForPrompt,
+  buildMemorySection,
+  buildHUDContextSection,
+  injectHUDContextIntoMessages,
+  buildKeyResolutionContext,
+  resolveStats,
+} from '@/lib/llm';
+
+import {
+  validateRequest,
+  sanitizeInput
+} from '@/lib/validations';
+import {
+  selectContextMessages,
+  type ContextConfig
+} from '@/lib/context-manager';
+import { retrieveEmbeddingsContext } from '@/lib/embeddings/chat-context';
+import type { EmbeddingsChatSettings } from '@/types';
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+
+    // Validate request (automatically detects request type)
+    const validation = validateRequest(null, body);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 }
+      );
+    }
+
+    const {
+      message,
+      character,
+      messages = [],
+      llmConfig,
+      userName = 'User',
+      persona,
+      sessionStats
+    } = validation.data;
+
+    // Extract lorebooks from body (not validated by validation.ts)
+    const lorebooks: Lorebook[] = body.lorebooks || [];
+
+    // Extract all characters for peticiones/solicitudes resolution
+    const allCharacters: CharacterCard[] = body.allCharacters || [];
+
+    // Extract HUD context from body
+    const hudContext: HUDContextConfig | undefined = body.hudContext;
+
+    // Extract Quest data for prompt injection
+    const questTemplates: QuestTemplate[] = body.questTemplates || [];
+    const sessionQuests: SessionQuestInstance[] = body.sessionQuests || [];
+    const questSettings: QuestSettings = {
+      ...DEFAULT_QUEST_SETTINGS,
+      ...(body.questSettings || {})
+    };
+
+    // Extract embeddings chat settings
+    const embeddingsChat: Partial<EmbeddingsChatSettings> = body.embeddingsChat || {};
+    const sessionId: string | undefined = body.sessionId;
+    const characterId: string | undefined = body.characterId;
+    const characterMemory: CharacterMemory | undefined = body.characterMemory;
+
+    // Cast sessionStats to proper type
+    const typedSessionStats = sessionStats as SessionStats | undefined;
+
+    if (!llmConfig) {
+      return NextResponse.json(
+        { error: 'No LLM configuration provided. Please configure an LLM connection in settings.' },
+        { status: 400 }
+      );
+    }
+
+    // Sanitize user message
+    const sanitizedMessage = sanitizeInput(message);
+
+    // Create default character if none provided
+    const effectiveCharacter: CharacterCard = character || DEFAULT_CHARACTER;
+
+    // Get effective user name from persona or use provided userName
+    const effectiveUserName = getEffectiveUserName(persona, userName);
+
+    // Process character template variables ({{user}}, {{char}}, etc.)
+    const processedCharacter = processCharacter(effectiveCharacter, effectiveUserName, persona, typedSessionStats, allCharacters, questTemplates);
+
+    // Build context configuration from request or use defaults
+    const contextConfig: Partial<ContextConfig> = body.contextConfig || {};
+
+    // Apply sliding window to messages
+    const contextWindow = selectContextMessages(messages, llmConfig, contextConfig);
+
+    // Process lorebooks and get matched entries
+    const { plan: lorebookPlan, lorebookAttributeKeys, lorebookEntryKeyMap } = buildLorebookSectionForPrompt(
+      messages,
+      lorebooks,
+      {
+        scanDepth: contextConfig.scanDepth,
+        // tokenBudget: let the injector use the lorebook's own setting
+        userName: effectiveUserName,
+        charName: effectiveCharacter?.name,
+      },
+      { sessionStats: typedSessionStats, characterId: effectiveCharacter?.id, characters: allCharacters }
+    );
+
+    // Build system prompt with persona and lorebook (using processed character)
+    const { prompt: systemPrompt, lorebookChatInjections, exampleMessages } = buildSystemPrompt(
+      processedCharacter,
+      effectiveUserName,
+      persona,
+      lorebookPlan,
+      typedSessionStats,  // Pass session stats for attribute values
+      allCharacters,      // Pass all characters for peticiones/solicitudes resolution
+      undefined,          // soundTriggers
+      undefined,          // soundSettings
+      questTemplates,     // Pass quest templates for {{activeQuests}} key resolution
+      sessionQuests,      // Pass session quests for {{activeQuests}} key resolution
+      questSettings,       // Pass quest settings for {{activeQuests}} key resolution
+      lorebookAttributeKeys,
+      undefined,          // inventoryData
+      lorebookEntryKeyMap // Pass lorebook entry key map for {{entryKey}} resolution
+    );
+
+    // Retrieve embeddings context
+    const embeddingsResult = await retrieveEmbeddingsContext(
+      sanitizedMessage,
+      characterId || effectiveCharacter.id,
+      sessionId,
+      embeddingsChat
+    );
+
+    // Build combined embeddings context: [CONTEXTO RELEVANTE] then [MEMORIA RELEVANTE]
+    // Both injected before chat history (not in system prompt)
+    const contextParts: string[] = [];
+
+    // Add character memory section first (events, relationships, notes from Zustand store)
+    if (characterMemory) {
+      const memorySection = buildMemorySection(characterMemory, effectiveCharacter.name || 'Character');
+      if (memorySection) {
+        contextParts.push(memorySection.content);
+      }
+    }
+
+    if (embeddingsResult.nonMemoryContextString?.trim()) {
+      contextParts.push(embeddingsResult.nonMemoryContextString);
+    }
+    if (embeddingsResult.memoryContextString?.trim()) {
+      contextParts.push(embeddingsResult.memoryContextString);
+    }
+    const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
+
+    // Quest content is resolved via {{activeQuests}} key in buildSystemPrompt
+    let finalSystemPrompt = systemPrompt;
+
+    // Build key resolution context for all sections outside buildSystemPrompt
+    // Includes lorebookAttributeKeys so {{injectionKey}} resolves in post-history, HUD, etc.
+    let generatePersonaResolvedStats: import('@/types').ResolvedStats | null = null;
+    if (persona?.statsConfig?.enabled && typedSessionStats) {
+      generatePersonaResolvedStats = resolveStats({
+        characterId: '__user__',
+        statsConfig: persona.statsConfig,
+        sessionStats: typedSessionStats,
+      });
+    }
+    const generateResolvedStats = resolveStats({
+      characterId: effectiveCharacter.id,
+      statsConfig: effectiveCharacter.statsConfig,
+      sessionStats: typedSessionStats,
+      allCharacters,
+      userName: effectiveUserName,
+      characterName: effectiveCharacter.name,
+      questTemplates,
+      personaDescription: persona?.description,
+      personaResolvedStats: generatePersonaResolvedStats,
+    });
+
+    // Build outlet sections map from lorebook plan for {{outlet::name}} macro resolution
+    const outletSections: Record<string, string> = {};
+    if (lorebookPlan?.outletSections.length) {
+      for (const outletSection of lorebookPlan.outletSections) {
+        const match = outletSection.label.match(/^World Info \((.+)\)$/);
+        const outletName = match ? match[1] : outletSection.label;
+        outletSections[outletName] = outletSection.content;
+      }
+    }
+
+    const keyContext = buildKeyResolutionContext(
+      processedCharacter,
+      effectiveUserName,
+      persona,
+      generateResolvedStats,
+      typedSessionStats,  // sessionStats for {{eventos}}
+      undefined,          // soundTriggers
+      undefined,          // soundSettings
+      generatePersonaResolvedStats,  // persona resolved stats
+      questTemplates,     // quest templates for {{activeQuests}}
+      sessionQuests,      // session quests for {{activeQuests}}
+      questSettings,      // quest settings
+      outletSections,     // outlet sections for {{outlet::name}}
+      lorebookAttributeKeys  // lorebook attribute keys for {{injectionKey}}
+    );
+
+    // Build HUD context section if enabled (resolves {{keys}} in HUD content)
+    const hudContextSection = hudContext ? buildHUDContextSection(hudContext, keyContext) : null;
+
+    // Prepare messages with new user message (use context-windowed messages)
+    // Check if the last message is already the user's current message to avoid duplicates.
+    // The frontend adds the message to the store BEFORE sending the request, so the
+    // messages array may already contain the user's message.
+    const lastCtxMessage = contextWindow.messages[contextWindow.messages.length - 1];
+    const isLastMessageCurrentUser = lastCtxMessage?.role === 'user' &&
+      lastCtxMessage?.content === sanitizedMessage;
+    const allMessages = isLastMessageCurrentUser
+      ? contextWindow.messages
+      : [...contextWindow.messages, createUserMessage(sanitizedMessage)];
+
+    let response: GenerateResponse;
+
+    // Route to appropriate provider
+    switch (llmConfig.provider) {
+      case 'test-mock': {
+        // Test mode: Return a mock response for testing without a real LLM
+        console.log('[Generate Route] Using TEST-MOCK provider');
+        const mockResponse = llmConfig.mockResponse || `*El personaje te mira con interés*
+
+¡Hola! Me alegra verte por aquí. Tenía algo que pedirte...
+
+[peticion_madera]
+
+¿Podrías conseguirme algo de madera para construir un refugio?
+
+También puedo ofrecerte algunos sonidos:
+
+|glohg|
+
+Y cambiar mi expresión:
+
+[sprite:alegre]`;
+
+        response = {
+          message: mockResponse,
+          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+          model: 'test-mock',
+        };
+        break;
+      }
+
+      case 'z-ai': {
+        // Z.ai uses its own SDK
+        let chatMessages = buildChatMessages(
+          finalSystemPrompt,
+          allMessages,
+          processedCharacter,
+          effectiveUserName,
+          processedCharacter.postHistoryInstructions,
+          undefined,  // authorNote
+          false,     // useSystemRole
+          embeddingsContext,  // Combined embeddings context before chat history
+          lorebookChatInjections,
+          exampleMessages
+        );
+        // Inject HUD context into chat messages if enabled
+        if (hudContextSection && hudContext) {
+          chatMessages = injectHUDContextIntoMessages(chatMessages, hudContextSection, hudContext.position);
+        }
+        response = await callZAI(chatMessages);
+        break;
+      }
+
+      case 'openai':
+      case 'vllm':
+      case 'lm-studio':
+      case 'custom': {
+        // These need a valid endpoint
+        if (!llmConfig.endpoint) {
+          throw new Error(`${llmConfig.provider} requires an endpoint URL. Please configure it in settings.`);
+        }
+        let chatMessages = buildChatMessages(
+          finalSystemPrompt,
+          allMessages,
+          processedCharacter,
+          effectiveUserName,
+          processedCharacter.postHistoryInstructions,
+          undefined,  // authorNote
+          true,      // useSystemRole
+          embeddingsContext,  // Combined embeddings context before chat history
+          lorebookChatInjections,
+          exampleMessages
+        );
+        // Inject HUD context into chat messages if enabled
+        if (hudContextSection && hudContext) {
+          chatMessages = injectHUDContextIntoMessages(chatMessages, hudContextSection, hudContext.position);
+        }
+        response = await callOpenAICompatible(chatMessages, llmConfig, llmConfig.provider);
+        break;
+      }
+
+      case 'anthropic': {
+        if (!llmConfig.apiKey) {
+          throw new Error('Anthropic requires an API key. Please configure it in settings.');
+        }
+        let chatMessages = buildChatMessages(
+          finalSystemPrompt,
+          allMessages,
+          processedCharacter,
+          effectiveUserName,
+          processedCharacter.postHistoryInstructions,
+          undefined,  // authorNote
+          true,      // useSystemRole
+          embeddingsContext,  // Combined embeddings context before chat history
+          lorebookChatInjections,
+          exampleMessages
+        );
+        // Inject HUD context into chat messages if enabled
+        if (hudContextSection && hudContext) {
+          chatMessages = injectHUDContextIntoMessages(chatMessages, hudContextSection, hudContext.position);
+        }
+        response = await callAnthropic(chatMessages, llmConfig);
+        break;
+      }
+
+      case 'ollama': {
+        const prompt = buildCompletionPrompt({
+          systemPrompt: finalSystemPrompt,
+          messages: allMessages,
+          character: processedCharacter,
+          userName: effectiveUserName,
+          postHistoryInstructions: processedCharacter.postHistoryInstructions,
+          embeddingsContext: embeddingsContext,  // Memory embeddings before chat history
+          exampleMessages: exampleMessages,
+          allCharacters: allCharacters  // Pass all characters for proper speaker attribution
+        });
+        response = await callOllama(prompt, llmConfig);
+        break;
+      }
+
+      case 'grok': {
+        let chatMessages = buildChatMessages(
+          finalSystemPrompt,
+          allMessages,
+          processedCharacter,
+          effectiveUserName,
+          processedCharacter.postHistoryInstructions,
+          undefined,
+          true,
+          embeddingsContext,
+          lorebookChatInjections,
+          exampleMessages
+        );
+        if (hudContextSection && hudContext) {
+          chatMessages = injectHUDContextIntoMessages(chatMessages, hudContextSection, hudContext.position);
+        }
+        response = await callGrok(chatMessages, llmConfig);
+        break;
+      }
+
+      case 'text-generation-webui':
+      case 'koboldcpp':
+      default: {
+        const prompt = buildCompletionPrompt({
+          systemPrompt: finalSystemPrompt,
+          messages: allMessages,
+          character: processedCharacter,
+          userName: effectiveUserName,
+          postHistoryInstructions: processedCharacter.postHistoryInstructions,
+          embeddingsContext: embeddingsContext,  // Memory embeddings before chat history
+          exampleMessages: exampleMessages,
+          allCharacters: allCharacters  // Pass all characters for proper speaker attribution
+        });
+        response = await callTextGenerationWebUI(prompt, llmConfig);
+        break;
+      }
+    }
+
+    // Clean up response
+    let cleanedMessage = response.message.trim();
+
+    // Remove character name prefix if present
+    const namePrefix = `${processedCharacter.name}:`;
+    if (cleanedMessage.startsWith(namePrefix)) {
+      cleanedMessage = cleanedMessage.slice(namePrefix.length).trim();
+    }
+
+    return NextResponse.json({
+      message: cleanedMessage,
+      usage: response.usage,
+      model: response.model
+    });
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to generate response';
+    console.error('[Generate Route] ERROR:', errorMessage);
+    if (error instanceof Error) {
+      console.error('[Generate Route] Stack:', error.stack);
+    }
+
+    return NextResponse.json(
+      { error: errorMessage },
+      { status: 500 }
+    );
+  }
+}

@@ -1,0 +1,974 @@
+// ============================================
+// TTS Service - Text-to-Speech generation and playback
+// Handles TTS-WebUI integration with queue management
+// ============================================
+
+import type { 
+  CharacterVoiceConfig, 
+  TTSQueueItem, 
+  VoiceInfo,
+  TTSWebUIConfig,
+  TextSegment,
+} from './types';
+import { DEFAULT_VOICE_CONFIG, DEFAULT_TTS_WEBUI_CONFIG } from './types';
+import { parseTextSegments, filterSegments, cleanTextForTTS } from './text-parser';
+
+// ============================================
+// Audio Unlock Utility
+// Handles browser autoplay policy by unlocking
+// AudioContext on first user gesture
+// ============================================
+
+let audioContext: AudioContext | null = null;
+let isAudioUnlocked = false;
+let pendingPlayCallbacks: Array<() => void> = [];
+
+/**
+ * Unlock audio by creating/resuming an AudioContext.
+ * Must be called from a user gesture (click/tap/keydown).
+ */
+function unlockAudio(): Promise<boolean> {
+  if (isAudioUnlocked) return Promise.resolve(true);
+
+  try {
+    if (!audioContext) {
+      audioContext = new AudioContext();
+    }
+
+    if (audioContext.state === 'suspended') {
+      return audioContext.resume().then(() => {
+        isAudioUnlocked = true;
+        flushPendingPlay();
+        return true;
+      });
+    }
+
+    isAudioUnlocked = true;
+    flushPendingPlay();
+    return Promise.resolve(true);
+  } catch {
+    return Promise.resolve(false);
+  }
+}
+
+/**
+ * Check if audio is currently unlocked for autoplay.
+ */
+function isAudioReady(): boolean {
+  return isAudioUnlocked;
+}
+
+/**
+ * Add a callback to run once audio is unlocked.
+ */
+function onAudioUnlocked(cb: () => void): void {
+  if (isAudioUnlocked) {
+    cb();
+  } else {
+    pendingPlayCallbacks.push(cb);
+  }
+}
+
+/**
+ * Run all pending play callbacks after audio is unlocked.
+ */
+function flushPendingPlay(): void {
+  const callbacks = [...pendingPlayCallbacks];
+  pendingPlayCallbacks = [];
+  for (const cb of callbacks) {
+    try { cb(); } catch { /* ignore */ }
+  }
+}
+
+// Register global click/keydown listeners to unlock audio
+if (typeof window !== 'undefined') {
+  const unlockHandler = () => {
+    unlockAudio();
+  };
+  document.addEventListener('click', unlockHandler, { once: false, passive: true });
+  document.addEventListener('keydown', unlockHandler, { once: false, passive: true });
+  document.addEventListener('touchstart', unlockHandler, { once: false, passive: true });
+}
+
+// ============================================
+// TTS Service Class
+// ============================================
+
+class TTSService {
+  private config: TTSWebUIConfig = { ...DEFAULT_TTS_WEBUI_CONFIG };
+  private queue: TTSQueueItem[] = [];
+  private currentAudio: HTMLAudioElement | null = null;
+  private isPlaying: boolean = false;
+  private isGenerating: boolean = false;  // Track if pre-generation is in progress
+  private voicesCache: VoiceInfo[] = [];
+  private lastVoicesFetch: number = 0;
+  private voicesCacheTTL: number = 5 * 60 * 1000; // 5 minutes
+
+  // Connection status cache — avoids spamming connection checks when server is offline
+  private connectionStatus: 'online' | 'offline' | 'unknown' = 'unknown';
+  private lastConnectionCheck: number = 0;
+  private connectionCheckCooldownOnline: number = 30 * 1000;  // 30s when online
+  private connectionCheckCooldownOffline: number = 120 * 1000; // 2min when offline
+  private connectionCheckCooldownUnknown: number = 5 * 1000;   // 5s initial
+
+  // Autoplay blocked state
+  private autoplayBlocked: boolean = false;
+
+  // Event callbacks
+  private onPlaybackStart?: (item: TTSQueueItem) => void;
+  private onPlaybackEnd?: (item: TTSQueueItem) => void;
+  private onPlaybackError?: (item: TTSQueueItem, error: string) => void;
+  private onQueueUpdate?: (queue: TTSQueueItem[]) => void;
+  private onAutoplayBlocked?: () => void;
+
+  // ============================================
+  // Configuration
+  // ============================================
+
+  setConfig(config: Partial<TTSWebUIConfig>) {
+    const prevUrl = this.config.baseUrl;
+    this.config = { ...this.config, ...config };
+    // Reset connection cache if endpoint changed
+    if (config.baseUrl && config.baseUrl !== prevUrl) {
+      this.resetConnectionStatus();
+    }
+  }
+
+  getConfig(): TTSWebUIConfig {
+    return { ...this.config };
+  }
+
+  setCallbacks(callbacks: {
+    onPlaybackStart?: (item: TTSQueueItem) => void;
+    onPlaybackEnd?: (item: TTSQueueItem) => void;
+    onPlaybackError?: (item: TTSQueueItem, error: string) => void;
+    onQueueUpdate?: (queue: TTSQueueItem[]) => void;
+    onAutoplayBlocked?: () => void;
+  }) {
+    this.onPlaybackStart = callbacks.onPlaybackStart;
+    this.onPlaybackEnd = callbacks.onPlaybackEnd;
+    this.onPlaybackError = callbacks.onPlaybackError;
+    this.onQueueUpdate = callbacks.onQueueUpdate;
+    this.onAutoplayBlocked = callbacks.onAutoplayBlocked;
+  }
+
+  /**
+   * Get whether audio is unlocked for autoplay.
+   */
+  get isAudioUnlocked(): boolean {
+    return isAudioReady();
+  }
+
+  /**
+   * Get whether the last playback was blocked by autoplay policy.
+   */
+  get wasAutoplayBlocked(): boolean {
+    return this.autoplayBlocked;
+  }
+
+  /**
+   * Try to unlock audio. Call from a user gesture handler.
+   */
+  async unlockAudio(): Promise<boolean> {
+    const success = await unlockAudio();
+    if (success && this.autoplayBlocked) {
+      this.autoplayBlocked = false;
+      // Retry any items that were blocked
+      this.retryBlockedItems();
+    }
+    return success;
+  }
+
+  /**
+   * Reset autoplay blocked flag and retry blocked queue items.
+   */
+  private retryBlockedItems() {
+    const blockedItems = this.queue.filter(
+      item => item.status === 'autoplay_blocked'
+    );
+    if (blockedItems.length > 0) {
+      console.log(`[TTS] Retrying ${blockedItems.length} blocked items after audio unlock`);
+      for (const item of blockedItems) {
+        item.status = 'pending';
+      }
+      this.onQueueUpdate?.(this.queue);
+      if (!this.isPlaying) {
+        this.processQueue();
+      }
+    }
+  }
+
+  // ============================================
+  // Voice Management
+  // ============================================
+
+  async fetchVoices(forceRefresh: boolean = false): Promise<VoiceInfo[]> {
+    const now = Date.now();
+    
+    // Use cache if valid
+    if (!forceRefresh && this.voicesCache.length > 0 && (now - this.lastVoicesFetch) < this.voicesCacheTTL) {
+      return this.voicesCache;
+    }
+
+    try {
+      // Use the Next.js API proxy instead of direct server call (avoids CORS)
+      const response = await fetch(`/api/tts/available-voices?endpoint=${encodeURIComponent(this.config.baseUrl)}&provider=${this.config.provider || 'tts-webui'}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch voices: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      let voices: VoiceInfo[] = [];
+      if (data.voices && Array.isArray(data.voices)) {
+        // The API proxy now returns properly parsed VoiceInfo objects
+        voices = data.voices;
+      }
+
+      this.voicesCache = voices;
+      this.lastVoicesFetch = now;
+      
+      return voices;
+    } catch (error) {
+      console.error('[TTS] Failed to fetch voices:', error);
+      return this.voicesCache; // Return cached voices on error
+    }
+  }
+
+  getCachedVoices(): VoiceInfo[] {
+    return [...this.voicesCache];
+  }
+
+  // ============================================
+  // Audio Generation
+  // ============================================
+
+  async generateSpeech(
+    text: string,
+    voiceConfig: CharacterVoiceConfig,
+    options?: {
+      model?: string;
+      language?: string;
+      responseFormat?: 'mp3' | 'wav' | 'ogg' | 'flac';
+    }
+  ): Promise<{ audioBlob: Blob; format: string }> {
+    const provider = this.config.provider || 'tts-webui';
+    const model = options?.model || this.config.model;
+    const format = options?.responseFormat || this.config.responseFormat;
+
+    // Build request body for the /api/tts/speech proxy endpoint.
+    // The proxy handles all provider-specific formatting (TTS-WebUI, OmniVoice, etc.)
+    // This avoids CORS issues and ensures the backend handles direct server connections.
+    const requestBody: Record<string, unknown> = {
+      text,
+      model,
+      provider,
+      endpoint: this.config.baseUrl,
+      response_format: format,
+    };
+
+    // Add voice ID
+    if (voiceConfig.voiceId && 
+        voiceConfig.voiceId !== 'default' && 
+        voiceConfig.voiceId !== 'none') {
+      requestBody.voice = voiceConfig.voiceId;
+    } else if (this.config.defaultVoice && 
+               this.config.defaultVoice !== 'default' && 
+               this.config.defaultVoice !== 'none') {
+      requestBody.voice = this.config.defaultVoice;
+    }
+
+    // Add speed
+    const speed = voiceConfig.speed ?? this.config.speed;
+    if (speed !== undefined && speed !== 1.0) {
+      requestBody.speed = speed;
+    }
+
+    // Add language
+    const language = voiceConfig.language || options?.language || this.config.language;
+    if (language) {
+      requestBody.language = language;
+    }
+
+    // Add TTS-WebUI specific parameters
+    if (provider === 'tts-webui') {
+      requestBody.exaggeration = voiceConfig.exaggeration ?? this.config.exaggeration;
+      requestBody.cfg_weight = voiceConfig.cfgWeight ?? this.config.cfgWeight;
+      requestBody.temperature = voiceConfig.temperature ?? this.config.temperature;
+    }
+
+    // Add OmniVoice specific parameters
+    if (provider === 'omnivoice') {
+      requestBody.temperature = voiceConfig.temperature ?? this.config.temperature;
+      if (this.config.voiceDesign?.trim()) {
+        requestBody.voiceDesign = this.config.voiceDesign.trim();
+      }
+      if (this.config.instruct?.trim()) {
+        requestBody.instruct = this.config.instruct.trim();
+      }
+    }
+
+    const providerLabel = provider === 'omnivoice' ? 'OmniVoice' : 'TTS-WebUI';
+    console.log(`[${providerLabel}] Generating speech via proxy for:`, text.substring(0, 50) + '...');
+    console.log(`[${providerLabel}] Request:`, {
+      provider,
+      model,
+      voice: requestBody.voice || '(default)',
+      language: requestBody.language || '(default)',
+    });
+
+    // Call the Next.js API proxy endpoint instead of the TTS server directly.
+    // This avoids CORS issues and lets the backend handle provider-specific logic.
+    const response = await fetch('/api/tts/speech', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      const errorMsg = errorData?.error || `Server returned ${response.status}`;
+      throw new Error(`TTS generation failed: ${errorMsg}`);
+    }
+
+    // The proxy returns JSON with base64-encoded audio
+    const data = await response.json();
+    
+    if (!data.success || !data.audio) {
+      throw new Error(data.error || 'TTS generation failed: no audio returned');
+    }
+
+    // Decode base64 audio to blob
+    const audioBlob = base64ToBlob(data.audio, `audio/${data.format || format}`);
+    
+    if (audioBlob.size < TTSService.MIN_AUDIO_SIZE) {
+      throw new Error(`Audio response too small (${audioBlob.size} bytes)`);
+    }
+
+    console.log(`[${providerLabel}] Audio received: ${audioBlob.size} bytes, format: ${data.format || format}`);
+
+    return { 
+      audioBlob, 
+      format: data.format || format 
+    };
+  }
+
+  // ============================================
+  // Text Processing
+  // ============================================
+
+  processTextForDualVoice(
+    text: string,
+    options: {
+      dialogueVoice: CharacterVoiceConfig;
+      narratorVoice: CharacterVoiceConfig;
+      generateDialogues?: boolean;
+      generateNarrations?: boolean;
+      generatePlainText?: boolean;
+    }
+  ): Array<{ text: string; voiceConfig: CharacterVoiceConfig }> {
+    const segments = parseTextSegments(text);
+    const filtered = filterSegments(segments, {
+      generateDialogues: options.generateDialogues,
+      generateNarrations: options.generateNarrations,
+      generatePlainText: options.generatePlainText,
+    });
+
+    return filtered
+      .filter(segment => segment.text.trim().length > 0)
+      .map(segment => {
+        const cleanedText = cleanTextForTTS(segment.text);
+        
+        let voiceConfig: CharacterVoiceConfig;
+        switch (segment.type) {
+          case 'dialogue':
+            voiceConfig = options.dialogueVoice;
+            break;
+          case 'narrator':
+            voiceConfig = options.narratorVoice;
+            break;
+          case 'plain':
+          default:
+            voiceConfig = options.dialogueVoice;
+        }
+
+        return {
+          text: cleanedText,
+          voiceConfig: { ...DEFAULT_VOICE_CONFIG, ...voiceConfig },
+        };
+      })
+      .filter(item => item.text.length > 0);
+  }
+
+  // ============================================
+  // Queue Management
+  // ============================================
+
+  addToQueue(
+    text: string,
+    voiceConfig: CharacterVoiceConfig,
+    options?: {
+      characterId?: string;
+      priority?: number;
+    }
+  ): string | null {
+    // Skip empty or very short text — TTS servers may return empty audio for these
+    if (!text || text.trim().length < 2) {
+      console.log('[TTS] Skipping queue item — text too short:', text?.substring(0, 30));
+      return null;
+    }
+
+    const id = `tts-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    const item: TTSQueueItem = {
+      id,
+      text,
+      voiceConfig: { ...DEFAULT_VOICE_CONFIG, ...voiceConfig },
+      characterId: options?.characterId,
+      priority: options?.priority || 0,
+      status: 'pending',
+    };
+
+    // Insert sorted by priority
+    const insertIndex = this.queue.findIndex(i => i.priority < item.priority);
+    if (insertIndex === -1) {
+      this.queue.push(item);
+    } else {
+      this.queue.splice(insertIndex, 0, item);
+    }
+
+    this.onQueueUpdate?.(this.queue);
+    
+    // Start processing if not playing
+    if (!this.isPlaying) {
+      this.processQueue();
+    }
+
+    return id;
+  }
+
+  private static readonly MAX_RETRIES = 2;
+  private static readonly RETRY_DELAY_MS = 1000;
+  private static readonly MIN_AUDIO_SIZE = 1024; // 1KB minimum - anything less is likely empty/invalid
+
+  /**
+   * Process the queue — the main pipeline loop.
+   * 
+   * SERIALIZATION GUARANTEE: Only ONE TTS API request is in flight at any time.
+   * The pipeline works as a chain:
+   *   1. Generate item → cache audio blob
+   *   2. While playing item, start generating the NEXT item in background
+   *   3. When playback ends, if next is pre-cached → play immediately (0ms wait)
+   *   4. Repeat until queue is empty
+   * 
+   * State machine per item:
+   *   pending → generating → ready → playing → completed
+   *                                ↑         ↑
+   *                                └─────────┘  (if pre-generated, skip generating)
+   */
+  private async processQueue() {
+    if (this.isPlaying || this.queue.length === 0) {
+      return;
+    }
+
+    const item = this.queue[0];
+
+    // ── Case 1: Item already pre-generated (ready) → play immediately ──
+    if (item.status === 'ready' && item.audioUrl) {
+      this.isPlaying = true;
+      // Start pre-generating the NEXT item while we play this one
+      this.pregenerateNext();
+      await this.playItem(item);
+      return;
+    }
+
+    // ── Case 2: Item is being pre-generated right now → wait for it ──
+    // playNext() will call processQueue() again when the current item finishes,
+    // and if this item is still generating, we get here. The pregenerateNext()
+    // method will detect this item is now at index 0 and trigger playback.
+    if (item.status === 'generating') {
+      return; // pregenerateNext() will call processQueue() when done
+    }
+
+    // ── Case 3: Item is pending → generate it now ──
+    if (item.status !== 'pending') {
+      return;
+    }
+
+    this.isPlaying = true;
+    item.status = 'generating';
+    this.onQueueUpdate?.(this.queue);
+
+    let lastError: string | undefined;
+
+    // Retry loop for transient TTS failures
+    for (let attempt = 0; attempt <= TTSService.MAX_RETRIES; attempt++) {
+      try {
+        const { audioBlob } = await this.generateSpeech(item.text, item.voiceConfig);
+        
+        // Validate audio size — skip if too small (likely empty or corrupt)
+        if (audioBlob.size < TTSService.MIN_AUDIO_SIZE) {
+          console.warn(`[TTS] Audio too small (${audioBlob.size} bytes), attempt ${attempt + 1}/${TTSService.MAX_RETRIES + 1}`);
+          lastError = `Audio response too small (${audioBlob.size} bytes)`;
+          
+          if (attempt < TTSService.MAX_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, TTSService.RETRY_DELAY_MS * (attempt + 1)));
+            continue;
+          }
+          throw new Error(lastError);
+        }
+
+        // Cache the audio blob — generation is done
+        item.status = 'ready';
+        item.audioUrl = URL.createObjectURL(audioBlob);
+        item.audioBlob = audioBlob;
+        this.onQueueUpdate?.(this.queue);
+
+        // Start pre-generating the next item in background (fire-and-forget).
+        // This is serialized: pregenerateNext() checks isGenerating to prevent
+        // overlapping requests. Only 1 TTS request is ever in flight.
+        this.pregenerateNext();
+
+        // Play the current item. This blocks until playback ends.
+        // Meanwhile, pregenerateNext() runs in background.
+        await this.playItem(item);
+        return; // Success — exit retry loop
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Unknown error';
+        const isRetryable = lastError.includes('empty audio') || 
+                           lastError.includes('too small') ||
+                           lastError.includes('fetch failed') ||
+                           lastError.includes('NetworkError') ||
+                           lastError.includes('ECONNREFUSED');
+        
+        console.warn(`[TTS] Generation attempt ${attempt + 1}/${TTSService.MAX_RETRIES + 1} failed:`, lastError);
+        
+        if (attempt < TTSService.MAX_RETRIES && isRetryable) {
+          const delay = TTSService.RETRY_DELAY_MS * (attempt + 1);
+          console.log(`[TTS] Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // Non-retryable error or max retries exceeded
+        item.status = 'error';
+        item.error = lastError;
+        this.onPlaybackError?.(item, lastError);
+        this.onQueueUpdate?.(this.queue);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Pre-generate the next pending item in the queue while the current one plays.
+   * 
+   * SERIALIZATION: Uses `isGenerating` flag to ensure only one TTS request
+   * is in flight at any time (including the one in processQueue).
+   * 
+   * RACE CONDITION HANDLING: When this method finishes generating an item,
+   * it checks if that item has become the first in the queue (because previous
+   * items finished playing during generation). If so, it triggers processQueue()
+   * to start playback immediately.
+   */
+  private async pregenerateNext() {
+    // Guard: don't start if already generating — ensures serialization
+    if (this.isGenerating) {
+      return;
+    }
+
+    // Find the next pending item (skip index 0, which is the one currently playing)
+    const nextIndex = this.queue.findIndex(
+      (item, idx) => idx > 0 && item.status === 'pending'
+    );
+    if (nextIndex === -1) {
+      return; // No more items to pre-generate
+    }
+
+    const nextItem = this.queue[nextIndex];
+    this.isGenerating = true;
+    nextItem.status = 'generating';
+    this.onQueueUpdate?.(this.queue);
+
+    try {
+      const { audioBlob } = await this.generateSpeech(nextItem.text, nextItem.voiceConfig);
+
+      // Validate audio size
+      if (audioBlob.size < TTSService.MIN_AUDIO_SIZE) {
+        console.warn(`[TTS] Pre-gen audio too small (${audioBlob.size} bytes), will retry on play`);
+        nextItem.status = 'pending'; // Reset so processQueue will try again later
+        this.onQueueUpdate?.(this.queue);
+        return;
+      }
+
+      // Cache the audio — ready for immediate playback
+      nextItem.status = 'ready';
+      nextItem.audioUrl = URL.createObjectURL(audioBlob);
+      nextItem.audioBlob = audioBlob;
+      this.onQueueUpdate?.(this.queue);
+      console.log(`[TTS] Pre-generated next item: "${nextItem.text.substring(0, 40)}..."`);
+
+      // If queue was cleared or item removed during generation, clean up blob
+      if (!this.queue.includes(nextItem)) {
+        if (nextItem.audioUrl) URL.revokeObjectURL(nextItem.audioUrl);
+        return;
+      }
+
+      // ── RACE CONDITION FIX ──
+      // If the previous item finished playing while we were generating,
+      // this item is now at index 0 and nothing is playing.
+      // Trigger processQueue() to play it immediately.
+      if (this.queue[0] === nextItem && !this.isPlaying) {
+        this.processQueue();
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.warn(`[TTS] Pre-generation failed for next item:`, errorMsg);
+      // Reset to pending so processQueue will retry when it's this item's turn
+      nextItem.status = 'pending';
+      this.onQueueUpdate?.(this.queue);
+
+      // Same race condition check — if this item is now at index 0 and nothing
+      // is playing, trigger processQueue to attempt normal generation
+      if (this.queue[0] === nextItem && !this.isPlaying) {
+        this.processQueue();
+      }
+    } finally {
+      this.isGenerating = false;
+    }
+  }
+
+  private async playItem(item: TTSQueueItem) {
+    if (!item.audioUrl) {
+      return;
+    }
+
+    item.status = 'playing';
+    this.onPlaybackStart?.(item);
+    this.onQueueUpdate?.(this.queue);
+
+    this.currentAudio = new Audio(item.audioUrl);
+    
+    return new Promise<void>((resolve) => {
+      if (!this.currentAudio) {
+        resolve();
+        return;
+      }
+
+      // Store resolve so it can be called exactly once
+      let resolved = false;
+      const safeResolve = () => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      };
+
+      // Track whether play() already handled an error.
+      // The HTMLAudioElement onerror fires as a side-effect when play() rejects,
+      // so we must suppress it to avoid double error reporting.
+      let playErrorHandled = false;
+
+      this.currentAudio.onended = () => {
+        item.status = 'completed';
+        this.onPlaybackEnd?.(item);
+        this.cleanupCurrentItem();
+        this.playNext();
+        safeResolve();
+      };
+
+      // onerror fires on media decode/network errors DURING playback.
+      // We suppress it when play() already handled the error (autoplay or other).
+      this.currentAudio.onerror = () => {
+        if (playErrorHandled) {
+          // Error was already handled by the play() catch block — skip
+          return;
+        }
+        console.warn('[TTS] Media error during playback for item:', item.id);
+        item.status = 'error';
+        item.error = 'Audio decode error';
+        this.onPlaybackError?.(item, item.error);
+        this.cleanupCurrentItem();
+        this.playNext();
+        safeResolve();
+      };
+
+      // Try to play — handle autoplay policy gracefully
+      const doPlay = () => {
+        if (!this.currentAudio) {
+          safeResolve();
+          return;
+        }
+        this.currentAudio.play().then(() => {
+          this.autoplayBlocked = false;
+        }).catch((error) => {
+          // Mark error as handled so onerror doesn't double-report
+          playErrorHandled = true;
+
+          // Check if it's an autoplay policy error
+          const errorMsg = error?.message || String(error);
+          if (errorMsg.includes("user didn't interact") || 
+              errorMsg.includes('NotAllowedError') ||
+              errorMsg.includes('play() failed')) {
+            console.warn('[TTS] Autoplay blocked by browser policy. Audio will play after user interaction.');
+            this.autoplayBlocked = true;
+            item.status = 'autoplay_blocked';
+            this.onAutoplayBlocked?.();
+            this.onQueueUpdate?.(this.queue);
+
+            // Set up a one-time listener for the next user interaction to retry
+            const retryHandler = () => {
+              cleanup();
+              unlockAudio().then((success) => {
+                if (success && item.status === 'autoplay_blocked') {
+                  item.status = 'ready';
+                  this.isPlaying = false;
+                  this.processQueue();
+                }
+              });
+            };
+            const cleanup = () => {
+              document.removeEventListener('click', retryHandler);
+              document.removeEventListener('keydown', retryHandler);
+              document.removeEventListener('touchstart', retryHandler);
+            };
+            document.addEventListener('click', retryHandler, { once: true });
+            document.addEventListener('keydown', retryHandler, { once: true });
+            document.addEventListener('touchstart', retryHandler, { once: true });
+
+            // Don't call playNext — we want to keep the item in queue
+            // so it can retry after user interaction
+            this.isPlaying = false;
+            safeResolve();
+          } else {
+            // Different error — not autoplay related
+            console.error('[TTS] Play error:', errorMsg);
+            item.status = 'error';
+            item.error = errorMsg;
+            this.onPlaybackError?.(item, item.error || 'Unknown playback error');
+            this.cleanupCurrentItem();
+            this.playNext();
+            safeResolve();
+          }
+        });
+      };
+
+      // If audio is already unlocked, play immediately
+      if (isAudioReady()) {
+        doPlay();
+      } else {
+        // Try play first — might work if there was a prior gesture
+        doPlay();
+      }
+    });
+  }
+
+  private playNext() {
+    // Remove completed item from queue
+    if (this.queue.length > 0 && this.queue[0].status === 'completed') {
+      this.queue.shift();
+    }
+
+    this.isPlaying = false;
+    this.onQueueUpdate?.(this.queue);
+
+    // Process next item — if it was pre-generated (status='ready'),
+    // processQueue will skip generation and go straight to playback
+    if (this.queue.length > 0) {
+      this.processQueue();
+    }
+  }
+
+  private cleanupCurrentItem() {
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
+  }
+
+  // ============================================
+  // Playback Controls
+  // ============================================
+
+  stop() {
+    this.cleanupCurrentItem();
+    
+    // Clean up all queued items
+    for (const item of this.queue) {
+      if (item.audioUrl) {
+        URL.revokeObjectURL(item.audioUrl);
+      }
+    }
+    
+    this.queue = [];
+    this.isPlaying = false;
+    this.isGenerating = false;
+    this.autoplayBlocked = false;
+    this.onQueueUpdate?.(this.queue);
+  }
+
+  pause() {
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+    }
+  }
+
+  resume() {
+    if (this.currentAudio) {
+      this.currentAudio.play().catch((error) => {
+        // If resume also blocked, try unlocking first
+        if (error?.message?.includes('user didn\'t interact') || 
+            error?.message?.includes('NotAllowedError')) {
+          unlockAudio().then((success) => {
+            if (success && this.currentAudio) {
+              this.currentAudio.play().catch(() => {});
+            }
+          });
+        }
+      });
+    }
+  }
+
+  getQueue(): TTSQueueItem[] {
+    return [...this.queue];
+  }
+
+  getIsPlaying(): boolean {
+    return this.isPlaying;
+  }
+
+  removeFromQueue(itemId: string) {
+    const index = this.queue.findIndex(item => item.id === itemId);
+    if (index !== -1) {
+      const item = this.queue[index];
+      if (item.audioUrl) {
+        URL.revokeObjectURL(item.audioUrl);
+      }
+      this.queue.splice(index, 1);
+      this.onQueueUpdate?.(this.queue);
+    }
+  }
+
+  clearQueue() {
+    for (const item of this.queue) {
+      if (item.audioUrl) {
+        URL.revokeObjectURL(item.audioUrl);
+      }
+    }
+    this.queue = [];
+    this.onQueueUpdate?.(this.queue);
+  }
+
+  // ============================================
+  // Utility Methods
+  // ============================================
+
+  /**
+   * Get current connection status without making a network request.
+   * Returns cached status from the last check.
+   */
+  getCachedConnectionStatus(): 'online' | 'offline' | 'unknown' {
+    return this.connectionStatus;
+  }
+
+  /**
+   * Check if enough time has passed since last connection check.
+   */
+  private shouldCheckConnection(): boolean {
+    const now = Date.now();
+    const elapsed = now - this.lastConnectionCheck;
+    const cooldown = this.connectionStatus === 'online'
+      ? this.connectionCheckCooldownOnline
+      : this.connectionStatus === 'offline'
+        ? this.connectionCheckCooldownOffline
+        : this.connectionCheckCooldownUnknown;
+    return elapsed >= cooldown;
+  }
+
+  /**
+   * Reset connection status to unknown — forces a fresh check next time.
+   * Call when the TTS config (baseUrl) changes.
+   */
+  resetConnectionStatus(): void {
+    this.connectionStatus = 'unknown';
+    this.lastConnectionCheck = 0;
+  }
+
+  async testConnection(forceCheck = false): Promise<{ status: 'online' | 'offline'; error?: string }> {
+    // Return cached status if within cooldown period (unless forced)
+    if (!forceCheck && !this.shouldCheckConnection()) {
+      return {
+        status: this.connectionStatus === 'unknown' ? 'offline' : this.connectionStatus,
+        error: this.connectionStatus === 'offline' ? 'Server offline (cached)' : undefined,
+      };
+    }
+
+    try {
+      // Use the Next.js API proxy instead of direct server call (avoids CORS)
+      const response = await fetch(`/api/tts/speech?endpoint=${encodeURIComponent(this.config.baseUrl)}&provider=${this.config.provider || 'tts-webui'}`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000), // 10s timeout
+      });
+
+      this.lastConnectionCheck = Date.now();
+
+      const data = await response.json();
+      
+      if (data.status === 'online') {
+        this.connectionStatus = 'online';
+        return { status: 'online' };
+      } else {
+        this.connectionStatus = 'offline';
+        return { status: 'offline', error: data.error || 'Server offline' };
+      }
+    } catch (error) {
+      this.lastConnectionCheck = Date.now();
+      this.connectionStatus = 'offline';
+      console.warn('[TTS] Connection check failed:', error instanceof Error ? error.message : 'Unknown error');
+      return { 
+        status: 'offline', 
+        error: error instanceof Error ? error.message : 'Connection failed' 
+      };
+    }
+  }
+}
+
+// ============================================
+// Helper Functions
+// ============================================
+
+function extractLanguage(voiceId: string): string | undefined {
+  const match = voiceId.match(/\/([a-z]{2})-/);
+  return match ? match[1] : undefined;
+}
+
+/**
+ * Convert a base64-encoded string to a Blob.
+ * Used to decode audio data returned by the /api/tts/speech proxy.
+ */
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const byteCharacters = atob(base64);
+  const byteArrays: Uint8Array[] = [];
+
+  for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+    const slice = byteCharacters.slice(offset, offset + 512);
+    const byteNumbers = new Array(slice.length);
+    for (let i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i);
+    }
+    byteArrays.push(new Uint8Array(byteNumbers));
+  }
+
+  return new Blob(byteArrays, { type: mimeType });
+}
+
+// ============================================
+// Export Singleton
+// ============================================
+
+export const ttsService = new TTSService();
+export { TTSService };
+export { unlockAudio, isAudioReady, onAudioUnlocked };

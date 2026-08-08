@@ -1,0 +1,52 @@
+{
+  "theme": "dark",
+  "fontSize": 16,
+  "messageDisplay": "bubble",
+  "showTimestamps": true,
+  "showTokens": true,
+  "autoScroll": true,
+  "autoSave": true,
+  "autoSaveInterval": 30000,
+  "confirmDelete": true,
+  "defaultBackground": "",
+  "backgroundFit": "cover",
+  "swipeEnabled": true,
+  "hotkeys": {
+    "send": "Enter",
+    "newLine": "Shift+Enter",
+    "regenerate": "Ctrl+R",
+    "swipeLeft": "ArrowLeft",
+    "swipeRight": "ArrowRight"
+  },
+  "sound": {
+    "enabled": true,
+    "globalVolume": 0.85,
+    "maxSoundsPerMessage": 3,
+    "globalCooldown": 150,
+    "realtimeEnabled": true
+  },
+  "backgroundTriggers": {
+    "enabled": true,
+    "globalCooldown": 250,
+    "realtimeEnabled": true,
+    "transitionDuration": 500
+  },
+  "chatLayout": {
+    "novelMode": true,
+    "chatWidth": 60,
+    "chatHeight": 70,
+    "chatX": 50,
+    "chatY": 50,
+    "chatOpacity": 0.95,
+    "blurBackground": true,
+    "showCharacterSprite": true
+  },
+  "context": {
+    "maxMessages": 50,
+    "maxTokens": 4096,
+    "keepFirstN": 1,
+    "keepLastN": 20,
+    "enableSummaries": false,
+    "summaryThreshold": 40
+  }
+}

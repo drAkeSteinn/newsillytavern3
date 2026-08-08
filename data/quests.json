@@ -1,0 +1,9 @@
+{
+  "quests": [],
+  "questSettings": {
+    "enabled": false,
+    "autoTrack": true,
+    "showNotifications": true
+  },
+  "questNotifications": []
+}

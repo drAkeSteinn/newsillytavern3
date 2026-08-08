@@ -1,0 +1,12 @@
+{
+  "items": [],
+  "activeConsumableEffects": [],
+  "containers": [],
+  "currencies": [],
+  "inventorySettings": {
+    "enabled": false,
+    "maxItems": 100,
+    "autoAdd": false
+  },
+  "inventoryNotifications": []
+}

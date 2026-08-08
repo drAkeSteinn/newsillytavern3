@@ -1,0 +1,11 @@
+{
+  "summaries": [],
+  "summarySettings": {
+    "enabled": false,
+    "maxSummaries": 10,
+    "autoSummarize": false,
+    "threshold": 50
+  },
+  "characterMemories": {},
+  "sessionTracking": {}
+}
