@@ -197,6 +197,8 @@ export function ChatPanel() {
   const initSessionTracking = useTavernStore((state) => state.initSessionTracking);
   const getCharacterMemory = useTavernStore((state) => state.getCharacterMemory);
   const deleteMessagesUpTo = useTavernStore((state) => state.deleteMessagesUpTo);
+  // FASE 11 v2: para togglear proactivo sin editar la card
+  const updateCharacter = useTavernStore((state) => state.updateCharacter);
 
   // Ref to track ongoing generation and prevent race conditions
   const generationIdRef = useRef<string | null>(null);
@@ -2813,10 +2815,22 @@ export function ChatPanel() {
       )}
 
       {/* Floating Chat Box */}
-      <NovelChatBox 
+      <NovelChatBox
         onSendMessage={(msg) => handleSend(msg)}
         isGenerating={isGenerating}
         isGeneratingProactive={isGeneratingProactive}
+        onForceProactive={triggerProactiveNow}
+        proactiveEnabled={!!activeCharacter?.proactiveMessages?.enabled}
+        proactiveAvailable={!!activeCharacter?.proactiveMessages?.proactiveAttribute?.enabled}
+        onToggleProactive={(enabled) => {
+          if (!activeCharacter) return;
+          updateCharacter(activeCharacter.id, {
+            proactiveMessages: {
+              ...activeCharacter.proactiveMessages,
+              enabled,
+            },
+          });
+        }}
         onStopGeneration={handleStopGeneration}
         onResetChat={handleResetChat}
         onClearChat={handleClearChat}

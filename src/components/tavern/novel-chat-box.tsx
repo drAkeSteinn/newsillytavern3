@@ -76,6 +76,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { ChatLayoutSettings, CharacterCard, CharacterGroup, Persona, ChatboxAppearanceSettings } from '@/types';
 import { DEFAULT_CHATBOX_APPEARANCE, THEME_COLOR_PRESETS } from '@/types';
@@ -103,6 +110,14 @@ interface NovelChatBoxProps {
   isGenerating: boolean;
   /** Whether a proactive message is being generated (separate from isGenerating) */
   isGeneratingProactive?: boolean;
+  /** FASE 11 v2: Force a proactive message now (manual trigger, bypasses timer). */
+  onForceProactive?: () => void;
+  /** FASE 11 v2: Whether proactive is enabled for the active character (for the toggle switch). */
+  proactiveEnabled?: boolean;
+  /** FASE 11 v2: Toggle proactive on/off for the active character without editing the card. */
+  onToggleProactive?: (enabled: boolean) => void;
+  /** FASE 11 v2: Whether proactive is available (character has proactiveAttribute configured). */
+  proactiveAvailable?: boolean;
   onStopGeneration?: () => void;
   onResetChat?: () => void;
   onClearChat?: () => void;
@@ -220,6 +235,10 @@ export function NovelChatBox({
   onSendMessage,
   isGenerating,
   isGeneratingProactive = false,
+  onForceProactive,
+  proactiveEnabled = false,
+  onToggleProactive,
+  proactiveAvailable = false,
   onStopGeneration,
   onResetChat,
   onClearChat,
@@ -1571,6 +1590,69 @@ export function NovelChatBox({
           </div>
           
           <div className="flex items-center gap-1">
+            {/* FASE 11 v2: Proactivo toggle + force button */}
+            {onToggleProactive && (
+              <TooltipProvider>
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-amber-500/20 bg-amber-500/5">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-1">
+                        <Sparkles className={cn(
+                          "w-3.5 h-3.5",
+                          proactiveEnabled ? "text-amber-500" : "text-muted-foreground/50"
+                        )} />
+                        <Switch
+                          checked={proactiveEnabled}
+                          onCheckedChange={onToggleProactive}
+                          disabled={!proactiveAvailable}
+                          className="scale-75 origin-center"
+                        />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      <p className="font-medium">Proactivo</p>
+                      <p className="text-muted-foreground">
+                        {!proactiveAvailable
+                          ? 'Configura "Proactivo Condicional por Atributo" en el editor del personaje'
+                          : proactiveEnabled
+                            ? 'Activado — el personaje tomará la iniciativa según el timer'
+                            : 'Desactivado — el personaje no enviará mensajes automáticos'}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                  {/* Force proactive button */}
+                  {proactiveEnabled && onForceProactive && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 p-0 hover:bg-amber-500/10"
+                          onClick={onForceProactive}
+                          disabled={isAnyGenerating}
+                          title="Forzar mensaje proactivo ahora"
+                        >
+                          {isGeneratingProactive ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                          ) : (
+                            <Zap className="w-3.5 h-3.5 text-amber-500" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        <p className="font-medium">Forzar proactivo</p>
+                        <p className="text-muted-foreground">
+                          {isGeneratingProactive
+                            ? 'Generando mensaje proactivo...'
+                            : 'Envía un mensaje proactivo ahora (sin esperar el timer)'}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              </TooltipProvider>
+            )}
+
             {/* Session Variables Popover */}
             <Popover open={showVariables} onOpenChange={setShowVariables}>
               <PopoverTrigger asChild>
@@ -2406,12 +2488,37 @@ export function NovelChatBox({
                   </Button>
                   {/* Permission denied warning - now clickable */}
                   {permissionStatus === 'denied' && !isRecording && !isTranscribing && (
-                    <button 
+                    <button
                       onClick={handleRecordingClick}
                       className="text-xs text-amber-500 hover:text-amber-400 transition-colors cursor-pointer"
                     >
                       <span className="opacity-70">🔓 Solicitar permiso</span>
                     </button>
+                  )}
+                  {/* FASE 11 v2: Force proactive message button */}
+                  {onForceProactive && proactiveEnabled && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={cn(
+                        "h-8 w-8 flex-shrink-0 transition-all border-amber-500/30 hover:bg-amber-500/10 hover:border-amber-500/50",
+                        isGeneratingProactive && "bg-amber-500/20 border-amber-500/50"
+                      )}
+                      onClick={onForceProactive}
+                      disabled={isAnyGenerating}
+                      title={
+                        isGeneratingProactive
+                          ? 'Generando mensaje proactivo...'
+                          : 'Forzar mensaje proactivo ahora (sin esperar el timer)'
+                      }
+                    >
+                      {isGeneratingProactive ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 text-amber-500" />
+                      )}
+                    </Button>
                   )}
                   <Button
                     size="icon"

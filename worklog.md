@@ -1509,3 +1509,28 @@ Stage Summary:
 - systemPromptOverride y postHistoryOverride usan semántica REPLACE (vacío = hereda de la card).
 - proactiveAttribute es REQUERIDO para que funcione el proactivo (Decisión 1, opción a).
 - ProactiveMessagesConfig pasó de ~20 campos a 8 (enabled, intervalSeconds, minMessagesBeforeStart, maxPerSession, allowedStates, groupChatEnabled, groupChatStrategy, systemPromptOverride, postHistoryOverride, proactiveAttribute).
+
+---
+Task ID: FASE11-UI-CHATBOX
+Agent: main (Z.ai Code)
+Task: Agregar a la chatbox (1) botón para forzar proactivo y (2) switch para activar/desactivar proactivo sin editar la card.
+
+Work Log:
+- novel-chat-box.tsx: añadidos props onForceProactive, proactiveEnabled, onToggleProactive, proactiveAvailable.
+- novel-chat-box.tsx: importados Switch y Tooltip de @/components/ui.
+- novel-chat-box.tsx (barra superior, ~línea 1592): añadido bloque "Proactivo" con icono Sparkles + Switch (toggle on/off) + botón Zap (forzar). Deshabilitado si proactiveAvailable=false. Tooltip explica el estado.
+- novel-chat-box.tsx (zona de botones de grabación, ~línea 2498): añadido botón Sparkles para forzar proactivo (solo visible si proactiveEnabled). Muestra Loader2 animado durante isGeneratingProactive.
+- chat-panel.tsx: añadido updateCharacter del store. Pasados onForceProactive={triggerProactiveNow}, proactiveEnabled={activeCharacter.proactiveMessages.enabled}, proactiveAvailable={proactiveAttribute?.enabled}, onToggleProactive={(enabled) => updateCharacter(id, {proactiveMessages: {...prev, enabled}})} al NovelChatBox.
+- use-proactive-messages.tsx: handler proactive_skipped ahora muestra toast feedback (proactive_attribute_disabled | no_matching_case) para que el usuario sepa por qué no se generó mensaje (especialmente útil cuando forzó).
+
+Verificación:
+- ESLint: LIMPIO
+- GET / -> 200 (compila)
+- POST /api/chat/proactive sigue funcionando (case_selected + proactive_start emitidos correctamente)
+- Limitación: la app es muy grande para 4GB, el browser completo muere por OOM tras cargar. Pero la compilación y el API funcionan.
+
+Stage Summary:
+- Botón "Forzar Proactivo" (Sparkles) en la chatbox: el usuario puede forzar un mensaje proactivo sin esperar el timer. Solo visible si proactivo está habilitado.
+- Switch de proactivo en la barra superior (junto a Variables de Sesión y Config): togglear proactivo on/off sin editar la card. Se persiste en character.proactiveMessages.enabled via updateCharacter.
+- Feedback via toast cuando el proactivo se omite (configuración faltante o sin caso aplicable).
+- El switch está deshabilitado si el personaje no tiene proactiveAttribute configurado (proactiveAvailable=false), con tooltip explicativo.

@@ -409,10 +409,25 @@ export function useProactiveMessages({
                 }
 
                 case 'proactive_skipped': {
-                  // FASE 11: proactiveAttribute activo pero ninguna condición aplicó
-                  // y no hay defaultCases. No se generó mensaje. Solo reiniciamos el
-                  // timer para que vuelva a evaluar en el próximo intervalo.
+                  // FASE 11 v2: el servidor no generó mensaje proactivo.
+                  // Dos razones posibles:
+                  //   - 'proactive_attribute_disabled': proactiveAttribute no está habilitado
+                  //   - 'no_matching_case': ninguna condición aplicó y no hay defaultCases
+                  // Reiniciamos el timer y mostramos feedback al usuario (especialmente
+                  // útil cuando forzó el proactivo manualmente).
                   lastActivityTimeRef.current = Date.now();
+                  const skipReason: string = parsed.reason || 'no_matching_case';
+                  if (skipReason === 'proactive_attribute_disabled') {
+                    toast('Proactivo omitido', {
+                      description: 'Configura "Proactivo Condicional por Atributo" en el editor del personaje para que funcione.',
+                      duration: 4000,
+                    });
+                  } else if (skipReason === 'no_matching_case') {
+                    toast('Proactivo omitido', {
+                      description: 'Ninguna condición aplicó para el valor actual del atributo y no hay casos por defecto configurados.',
+                      duration: 4000,
+                    });
+                  }
                   return;
                 }
 
