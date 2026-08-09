@@ -97,11 +97,10 @@ export function useProactiveMessages({
   const isGeneratingRef = useRef(false);
   const lastMessageIdRef = useRef<string>('');
   const isActiveRef = useRef(false);
-  // FASE 3: Track nudge rotation and thematic cooldown
-  const usedNudgeIndicesRef = useRef<number[]>([]);
-  const recentTopicsRef = useRef<{ topic: string; timestamp: number }[]>([]);
-  // FASE 11: Track used case indices per condition (and '__default__' for defaultCases).
+  // FASE 11 v2: Track used case indices per condition (and '__default__' for defaultCases).
   // Mapa: { [trackingKey: string]: number[] }
+  // (El sistema de nudge pool y thematic cooldown fue eliminado en FASE 11 v2 —
+  //  ahora el caso seleccionado por atributo ES el mensaje del usuario, no hay nudge separado.)
   const usedCaseIndicesRef = useRef<Record<string, number[]>>({});
   // FASE 11: Info del caso seleccionado (llega vía SSE proactive_start) para
   // registrarla en ProactiveMessageInfo cuando se complete el stream.
@@ -157,9 +156,6 @@ export function useProactiveMessages({
       lastActivityTimeRef.current = Date.now();
       sessionCountRef.current = 0;
       setSessionCount(0);
-      // FASE 3: Reset tracking data on session change
-      usedNudgeIndicesRef.current = [];
-      recentTopicsRef.current = [];
       return;
     }
 
@@ -171,16 +167,6 @@ export function useProactiveMessages({
     ).length;
     sessionCountRef.current = existingProactiveCount;
     setSessionCount(existingProactiveCount);
-
-    // FASE 3: Restore recent topics from existing proactive messages for thematic cooldown
-    const existingTopics = messages
-      .filter((m) => m.metadata?.proactiveInfo?.isProactive && m.metadata?.proactiveInfo?.topic)
-      .slice(-5)
-      .map((m) => ({
-        topic: m.metadata.proactiveInfo.topic!,
-        timestamp: new Date(m.timestamp).getTime(),
-      }));
-    recentTopicsRef.current = existingTopics;
 
     // Set last activity time from the last message's timestamp
     if (messages.length > 0) {
@@ -362,16 +348,8 @@ export function useProactiveMessages({
             };
           })(),
           // FASE 3: Proactividad Inteligente
-          usedNudgeIndices: usedNudgeIndicesRef.current,
-          recentTopics: recentTopicsRef.current
-            .filter(t => {
-              const cooldownMinutes = config.thematicCooldownMinutes ?? 0;
-              if (cooldownMinutes <= 0) return false;
-              return Date.now() - t.timestamp < cooldownMinutes * 60 * 1000;
-            })
-            .map(t => t.topic),
           isGroupChat: !!activeGroupId,
-          // FASE 11: Proactivo Condicional por Atributo
+          // FASE 11 v2: tracking de índices usados para la rotación linear/random de casos.
           usedCaseIndices: usedCaseIndicesRef.current,
         }),
       });
@@ -441,12 +419,8 @@ export function useProactiveMessages({
                 case 'proactive_start': {
                   // Stream initialized - notify UI for real-time display
                   console.log(`[Proactive] Stream started for ${parsed.characterName} (reason: ${parsed.reason})`);
-                  // FASE 3: Track nudge index for rotation
-                  if (typeof parsed.nudgeIndex === 'number') {
-                    usedNudgeIndicesRef.current = [...usedNudgeIndicesRef.current, parsed.nudgeIndex].slice(-5);
-                  }
-                  // FASE 11: capturamos el caso seleccionado (si vino en proactive_start)
-                  // para registrarlo en ProactiveMessageInfo al final del stream.
+                  // FASE 11 v2: capturamos el caso seleccionado para registrarlo en
+                  // ProactiveMessageInfo al final del stream.
                   if (parsed.conditionId !== undefined) {
                     pendingCaseInfoRef.current = {
                       conditionId: parsed.conditionId,
@@ -624,25 +598,15 @@ export function useProactiveMessages({
                         triggeredAt: new Date().toISOString(),
                         reason: proactiveReason,
                         characterName: parsed.characterName || activeCharacter.name,
-                        // FASE 3: Track nudge index and topic
-                        nudgeIndex: usedNudgeIndicesRef.current[usedNudgeIndicesRef.current.length - 1],
                         topic: extractTopic(cleanedMessage),
-                        // FASE 11: caso seleccionado por atributo (si aplica)
-                        ...(pendingCaseInfoRef.current ? {
-                          conditionId: pendingCaseInfoRef.current.conditionId,
-                          caseIndex: pendingCaseInfoRef.current.caseIndex,
-                        } : {}),
+                        // FASE 11 v2: caso seleccionado por atributo.
+                        // conditionId y caseIndex siempre están (el servidor siempre los envía
+                        // porque proactiveAttribute es requerido para que funcione el proactivo).
+                        conditionId: pendingCaseInfoRef.current?.conditionId ?? null,
+                        caseIndex: pendingCaseInfoRef.current?.caseIndex,
                       };
                       // Limpiamos la info pendiente del caso para el próximo trigger.
                       pendingCaseInfoRef.current = null;
-
-                      // FASE 3: Track topic for thematic cooldown
-                      if (proactiveInfo.topic) {
-                        recentTopicsRef.current = [
-                          ...recentTopicsRef.current,
-                          { topic: proactiveInfo.topic, timestamp: Date.now() },
-                        ].slice(-10); // Keep last 10 topics
-                      }
 
                       // Prefer toolsUsed from the done event (authoritative server list)
                       // Fall back to locally accumulated tools from tool_call_result events

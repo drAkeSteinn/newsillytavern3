@@ -305,11 +305,8 @@ export async function POST(request: NextRequest) {
       proactiveConfig,
       reason = 'timer_idle',
       lastActivityAt,
-      // FASE 3: Proactividad Inteligente
-      usedNudgeIndices: clientUsedNudgeIndices = [],
-      recentTopics: clientRecentTopics = [],
       isGroupChat = false,
-      // FASE 11: Proactivo Condicional por Atributo
+      // FASE 11 v2: tracking de índices usados para la rotación linear/random de casos.
       usedCaseIndices: clientUsedCaseIndices = {},
     } = body;
 
@@ -525,8 +522,16 @@ export async function POST(request: NextRequest) {
     // ========================================
     // Build system prompt with unified key resolution
     // ========================================
+    // FASE 11 v2: Si systemPromptOverride está configurado, REEMPLAZA character.systemPrompt.
+    // El resto de la card (description, personality, scenario, etc.) se mantiene igual.
+    // buildSystemPrompt resuelve las keys ({{user}}, {{char}}, {{vida}}, etc.) internamente.
+    const _systemPromptOverrideRaw = proactiveConfig.systemPromptOverride?.trim();
+    const characterForPrompt: CharacterCard = _systemPromptOverrideRaw
+      ? { ...effectiveCharacter, systemPrompt: _systemPromptOverrideRaw }
+      : effectiveCharacter;
+
     const { prompt: systemPrompt, sections: systemSections, lorebookChatInjections, exampleMessages } = buildSystemPrompt(
-      effectiveCharacter,
+      characterForPrompt,
       effectiveUserName,
       persona,
       lorebookPlan,
@@ -590,22 +595,20 @@ export async function POST(request: NextRequest) {
       inventoryData     // Pass inventory data for {{inventory}} and {{currency}} key resolution
     );
 
-    // ─── FASE 11: Proactivo Condicional por Atributo ───
-    // Si proactiveAttribute está habilitado, seleccionamos el caso (mensaje)
-    // según el valor actual del atributo y las condiciones configuradas.
-    // El caso seleccionado se interpola entre proactivePrefix y proactiveSuffix.
-    const proactiveAttributeConfig = proactiveConfig.proactiveAttribute;
-    const selectedProactiveCase = proactiveAttributeConfig?.enabled
+    // ─── FASE 11 v2: Seleccionar el caso proactivo según el atributo ───
+    // La selección ocurre aquí (antes de buildSystemPrompt) para que el override
+    // del system prompt pueda usar el keyContext ya construido. Si no hay caso
+    // seleccionado, abajo se decide si se salta o se usa defaultCases.
+    // Nota: proactiveAttributeConfig se define MÁS ABAJO (línea ~758) — aquí solo
+    // seleccionamos el caso usando el config directamente.
+    const selectedProactiveCase = proactiveConfig.proactiveAttribute?.enabled
       ? selectProactiveCase(
-          proactiveAttributeConfig,
+          proactiveConfig.proactiveAttribute,
           sessionStats,
           effectiveCharacter?.id,
           clientUsedCaseIndicesTyped
         )
       : null;
-    // selectedProactiveCase === null significa: usar el comportamiento heredado
-    // (customPrompt / default instruction). Si proactiveAttribute está habilitado
-    // pero no hay caso seleccionable, abajo decidiremos si saltamos o caemos al fallback.
 
     // Build HUD context section if enabled (now resolves keys!)
     const hudContextSection = hudContext ? buildHUDContextSection(hudContext, keyContext) : null;
@@ -618,18 +621,10 @@ export async function POST(request: NextRequest) {
     );
 
     // Build post-history instructions section (for prompt viewer).
-    // FASE 11 (refactor): el post-history ahora es el MERGE de character.postHistoryInstructions
-    // + proactiveSuffix (ambos resueltos). buildPostHistorySection resuelve las keys internamente,
-    // así que le pasamos la cadena mergeada cruda y la resuelve de forma idempotente.
-    const _mergedForViewerParts: string[] = [];
-    if (effectiveCharacter.postHistoryInstructions?.trim()) {
-      _mergedForViewerParts.push(effectiveCharacter.postHistoryInstructions.trim());
-    }
-    // Nota: proactiveSuffixResolved todavía no está definido aquí (se define más abajo).
-    // Por eso postHistorySection sólo refleja el character.postHistoryInstructions aquí;
-    // la sección "✨ Sufijo (Post-History Proactivo)" de abajo muestra el suffix por separado.
+    // FASE 11 v2: el post-history es el override (si se configuró) o character.postHistoryInstructions.
+    // buildPostHistorySection resuelve las keys internamente.
     const postHistorySection = buildPostHistorySection(
-      _mergedForViewerParts.length > 0 ? _mergedForViewerParts.join('\n\n') : undefined,
+      proactiveConfig.postHistoryOverride?.trim() || effectiveCharacter.postHistoryInstructions,
       keyContext
     );
 
@@ -741,73 +736,62 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Build proactive instruction with template variables (NOT JS interpolation)
-    const defaultInstruction = `Estás enviando un mensaje a {{user}} sin que haya hablado primero. La conversación ha estado inactiva por un tiempo. Reacciona de forma natural a la situación. Puedes:
-- Comentar algo que está ocurriendo a tu alrededor
-- Expresar un pensamiento o sentimiento
-- Iniciar un nuevo tema de conversación
-- Preguntar algo a {{user}}
-- Reaccionar al silencio o al paso del tiempo
-- Realizar una acción disponible si encaja naturalmente en la escena (ej. *se acerca*, *mira alrededor*, *suspira*)
-
-Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que estás siendo proactivo o que {{user}} no ha hablado. Mantente en personaje en todo momento.`;
-
-    // Group chat proactive instruction variants by strategy (FASE 3)
-    const groupChatStrategy = proactiveConfig.groupChatStrategy || 'any_speaker';
-
-    const groupChatInstructions: Record<string, string> = {
-      any_speaker: `Estás en una conversación grupal. Alguien ha hablado recientemente y decides reaccionar o intervenir de forma natural. Puedes:
-- Reaccionar a lo que alguien dijo
-- Añadir tu perspectiva al tema actual
-- Expresar un pensamiento o sentimiento sobre la situación
-- Interactuar con otro personaje presente
-- Realizar una acción que encaje naturalmente en la escena
-
-Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que estás siendo proactivo. Mantente en personaje en todo momento. Sé selectivo: no reacciones a TODO, solo cuando tengas algo significativo que aportar.`,
-
-      mentioned_only: `Estás en una conversación grupal y alguien te ha mencionado directamente por nombre. Debes responder a lo que te han dicho. Puedes:
-- Responder directamente a quien te mencionó
-- Reaccionar a lo que se te pidió o preguntó
-- Expresar tu opinión sobre el tema del que te hablaron
-- Interactuar con quien te mencionó de forma natural
-
-Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que estás siendo proactivo. Mantente en personaje en todo momento. Solo responde cuando te mencionen explícitamente.`,
-
-      emotional_reaction: `Estás en una conversación grupal y algo que se ha dicho te afecta emocionalmente de forma significativa. Reacciona de manera coherente con tu estado emocional. Puedes:
-- Expresar una reacción emocional intensa (alegría, enojo, sorpresa, tristeza)
-- Realizar una acción que refleje tu estado emocional (*se levanta*, *aprieta los puños*, *sonríe ampliamente*)
-- Intervenir cuando algo te afecte profundamente
-- Mostrar una reacción visible que otros personajes podrían notar
-
-Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que estás siendo proactivo. Mantente en personaje en todo momento. Solo reacciones emocionales fuertes, no intervengas en todo.`
-    };
-
-    const groupChatInstruction = groupChatInstructions[groupChatStrategy] || groupChatInstructions.any_speaker;
-
-    // ─── FASE 11: Construcción del mensaje proactivo (Prefix + Message + Suffix) ───
-    // Si proactiveAttribute está habilitado Y se seleccionó un caso, el "message"
-    // es el contenido de ese caso. Si está habilitado pero NO hay caso seleccionable
-    // (ninguna condición aplicó y no hay defaultCases), saltamos el trigger
-    // retornando una respuesta "skipped" para que el cliente no desperdicie LLM.
+    // ════════════════════════════════════════════════════════════════════════
+    // FASE 11 v2: Proactivo Condicional por Atributo (REQUERIDO)
+    // ════════════════════════════════════════════════════════════════════════
+    // El prompt proactivo se construye IGUAL que un chat normal:
+    //   - System prompt: character.systemPrompt  O  systemPromptOverride (si se configuró)
+    //   - Todas las secciones de la card (description, personality, scenario, etc.)
+    //   - Lorebook (constante + escaneado + atributo)
+    //   - Memoria, HUD, context window — todo igual que chat normal
+    //   - Post-history: character.postHistoryInstructions  O  postHistoryOverride (si se configuró)
     //
-    // Si proactiveAttribute NO está habilitado, caemos al comportamiento heredado:
-    //   message = customPrompt || (groupChat ? groupChatInstruction : defaultInstruction)
+    // La ÚNICA diferencia: el "mensaje del usuario" es el contenido del caso seleccionado
+    // por el atributo (en lugar de input real del usuario). Si no hay caso → skip.
     //
-    // El prompt final al LLM es:
-    //   [Proactive Message Instruction]
-    //   {proactivePrefix}
-    //
-    //   {message}
-    //
-    //   {proactiveSuffix}
-    //
-    // Cada sección se resuelve con resolveAllKeys (soporta {{key}} de lorebook,
-    // {{vida}} de atributos, {{user}}, {{char}}, etc.).
+    // Decisión 1 (opción a): proactiveAttribute es REQUERIDO. Si está deshabilitado,
+    // NO se envía mensaje proactivo (timer se reinicia en el cliente).
+    // ════════════════════════════════════════════════════════════════════════
+
+    const proactiveAttributeConfig = proactiveConfig.proactiveAttribute;
     const proactiveAttrEnabled = !!proactiveAttributeConfig?.enabled;
-    if (proactiveAttrEnabled && !selectedProactiveCase) {
-      // Condiciones activas pero ninguna aplica y no hay default → skip silencioso.
-      // Devolvemos un stream SSE mínimo con un evento `proactive_skipped` para que
-      // el cliente sepa que no se generó nada (y no rompa el timer ni el contador).
+
+    // Si proactiveAttribute no está habilitado → skip silencioso.
+    // El usuario DEBE configurar proactiveAttribute para que el proactivo funcione.
+    if (!proactiveAttrEnabled) {
+      const skipStream = new ReadableStream({
+        start(controller) {
+          try {
+            controller.enqueue(createSSEJSON({
+              type: 'proactive_skipped',
+              reason: 'proactive_attribute_disabled',
+              characterId: effectiveCharacter.id,
+              characterName: effectiveCharacter.name,
+            }));
+            controller.enqueue(createSSEJSON({
+              type: 'done',
+              toolsUsed: 0,
+              questActivations: 0,
+              isProactive: true,
+              characterId: effectiveCharacter.id,
+              characterName: effectiveCharacter.name,
+              reason,
+              shouldExtract: false,
+              skipped: true,
+            }));
+          } catch (e) {
+            // ignore
+          } finally {
+            controller.close();
+          }
+        },
+      });
+      return createSSEStreamResponse(skipStream);
+    }
+
+    // Si proactiveAttribute está habilitado pero ninguna condición aplicó y no hay
+    // defaultCases → skip silencioso (no desperdicia llamada al LLM).
+    if (!selectedProactiveCase) {
       const skipStream = new ReadableStream({
         start(controller) {
           try {
@@ -838,240 +822,24 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
       return createSSEStreamResponse(skipStream);
     }
 
-    // Determinar el "message" (cuerpo de la instrucción proactiva).
-    let rawProactiveMessage: string;
-    if (proactiveAttrEnabled && selectedProactiveCase) {
-      // Caso seleccionado por atributo (FASE 11).
-      rawProactiveMessage = selectedProactiveCase.content;
-    } else {
-      // Comportamiento heredado: customPrompt o instrucción por defecto.
-      rawProactiveMessage = proactiveConfig.customPrompt?.trim()
-        || (isGroupChat ? groupChatInstruction : defaultInstruction);
-    }
+    // ─── El contenido del caso seleccionado ES el mensaje del usuario ───
+    // Se envía como role:'user' (mismo slot que el input del usuario en un chat normal).
+    // Soporta todas las keys: {{user}}, {{char}}, {{vida}}, {{codicia}}, {{key de lorebook}}, etc.
+    const proactiveUserMessage = resolveAllKeys(selectedProactiveCase.content, keyContext);
 
-    // Resolver keys en cada sección (prefix, message, suffix).
-    const rawProactivePrefix = proactiveConfig.proactivePrefix?.trim() ?? '';
-    const rawProactiveSuffix = proactiveConfig.proactiveSuffix?.trim() ?? '';
-    const proactivePrefixResolved = resolveAllKeys(rawProactivePrefix, keyContext);
-    const proactiveSuffixResolved = resolveAllKeys(rawProactiveSuffix, keyContext);
-    const proactiveMessageResolved = resolveAllKeys(rawProactiveMessage, keyContext);
-
-    // ─── FASE 11 (refactor): Prefix = system prompt, Message = instrucción, Suffix = post-history ───
-    // Para que el prompt proactivo estructure IGUAL que un chat normal:
-    //   - proactivePrefix  → se PRE-pend al system prompt (actúa como system prompt adicional)
-    //   - proactiveMessage → va dentro del bloque [Proactive Message Instruction]
-    //   - proactiveSuffix  → fluye al slot de post-history instructions (como character.postHistoryInstructions)
-    //
-    // Antes (FASE 11 v1) los tres se concatenaban y se appendeaban al system prompt, lo que
-    // hacía que el suffix NO funcionara como post-history. Ahora cada uno va a su lugar correcto.
-    const proactiveInstruction = proactiveMessageResolved;
-
-    // Build the final system prompt:
-    //   1. systemPrompt (character card sections: description, personality, scenario, etc.)
-    //   2. proactivePrefix (si existe) — actúa como system prompt adicional
-    //   3. [Proactive Message Instruction] + message (caso seleccionado por atributo)
+    // ─── System prompt: ya construido arriba con el override (si existe) ───
+    // buildSystemPrompt usó characterForPrompt (que tiene systemPromptOverride aplicado si se configuró).
+    // No añadimos NADA extra al system prompt — el caso se envía como user message, no como instrucción.
     let finalSystemPrompt = systemPrompt;
-    if (proactivePrefixResolved) {
-      finalSystemPrompt += `\n\n${proactivePrefixResolved}`;
-    }
-    if (proactiveInstruction) {
-      finalSystemPrompt += `\n\n[Proactive Message Instruction]\n${proactiveInstruction}`;
-    }
 
-    // ─── Merge post-history instructions: character + proactiveSuffix ───
-    // El suffix funciona EXACTAMENTE como character.postHistoryInstructions en un chat normal:
-    // se pasa a buildChatMessages() como el arg postHistoryInstructions y se coloca DESPUÉS
-    // del historial de chat. Si el personaje ya tiene postHistoryInstructions, se mergean
-    // con el suffix separados por \n\n (ambos aplican).
-    // Estas variables se declaran aquí y se usan en TODOS los call sites de abajo
-    // (buildChatMessages y buildCompletionPrompt).
-    const mergedPostHistoryRawParts: string[] = [];
-    const charPostHistoryRaw = effectiveCharacter.postHistoryInstructions?.trim();
-    if (charPostHistoryRaw) mergedPostHistoryRawParts.push(charPostHistoryRaw);
-    if (proactiveSuffixResolved) mergedPostHistoryRawParts.push(proactiveSuffixResolved);
-    // El post-history mergeado se PASA CRUDO a buildChatMessages (ella lo resuelve internamente,
-    // igual que en stream/route.ts). Pero como el suffix ya vino resuelto (resolveAllKeys arriba),
-    // le pasamos la cadena mergeada final (charPostHistory sin resolver + suffix resuelto).
-    // buildChatMessages vuelve a resolver las keys del arg postHistoryInstructions, lo cual es
-    // idempotente para texto ya resuelto (las {{...}} inexistentes se limpian a ''). Por eso
-    // es seguro pasar la cadena mergeada.
-    const mergedPostHistoryInstructions: string | undefined =
-      mergedPostHistoryRawParts.length > 0 ? mergedPostHistoryRawParts.join('\n\n') : undefined;
-
-    // ─── FASE 9: Contexto para Proactividad ───
-    // Inject deep conversation context into the system prompt for more coherent proactive messages.
-    // This goes beyond FASE 3's nudge-level context by adding emotional, relationship,
-    // quest, and abandoned topic context directly into the system prompt.
-    const contextInSystemPrompt = proactiveConfig.contextInSystemPrompt ?? true;
-    const contextMsgMaxChars = proactiveConfig.contextMessageMaxChars ?? 300;
-    const contextMsgCount = proactiveConfig.contextMessagesCount ?? 3;
-
-    // Build enriched context sections
-    const proactiveContextSections: string[] = [];
-
-    // 1. Emotional state context (if enabled and available)
-    if (proactiveConfig.includeEmotionalContext !== false) {
-      const charStats = sessionStats?.characterStats?.[effectiveCharacter.id];
-      const emotionalState = charStats?.emotionalState;
-      const emotionalConfig = effectiveCharacter.emotionalConfig;
-      if (emotionalState && emotionalConfig?.enabled) {
-        proactiveContextSections.push(
-          `[Estado Emocional Actual]\n` +
-          `Actualmente te encuentras: ${emotionalState}\n` +
-          `Esto debe influir en cómo decides iniciar la conversación. ` +
-          `Si estás triste, quizás busques consuelo. Si estás enojado, podrías ser más directo. ` +
-          `Si estás feliz, compartirás tu entusiasmo.`
-        );
-      }
-    }
-
-    // 2. Relationship context (if enabled and available)
-    if (proactiveConfig.includeRelationshipContext !== false && characterMemory?.relationships) {
-      const relationships = characterMemory.relationships;
-      if (relationships.length > 0) {
-        const relLines = relationships
-          .filter(r => r.targetName === effectiveUserName || r.targetId === '__user__')
-          .slice(0, 3)
-          .map(r => {
-            const parts = [`Con ${r.targetName}: `];
-            if (r.relationship) parts.push(r.relationship);
-            if (r.sentiment) parts.push(`(sentimiento: ${r.sentiment})`);
-            if (r.notes) parts.push(`— ${r.notes}`);
-            return parts.join(' ');
-          });
-        if (relLines.length > 0) {
-          proactiveContextSections.push(
-            `[Relación con ${effectiveUserName}]\n` +
-            relLines.join('\n') +
-            `\nConsidera esta relación al decidir qué decir. Tu mensaje debe ser consistente con tu historia juntos.`
-          );
-        }
-      }
-    }
-
-    // 3. Active quests context (if enabled and available)
-    if (proactiveConfig.includeQuestContext !== false && sessionQuests && sessionQuests.length > 0) {
-      const activeQuests = sessionQuests.filter(q => q.status === 'active');
-      if (activeQuests.length > 0) {
-        const questLines = activeQuests.slice(0, 3).map(q => {
-          const template = questTemplates.find(t => t.id === q.templateId);
-          const name = template?.name || q.templateId;
-          const objProgress = q.objectives
-            ?.filter(o => o.isVisible)
-            .map(o => o.isCompleted ? '✅' : '⬜')
-            .join(' ') || '';
-          return `- ${name} ${objProgress}`;
-        });
-        proactiveContextSections.push(
-          `[Misiones Activas]\n` +
-          questLines.join('\n') +
-          `\nPuedes hacer referencia sutil a estas misiones o avanzar en ellas si es natural en la conversación.`
-        );
-      }
-    }
-
-    // 4. Recent conversation context (improved format)
-    if (contextMsgCount > 0) {
-      const recentMsgs = messages
-        .filter((m: any) => !m.isDeleted && m.content?.trim())
-        .slice(-(contextMsgCount * 2)); // *2 for both user and assistant messages
-      if (recentMsgs.length > 0) {
-        const contextLines = recentMsgs.map((m: any) => {
-          const speaker = m.role === 'user' ? effectiveUserName : (effectiveCharacter?.name || 'Personaje');
-          const maxChars = contextMsgMaxChars > 0 ? contextMsgMaxChars : 9999;
-          const content = m.content.trim();
-          const truncated = content.length > maxChars
-            ? content.slice(0, maxChars) + '...'
-            : content;
-          return `${speaker}: ${truncated}`;
-        });
-        const contextSection = `[Contexto reciente de la conversación]\n` +
-          `Esto es lo que se ha hablado últimamente:\n` +
-          contextLines.join('\n') + '\n' +
-          `Usa este contexto para que tu mensaje sea coherente con la conversación actual. ` +
-          `No repitas lo que ya se dijo; en su lugar, continúa naturalmente desde aquí.`;
-        proactiveContextSections.push(contextSection);
-      }
-    }
-
-    // 5. Abandoned topic detection (if enabled)
-    if (proactiveConfig.retomarAbandonedTopics) {
-      const threshold = proactiveConfig.abandonedTopicThreshold ?? 10;
-      const nonDeletedMessages = messages.filter((m: any) => !m.isDeleted);
-      const totalMessages = nonDeletedMessages.length;
-      
-      if (totalMessages > threshold) {
-        // Look at messages from the "mid-conversation" range (not too recent, not too old)
-        // to find topics that were discussed but then abandoned
-        const olderMessages = nonDeletedMessages.slice(
-          Math.max(0, totalMessages - threshold * 3),
-          Math.max(0, totalMessages - threshold)
-        );
-        const recentMessages = nonDeletedMessages.slice(Math.max(0, totalMessages - threshold));
-        
-        // Extract key phrases from older messages (simple heuristic)
-        const olderContent = olderMessages
-          .map((m: any) => m.content?.trim())
-          .filter(Boolean)
-          .join(' ');
-        
-        // Check if any recent proactive messages already covered older topics
-        const recentProactiveTopics = recentMessages
-          .filter((m: any) => m.metadata?.proactiveInfo?.topic)
-          .map((m: any) => m.metadata.proactiveInfo.topic.toLowerCase());
-        
-        // Extract potential topics from older messages (nouns/key phrases)
-        const topicIndicators = [
-          'hablar de', 'mencionar', 'conversar sobre', 'discutir', 'hablar sobre',
-          'tratar de', 'tocar el tema', 'mencionaste', 'dijiste que', 'mencionó',
-          'preguntar por', 'interesarse en', 'curioso sobre',
-        ];
-        
-        const abandonedTopics: string[] = [];
-        for (const indicator of topicIndicators) {
-          const idx = olderContent.toLowerCase().indexOf(indicator);
-          if (idx !== -1) {
-            // Extract the topic following the indicator
-            const afterIndicator = olderContent.slice(idx + indicator.length).trim();
-            const topicMatch = afterIndicator.match(/^(.{5,60}?)[.,;!?]/);
-            if (topicMatch) {
-              const topic = topicMatch[1].trim();
-              // Check if this topic was NOT recently covered
-              const wasCovered = recentProactiveTopics.some(t => 
-                t.includes(topic.toLowerCase().slice(0, 10)) || 
-                topic.toLowerCase().slice(0, 10).includes(t)
-              );
-              if (!wasCovered && !abandonedTopics.includes(topic)) {
-                abandonedTopics.push(topic);
-              }
-            }
-          }
-        }
-        
-        if (abandonedTopics.length > 0) {
-          proactiveContextSections.push(
-            `[Temas abandonados que puedes retomar]\n` +
-            `Se habló recientemente de: ${abandonedTopics.slice(0, 3).join(', ')}\n` +
-            `Pero el tema parece haberse abandonado. Si es natural, puedes retomar alguno de estos temas ` +
-            `en tu mensaje proactivo. No es obligatorio — solo si encaja con la conversación.`
-          );
-        }
-      }
-    }
-
-    // 6. Thematic cooldown instruction (moved from nudge to system prompt when contextInSystemPrompt)
-    const cooldownMinutes = proactiveConfig.thematicCooldownMinutes ?? 0;
-    if (cooldownMinutes > 0 && clientRecentTopics.length > 0) {
-      const topicList = clientRecentTopics.slice(0, 5).join(', ');
-      proactiveContextSections.push(
-        `[Evita repetir estos temas recientes: ${topicList}]`
-      );
-    }
-
-    // Inject all context sections into system prompt (FASE 9)
-    if (contextInSystemPrompt && proactiveContextSections.length > 0) {
-      finalSystemPrompt += '\n\n' + proactiveContextSections.join('\n\n');
-    }
+    // ─── Post-history: override o heredado de la card ───
+    // Si postHistoryOverride está configurado → REEMPLAZA character.postHistoryInstructions.
+    // Si está vacío → usa character.postHistoryInstructions (igual que un chat normal).
+    // Se pasa CRUDO a buildChatMessages (ella resuelve las keys internamente, igual que stream/route.ts).
+    const _postHistoryOverrideRaw = proactiveConfig.postHistoryOverride?.trim();
+    const effectivePostHistory: string | undefined = _postHistoryOverrideRaw
+      ? _postHistoryOverrideRaw
+      : (effectiveCharacter.postHistoryInstructions?.trim() || undefined);
 
     // ===== TOOL/ACTION SYSTEM (Native + Prompt-Based Tool Calling) =====
     const characterToolConfig = toolsSettings.characterConfigs.find(
@@ -1127,172 +895,49 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
       },
     };
 
-    // ─── FASE 3: Proactividad Inteligente ───
-    // Build nudge message with template variables resolved
-    // Support: nudge template rotation, context injection, thematic cooldown
+    // ─── Prompt viewer: añadir la sección del mensaje proactivo ───
+    // El caso seleccionado se envía como el mensaje final del usuario (role:'user').
+    // Esta sección se muestra en el prompt viewer para que el usuario vea qué se envió.
+    allPromptSections.push({
+      type: 'user',
+      label: '✨ Mensaje Proactivo (Caso Seleccionado)',
+      content: proactiveUserMessage,
+      color: 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-200',
+    });
 
-    // 1. Select nudge template (with rotation if pool exists)
-    const defaultNudgeMessage = `[La escena continúa] {{user}} parece distraído así que {{char}} decide hacer o decir algo para que todo continúe.`;
-
-    // Build the full pool: primary nudgeTemplate + alternative nudgeTemplates
-    const nudgePool: string[] = [];
-    if (proactiveConfig.nudgeTemplate?.trim()) {
-      nudgePool.push(proactiveConfig.nudgeTemplate.trim());
-    }
-    if (proactiveConfig.nudgeTemplates && proactiveConfig.nudgeTemplates.length > 0) {
-      for (const tmpl of proactiveConfig.nudgeTemplates) {
-        if (tmpl.trim() && !nudgePool.includes(tmpl.trim())) {
-          nudgePool.push(tmpl.trim());
-        }
-      }
-    }
-    // If pool is empty, add default
-    if (nudgePool.length === 0) {
-      nudgePool.push(defaultNudgeMessage);
-    }
-
-    // Select nudge template with rotation (avoid repeating recently used)
-    let selectedNudgeIndex = 0;
-    if (nudgePool.length > 1) {
-      // Find indices not recently used
-      const unusedIndices = nudgePool.map((_, i) => i).filter(i => !clientUsedNudgeIndices.includes(i));
-      if (unusedIndices.length > 0) {
-        // Pick a random one from unused
-        selectedNudgeIndex = unusedIndices[Math.floor(Math.random() * unusedIndices.length)];
-      } else {
-        // All recently used, reset rotation - pick random
-        selectedNudgeIndex = Math.floor(Math.random() * nudgePool.length);
-      }
-    }
-    const rawNudgeMessage = nudgePool[selectedNudgeIndex];
-
-    // 2. Build context snippet from recent messages (if enabled)
-    // FASE 9: Only append to nudge if contextInSystemPrompt is false
-    // (if true, context was already injected into the system prompt above)
-    let contextSnippet = '';
-    if (!contextInSystemPrompt && contextMsgCount > 0) {
-      const recentMsgs = messages
-        .filter((m: any) => !m.isDeleted && m.content?.trim())
-        .slice(-(contextMsgCount * 2)); // *2 because we include both user and assistant messages
-      if (recentMsgs.length > 0) {
-        const contextLines = recentMsgs.map((m: any) => {
-          const speaker = m.role === 'user' ? effectiveUserName : (effectiveCharacter?.name || 'Personaje');
-          const maxChars = contextMsgMaxChars > 0 ? contextMsgMaxChars : 9999;
-          const content = m.content.trim();
-          const truncated = content.length > maxChars
-            ? content.slice(0, maxChars) + '...'
-            : content;
-          return `${speaker}: ${truncated}`;
-        });
-        contextSnippet = `\n\n[Contexto reciente de la conversación]\n${contextLines.join('\n')}`;
-      }
-    }
-
-    // 3. Build thematic cooldown instruction (if enabled)
-    // FASE 9: Only append to nudge if contextInSystemPrompt is false
-    let cooldownInstruction = '';
-    if (!contextInSystemPrompt && cooldownMinutes > 0 && clientRecentTopics.length > 0) {
-      const topicList = clientRecentTopics.slice(0, 5).join(', ');
-      cooldownInstruction = `\n\n[Evita repetir estos temas recientes: ${topicList}. Elige un tema diferente o enfoque nuevo para tu mensaje.]`;
-    }
-
-    // 4. Resolve all keys in the nudge
-    let nudgeContent = resolveAllKeys(rawNudgeMessage, keyContext);
-
-    // 5. Append context and cooldown to the nudge content (only if not already in system prompt)
-    if (contextSnippet) {
-      nudgeContent += contextSnippet;
-    }
-    if (cooldownInstruction) {
-      nudgeContent += cooldownInstruction;
-    }
-
-    // Add proactive prefix, instruction, context, suffix and nudge sections to prompt viewer.
-    // FASE 11 (refactor): el orden refleja ahora la estructura real del prompt enviado al LLM:
-    //   - Prefix → va al system prompt (antes del bloque [Proactive Message Instruction])
-    //   - Message → va en el bloque [Proactive Message Instruction] dentro del system prompt
-    //   - FASE 9 context → se appendea al system prompt (después del bloque)
-    //   - Suffix → va al slot de post-history instructions (junto con character.postHistoryInstructions)
-    //   - Nudge → va como mensaje final del usuario (lo que dispara la iniciativa del personaje)
-    if (proactivePrefixResolved) {
-      allPromptSections.push({
-        type: 'system',
-        label: '✨ Prefijo Proactivo (System Prompt)',
-        content: proactivePrefixResolved,
-        color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
-      });
-    }
-    allPromptSections.push(
-      {
-        type: 'instructions',
-        label: '✨ Proactive Message Instruction',
-        content: proactiveInstruction,
-        color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-      },
-    );
-    // Add FASE 9 context sections to prompt viewer
-    if (proactiveContextSections.length > 0) {
-      allPromptSections.push({
-        type: 'system',
-        label: '🧠 Contexto para Proactividad (FASE 9)',
-        content: proactiveContextSections.join('\n\n'),
-        color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
-      });
-    }
-    if (proactiveSuffixResolved) {
-      allPromptSections.push({
-        type: 'post_history',
-        label: '✨ Sufijo Proactivo (Post-History)',
-        content: proactiveSuffixResolved,
-        color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-      });
-    }
-    allPromptSections.push(
-      {
-        type: 'user',
-        label: '✨ Nudge (Proactive User Message)',
-        content: nudgeContent,
-        color: 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-200',
-      }
-    );
-
-    // Build the allMessages array:
-    // - Summary message (if exists)
-    // - Context window messages
-    // - Nudge message (as the last user message)
+    // ─── allMessages: historial + caso seleccionado como mensaje final del usuario ───
+    // Estructura idéntica a un chat normal: summary (si existe) + context window + user message.
+    // La diferencia: el "user message" es el caso seleccionado por atributo, no input del usuario.
     let allMessages: ChatMessage[] = summaryMessage
       ? [summaryMessage, ...finalContextWindow.messages]
       : [...finalContextWindow.messages];
 
-    // Add nudge as the last user message
     allMessages = [...allMessages, {
-      id: 'nudge-' + Date.now(),
+      id: 'proactive-' + Date.now(),
       role: 'user' as const,
       characterId: effectiveCharacter.id,
-      content: nudgeContent,
+      content: proactiveUserMessage,
       isDeleted: false,
       timestamp: new Date().toISOString(),
-      swipeId: 'nudge',
+      swipeId: 'proactive',
       swipeIndex: 0,
-      swipes: [nudgeContent],
-    }]
+      swipes: [proactiveUserMessage],
+    }];
 
     // Create a TransformStream for SSE
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // Send case_selected FIRST (FASE 11) so the client can track the
-          // used case index before any tokens stream. Only emitted when
-          // proactiveAttribute was enabled and a case was selected.
-          if (proactiveAttrEnabled && selectedProactiveCase) {
-            controller.enqueue(createSSEJSON({
-              type: 'case_selected',
-              conditionId: selectedProactiveCase.conditionId,
-              caseIndex: selectedProactiveCase.caseIndex,
-              trackingKey: selectedProactiveCase.trackingKey,
-              nextUsed: selectedProactiveCase.nextUsed,
-            }));
-          }
+          // Send case_selected FIRST so the client can track the used case index
+          // before any tokens stream. Always emitted (we already returned early if
+          // proactiveAttribute was disabled or no case was selected).
+          controller.enqueue(createSSEJSON({
+            type: 'case_selected',
+            conditionId: selectedProactiveCase.conditionId,
+            caseIndex: selectedProactiveCase.caseIndex,
+            trackingKey: selectedProactiveCase.trackingKey,
+            nextUsed: selectedProactiveCase.nextUsed,
+          }));
 
           // Send proactive_start as the FIRST event
           controller.enqueue(createSSEJSON({
@@ -1300,13 +945,10 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
             characterId: effectiveCharacter.id,
             characterName: effectiveCharacter.name,
             reason,
-            nudgeIndex: selectedNudgeIndex,
-            // FASE 11: también enviamos el caso seleccionado para que el cliente
+            // FASE 11 v2: el caso seleccionado (conditionId + caseIndex) para que el cliente
             // pueda registrarlo en ProactiveMessageInfo (metadata del mensaje).
-            ...(proactiveAttrEnabled && selectedProactiveCase ? {
-              conditionId: selectedProactiveCase.conditionId,
-              caseIndex: selectedProactiveCase.caseIndex,
-            } : {}),
+            conditionId: selectedProactiveCase.conditionId,
+            caseIndex: selectedProactiveCase.caseIndex,
           }));
 
           // Send prompt data
@@ -1380,7 +1022,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  mergedPostHistoryInstructions,
+                  effectivePostHistory,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1512,7 +1154,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  mergedPostHistoryInstructions,
+                  effectivePostHistory,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1633,7 +1275,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  mergedPostHistoryInstructions,
+                  effectivePostHistory,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1748,7 +1390,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                     allMessages,
                     effectiveCharacter,
                     effectiveUserName,
-                    mergedPostHistoryInstructions,
+                    effectivePostHistory,
                     undefined, true, embeddingsContext,
                     lorebookChatInjections,
                   exampleMessages
@@ -1851,7 +1493,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                     messages: allMessages,
                     character: effectiveCharacter,
                     userName: effectiveUserName,
-                    postHistoryInstructions: mergedPostHistoryInstructions,
+                    postHistoryInstructions: effectivePostHistory,
                     embeddingsContext: embeddingsContext,
                     exampleMessages: exampleMessages,
                     allCharacters: allCharacters  // Pass all characters for proper speaker attribution
@@ -1868,7 +1510,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  mergedPostHistoryInstructions,
+                  effectivePostHistory,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1982,7 +1624,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                     allMessages,
                     effectiveCharacter,
                     effectiveUserName,
-                    mergedPostHistoryInstructions,
+                    effectivePostHistory,
                     undefined, true, embeddingsContext,
                     lorebookChatInjections,
                   exampleMessages
@@ -2050,7 +1692,7 @@ Mantén tu mensaje breve y natural (1-3 párrafos máximo). NO menciones que est
                     messages: allMessages,
                     character: effectiveCharacter,
                     userName: effectiveUserName,
-                    postHistoryInstructions: mergedPostHistoryInstructions,
+                    postHistoryInstructions: effectivePostHistory,
                     embeddingsContext: embeddingsContext,
                     exampleMessages: exampleMessages,
                     allCharacters: allCharacters  // Pass all characters for proper speaker attribution

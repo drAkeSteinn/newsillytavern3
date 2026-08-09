@@ -1364,55 +1364,39 @@ export interface ProactiveMessagesConfig {
   intervalSeconds: number;            // How often (in seconds) to send a proactive message
   minMessagesBeforeStart: number;     // Minimum messages in the chat before proactive starts
   maxPerSession: number;              // Max proactive messages per session (0 = unlimited)
-  customPrompt?: string;              // Optional custom instruction for proactive message generation
-  nudgeTemplate?: string;             // Optional nudge message template (replaces default "[La escena continúa] {{user}} parece distraído...")
   allowedStates: ('idle' | 'user_away')[];  // When to trigger (idle = no user activity, user_away = tab not focused)
 
-  // ─── FASE 3: Proactividad Inteligente ───
-  /** Pool of alternative nudge templates that rotate to add variety */
-  nudgeTemplates?: string[];
-  /** Number of recent messages to include as context in the nudge (0 = disabled, default 3) */
-  contextMessagesCount?: number;
-  /** Minutes before the character can repeat a similar topic (0 = disabled) */
-  thematicCooldownMinutes?: number;
+  // ─── Group Chat ───
   /** Enable proactivity in group chats */
   groupChatEnabled?: boolean;
   /** Strategy for group chat proactive messages */
   groupChatStrategy?: 'any_speaker' | 'mentioned_only' | 'emotional_reaction';
 
-  // ─── FASE 9: Contexto para Proactividad ───
-  /** Include emotional state context in proactive system prompt */
-  includeEmotionalContext?: boolean;
-  /** Include relationship context in proactive system prompt */
-  includeRelationshipContext?: boolean;
-  /** Include active quests context in proactive system prompt */
-  includeQuestContext?: boolean;
-  /** Max characters per context message (0 = no limit, default 300) */
-  contextMessageMaxChars?: number;
-  /** Inject context into system prompt (true) instead of only the nudge (false) */
-  contextInSystemPrompt?: boolean;
-  /** Detect and retomar abandoned conversation topics */
-  retomarAbandonedTopics?: boolean;
-  /** Number of turns of silence before a topic is considered "abandoned" (default 10) */
-  abandonedTopicThreshold?: number;
-
-  // ─── FASE 11: Proactivo Condicional por Atributo ───
+  // ─── Overrides del prompt (semántica REPLACE) ───
+  // Si se llenan, REEMPLAZAN el campo correspondiente de la card del personaje.
+  // Si se dejan vacíos, el proactivo hereda el valor de la card (igual que un chat normal).
+  // Esto permite tener un system prompt / post-history diferente cuando el personaje
+  // toma la iniciativa, sin tocar la card base.
   /**
-   * Prefijo del system prompt proactivo. Se coloca ANTES del mensaje seleccionado.
+   * Override del `character.systemPrompt`.
+   * Si está vacío, se usa el system prompt de la card.
+   * Soporta keys de lorebook ({{key}}), atributos ({{vida}}) y variables ({{user}}, {{char}}).
+   */
+  systemPromptOverride?: string;
+  /**
+   * Override del `character.postHistoryInstructions`.
+   * Si está vacío, se usan las post-history instructions de la card.
    * Soporta keys de lorebook, atributos y variables de plantilla.
-   * Ej: "Estás a punto de enviar un mensaje proactivo. Tu estado mental actual: {{codicia}}."
    */
-  proactivePrefix?: string;
-  /**
-   * Sufijo del system prompt proactivo. Se coloca DESPUÉS del mensaje seleccionado.
-   * Ej: "Recuerda mantener el tono del personaje y no romper la inmersión."
-   */
-  proactiveSuffix?: string;
+  postHistoryOverride?: string;
+
+  // ─── Proactivo Condicional por Atributo (REQUERIDO) ───
   /**
    * Configuración de condiciones basadas en atributos del personaje.
-   * Si está habilitada, el mensaje proactivo se selecciona dinámicamente según
-   * el valor actual del atributo (ej. codicia > 80 → mensaje codicioso).
-   * Si está deshabilitada, se usa `customPrompt` (comportamiento heredado).
+   * OBLIGATORIO para que el proactivo funcione: si está deshabilitado o ninguna
+   * condición/caso aplica, NO se envía mensaje proactivo (timer se reinicia).
+   * El contenido del caso seleccionado se envía como el mensaje final del usuario
+   * (en el mismo slot donde iría el input del usuario en un chat normal).
    */
   proactiveAttribute?: ProactiveAttributeConfig;
 }
@@ -1422,26 +1406,14 @@ export const DEFAULT_PROACTIVE_MESSAGES_CONFIG: ProactiveMessagesConfig = {
   intervalSeconds: 300,               // 5 minutes default
   minMessagesBeforeStart: 5,          // Wait for at least 5 messages
   maxPerSession: 0,                   // Unlimited
-  customPrompt: '',
-  nudgeTemplate: '',
   allowedStates: ['idle'],
-  // FASE 3 defaults
-  nudgeTemplates: [],
-  contextMessagesCount: 3,
-  thematicCooldownMinutes: 0,
+  // Group chat defaults
   groupChatEnabled: false,
   groupChatStrategy: 'any_speaker',
-  // FASE 9 defaults
-  includeEmotionalContext: true,
-  includeRelationshipContext: true,
-  includeQuestContext: true,
-  contextMessageMaxChars: 300,
-  contextInSystemPrompt: true,
-  retomarAbandonedTopics: false,
-  abandonedTopicThreshold: 10,
-  // FASE 11 defaults (proactivo condicional por atributo)
-  proactivePrefix: '',
-  proactiveSuffix: '',
+  // Overrides (vacío = hereda de la card)
+  systemPromptOverride: '',
+  postHistoryOverride: '',
+  // Proactivo condicional por atributo (requerido para que funcione)
   proactiveAttribute: undefined,
 };
 

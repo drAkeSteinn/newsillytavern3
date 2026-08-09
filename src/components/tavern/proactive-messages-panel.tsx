@@ -103,16 +103,6 @@ const INTERVAL_PRESETS = [
   { value: 1800, label: '30 min', description: 'Muy lento' },
 ];
 
-// Default nudge template suggestions for the pool
-const NUDGE_SUGGESTIONS = [
-  '[La escena continúa] {{user}} parece distraído así que {{char}} decide hacer o decir algo para que todo continúe.',
-  '[El silencio se prolonga] {{char}} nota que {{user}} está en silencio y decide romper la quietud con un comentario o acción.',
-  '[Pensando en voz alta] {{char}} murmura algo para sí mismo mientras observa su entorno, buscando algo que decir.',
-  '[Un momento pasa] {{char}} siente la necesidad de llenar el silencio con algo, sea un pensamiento, una pregunta o una pequeña acción.',
-  '[Curiosidad] Algo llama la atención de {{char}}, quien decide compartirlo con {{user}}.',
-  '[Inquietud] {{char}} no puede quedarse callado más tiempo y encuentra una excusa para hablar.',
-];
-
 interface ProactiveMessagesPanelProps {
   config: ProactiveMessagesConfig | undefined;
   onChange: (config: ProactiveMessagesConfig) => void;
@@ -135,8 +125,6 @@ export function ProactiveMessagesPanel({
     ...DEFAULT_PROACTIVE_MESSAGES_CONFIG,
     ...config,
   };
-
-  const [newTemplateValue, setNewTemplateValue] = useState('');
 
   const updateSettings = (updates: Partial<ProactiveMessagesConfig>) => {
     onChange({ ...settings, ...updates });
@@ -167,20 +155,6 @@ export function ProactiveMessagesPanel({
     return secs > 0 ? `${mins}m ${secs}s` : `${mins} min`;
   };
 
-  const addNudgeTemplate = (template: string) => {
-    if (!template.trim()) return;
-    const existing = settings.nudgeTemplates || [];
-    if (!existing.includes(template.trim())) {
-      updateSettings({ nudgeTemplates: [...existing, template.trim()] });
-    }
-    setNewTemplateValue('');
-  };
-
-  const removeNudgeTemplate = (index: number) => {
-    const existing = settings.nudgeTemplates || [];
-    updateSettings({ nudgeTemplates: existing.filter((_, i) => i !== index) });
-  };
-
   return (
     <TooltipProvider>
       <div className="space-y-4">
@@ -209,14 +183,14 @@ export function ProactiveMessagesPanel({
                 <Zap className="w-4 h-4 text-amber-500" />
                 <h3 className="text-sm font-semibold">Cómo funciona</h3>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="flex gap-2.5 p-2.5 rounded-md bg-muted/40">
                   <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/10 shrink-0 mt-0.5">
                     <span className="text-xs font-bold text-blue-500">1</span>
                   </div>
                   <div>
                     <p className="text-xs font-medium">Temporizador</p>
-                    <p className="text-[11px] text-muted-foreground">Se mide el tiempo desde el último mensaje en el chat</p>
+                    <p className="text-[11px] text-muted-foreground">Se mide el tiempo desde el último mensaje</p>
                   </div>
                 </div>
                 <div className="flex gap-2.5 p-2.5 rounded-md bg-muted/40">
@@ -224,25 +198,36 @@ export function ProactiveMessagesPanel({
                     <span className="text-xs font-bold text-amber-500">2</span>
                   </div>
                   <div>
-                    <p className="text-xs font-medium">Condición</p>
-                    <p className="text-[11px] text-muted-foreground">Si hay inactividad ≥ intervalo configurado → se activa</p>
+                    <p className="text-xs font-medium">Atributo</p>
+                    <p className="text-[11px] text-muted-foreground">Se lee el valor del atributo configurado (ej. codicia=80)</p>
+                  </div>
+                </div>
+                <div className="flex gap-2.5 p-2.5 rounded-md bg-muted/40">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-violet-500/10 shrink-0 mt-0.5">
+                    <span className="text-xs font-bold text-violet-500">3</span>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium">Condición + Caso</p>
+                    <p className="text-[11px] text-muted-foreground">La condición que aplica selecciona un caso (lineal/random)</p>
                   </div>
                 </div>
                 <div className="flex gap-2.5 p-2.5 rounded-md bg-muted/40">
                   <div className="flex items-center justify-center w-6 h-6 rounded-full bg-green-500/10 shrink-0 mt-0.5">
-                    <span className="text-xs font-bold text-green-500">3</span>
+                    <span className="text-xs font-bold text-green-500">4</span>
                   </div>
                   <div>
                     <p className="text-xs font-medium">Mensaje</p>
-                    <p className="text-[11px] text-muted-foreground">El personaje genera y envía un mensaje en contexto</p>
+                    <p className="text-[11px] text-muted-foreground">El caso se envía como user message y el personaje responde</p>
                   </div>
                 </div>
               </div>
               <div className="flex items-start gap-2 p-2.5 rounded-md bg-muted/30 border border-border/30">
                 <Clock className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
                 <p className="text-[11px] text-muted-foreground">
-                  <strong>Reinicio:</strong> Cualquier mensaje nuevo (del usuario o del personaje) reinicia el temporizador. 
-                  Los mensajes proactivos no se envían durante la generación de respuestas.
+                  <strong>Prompt idéntico al chat normal:</strong> El personaje recibe todas las secciones de su card
+                  (descripción, personalidad, escenario, lorebook, memoria, etc.). La única diferencia es que el
+                  "mensaje del usuario" es el caso seleccionado por atributo, no input real.
+                  Si no hay caso que aplicar, no se envía nada (timer se reinicia).
                 </p>
               </div>
             </div>
@@ -426,106 +411,68 @@ export function ProactiveMessagesPanel({
               </CardContent>
             </Card>
 
-            {/* ─── Custom Prompt ─── */}
-            <Card>
+            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* ─── FASE 11 v2: Overrides del Prompt ─── */}
+            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* El prompt proactivo se construye IGUAL que un chat normal (todas las */}
+            {/* secciones de la card + lorebook + memoria + contexto + tools). Estas */}
+            {/* dos secciones permiten REEMPLAZAR el system prompt y/o las post-history */}
+            {/* instructions de la card si se quieren diferentes cuando el personaje */}
+            {/* toma la iniciativa. Si se dejan vacías, se heredan de la card. */}
+
+            {/* ─── System Prompt Override ─── */}
+            <Card className="border-violet-500/20">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-pink-500" />
-                  Instrucción Personalizada
+                  <Brain className="w-4 h-4 text-violet-500" />
+                  Prompt del Sistema
                 </CardTitle>
                 <CardDescription>
-                  Instrucciones adicionales para guiar el mensaje proactivo (opcional)
+                  Si se llena, <strong>REEMPLAZA</strong> el system prompt de la card del personaje.
+                  Si se deja vacío, se hereda el de la card (igual que un chat normal).
+                  Soporta keys de lorebook ({'{'}{'{key}'}{'}'}), atributos ({'{'}{'{vida}'}{'}'}) y variables ({'{'}{'{user}'}{'}'}, {'{'}{'{char}'}{'}'}).
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-2">
                 <Textarea
                   className="min-h-[100px] text-xs"
-                  placeholder="Ejemplo: Suele iniciar hablando del clima o preguntando cómo está el usuario. A veces comparte pensamientos en voz alta. Le gusta mencionar lo que ve por la ventana..."
-                  value={settings.customPrompt || ''}
-                  onChange={(e) => updateSettings({ customPrompt: e.target.value })}
+                  placeholder={'Ej: Eres {{char}} y estás a punto de tomar la iniciativa en la conversación sin que {{user}} haya hablado. Tu codicia actual es {{codicia}}. Actúa en consecuencia con tu personalidad.'}
+                  value={settings.systemPromptOverride || ''}
+                  onChange={(e) => updateSettings({ systemPromptOverride: e.target.value })}
                 />
-                <div className="mt-2 p-2.5 rounded-md bg-muted/30 border border-border/30">
+                <div className="p-2.5 rounded-md bg-muted/30 border border-border/30">
                   <p className="text-[11px] text-muted-foreground">
-                    <strong>Si se deja vacío</strong>, se usa la instrucción predeterminada.
+                    <strong>Vacío</strong> = usa el system prompt de la card (recomendado si la card ya está bien configurada).
+                    <strong> Lleno</strong> = lo reemplaza por completo. Las demás secciones (descripción, personalidad, escenario, etc.) siempre se incluyen.
                   </p>
                 </div>
               </CardContent>
             </Card>
 
-            {/* ─── Nudge Template ─── */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Send className="w-4 h-4 text-emerald-500" />
-                  Mensaje de Impulso (Nudge) Principal
-                </CardTitle>
-                <CardDescription>
-                  Mensaje que se envía como si fuera del usuario para "impulsar" al personaje a responder. Se procesa con las mismas variables de plantilla que el resto del prompt.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Textarea
-                  className="min-h-[80px] text-xs"
-                  placeholder="[La escena continúa] {{user}} parece distraído así que {{char}} decide hacer o decir algo para que todo continúe."
-                  value={settings.nudgeTemplate || ''}
-                  onChange={(e) => updateSettings({ nudgeTemplate: e.target.value })}
-                />
-                <div className="mt-2 p-2.5 rounded-md bg-muted/30 border border-border/30">
-                  <p className="text-[11px] text-muted-foreground">
-                    <strong>Si se deja vacío</strong>, se usa el nudge predeterminado:
-                  </p>
-                  <p className="text-[10px] text-muted-foreground/70 mt-1 italic font-mono">
-                    [La escena continúa] {'{{user}}'} parece distraído así que {'{{char}}'} decide hacer o decir algo para que todo continúe.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ─── FASE 11: Prefijo / Mensaje / Sufijo ─── */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
-
-            {/* ─── Prefix & Suffix ─── */}
+            {/* ─── Post-History Instructions Override ─── */}
             <Card className="border-violet-500/20">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <ArrowLeftRight className="w-4 h-4 text-violet-500" />
-                  Prefijo y Sufijo del Prompt
+                  Instrucciones Post-Historia
                 </CardTitle>
                 <CardDescription>
-                  Define qué texto rodea al mensaje proactivo. El prompt final enviado al LLM es:
-                  <span className="font-mono text-[10px] block mt-1 text-muted-foreground/80">
-                    [Prefijo] + [Mensaje según el caso] + [Sufijo]
-                  </span>
-                  Soporta keys de lorebook ({'{'}{'{key}'}{'}'}), atributos ({'{'}{'{vida}'}{'}'}) y variables ({'{'}{'{user}'}{'}'}, {'{'}{'{char}'}{'}'}).
+                  Si se llena, <strong>REEMPLAZA</strong> las post-history instructions de la card.
+                  Se envían DESPUÉS del historial de chat (igual que en un chat normal).
+                  Si se deja vacío, se heredan de la card.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-violet-500">Prefijo (antes del mensaje)</Label>
-                  <Textarea
-                    className="min-h-[80px] text-xs"
-                    placeholder={'Ej: Estás a punto de enviar un mensaje proactivo. Tu atributo "codicia" actual es {{codicia}}. Actúa en consecuencia.'}
-                    value={settings.proactivePrefix || ''}
-                    onChange={(e) => updateSettings({ proactivePrefix: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-violet-500">Sufijo (después del mensaje)</Label>
-                  <Textarea
-                    className="min-h-[80px] text-xs"
-                    placeholder={'Ej: Recuerda mantener el tono del personaje y no romper la inmersión. Sé breve (1-3 párrafos).'}
-                    value={settings.proactiveSuffix || ''}
-                    onChange={(e) => updateSettings({ proactiveSuffix: e.target.value })}
-                  />
-                </div>
+              <CardContent className="space-y-2">
+                <Textarea
+                  className="min-h-[80px] text-xs"
+                  placeholder={'Ej: Mantén tu mensaje breve (1-3 párrafos). No rompas la inmersión. Sé coherente con tu estado emocional.'}
+                  value={settings.postHistoryOverride || ''}
+                  onChange={(e) => updateSettings({ postHistoryOverride: e.target.value })}
+                />
                 <div className="p-2.5 rounded-md bg-muted/30 border border-border/30">
                   <p className="text-[11px] text-muted-foreground">
-                    <strong>¿Cómo se arma el prompt?</strong> El <em>Prefijo</em> y el <em>Sufijo</em> se
-                    aplican a todos los mensajes proactivos. El <em>Mensaje</em> central se selecciona según
-                    las condiciones de atributo (ver abajo) o, si no están activas, según la instrucción
-                    personalizada o la instrucción por defecto. Si dejas Prefijo y Sufijo vacíos, solo se
-                    envía el mensaje central.
+                    <strong>Vacío</strong> = usa las post-history instructions de la card.
+                    <strong> Lleno</strong> = las reemplaza. Útil para dar reglas diferentes al personaje cuando toma la iniciativa.
                   </p>
                 </div>
               </CardContent>
@@ -809,7 +756,7 @@ export function ProactiveMessagesPanel({
                                   </div>
                                   <Textarea
                                     className="min-h-[60px] text-[11px]"
-                                    placeholder={'Mensaje que se enviará cuando esta condición aplique. Soporta {{user}}, {{char}}, {{codicia}}, keys de lorebook, etc.'}
+                                    placeholder={'Este contenido se envía como mensaje del usuario (role:user). Escríbelo como una directiva narrativa que el personaje seguirá. Ej: "{{char}} siente urgencia de conseguir más riqueza y mira a {{user}} evaluando qué puede obtener." Soporta {{user}}, {{char}}, {{codicia}}, keys de lorebook, etc.'}
                                     value={c.content}
                                     onChange={(e) => {
                                       const nextCases = cond.cases.map((cc, i) => i === caseIdx ? { ...cc, content: e.target.value } : cc);
@@ -908,7 +855,7 @@ export function ProactiveMessagesPanel({
                         </div>
                         <Textarea
                           className="min-h-[60px] text-[11px]"
-                          placeholder={'Mensaje por defecto. Soporta {{user}}, {{char}}, atributos y keys de lorebook.'}
+                          placeholder={'Contenido por defecto que se envía como mensaje del usuario. Soporta {{user}}, {{char}}, atributos y keys de lorebook.'}
                           value={c.content}
                           onChange={(e) => {
                             const cfg = ensureProactiveAttribute();
@@ -937,203 +884,6 @@ export function ProactiveMessagesPanel({
                   </div>
                 </CardContent>
               )}
-            </Card>
-
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ─── FASE 3: Proactividad Inteligente ─── */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
-
-            {/* ─── Nudge Variation Pool ─── */}
-            <Card className="border-emerald-500/20">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Shuffle className="w-4 h-4 text-emerald-500" />
-                  Variación de Nudges
-                </CardTitle>
-                <CardDescription>
-                  Agrega plantillas alternativas de nudge que rotan automáticamente, añadiendo variedad a los mensajes proactivos
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {/* Current templates list */}
-                {(settings.nudgeTemplates || []).length > 0 && (
-                  <div className="space-y-2">
-                    {(settings.nudgeTemplates || []).map((tmpl, index) => (
-                      <div key={index} className="flex items-start gap-2 p-2 rounded-md bg-muted/30 border border-border/30 group">
-                        <GripVertical className="w-3.5 h-3.5 text-muted-foreground mt-2 shrink-0 opacity-50" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] text-foreground/80 font-mono truncate">{tmpl}</p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                          onClick={() => removeNudgeTemplate(index)}
-                        >
-                          <Trash2 className="w-3 h-3 text-red-400" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Add new template */}
-                <div className="flex gap-2">
-                  <Input
-                    className="text-xs flex-1"
-                    placeholder="Escribe una nueva plantilla de nudge..."
-                    value={newTemplateValue}
-                    onChange={(e) => setNewTemplateValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addNudgeTemplate(newTemplateValue);
-                      }
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-3 shrink-0"
-                    onClick={() => addNudgeTemplate(newTemplateValue)}
-                    disabled={!newTemplateValue.trim()}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-
-                {/* Quick-add suggestions */}
-                <div className="space-y-1.5">
-                  <p className="text-[10px] text-muted-foreground font-medium">Sugerencias rápidas:</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {NUDGE_SUGGESTIONS.filter(s => !(settings.nudgeTemplates || []).includes(s) && s !== settings.nudgeTemplate).slice(0, 4).map((suggestion, i) => (
-                      <Button
-                        key={i}
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-[9px] px-2 max-w-[200px] truncate"
-                        onClick={() => addNudgeTemplate(suggestion)}
-                      >
-                        <Plus className="w-2.5 h-2.5 mr-1 shrink-0" />
-                        {suggestion.slice(0, 40)}...
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                {(settings.nudgeTemplates || []).length > 0 && (
-                  <div className="p-2 rounded-md bg-emerald-500/5 border border-emerald-500/20">
-                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
-                      <strong>{(settings.nudgeTemplates || []).length + (settings.nudgeTemplate ? 1 : 0)}</strong> plantillas en rotación. 
-                      Se seleccionan aleatoriamente sin repetir las usadas recientemente.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* ─── Context Messages ─── */}
-            <Card className="border-blue-500/20">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-blue-500" />
-                  Contexto de Conversación
-                </CardTitle>
-                <CardDescription>
-                  Incluye los últimos mensajes del chat como contexto en el nudge proactivo para que el personaje responda de forma más coherente
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <MessageCircle className="w-3.5 h-3.5 text-blue-400" />
-                    <Label className="text-xs font-medium">Mensajes recientes incluidos</Label>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        <p>Número de pares de mensajes (usuario+personaje) que se incluirán como contexto. 0 = desactivado.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <span className="text-xs font-mono font-medium text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
-                    {settings.contextMessagesCount ?? 3}
-                  </span>
-                </div>
-                <Slider
-                  value={[settings.contextMessagesCount ?? 3]}
-                  min={0}
-                  max={10}
-                  step={1}
-                  onValueChange={([value]) => updateSettings({ contextMessagesCount: value })}
-                  className="py-1"
-                />
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>Desactivado</span>
-                  <span>5</span>
-                  <span>10 mensajes</span>
-                </div>
-                {(settings.contextMessagesCount ?? 3) > 0 && (
-                  <div className="p-2 rounded-md bg-blue-500/5 border border-blue-500/20">
-                    <p className="text-[10px] text-blue-600 dark:text-blue-400">
-                      El personaje verá los últimos {(settings.contextMessagesCount ?? 3) * 2} mensajes como contexto antes de generar su respuesta proactiva.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* ─── Thematic Cooldown ─── */}
-            <Card className="border-cyan-500/20">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Snowflake className="w-4 h-4 text-cyan-500" />
-                  Enfriamiento Temático
-                </CardTitle>
-                <CardDescription>
-                  Evita que el personaje repita el mismo tema en mensajes proactivos consecutivos
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Timer className="w-3.5 h-3.5 text-cyan-400" />
-                    <Label className="text-xs font-medium">Tiempo de espera</Label>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        <p>Minutos que deben pasar antes de que el personaje pueda hablar de un tema similar. 0 = desactivado.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <span className="text-xs font-mono font-medium text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded">
-                    {settings.thematicCooldownMinutes ?? 0} min
-                  </span>
-                </div>
-                <Slider
-                  value={[settings.thematicCooldownMinutes ?? 0]}
-                  min={0}
-                  max={60}
-                  step={5}
-                  onValueChange={([value]) => updateSettings({ thematicCooldownMinutes: value })}
-                  className="py-1"
-                />
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>Desactivado</span>
-                  <span>30 min</span>
-                  <span>60 min</span>
-                </div>
-                {(settings.thematicCooldownMinutes ?? 0) > 0 && (
-                  <div className="p-2 rounded-md bg-cyan-500/5 border border-cyan-500/20">
-                    <p className="text-[10px] text-cyan-600 dark:text-cyan-400">
-                      El personaje evitará repetir temas de sus últimos mensajes proactivos durante {settings.thematicCooldownMinutes} minutos.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
             </Card>
 
             {/* ─── Group Chat Proactivity ─── */}
@@ -1207,153 +957,6 @@ export function ProactiveMessagesPanel({
               </CardContent>
             </Card>
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ─── FASE 9: Contexto para Proactividad ─── */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            <Card className="border-teal-500/20">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-teal-500" />
-                  Contexto para Proactividad
-                  <span className="text-[9px] bg-teal-500/10 text-teal-500 px-1.5 py-0.5 rounded font-medium ml-auto">
-                    FASE 9
-                  </span>
-                </CardTitle>
-                <CardDescription>
-                  Inyecta contexto profundo en el prompt del sistema para que los mensajes proactivos sean más coherentes con la conversación, emociones y relaciones.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {/* Context in System Prompt toggle */}
-                <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/30">
-                  <div className="flex items-center gap-2.5">
-                    <Layers className="w-4 h-4 text-teal-400" />
-                    <div>
-                      <span className="text-xs font-medium">Inyectar contexto en el prompt del sistema</span>
-                      <p className="text-[10px] text-muted-foreground">El contexto se incluye en el system prompt en vez de solo en el nudge. Más coherente para el LLM.</p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={settings.contextInSystemPrompt ?? true}
-                    onCheckedChange={(checked) => onChange({ ...settings, contextInSystemPrompt: checked })}
-                  />
-                </div>
-
-                {/* Emotional context */}
-                <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/30">
-                  <div className="flex items-center gap-2.5">
-                    <Heart className="w-4 h-4 text-red-400" />
-                    <div>
-                      <span className="text-xs font-medium">Incluir estado emocional</span>
-                      <p className="text-[10px] text-muted-foreground">Si el personaje tiene emociones activas, se incluyen como contexto para el mensaje proactivo.</p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={settings.includeEmotionalContext ?? true}
-                    onCheckedChange={(checked) => onChange({ ...settings, includeEmotionalContext: checked })}
-                  />
-                </div>
-
-                {/* Relationship context */}
-                <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/30">
-                  <div className="flex items-center gap-2.5">
-                    <Users className="w-4 h-4 text-pink-400" />
-                    <div>
-                      <span className="text-xs font-medium">Incluir relaciones</span>
-                      <p className="text-[10px] text-muted-foreground">Incluye la relación actual con el usuario para que el mensaje sea consistente.</p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={settings.includeRelationshipContext ?? true}
-                    onCheckedChange={(checked) => onChange({ ...settings, includeRelationshipContext: checked })}
-                  />
-                </div>
-
-                {/* Quest context */}
-                <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/30">
-                  <div className="flex items-center gap-2.5">
-                    <BookOpen className="w-4 h-4 text-amber-400" />
-                    <div>
-                      <span className="text-xs font-medium">Incluir misiones activas</span>
-                      <p className="text-[10px] text-muted-foreground">Muestra misiones activas para que el personaje pueda hacer referencia a ellas sutilmente.</p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={settings.includeQuestContext ?? true}
-                    onCheckedChange={(checked) => onChange({ ...settings, includeQuestContext: checked })}
-                  />
-                </div>
-
-                {/* Context message max chars */}
-                <div className="space-y-2 p-3 bg-muted/30 rounded-lg border border-border/30">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <MessageCircle className="w-3.5 h-3.5 text-blue-400" />
-                      <Label className="text-xs font-medium">Caracteres máx. por mensaje de contexto</Label>
-                    </div>
-                    <span className="text-xs font-mono font-medium text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
-                      {settings.contextMessageMaxChars ?? 300}
-                    </span>
-                  </div>
-                  <Slider
-                    value={[settings.contextMessageMaxChars ?? 300]}
-                    min={100}
-                    max={1000}
-                    step={50}
-                    onValueChange={([value]) => onChange({ ...settings, contextMessageMaxChars: value })}
-                    className="py-1"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>100 chars</span>
-                    <span>1000 chars</span>
-                  </div>
-                </div>
-
-                {/* Abandoned topics detection */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/30">
-                    <div className="flex items-center gap-2.5">
-                      <ArrowLeftRight className="w-4 h-4 text-orange-400" />
-                      <div>
-                        <span className="text-xs font-medium">Retomar temas abandonados</span>
-                        <p className="text-[10px] text-muted-foreground">Si se habló de un tema y se abandonó, el personaje puede retomarlo proactivamente.</p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.retomarAbandonedTopics ?? false}
-                      onCheckedChange={(checked) => onChange({ ...settings, retomarAbandonedTopics: checked })}
-                    />
-                  </div>
-                  {settings.retomarAbandonedTopics && (
-                    <div className="pl-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5 text-orange-400" />
-                          <Label className="text-xs font-medium">Turnos de silencio para considerar "abandonado"</Label>
-                        </div>
-                        <span className="text-xs font-mono font-medium text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded">
-                          {settings.abandonedTopicThreshold ?? 10}
-                        </span>
-                      </div>
-                      <Slider
-                        value={[settings.abandonedTopicThreshold ?? 10]}
-                        min={5}
-                        max={30}
-                        step={5}
-                        onValueChange={([value]) => onChange({ ...settings, abandonedTopicThreshold: value })}
-                        className="py-1"
-                      />
-                      <div className="flex justify-between text-[10px] text-muted-foreground">
-                        <span>5 turnos</span>
-                        <span>30 turnos</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* ═══════════════════════════════════════════════════════════════ */}
             {/* ─── FASE 4: Micro-Reacciones en Chat Grupal ─── */}
             {/* ═══════════════════════════════════════════════════════════════ */}
             {onMicroReactionConfigChange && (
@@ -1557,50 +1160,27 @@ export function ProactiveMessagesPanel({
                   <p className="text-[10px] text-muted-foreground">Modo</p>
                 </div>
               </div>
-              {/* FASE 3 summary row */}
+              {/* Proactive Attribute summary row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
                 <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <Shuffle className="w-4 h-4 mx-auto text-emerald-500 mb-1" />
-                  <p className="text-lg font-bold">{(settings.nudgeTemplates || []).length + (settings.nudgeTemplate ? 1 : 0)}</p>
-                  <p className="text-[10px] text-muted-foreground">Nudges</p>
+                  <Layers className="w-4 h-4 mx-auto text-amber-500 mb-1" />
+                  <p className="text-lg font-bold">{ensureProactiveAttribute().enabled ? 'Sí' : 'No'}</p>
+                  <p className="text-[10px] text-muted-foreground">Por Atributo</p>
                 </div>
                 <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <Eye className="w-4 h-4 mx-auto text-blue-500 mb-1" />
-                  <p className="text-lg font-bold">{settings.contextMessagesCount ?? 3}</p>
-                  <p className="text-[10px] text-muted-foreground">Ctx msgs</p>
+                  <Brain className="w-4 h-4 mx-auto text-violet-500 mb-1" />
+                  <p className="text-sm font-bold">{settings.systemPromptOverride?.trim() ? 'Override' : 'Card'}</p>
+                  <p className="text-[10px] text-muted-foreground">System Prompt</p>
                 </div>
                 <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <Snowflake className="w-4 h-4 mx-auto text-cyan-500 mb-1" />
-                  <p className="text-lg font-bold">{settings.thematicCooldownMinutes ?? 0}m</p>
-                  <p className="text-[10px] text-muted-foreground">Cooldown</p>
+                  <ArrowLeftRight className="w-4 h-4 mx-auto text-violet-500 mb-1" />
+                  <p className="text-sm font-bold">{settings.postHistoryOverride?.trim() ? 'Override' : 'Card'}</p>
+                  <p className="text-[10px] text-muted-foreground">Post-History</p>
                 </div>
                 <div className="p-2.5 rounded-md bg-muted/30 text-center">
                   <Users className="w-4 h-4 mx-auto text-purple-500 mb-1" />
                   <p className="text-lg font-bold">{settings.groupChatEnabled ? 'Sí' : 'No'}</p>
                   <p className="text-[10px] text-muted-foreground">Grupal</p>
-                </div>
-              </div>
-              {/* FASE 9 summary row */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-                <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <Layers className="w-4 h-4 mx-auto text-teal-500 mb-1" />
-                  <p className="text-sm font-bold">{settings.contextInSystemPrompt !== false ? 'Sí' : 'No'}</p>
-                  <p className="text-[10px] text-muted-foreground">Ctx en Prompt</p>
-                </div>
-                <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <Heart className="w-4 h-4 mx-auto text-red-500 mb-1" />
-                  <p className="text-sm font-bold">{settings.includeEmotionalContext !== false ? 'Sí' : 'No'}</p>
-                  <p className="text-[10px] text-muted-foreground">Emociones</p>
-                </div>
-                <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <BookOpen className="w-4 h-4 mx-auto text-amber-500 mb-1" />
-                  <p className="text-sm font-bold">{settings.includeQuestContext !== false ? 'Sí' : 'No'}</p>
-                  <p className="text-[10px] text-muted-foreground">Misiones</p>
-                </div>
-                <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <ArrowLeftRight className="w-4 h-4 mx-auto text-orange-500 mb-1" />
-                  <p className="text-sm font-bold">{settings.retomarAbandonedTopics ? 'Sí' : 'No'}</p>
-                  <p className="text-[10px] text-muted-foreground">Temas Aband.</p>
                 </div>
               </div>
             </div>

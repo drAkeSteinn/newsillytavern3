@@ -1469,3 +1469,43 @@ Stage Summary:
 - La ÚNICA diferencia vs chat normal: el "mensaje del usuario" es un nudge proactivo (seleccionado por atributo/caso) en lugar de input real del usuario.
 - Backward compatible: si proactivePrefix/proactiveSuffix están vacíos, el prompt es idéntico al anterior.
 - El suffix funciona como post-history (mergeado con character.postHistoryInstructions), exactamente como pidió el usuario.
+
+---
+Task ID: FASE11-V2
+Agent: main (Z.ai Code)
+Task: Refactor FASE 11 v2 — el prompt proactivo ahora es IDÉNTICO al chat normal. Renombrar prefix/suffix a systemPromptOverride/postHistoryOverride (semántica REPLACE). Eliminar customPrompt, nudgeTemplate, nudgeTemplates, y todos los campos FASE 9 (context sections). El caso seleccionado por atributo se envía como user message. proactiveAttribute es REQUERIDO.
+
+Work Log:
+- Tipos (src/types/index.ts): eliminados customPrompt, nudgeTemplate, nudgeTemplates, contextMessagesCount, thematicCooldownMinutes, includeEmotionalContext, includeRelationshipContext, includeQuestContext, contextMessageMaxChars, contextInSystemPrompt, retomarAbandonedTopics, abandonedTopicThreshold, proactivePrefix, proactiveSuffix. Renombrados a systemPromptOverride, postHistoryOverride. DEFAULT actualizado.
+- API route (src/app/api/chat/proactive/route.ts):
+  * buildSystemPrompt ahora recibe characterForPrompt (clone con systemPromptOverride si se configuró).
+  * Eliminado: defaultInstruction, groupChatInstructions, FASE 11 v1 assembly, FASE 9 context sections (emotional, relationship, quest, recent, abandoned, cooldown), nudge pool, nudge selection, context snippet, cooldown instruction.
+  * Si proactiveAttribute deshabilitado → skip (proactive_skipped, reason: proactive_attribute_disabled).
+  * Si habilitado pero sin caso → skip (proactive_skipped, reason: no_matching_case).
+  * El caso seleccionado se resuelve con resolveAllKeys y se envía como user message (role:'user').
+  * effectivePostHistory = postHistoryOverride (si set) o character.postHistoryInstructions.
+  * Todos los buildChatMessages/buildCompletionPrompt usan effectivePostHistory.
+  * SSE proactive_start ya no envía nudgeIndex; siempre envía conditionId + caseIndex.
+  * case_selected siempre se emite (no necesita guard if).
+- Hook (src/hooks/use-proactive-messages.tsx): eliminados usedNudgeIndicesRef, recentTopicsRef, addNudgeTemplate/removeNudgeTemplate. Eliminado nudgeIndex tracking y recentTopics tracking del handler SSE. ProactiveMessageInfo ya no setea nudgeIndex.
+- UI Panel (src/components/tavern/proactive-messages-panel.tsx): eliminadas cards "Instrucción Personalizada", "Mensaje de Impulso (Nudge) Principal", "Variación de Nudges", "Contexto de Conversación", "Enfriamiento Temático", "FASE 9: Contexto para Proactividad". Renombradas a "Prompt del Sistema" y "Instrucciones Post-Historia" con semántica REPLACE. Actualizado "Cómo funciona" (4 pasos). Status Summary actualizado. Hints de casos actualizados para reflejar que el contenido es el user message.
+- Eliminados NUDGE_SUGGESTIONS, newTemplateValue state, addNudgeTemplate/removeNudgeTemplate functions.
+
+Verificación end-to-end (3 escenarios):
+1. proactiveAttribute DISABLED → proactive_skipped (reason: proactive_attribute_disabled) ✓
+2. proactiveAttribute ENABLED + condition matches + overrides:
+   - case_selected (c1, caso 0) + proactive_start ✓
+   - System Prompt = [OVERRIDE-SYSTEM] ... (REEMPLAZÓ el de la card) ✓
+   - Character Description/Personality/Scenario se mantienen de la card ✓
+   - Post-History = [OVERRIDE-POSTHISTORY] ... (REEMPLAZÓ el de la card) ✓
+   - User Message = caso seleccionado con {{char}}→Aria, {{user}}→Hero resueltos ✓
+   - Tokens stream ✓
+3. condition no match + no defaultCases → proactive_skipped (reason: no_matching_case) ✓
+- ESLint: LIMPIO
+
+Stage Summary:
+- El prompt proactivo ahora es IDÉNTICO al chat normal: mismas secciones de card, mismo lorebook, misma memoria, mismo HUD, mismo context window, mismo post-history handling.
+- La ÚNICA diferencia: el "user message" es el caso seleccionado por atributo (no input del usuario).
+- systemPromptOverride y postHistoryOverride usan semántica REPLACE (vacío = hereda de la card).
+- proactiveAttribute es REQUERIDO para que funcione el proactivo (Decisión 1, opción a).
+- ProactiveMessagesConfig pasó de ~20 campos a 8 (enabled, intervalSeconds, minMessagesBeforeStart, maxPerSession, allowedStates, groupChatEnabled, groupChatStrategy, systemPromptOverride, postHistoryOverride, proactiveAttribute).
