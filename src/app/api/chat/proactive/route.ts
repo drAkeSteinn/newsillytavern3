@@ -592,7 +592,8 @@ export async function POST(request: NextRequest) {
       questSettings,
       outletSections,
       lorebookAttributeKeys,
-      inventoryData     // Pass inventory data for {{inventory}} and {{currency}} key resolution
+      inventoryData,    // Pass inventory data for {{inventory}} and {{currency}} key resolution
+      lorebookEntryKeyMap // FIX EXPLORE-3: {{entryKey}} de lorebook tradicional (Phase 6.1)
     );
 
     // ─── FASE 11 v2: Seleccionar el caso proactivo según el atributo ───
@@ -835,11 +836,16 @@ export async function POST(request: NextRequest) {
     // ─── Post-history: override o heredado de la card ───
     // Si postHistoryOverride está configurado → REEMPLAZA character.postHistoryInstructions.
     // Si está vacío → usa character.postHistoryInstructions (igual que un chat normal).
-    // Se pasa CRUDO a buildChatMessages (ella resuelve las keys internamente, igual que stream/route.ts).
+    // FIX EXPLORE-3: buildChatMessages NO resuelve keys internamente (las pushea crudas).
+    // Resolvemos aquí con resolveAllKeys para que el LLM reciba {{user}}, {{char}},
+    // {{vida}}, {{entryKey}}, {{injectionKey}}, {{activeQuests}}, etc. ya resueltos.
     const _postHistoryOverrideRaw = proactiveConfig.postHistoryOverride?.trim();
-    const effectivePostHistory: string | undefined = _postHistoryOverrideRaw
+    const _effectivePostHistoryRaw: string | undefined = _postHistoryOverrideRaw
       ? _postHistoryOverrideRaw
       : (effectiveCharacter.postHistoryInstructions?.trim() || undefined);
+    const effectivePostHistory: string | undefined = _effectivePostHistoryRaw
+      ? resolveAllKeys(_effectivePostHistoryRaw, keyContext)
+      : undefined;
 
     // ===== TOOL/ACTION SYSTEM (Native + Prompt-Based Tool Calling) =====
     const characterToolConfig = toolsSettings.characterConfigs.find(
@@ -975,11 +981,8 @@ export async function POST(request: NextRequest) {
 
           let generator: AsyncGenerator<string>;
 
-          // Get post-history instructions from character and RESOLVE ALL KEYS
-          const rawPostHistoryInstructions = effectiveCharacter.postHistoryInstructions?.trim();
-          const postHistoryInstructions = rawPostHistoryInstructions 
-            ? resolveAllKeys(rawPostHistoryInstructions, keyContext)
-            : undefined;
+          // FIX EXPLORE-3: effectivePostHistory ya está resuelto a nivel handler (arriba).
+          // No hay necesidad de re-resolverlo aquí.
 
           // Route to appropriate provider
           let accumulatedContent = '';
@@ -1708,7 +1711,7 @@ export async function POST(request: NextRequest) {
                   messages: allMessages,
                   character: effectiveCharacter,
                   userName: effectiveUserName,
-                  postHistoryInstructions: effectiveCharacter.postHistoryInstructions?.trim(),
+                  postHistoryInstructions: effectivePostHistory, // FIX EXPLORE-3: usar el override resuelto, no el raw de la card
                   embeddingsContext: embeddingsContext,
                   exampleMessages: exampleMessages,
                   allCharacters: allCharacters  // Pass all characters for proper speaker attribution

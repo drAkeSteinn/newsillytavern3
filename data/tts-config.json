@@ -1,0 +1,29 @@
+{
+  "tts": {
+    "enabled": true,
+    "autoGeneration": true,
+    "provider": "omnivoice",
+    "baseUrl": "http://localhost:3900",
+    "model": "omnivoice",
+    "whisperModel": "whisper-large-v3",
+    "speed": 1,
+    "responseFormat": "wav",
+    "language": "es",
+    "exaggeration": 0.5,
+    "cfgWeight": 0.5,
+    "temperature": 0.8,
+    "generateDialogues": true,
+    "generateNarrations": false,
+    "generatePlainText": false,
+    "applyRegex": false,
+    "voiceDesign": "",
+    "instruct": "",
+    "defaultVoice": "voices/chatterbox/es-rick.wav"
+  },
+  "asr": {
+    "enabled": false,
+    "provider": "tts-webui",
+    "model": "whisper-large-v3"
+  },
+  "updatedAt": "2026-06-05T18:21:10.873Z"
+}

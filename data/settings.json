@@ -21,32 +21,182 @@
   "sound": {
     "enabled": true,
     "globalVolume": 0.85,
-    "maxSoundsPerMessage": 3,
-    "globalCooldown": 150,
-    "realtimeEnabled": true
+    "maxSoundsPerMessage": 50,
+    "globalCooldown": 0,
+    "realtimeEnabled": true,
+    "soundListSuffix": "- reglas",
+    "globalMute": true
   },
   "backgroundTriggers": {
     "enabled": true,
-    "globalCooldown": 250,
+    "globalCooldown": 0,
     "realtimeEnabled": true,
-    "transitionDuration": 500
+    "transitionDuration": 500,
+    "defaultTransitionType": "fade",
+    "returnToDefaultEnabled": true,
+    "returnToDefaultAfter": 300000,
+    "defaultBackgroundUrl": "/backgrounds/Room/Room (1).png",
+    "globalOverlays": []
   },
   "chatLayout": {
     "novelMode": true,
-    "chatWidth": 60,
-    "chatHeight": 70,
-    "chatX": 50,
-    "chatY": 50,
+    "chatWidth": 72.0436507936508,
+    "chatHeight": 63.740245828841836,
+    "chatX": 63.9781746031746,
+    "chatY": 68.12987708557908,
     "chatOpacity": 0.95,
-    "blurBackground": true,
+    "blurBackground": false,
     "showCharacterSprite": true
   },
   "context": {
-    "maxMessages": 50,
+    "maxMessages": 10,
     "maxTokens": 4096,
     "keepFirstN": 1,
-    "keepLastN": 20,
+    "keepLastN": 10,
     "enableSummaries": false,
     "summaryThreshold": 40
+  },
+  "comicSound": {
+    "enabled": true,
+    "maxEffects": 1,
+    "duration": 880,
+    "minScale": 0.5,
+    "maxScale": 1,
+    "allowedTemplates": [
+      "wail",
+      "tall",
+      "vertical"
+    ]
+  },
+  "chatboxAppearance": {
+    "theme": "midnight",
+    "background": {
+      "transparency": 0.95,
+      "blur": 10,
+      "useGlassEffect": true,
+      "customBackgroundColor": "#000000"
+    },
+    "font": {
+      "fontFamily": "system",
+      "fontSize": "base",
+      "fontWeight": "normal",
+      "lineHeight": "relaxed",
+      "letterSpacing": "normal"
+    },
+    "textFormatting": {
+      "enableMarkdown": true,
+      "enableCodeHighlight": true,
+      "enableQuotes": true,
+      "codeBlockTheme": "auto"
+    },
+    "textColors": {
+      "userMessage": "#3b82f6",
+      "characterMessage": "#f59e0b",
+      "narratorMessage": "#8b5cf6",
+      "systemMessage": "#6b7280",
+      "linkColor": "#3b82f6",
+      "codeColor": "#10b981"
+    },
+    "bubbles": {
+      "style": "neon",
+      "transparency": 0.1,
+      "borderRadius": 16,
+      "shadowEnabled": true,
+      "shadowIntensity": "soft",
+      "maxWidth": 100,
+      "userBubbleColor": "#3b82f6",
+      "userBubbleTextColor": "#ffffff",
+      "characterBubbleColor": "#27272a",
+      "characterBubbleTextColor": "#fafafa",
+      "narratorBubbleColor": "#7c3aed",
+      "narratorBubbleTextColor": "#ffffff",
+      "systemBubbleColor": "#3f3f46",
+      "systemBubbleTextColor": "#a1a1aa"
+    },
+    "avatars": {
+      "show": true,
+      "shape": "circle",
+      "size": "md",
+      "borderRadius": 8,
+      "showBorder": true,
+      "borderColor": "#3b82f6",
+      "borderWidth": 2
+    },
+    "streaming": {
+      "animationStyle": "typing-cursor",
+      "animationSpeed": 50,
+      "streamingTextColor": "#fbbf24",
+      "cursorStyle": "block",
+      "cursorColor": "#fbbf24",
+      "cursorBlinkRate": 530,
+      "showCursor": true
+    },
+    "input": {
+      "backgroundColor": "#18181b",
+      "textColor": "#fafafa",
+      "placeholderColor": "#71717a",
+      "borderColor": "#3f3f46",
+      "borderRadius": 12,
+      "focusBorderColor": "#3b82f6",
+      "fontSize": "base"
+    },
+    "messageSpacing": "normal",
+    "groupMessages": false,
+    "showTimestamps": true,
+    "showTokens": true,
+    "animateEntry": true,
+    "entryAnimation": "fade",
+    "animationDurationMs": 200,
+    "enableAnimations": true,
+    "enableParticles": true,
+    "animationIntensity": 50
+  },
+  "embeddingsChat": {
+    "enabled": true,
+    "maxTokenBudget": 1024,
+    "namespaceStrategy": "character",
+    "showInPromptViewer": true,
+    "memoryExtractionEnabled": true,
+    "memoryExtractionFrequency": 3,
+    "memoryExtractionMinImportance": 3,
+    "memoryConsolidationEnabled": true,
+    "memoryConsolidationThreshold": 50,
+    "memoryConsolidationKeepRecent": 10,
+    "memoryConsolidationKeepHighImportance": 4,
+    "memoryExtractionPrompt": "Eres un analista de memoria para un personaje de rol. Tu ÚNICA tarea es extraer hechos memorables del mensaje de un personaje.\n\nReglas estrictas:\n- Solo extrae información NUEVA y RELEVANTE sobre el jugador, relaciones, eventos importantes, secretos o preferencias\n- Ignora saludos, descripciones genéricas, acciones rutinarias y narrativa decorativa\n- Ignora información que ya es conocimiento general del personaje\n- Cada hecho debe ser una FRASE concisa (máximo 50 palabras) en tercera persona\n- Si NO hay nada memorable, responde EXACTAMENTE: []\n\nResponde SOLO con un JSON array, sin explicaciones, sin markdown, sin texto adicional.\n\nEjemplos:\n\nMensaje del personaje:\n\"*mira con recelo* No confío en ti desde que robaste las gemas del templo. Y sé que le debes dinero a Claudec.\"\n\nRespuesta correcta:\n[{\"contenido\":\"El personaje no confía en el jugador desde que robó las gemas del templo\",\"tipo\":\"relacion\",\"importancia\":4},{\"contenido\":\"El jugador le debe dinero a Claudec\",\"tipo\":\"hecho\",\"importancia\":3}]\n\nMensaje del personaje:\n\"¡Buenos días! ¿En qué puedo ayudarte hoy?\"\n\nRespuesta correcta:\n[]\n\nAhora analiza este mensaje:\n\nNombre del personaje: {characterName}\n{lastMessage}",
+    "memoryExtractionContextDepth": 3,
+    "searchContextDepth": 1,
+    "groupDynamicsExtraction": true,
+    "extractionModelEnabled": false,
+    "extractionModelProvider": "ollama",
+    "extractionModelEndpoint": "http://localhost:11434",
+    "extractionModelApiKey": "",
+    "extractionModelName": "llama3.1:8b",
+    "memoryReinforcementEnabled": true,
+    "memoryReinforcementThreshold": 0.7,
+    "memoryExtractionFromUserEnabled": false
+  },
+  "handy": {
+    "enabled": true,
+    "autoConnect": true,
+    "appId": "7GaqK_o7Cjs8-.XfqwFs5NjnHZCIKXWW",
+    "connectionKey": "Fthxrbhy",
+    "positionInverted": false
+  },
+  "tools": {
+    "enabled": true,
+    "maxToolCallsPerTurn": 2,
+    "characterConfigs": [],
+    "usePromptBasedFallback": false,
+    "disabledTools": [
+      "roll_dice",
+      "get_weather",
+      "search_web",
+      "set_reminder",
+      "modify_stat",
+      "check_stat",
+      "manage_quest",
+      "manage_solicitud"
+    ]
   }
 }

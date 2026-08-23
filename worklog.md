@@ -1534,3 +1534,787 @@ Stage Summary:
 - Switch de proactivo en la barra superior (junto a Variables de Sesión y Config): togglear proactivo on/off sin editar la card. Se persiste en character.proactiveMessages.enabled via updateCharacter.
 - Feedback via toast cuando el proactivo se omite (configuración faltante o sin caso aplicable).
 - El switch está deshabilitado si el personaje no tiene proactiveAttribute configurado (proactiveAvailable=false), con tooltip explicativo.
+
+---
+
+# Task ID: EXPLORE-3
+**Agent:** Explore
+**Task:** Audit lorebook key ({{key}}) resolution across ALL sections of the prompt built from a character card. User reports that NOT all lorebook keys are resolved in all sections of the prompt (personality, description, system prompt, etc.). Identify which sections resolve keys correctly and which do NOT, and recommend fixes.
+
+## Work Log
+
+### Files Read (FULLY or selectively)
+- `/home/z/my-project/src/lib/llm/prompt-builder.ts` (lines 490-1180 fully read; 1-490 spot-checked; 1180-1799 not needed)
+  - `buildSystemPrompt(...)` lines 502-706 — builds all card sections, returns `{ prompt, sections, lorebookChatInjections, exampleMessages }`
+  - `buildLorebookSectionForPrompt(...)` lines 713-761 — builds `lorebookAttributeKeys` (Phase 6) and `lorebookEntryKeyMap` (Phase 6.1)
+  - `buildAuthorNoteSection(...)` lines 775-794 — exported, not used by either route currently
+  - `buildPostHistorySection(...)` lines 803-822 — exported, used by both routes for prompt-viewer only
+  - `buildChatHistorySections(...)` lines 827-852
+  - `applyChatInjections(...)` lines 864-914
+  - `buildChatMessages(...)` lines 925-1045 — **does NOT resolve keys internally** on `postHistoryInstructions` or `authorNote`
+  - `buildCompletionPrompt(...)` lines 1057-1103 — **does NOT resolve keys internally** either
+  - `buildGroupSystemPrompt(...)` lines 1114+ — same pattern as `buildSystemPrompt`
+- `/home/z/my-project/src/lib/key-resolver.ts` (full, 1181 lines)
+  - `resolveTemplateVariables(...)` lines 95-166 — Phase 1: `{{user}}`, `{{char}}`, `{{time}}`, `{{userpersona}}`, `{{persona}}`, conditionals, `{{description}}`, `{{personality}}`, `{{scenario}}`, `{{outlet::name}}`
+  - `resolveStatsKeys(...)` lines 214-226 — Phase 2: stat attributes + persona stats
+  - `resolveEventKeys(...)` lines 240-293 — Phase 3: `{{solicitante}}`, `{{solicitado}}`, `{{eventos}}`
+  - `resolveSoundKeys(...)` lines 352-418 — Phase 4: `{{sonidos}}`
+  - `resolveAvailableQuestsKey(...)` lines 474-533 and `resolveQuestKeys(...)` lines 548-600 — Phase 5: `{{availableQuests}}`, `{{activeQuests}}`
+  - `resolveLorebookAttributeKeys(...)` lines 620-667 — Phase 6: `{{injectionKey}}` from attribute lorebook entries. **Re-runs ONLY Phase 1 + Phase 2 after injection** (lines 660-664).
+  - `resolveLorebookEntryKeys(...)` lines 686-733 — Phase 6.1: `{{key}}` from traditional lorebook entries. **Re-runs ONLY Phase 1 + Phase 2 after injection** (lines 727-730).
+  - `resolveInventoryKeys(...)` lines 759-843 — Phase 6.5: `{{slots}}`, `{{currency}}`
+  - `resolveRemainingKeys(...)` lines 862-926 — Phase 7: cleanup; replaces any unknown `{{key}}` (not in knownStatKeys / knownLorebookKeys / knownAttributeKeys) with empty string
+  - `resolveAllKeys(...)` lines 945-984 — runs phases 1→7 sequentially in ONE pass (no multi-pass by default)
+  - `resolveAllKeysWithPasses(...)` lines 997-1018 — exists but is NOT used by `buildSystemPrompt` or the routes (only by `resolveSectionsKeysWithPasses` which is also unused)
+  - `buildKeyResolutionContext(...)` lines 1027-1064 — 15-arg signature; **15th arg is `lorebookEntryKeys`**
+  - `resolveSectionKeys(...)` lines 1147-1155 and `resolveSectionsKeys(...)` lines 1160-1165 — what `buildSystemPrompt` uses on its sections array
+- `/home/z/my-project/src/lib/lorebook/entry-key-builder.ts` (full, 161 lines) — `buildLorebookEntryKeyMap` includes ALL active traditional (non-attribute) entries regardless of constant flag or scan match
+- `/home/z/my-project/src/lib/lorebook/attribute-resolver.ts` lines 81-200 — `resolveLorebookAttributeKeys` returns `{ keys, debugEntries }`; builds map from ALL attribute entries whose conditions match
+- `/home/z/my-project/src/app/api/chat/stream/route.ts` lines 390-1100, 1380-1730 (spot-checked) — uses buildSystemPrompt correctly, builds keyContext (line 575-590) **WITHOUT** `lorebookEntryKeyMap`; passes RAW `effectiveCharacter.postHistoryInstructions?.trim()` to `buildChatMessages` (lines 901, 1064, 1244, 1400, 1527, 1638) and to `buildCompletionPrompt` (lines 1510, 1709, 1725)
+- `/home/z/my-project/src/app/api/chat/proactive/route.ts` lines 410-1730 (spot-checked) — uses `characterForPrompt` clone with `systemPrompt` = `systemPromptOverride` (line 529-531); builds keyContext (line 581-596) **WITHOUT** `lorebookEntryKeyMap`; defines `effectivePostHistory` = RAW override or RAW character.postHistoryInstructions (lines 839-842) and passes it RAW to `buildChatMessages` (lines 1025, 1157, 1278, 1393, 1513, 1627) and `buildCompletionPrompt` (lines 1496, 1695); the `default` provider case (line 1711) even bypasses the override and uses `effectiveCharacter.postHistoryInstructions?.trim()` directly
+- `/home/z/my-project/src/lib/prompt-template.ts` lines 155-205 — `processExampleDialogue` explicitly does NOT resolve keys (defers to `resolveAllKeys`)
+
+---
+
+## Part A — Section-by-section audit
+
+All card sections below are built INSIDE `buildSystemPrompt(...)` in `/home/z/my-project/src/lib/llm/prompt-builder.ts`. They are pushed as raw `PromptSection` objects into a local `sections: PromptSection[]` array, and at **line 696** the entire array is passed through a single unified resolver:
+
+```ts
+// prompt-builder.ts:696
+const processedSections = resolveSectionsKeys(sections, keyContext);
+```
+
+The `keyContext` used here is built at **lines 558-568** with the FULL 15-arg signature, including `lorebookEntryKeyMap` as the 15th argument. So the `keyContext` that resolves these sections DOES contain both `lorebookAttributeKeys` (Phase 6 source) AND `lorebookEntryKeyMap` (Phase 6.1 source).
+
+| # | Section label (prompt viewer) | Source field | Resolve call? | With lorebookAttrKeys? | With lorebookEntryKeyMap? | Status |
+|---|---|---|---|---|---|---|
+| 1 | `System Prompt` | `character.systemPrompt` (or fallback) | YES — `resolveSectionsKeys` line 696 | YES | YES | ✅ Resolved |
+| 2 | `World Info` (position 0) | `lorebookPlan.position0Section.content` | YES — same call | YES | YES | ✅ Resolved |
+| 3 | `Character Description` | `character.description` | YES — same call | YES | YES | ✅ Resolved |
+| 4 | `Personality` | `character.personality` | YES — same call | YES | YES | ✅ Resolved |
+| 5 | `Estado Emocional` | built from `character.emotionalConfig.promptInjectionFormat` + `sessionStats.characterStats[id].emotionalState` (lines 619-631) | YES — same call (it's pushed as a section before line 696) | YES | YES | ✅ Resolved (no {{keys}} expected in the format anyway) |
+| 6 | `Scenario` | `character.scenario` | YES — same call | YES | YES | ✅ Resolved |
+| 7 | `Character's Note` | `character.characterNote` | YES — same call | YES | YES | ✅ Resolved |
+| 8 | `EJEMPLOS DE MENSAJES` | `character.mesExample` via `processExampleDialogue` (line 660) — **explicitly does NOT resolve keys itself** (see `/home/z/my-project/src/lib/prompt-template.ts:164-169`) | YES — same call (the processed string is pushed as a section at line 662-668) | YES | YES | ✅ Resolved |
+| 9 | `World Info` (position 5) | `lorebookPlan.position5Section.content` | YES — same call | YES | YES | ✅ Resolved |
+| 10 | `World Info` (position 6) | `lorebookPlan.position6Section.content` | YES — same call | YES | YES | ✅ Resolved |
+| 11 | `World Info (outletName)` (position 7) | `lorebookPlan.outletSections[*].content` | YES — same call | YES | YES | ✅ Resolved |
+
+**Exact code that builds each section** (verbatim from `prompt-builder.ts:502-706`):
+
+```ts
+// Section 1: System Prompt (lines 572-581)
+const systemContent = character.systemPrompt?.trim()
+  ? character.systemPrompt
+  : `You are now in roleplay mode. You will act as ${character.name}.`;
+sections.push({ type: 'system', label: 'System Prompt', content: systemContent, color: SECTION_COLORS.system });
+
+// Section 2: Lorebook position 0 (lines 584-586)
+if (lorebookPlan?.position0Section) { sections.push(lorebookPlan.position0Section); }
+
+// Section 3: Character Description (lines 597-604)
+if (character.description) {
+  sections.push({ type: 'character_description', label: 'Character Description', content: character.description, color: SECTION_COLORS.character_description });
+}
+
+// Section 4: Personality (lines 607-614)
+if (character.personality) {
+  sections.push({ type: 'personality', label: 'Personality', content: character.personality, color: SECTION_COLORS.personality });
+}
+
+// Section 5: Estado Emocional (lines 619-631)
+if (character.emotionalConfig?.enabled && character.emotionalConfig.includeInPrompt) {
+  const emotionalState = sessionStats?.characterStats?.[character.id]?.emotionalState;
+  if (emotionalState) {
+    const format = character.emotionalConfig.promptInjectionFormat || 'Estado emocional actual: {estado}';
+    const emotionContent = format.replace('{estado}', emotionalState);
+    sections.push({ type: 'personality', label: 'Estado Emocional', content: emotionContent, color: '...' });
+  }
+}
+
+// Section 6: Scenario (lines 634-641)
+if (character.scenario) { sections.push({ type: 'scenario', label: 'Scenario', content: character.scenario, color: SECTION_COLORS.scenario }); }
+
+// Section 7: Character's Note (lines 645-652)
+if (character.characterNote) { sections.push({ type: 'character_note', label: "Character's Note", content: character.characterNote, color: SECTION_COLORS.character_note }); }
+
+// Section 8: Example Messages (lines 659-669) — processExampleDialogue does NOT resolve keys; the section is.
+if (character.mesExample) {
+  const exampleContent = processExampleDialogue(character.mesExample, userName, character.name);
+  if (exampleContent) {
+    sections.push({ type: 'example_dialogue', label: 'EJEMPLOS DE MENSAJES', content: exampleContent, color: SECTION_COLORS.example_dialogue });
+  }
+}
+
+// Section 9: Lorebook position 5 (lines 672-674)
+if (lorebookPlan?.position5Section) { sections.push(lorebookPlan.position5Section); }
+
+// Section 11: Lorebook position 7 outlets (lines 677-679)
+if (lorebookPlan?.outletSections.length) { sections.push(...lorebookPlan.outletSections); }
+
+// Section 10: Lorebook position 6 (lines 682-684)
+if (lorebookPlan?.position6Section) { sections.push(lorebookPlan.position6Section); }
+
+// === UNIFIED KEY RESOLUTION (line 696) ===
+const processedSections = resolveSectionsKeys(sections, keyContext);
+const prompt = processedSections.map(s => `[${s.label}]\n${s.content}`).join('\n\n');
+return { prompt, sections: processedSections, lorebookChatInjections: lorebookPlan?.chatInjections || [], exampleMessages };
+```
+
+**Conclusion for Part A**: ALL eleven card-side sections listed by the user are correctly resolved inside `buildSystemPrompt`. The bug is NOT in the card sections themselves.
+
+### Sections OUTSIDE `buildSystemPrompt` that the user's prompt viewer / LLM also sees
+
+| Section | Source | Where built | Resolve call? | Issue |
+|---|---|---|---|---|
+| `Post-History Instructions` | `character.postHistoryInstructions` (stream) OR `proactiveConfig.postHistoryOverride ‖ character.postHistoryInstructions` (proactive) | `stream/route.ts:605-608` and `proactive/route.ts:626-628` via `buildPostHistorySection(text, keyContext)` | YES via `resolveAllKeys(text, keyContext)` inside `buildPostHistorySection` (`prompt-builder.ts:812-814`) | **`keyContext` is missing `lorebookEntryKeys`** in both routes — see Part D. So `{{entryKey}}` references are STRIPPED to empty by Phase 7. |
+| `Author's Note` | not used by either route currently | (exported `buildAuthorNoteSection`, `prompt-builder.ts:775-794`) | would call `resolveAllKeys` if used | Same missing-`lorebookEntryKeys` problem if used |
+| **Actual LLM `postHistoryInstructions` payload** (chat messages sent to provider) | RAW `effectiveCharacter.postHistoryInstructions?.trim()` (stream) or RAW `effectivePostHistory` (proactive) | `buildChatMessages(... postHistoryInstructions ...)` calls | **NO — `buildChatMessages` does NOT resolve keys** (see `prompt-builder.ts:961-963`) | **The LLM receives RAW, UNRESOLVED `{{user}}`, `{{char}}`, `{{vida}}`, `{{entryKey}}`, `{{injectionKey}}`, `{{activeQuests}}`, etc.** in the post-history instructions. This is the actual bug the user is reporting. |
+| **Actual LLM `postHistoryInstructions` in completion-style providers** (Ollama, KoboldCPP, TGI, default) | Same RAW value | `buildCompletionPrompt({ postHistoryInstructions: ... })` calls | **NO — `buildCompletionPrompt` does NOT resolve keys** (see `prompt-builder.ts:1096-1098`) | Same as above |
+| `✨ Mensaje Proactivo (Caso Seleccionado)` (proactive only) | `selectedProactiveCase.content` | `proactive/route.ts:828` `const proactiveUserMessage = resolveAllKeys(selectedProactiveCase.content, keyContext);` | YES via `resolveAllKeys` | **`keyContext` is missing `lorebookEntryKeys`** → `{{entryKey}}` in proactive case message is STRIPPED to empty by Phase 7. |
+
+---
+
+## Part B — Order-of-resolution problem
+
+`resolveAllKeys` (`key-resolver.ts:945-984`) runs phases in this exact order, in ONE pass:
+
+```ts
+// key-resolver.ts:945-984
+export function resolveAllKeys(text: string, context: KeyResolutionContext): string {
+  if (!text) return text;
+  let result = resolveTemplateVariables(text, context);           // Phase 1
+  result = resolveStatsKeys(result, context.resolvedStats, context.personaResolvedStats);  // Phase 2
+  result = resolveEventKeys(result, context);                     // Phase 3  {{eventos}}, {{solicitante}}, {{solicitado}}
+  result = resolveSoundKeys(result, context);                    // Phase 4  {{sonidos}}
+  result = resolveQuestKeys(result, context);                    // Phase 5a {{activeQuests}}
+  result = resolveAvailableQuestsKey(result, context);          // Phase 5b {{availableQuests}}
+  result = resolveLorebookAttributeKeys(result, context);        // Phase 6  {{injectionKey}}
+  result = resolveLorebookEntryKeys(result, context);            // Phase 6.1 {{entryKey}}
+  result = resolveInventoryKeys(result, context);                // Phase 6.5 {{slots}}, {{currency}}
+  result = resolveRemainingKeys(result, context);                // Phase 7  cleanup
+  return result;
+}
+```
+
+### What `resolveLorebookAttributeKeys` does AFTER injecting attribute content (Phase 6)
+
+`/home/z/my-project/src/lib/key-resolver.ts:620-667`:
+
+```ts
+export function resolveLorebookAttributeKeys(text: string, context: KeyResolutionContext): string {
+  if (!text) return text;
+  // ... sortedKeys loop, regex replace {{injectionKey}} -> content ...
+  // AFTER injection (lines 658-664):
+  if (result !== text) {
+    result = resolveTemplateVariables(result, context);   // RE-RUNS PHASE 1 ONLY
+    result = resolveStatsKeys(result, context.resolvedStats, context.personaResolvedStats);  // RE-RUNS PHASE 2 ONLY
+  }
+  return result;
+}
+```
+
+### What `resolveLorebookEntryKeys` does AFTER injecting entry content (Phase 6.1)
+
+`/home/z/my-project/src/lib/key-resolver.ts:686-733`:
+
+```ts
+export function resolveLorebookEntryKeys(text: string, context: KeyResolutionContext): string {
+  if (!text) return text;
+  // ... sortedKeys loop, regex replace {{entryKey}} -> content ...
+  // AFTER injection (lines 725-730):
+  if (anyReplaced) {
+    result = resolveTemplateVariables(result, context);   // RE-RUNS PHASE 1 ONLY
+    result = resolveStatsKeys(result, context.resolvedStats, context.personaResolvedStats);  // RE-RUNS PHASE 2 ONLY
+  }
+  return result;
+}
+```
+
+### CRITICAL ANSWER
+
+**The re-resolution in Phases 6 and 6.1 is PARTIAL, not complete.** They re-run ONLY:
+- Phase 1: `resolveTemplateVariables` — covers `{{user}}`, `{{char}}`, `{{time}}`, `{{userpersona}}`, `{{persona}}`, conditionals, `{{description}}`, `{{personality}}`, `{{scenario}}`, `{{outlet::name}}`
+- Phase 2: `resolveStatsKeys` — covers stat attribute keys + `{{habilidades}}`, `{{intenciones}}`, etc.
+
+They DO NOT re-run:
+- Phase 3 (`{{eventos}}`, `{{solicitante}}`, `{{solicitado}}`)
+- Phase 4 (`{{sonidos}}`)
+- Phase 5 (`{{activeQuests}}`, `{{availableQuests}}`)
+- Phase 6 (other `{{injectionKey}}` — no recursion)
+- Phase 6.1 (other `{{entryKey}}` — no recursion)
+
+### Concrete failure scenarios
+
+1. **Lorebook attribute entry content contains `{{user}}`** → ✅ Handled (Phase 1 re-run catches it).
+2. **Lorebook attribute entry content contains `{{vida}}` (a stat key)** → ✅ Handled (Phase 2 re-run catches it).
+3. **Lorebook attribute entry content contains `{{eventos}}`** → ❌ Phase 3 already ran on the section BEFORE Phase 6 injected the content; Phase 6 does NOT re-run Phase 3. The `{{eventos}}` placeholder remains in the text after Phase 6. Phase 7 then checks `knownStatKeys`/`knownLorebookKeys`/`knownAttributeKeys` — `eventos` is none of these, so it is **REPLACED WITH EMPTY STRING** (silent data loss).
+4. **Lorebook attribute entry content contains `{{sonidos}}`** → ❌ Same as above (Phase 4 not re-run, Phase 7 strips it).
+5. **Lorebook attribute entry content contains `{{activeQuests}}`** → ❌ Same as above (Phase 5 not re-run, Phase 7 strips it).
+6. **Lorebook attribute entry content contains `{{slots}}`** → ✅ Handled (Phase 6.5 runs AFTER Phase 6, so the freshly-injected `{{slots}}` is resolved on the next phase).
+7. **Lorebook attribute entry content contains ANOTHER `{{injectionKey}}`** (nested attribute references) → ❌ Phase 6 does NOT recurse. The inner `{{injectionKey2}}` is NOT resolved by Phase 6's re-run (Phase 6 isn't re-invoked). Phase 7 would strip it (unless it's in `knownAttributeKeys`, which it IS — see `key-resolver.ts:893-897`). Wait — actually it IS kept as-is because Phase 7's `knownAttributeKeys` set protects it. So the LLM would see the literal `{{injectionKey2}}` text. Not great either.
+8. **Lorebook attribute entry content contains a `{{entryKey}}` (a traditional lorebook entry key)** → ❌ Phase 6.1 already ran BEFORE Phase 6 (no, wait — order is Phase 6 then Phase 6.1). Let me re-read: `resolveLorebookAttributeKeys` (Phase 6) runs FIRST, then `resolveLorebookEntryKeys` (Phase 6.1) runs. So if Phase 6 injects content containing `{{entryKey}}`, then Phase 6.1 (which runs immediately after) WILL resolve it. ✅ Handled (forward direction).
+9. **REVERSE: Lorebook ENTRY (Phase 6.1) content contains `{{injectionKey}}` (an attribute key)** → ❌ Phase 6 already ran BEFORE Phase 6.1. So when Phase 6.1 injects `{{injectionKey}}`, Phase 6 does NOT re-run. Phase 7 protects it (it's in `knownAttributeKeys`), so the LLM would see the literal `{{injectionKey}}` text. ❌
+
+### Recommendation for Part B
+
+The fix is to either:
+- (a) Re-run the FULL `resolveAllKeys` (with a depth guard to prevent infinite recursion) at the end of Phase 6 and Phase 6.1, instead of just Phase 1 + Phase 2; OR
+- (b) Use the existing `resolveAllKeysWithPasses(text, context, 2)` helper (`key-resolver.ts:997-1018`) which iterates `resolveAllKeys` up to N times until the text stabilizes. This is cleaner and already exists.
+
+Option (b) is preferred because the helper is already there and handles the convergence check.
+
+---
+
+## Part C — `lorebookEntryKeyMap` timing / inclusion problem
+
+`buildLorebookEntryKeyMap` lives in `/home/z/my-project/src/lib/lorebook/entry-key-builder.ts:60-148`. Verbatim:
+
+```ts
+export function buildLorebookEntryKeyMap(lorebooks: Lorebook[]): LorebookEntryKeyMapResult {
+  const result: Record<string, string> = {};
+  const debugEntries: LorebookEntryKeyDebugEntry[] = [];
+  if (!lorebooks || lorebooks.length === 0) return { keys: result, debugEntries };
+
+  const allTraditionalEntries: CollectedEntry[] = [];
+  for (const lorebook of lorebooks) {
+    if (!lorebook.active) continue;
+    for (const entry of lorebook.entries) {
+      if (entry.entryType === 'attribute') continue;  // skip attribute entries (handled by Phase 6)
+      if (entry.disable) continue;                     // skip disabled
+      if (!entry.key || entry.key.length === 0) continue;  // skip entries with no keys
+      if (!entry.content?.trim()) continue;            // skip entries with empty content
+      allTraditionalEntries.push({ entry, lorebookName: lorebook.name });
+    }
+  }
+  // Sort by entry.order ascending — lower order = higher priority
+  allTraditionalEntries.sort((a, b) => a.entry.order - b.entry.order);
+  // ... dedupe by normalized key, priority wins ...
+  for (const { entry, lorebookName } of allTraditionalEntries) {
+    for (const key of entry.key) {
+      if (isRegexKey(key)) continue;
+      const normalizedKey = key.trim().toLowerCase();
+      if (!normalizedKey) continue;
+      if (resolvedKeys.has(normalizedKey)) { /* debug */ continue; }
+      const content = entry.content.trim();
+      result[normalizedKey] = content;
+      resolvedKeys.set(normalizedKey, { content, order: entry.order, lorebookName });
+    }
+  }
+  return { keys: result, debugEntries };
+}
+```
+
+The module's docstring (lines 12-16) explicitly states:
+> "Constant entries are always included. **Non-constant entries are included regardless of whether their keywords appear in chat (since this is explicit {{key}} resolution, not chat scanning).**"
+
+### CRITICAL ANSWER
+
+**`lorebookEntryKeyMap` is built from ALL active traditional (non-attribute) lorebook entries**, regardless of:
+- whether the entry is `constant: true` or `constant: false`
+- whether the entry's keywords were scanned/matched in recent chat messages
+- whether the entry was selected by the lorebook scanner for injection at positions 0/5/6/outlets
+
+This is the correct behavior: it means a user can write `{{tecnica_fuego}}` anywhere in their card (description, personality, systemPrompt, etc.) and it will resolve to the entry's content as long as the entry exists in any active non-attribute lorebook.
+
+### Important caveat — `normalizedKey`
+
+The map stores keys in **lowercase trimmed form** (line 109: `key.trim().toLowerCase()`). But Phase 6.1's regex lookup is case-insensitive (line 712: `new RegExp(..., 'gi')`) — so `{{TecnicaFuego}}` in the card text would match `tecnica_fuego` in the map. ✅ Case is handled.
+
+But — the SORT by `entry.order` (line 99) means that if a key is shared by multiple entries across multiple lorebooks, only the entry with the LOWEST `order` (highest priority) is included. This is intentional.
+
+---
+
+## Part D — Proactive route specific issues
+
+### D.1 — `systemPromptOverride` resolution
+
+`/home/z/my-project/src/app/api/chat/proactive/route.ts:528-548`:
+
+```ts
+// FASE 11 v2: Si systemPromptOverride está configurado, REEMPLAZA character.systemPrompt.
+const _systemPromptOverrideRaw = proactiveConfig.systemPromptOverride?.trim();
+const characterForPrompt: CharacterCard = _systemPromptOverrideRaw
+  ? { ...effectiveCharacter, systemPrompt: _systemPromptOverrideRaw }
+  : effectiveCharacter;
+
+const { prompt: systemPrompt, sections: systemSections, lorebookChatInjections, exampleMessages } = buildSystemPrompt(
+  characterForPrompt,          // 1: character (with override applied)
+  effectiveUserName,            // 2
+  persona,                      // 3
+  lorebookPlan,                 // 4
+  sessionStats,                 // 5
+  allCharacters,                // 6
+  soundTriggers,                // 7
+  soundSettings,                // 8
+  questTemplates,               // 9
+  sessionQuests,                // 10
+  questSettings,                 // 11
+  lorebookAttributeKeys,         // 12
+  inventoryData,                 // 13
+  lorebookEntryKeyMap            // 14: WAIT — only 14 args! LorebookEntryKeyMap is passed here
+);
+```
+
+Wait — looking again at the actual call (lines 533-548), it has 14 arguments ending with `lorebookEntryKeyMap`. Let me recount:
+
+```ts
+buildSystemPrompt(
+  characterForPrompt,        // 1: character
+  effectiveUserName,          // 2: userName
+  persona,                    // 3: persona
+  lorebookPlan,               // 4: lorebookPlan
+  sessionStats,               // 5: sessionStats
+  allCharacters,              // 6: allCharacters
+  soundTriggers,              // 7: soundTriggers
+  soundSettings,              // 8: soundSettings
+  questTemplates,              // 9: questTemplates
+  sessionQuests,               // 10: sessionQuests
+  questSettings,                // 11: questSettings
+  lorebookAttributeKeys,        // 12: lorebookAttributeKeys
+  inventoryData,                // 13: inventoryData
+  lorebookEntryKeyMap           // 14: lorebookEntryKeyMap
+);
+```
+
+`buildSystemPrompt`'s signature (`prompt-builder.ts:502-517`) takes 14 args (1 character + 13 numbered, ending with `lorebookEntryKeyMap`). The proactive call passes all 14. **This call is correct.**
+
+Inside `buildSystemPrompt`, the INTERNAL `keyContext` (lines 558-568) passes `lorebookEntryKeyMap` as the 15th arg to `buildKeyResolutionContext`. **This is also correct.**
+
+So the `systemPromptOverride` IS resolved correctly — because it replaces `character.systemPrompt` in the clone, and `buildSystemPrompt` then resolves `character.systemPrompt` via `resolveSectionsKeys(sections, keyContext)` at line 696.
+
+**Verdict**: ✅ `systemPromptOverride` IS resolved correctly (all keys including `{{entryKey}}` and `{{injectionKey}}`).
+
+### D.2 — `postHistoryOverride` resolution
+
+`/home/z/my-project/src/app/api/chat/proactive/route.ts:839-842`:
+
+```ts
+// Se pasa CRUDO a buildChatMessages (ella resuelve las keys internamente, igual que stream/route.ts).
+const _postHistoryOverrideRaw = proactiveConfig.postHistoryOverride?.trim();
+const effectivePostHistory: string | undefined = _postHistoryOverrideRaw
+  ? _postHistoryOverrideRaw
+  : (effectiveCharacter.postHistoryInstructions?.trim() || undefined);
+```
+
+**THE COMMENT ON LINE 838 IS FACTUALLY WRONG.** `buildChatMessages` does NOT resolve keys internally — see `prompt-builder.ts:961-963`:
+
+```ts
+// Post-History Instructions
+if (postHistoryInstructions?.trim()) {
+  systemParts.push(postHistoryInstructions);  // RAW push, no resolution
+}
+```
+
+So `effectivePostHistory` is RAW (unresolved) when passed to `buildChatMessages`. The LLM receives the RAW `{{user}}`, `{{char}}`, `{{vida}}`, `{{entryKey}}`, `{{injectionKey}}`, etc.
+
+The 6 `buildChatMessages` calls in proactive that pass RAW `effectivePostHistory`:
+- Line 1025 (z-ai)
+- Line 1157 (openai/vllm/lm-studio/custom)
+- Line 1278 (anthropic)
+- Line 1393 (ollama)
+- Line 1513 (grok)
+- Line 1627 (text-generation-webui/koboldcpp)
+
+The 3 `buildCompletionPrompt` calls:
+- Line 1496 (ollama completion) — passes `effectivePostHistory` (RAW)
+- Line 1695 (TGI/KoboldCPP completion) — passes `effectivePostHistory` (RAW)
+- **Line 1711 (default case)** — passes `effectiveCharacter.postHistoryInstructions?.trim()` — this BYPASSES the override entirely! Even if `postHistoryOverride` is set, the default-provider branch ignores it.
+
+### D.3 — Prompt-viewer `postHistorySection`
+
+`/home/z/my-project/src/app/api/chat/proactive/route.ts:626-629`:
+
+```ts
+const postHistorySection = buildPostHistorySection(
+  proactiveConfig.postHistoryOverride?.trim() || effectiveCharacter.postHistoryInstructions,
+  keyContext
+);
+```
+
+`buildPostHistorySection` (`prompt-builder.ts:803-822`) calls `resolveAllKeys(instructions, keyContext)`.
+
+BUT the `keyContext` built in proactive/route.ts at lines 581-596 is **MISSING `lorebookEntryKeyMap`** (the 15th arg of `buildKeyResolutionContext`):
+
+```ts
+const keyContext = buildKeyResolutionContext(
+  effectiveCharacter,           // 1
+  effectiveUserName,             // 2
+  persona,                       // 3
+  resolvedStats,                 // 4
+  sessionStats,                  // 5
+  soundTriggers,                 // 6
+  soundSettings,                 // 7
+  streamPersonaResolvedStats,    // 8
+  questTemplates,                // 9
+  sessionQuests,                 // 10
+  questSettings,                  // 11
+  outletSections,                 // 12
+  lorebookAttributeKeys,          // 13
+  inventoryData                    // 14  ← STOPS HERE, missing 15: lorebookEntryKeys
+);
+```
+
+**Result**: In the proactive prompt-viewer, `{{entryKey}}` references in `postHistoryOverride` (or `character.postHistoryInstructions`) are NOT resolved by Phase 6.1 (because `context.lorebookEntryKeys` is `undefined`). Phase 7 then strips them to empty string (because `knownLorebookKeys` is also empty).
+
+### D.4 — `proactiveUserMessage` (the proactive case content sent as user message)
+
+`/home/z/my-project/src/app/api/chat/proactive/route.ts:828`:
+
+```ts
+const proactiveUserMessage = resolveAllKeys(selectedProactiveCase.content, keyContext);
+```
+
+Uses the same `keyContext` from D.3, which is missing `lorebookEntryKeys`. So if a proactive case message contains `{{tecnica_fuego}}` (a traditional lorebook entry key), it is NOT resolved and is STRIPPED to empty by Phase 7.
+
+### D.5 — Same bug exists in stream/route.ts
+
+`/home/z/my-project/src/app/api/chat/stream/route.ts:575-590` — same missing-15th-arg problem:
+
+```ts
+const keyContext = buildKeyResolutionContext(
+  effectiveCharacter,           // 1
+  effectiveUserName,             // 2
+  persona,                       // 3
+  resolvedStats,                  // 4
+  sessionStats,                  // 5
+  soundTriggers,                  // 6
+  soundSettings,                  // 7
+  streamPersonaResolvedStats,    // 8
+  questTemplates,                 // 9
+  sessionQuests,                  // 10
+  questSettings,                   // 11
+  outletSections,                  // 12
+  lorebookAttributeKeys,           // 13
+  inventoryData                    // 14  ← STOPS HERE, missing 15: lorebookEntryKeys
+);
+```
+
+Stream's `buildChatMessages` calls (6 of them) at lines 901, 1064, 1244, 1400, 1527, 1638 all pass `effectiveCharacter.postHistoryInstructions?.trim()` RAW.
+
+Stream's `buildCompletionPrompt` calls at lines 1510, 1709, 1725 also pass RAW `effectiveCharacter.postHistoryInstructions?.trim()`.
+
+### D.6 — Dead-code local variable in both routes
+
+Both routes have a DEAD-CODE local variable that resolves keys but is NEVER USED:
+
+stream/route.ts:826-829:
+```ts
+const rawPostHistoryInstructions = effectiveCharacter.postHistoryInstructions?.trim();
+const postHistoryInstructions = rawPostHistoryInstructions 
+  ? resolveAllKeys(rawPostHistoryInstructions, keyContext)
+  : undefined;
+// ↑ this local var is NEVER referenced again — shadowed by the raw .trim() in buildChatMessages calls
+```
+
+proactive/route.ts:979-982 (inside the ReadableStream start callback):
+```ts
+const rawPostHistoryInstructions = effectiveCharacter.postHistoryInstructions?.trim();
+const postHistoryInstructions = rawPostHistoryInstructions 
+  ? resolveAllKeys(rawPostHistoryInstructions, keyContext)
+  : undefined;
+// ↑ also NEVER referenced
+```
+
+This strongly suggests that **at some point in FASE11-REFACTOR the resolved value WAS used** (per worklog line 1449: *"9 call sites actualizados (6 buildChatMessages + 3 buildCompletionPrompt): ahora pasan `mergedPostHistoryInstructions` en lugar del raw `effectiveCharacter.postHistoryInstructions?.trim()`"*), but **FASE11-V2 reverted to passing RAW** and left the resolved local var as dead code with the misleading comment at line 838.
+
+---
+
+## Part E — Concrete fix recommendations
+
+### E.1 — List of sections where keys are NOT resolved (or only partially resolved)
+
+| Section | Where | Bug |
+|---|---|---|
+| **Actual LLM payload: `postHistoryInstructions`** (sent to provider via `buildChatMessages`) | stream/route.ts (6 call sites) + proactive/route.ts (6 call sites) | RAW, unresolved — LLM sees literal `{{user}}`, `{{char}}`, `{{vida}}`, `{{entryKey}}`, `{{injectionKey}}`, `{{activeQuests}}`, etc. |
+| **Actual LLM payload: `postHistoryInstructions`** (sent via `buildCompletionPrompt`) | stream/route.ts (3 call sites) + proactive/route.ts (3 call sites) | RAW, unresolved — same as above |
+| **Proactive `default` provider branch** | proactive/route.ts:1711 | Bypasses `postHistoryOverride` entirely (uses raw `effectiveCharacter.postHistoryInstructions`) |
+| **Prompt-viewer `Post-History Instructions` section** | stream/route.ts:605-608 + proactive/route.ts:626-629 | Resolved via `buildPostHistorySection`, BUT `keyContext` is missing `lorebookEntryKeys` → `{{entryKey}}` references are STRIPPED to empty by Phase 7 |
+| **Proactive user message (`selectedProactiveCase.content`)** | proactive/route.ts:828 | Resolved via `resolveAllKeys`, BUT `keyContext` is missing `lorebookEntryKeys` → `{{entryKey}}` references are STRIPPED to empty by Phase 7 |
+
+### E.2 — Card sections (description, personality, systemPrompt, etc.) ARE resolved correctly
+
+The 11 sections built inside `buildSystemPrompt` (Part A) are all resolved via `resolveSectionsKeys(sections, keyContext)` at `prompt-builder.ts:696` using a `keyContext` that DOES include `lorebookEntryKeyMap`. ✅ These are NOT the bug.
+
+If the user is seeing unresolved `{{entryKey}}` in personality/description/systemPrompt sections specifically, the most likely cause is that:
+1. The lorebook containing the entry is NOT marked `active: true` (entry-key-builder.ts:79 skips inactive lorebooks).
+2. The entry has `disable: true` (entry-key-builder.ts:85 skips disabled entries).
+3. The entry has `entryType: 'attribute'` (entry-key-builder.ts:83 skips attribute entries — those use Phase 6 with `injectionKey`, not Phase 6.1 with `key`).
+4. The entry's `key` array contains a regex pattern like `/pattern/` (entry-key-builder.ts:107 skips regex keys).
+5. The `key` in the entry uses different casing or whitespace than the `{{key}}` placeholder in the card text (Phase 6.1's regex IS case-insensitive — `new RegExp(..., 'gi')` at line 712 — so case alone is fine; whitespace would not match).
+6. **More likely**: the user is looking at the actual LLM payload (or the prompt-viewer's "Post-History Instructions" section, which has the missing-`lorebookEntryKeys` bug), not the card sections themselves.
+
+### E.3 — Exact fixes
+
+#### Fix #1 — Add `lorebookEntryKeyMap` to the route-level `keyContext` (BOTH routes)
+
+**File**: `/home/z/my-project/src/app/api/chat/stream/route.ts`
+**Location**: line 575-590 (the `buildKeyResolutionContext` call)
+
+Add `lorebookEntryKeyMap` as the 15th argument:
+
+```ts
+const keyContext = buildKeyResolutionContext(
+  effectiveCharacter,
+  effectiveUserName,
+  persona,
+  resolvedStats,
+  sessionStats,
+  soundTriggers,
+  soundSettings,
+  streamPersonaResolvedStats,
+  questTemplates,
+  sessionQuests,
+  questSettings,
+  outletSections,
+  lorebookAttributeKeys,
+  inventoryData,
+  lorebookEntryKeyMap            // ← ADD THIS (15th arg)
+);
+```
+
+**File**: `/home/z/my-project/src/app/api/chat/proactive/route.ts`
+**Location**: line 581-596 (the `buildKeyResolutionContext` call) — same fix.
+
+This single change fixes:
+- Prompt-viewer `postHistorySection` resolution of `{{entryKey}}` (both routes).
+- `proactiveUserMessage` resolution of `{{entryKey}}` (proactive route only).
+- Tool definition key resolution (both routes call `resolveToolDefinitionsKeys(availableTools, keyContext)` at stream/route.ts:707 and proactive/route.ts:863).
+- Any future `authorNote` section that uses this `keyContext`.
+
+#### Fix #2 — Resolve `postHistoryInstructions` BEFORE passing to `buildChatMessages` / `buildCompletionPrompt` (BOTH routes)
+
+The current dead-code local var that resolves keys (stream/route.ts:826-829 and proactive/route.ts:979-982) should be USED at the `buildChatMessages` / `buildCompletionPrompt` call sites instead of the RAW `effectiveCharacter.postHistoryInstructions?.trim()`.
+
+**Recommended implementation — fix it ONCE in a shared helper, not at every call site.**
+
+Two options:
+
+**Option A — Resolve in `buildChatMessages` / `buildCompletionPrompt` directly** (cleanest, single-source-of-truth):
+
+In `/home/z/my-project/src/lib/llm/prompt-builder.ts`, change the signatures of `buildChatMessages` (line 925) and `buildCompletionPrompt` (line 1057) to accept an optional `keyContext` parameter, and resolve `postHistoryInstructions` + `authorNote` before pushing them into `systemParts`. Then update both routes to pass the route-level `keyContext`.
+
+```ts
+// prompt-builder.ts — new signature
+export function buildChatMessages(
+  systemPrompt: string,
+  messages: ChatMessage[],
+  character: CharacterCard,
+  userName: string = 'User',
+  postHistoryInstructions?: string,
+  authorNote?: string,
+  useSystemRole: boolean = false,
+  embeddingsContext?: string,
+  lorebookChatInjections?: LorebookChatInjection[],
+  exampleMessages?: ChatApiMessage[],
+  keyContext?: KeyResolutionContext  // ← NEW
+): ChatApiMessage[] {
+  // ... existing code ...
+  // Resolve keys in postHistory + authorNote if keyContext provided
+  const resolvedPostHistory = postHistoryInstructions && keyContext
+    ? resolveAllKeys(postHistoryInstructions, keyContext)
+    : postHistoryInstructions;
+  const resolvedAuthorNote = authorNote && keyContext
+    ? resolveAllKeys(authorNote, keyContext)
+    : authorNote;
+  // ... use resolvedPostHistory / resolvedAuthorNote instead of raw ...
+}
+```
+
+Same for `buildCompletionPrompt`.
+
+Then in stream/route.ts and proactive/route.ts, every `buildChatMessages(...)` and `buildCompletionPrompt({...})` call passes the route-level `keyContext` as the new trailing argument.
+
+This is the **RECOMMENDED** option because it's a single fix point and prevents future regressions.
+
+**Option B — Resolve at each call site in the routes** (more invasive, more bug-prone):
+
+Replace every `effectiveCharacter.postHistoryInstructions?.trim()` (stream) and `effectivePostHistory` (proactive) at the 6 `buildChatMessages` + 3 `buildCompletionPrompt` call sites with `resolveAllKeys(..., keyContext)`.
+
+This is what FASE11-REFACTOR originally did with `mergedPostHistoryInstructions`, and FASE11-V2 lost it. Re-applying this option would re-introduce the same regression risk.
+
+**Recommendation: Option A.**
+
+#### Fix #3 — Fix the proactive `default` provider branch
+
+**File**: `/home/z/my-project/src/app/api/chat/proactive/route.ts:1711`
+
+Change:
+```ts
+postHistoryInstructions: effectiveCharacter.postHistoryInstructions?.trim(),
+```
+to:
+```ts
+postHistoryInstructions: effectivePostHistory,
+```
+
+(Same as the other 2 `buildCompletionPrompt` calls at lines 1496 and 1695.) This makes the override apply uniformly across all providers.
+
+#### Fix #4 — Remove the misleading comment and dead-code local var
+
+**File**: `/home/z/my-project/src/app/api/chat/proactive/route.ts:838`
+
+Remove or correct the comment:
+```ts
+// Se pasa CRUDO a buildChatMessages (ella resuelve las keys internamente, igual que stream/route.ts).
+```
+This is factually wrong — `buildChatMessages` does NOT resolve keys internally.
+
+After Fix #2 (Option A) is applied, the comment should be:
+```ts
+// postHistoryInstructions se pasa CRUDO a buildChatMessages, que lo resuelve internamente
+// usando el keyContext proporcionado (Fix #2).
+```
+
+Also remove the dead-code local var at proactive/route.ts:979-982 (and equivalent at stream/route.ts:826-829) once Fix #2 lands.
+
+#### Fix #5 — Re-run FULL `resolveAllKeys` (or use multi-pass) at end of Phase 6 / 6.1
+
+**File**: `/home/z/my-project/src/lib/key-resolver.ts`
+
+**Current** (lines 658-664 of Phase 6):
+```ts
+if (result !== text) {
+  result = resolveTemplateVariables(result, context);   // Phase 1 only
+  result = resolveStatsKeys(result, context.resolvedStats, context.personaResolvedStats);  // Phase 2 only
+}
+```
+
+**Current** (lines 727-730 of Phase 6.1):
+```ts
+if (anyReplaced) {
+  result = resolveTemplateVariables(result, context);   // Phase 1 only
+  result = resolveStatsKeys(result, context.resolvedStats, context.personaResolvedStats);  // Phase 2 only
+}
+```
+
+**Recommended fix** — use the existing `resolveAllKeysWithPasses` helper to handle nested keys in injected lorebook content (e.g., lorebook entry content containing `{{eventos}}`, `{{sonidos}}`, `{{activeQuests}}`, or another `{{injectionKey}}` / `{{entryKey}}`):
+
+```ts
+// Phase 6 — after injection
+if (result !== text) {
+  // Re-run all phases to catch nested keys ({{eventos}}, {{sonidos}}, {{activeQuests}},
+  // {{slots}}, nested {{injectionKey}}, nested {{entryKey}}) in the injected content.
+  // Multi-pass with convergence check to prevent infinite recursion.
+  result = resolveAllKeysWithPasses(result, context, 3);
+}
+```
+
+Same for Phase 6.1.
+
+**Caveat**: The existing `resolveAllKeysWithPasses` (lines 997-1018) is safe because it has a convergence check (`if (result === previousResult) break;`). But there is a theoretical risk of infinite loops if a lorebook entry's content references its own key. The default `maxPasses = 2` (or 3) caps this. Setting `maxPasses = 3` should be enough for 2 levels of nesting (entry → entry → entry).
+
+**Should this fix go in `prompt-builder.ts` or `key-resolver.ts`?** → **`key-resolver.ts`**, because the partial-resolution issue is in the key resolver itself (Phase 6/6.1 don't know about Phase 3/4/5). Fixing it at the resolver level benefits ALL callers (buildSystemPrompt, buildPostHistorySection, buildAuthorNoteSection, proactiveUserMessage, etc.) without needing per-call-site changes.
+
+#### Fix #6 — (Optional) Use `resolveSectionsKeysWithPasses` in `buildSystemPrompt`
+
+**File**: `/home/z/my-project/src/lib/llm/prompt-builder.ts:696`
+
+Change:
+```ts
+const processedSections = resolveSectionsKeys(sections, keyContext);
+```
+to:
+```ts
+const processedSections = resolveSectionsKeysWithPasses(sections, keyContext, 3);
+```
+
+This is a defensive fix that catches any nested-key edge cases that Fix #5 might miss (e.g., if a card section's text contains `{{entryKey}}` whose content contains another `{{entryKey2}}`). It's already exported from `key-resolver.ts:1171-1180` but currently unused.
+
+This is OPTIONAL because Fix #5 should already handle the nesting. But it's cheap insurance.
+
+### E.4 — Should `resolveLorebookAttributeKeys` / `resolveLorebookEntryKeys` re-run the FULL `resolveAllKeys` instead of just template vars + stats?
+
+**YES.** The current partial re-resolution (Phase 1 + Phase 2 only) misses:
+- `{{eventos}}` (Phase 3)
+- `{{sonidos}}` (Phase 4)
+- `{{activeQuests}}`, `{{availableQuests}}` (Phase 5)
+- Nested `{{injectionKey}}` (Phase 6 doesn't recurse)
+- Reverse-nested `{{injectionKey}}` after `{{entryKey}}` injection (Phase 6 already ran before Phase 6.1)
+
+The fix (Fix #5) is to call `resolveAllKeysWithPasses(result, context, 3)` at the end of both Phase 6 and Phase 6.1, instead of just `resolveTemplateVariables` + `resolveStatsKeys`.
+
+This is the cleanest fix because:
+1. The `resolveAllKeysWithPasses` helper already exists.
+2. It handles ALL phases (not just 1+2).
+3. It has a convergence check to prevent infinite loops.
+4. It benefits ALL callers (no per-call-site changes needed).
+
+### E.5 — Where each fix should go
+
+| Fix | File | Type |
+|---|---|---|
+| #1 (add `lorebookEntryKeyMap` to route keyContext) | `stream/route.ts:575-590` + `proactive/route.ts:581-596` | Route-level (defensive) |
+| #2 (resolve postHistory/authorNote in buildChatMessages/buildCompletionPrompt) | `prompt-builder.ts` (signature change) + both routes (pass keyContext) | prompt-builder + routes |
+| #3 (proactive default branch uses effectivePostHistory) | `proactive/route.ts:1711` | Route-level bug |
+| #4 (remove misleading comment + dead-code local var) | `proactive/route.ts:838, 979-982` + `stream/route.ts:826-829` | Cleanup |
+| #5 (full resolveAllKeysWithPasses in Phase 6/6.1) | `key-resolver.ts:658-664, 727-730` | Resolver-level (root cause for nested-key loss) |
+| #6 (resolveSectionsKeysWithPasses in buildSystemPrompt) | `prompt-builder.ts:696` | Defensive (optional) |
+
+**Priority order** (most impactful first):
+1. **Fix #2 + Fix #1** — these together resolve the user's actual complaint (LLM receives RAW unresolved `postHistoryInstructions`). Without these, no other fix matters.
+2. **Fix #5** — resolves silent data loss when lorebook entry content contains `{{eventos}}`/`{{sonidos}}`/`{{activeQuests}}`/nested keys.
+3. **Fix #3** — quick bug fix for proactive `default` provider branch.
+4. **Fix #4** — cleanup (prevents future confusion).
+5. **Fix #6** — defensive (optional).
+
+---
+
+## Stage Summary
+
+- **All 11 card sections built inside `buildSystemPrompt`** (System Prompt, Lorebook pos 0/5/6/7, Character Description, Personality, Estado Emocional, Scenario, Character's Note, Example Messages) are correctly resolved via `resolveSectionsKeys(sections, keyContext)` at `prompt-builder.ts:696`. The internal `keyContext` (built at `prompt-builder.ts:558-568`) includes both `lorebookAttributeKeys` AND `lorebookEntryKeyMap`. ✅
+
+- **The actual bug is in the route files**, where `postHistoryInstructions` is passed RAW (unresolved) to `buildChatMessages` and `buildCompletionPrompt`. The comment at `proactive/route.ts:838` ("Se pasa CRUDO a buildChatMessages (ella resuelve las keys internamente)") is factually WRONG — `buildChatMessages` does NOT resolve keys internally (it just pushes raw strings into `systemParts` at `prompt-builder.ts:961-963`). This is a regression from FASE11-REFACTOR (which DID resolve via `mergedPostHistoryInstructions`) to FASE11-V2 (which lost the resolution and left a dead-code local var).
+
+- **A secondary bug**: both routes build their route-level `keyContext` (used for `postHistorySection`, `proactiveUserMessage`, and tool definitions) WITHOUT passing `lorebookEntryKeyMap` as the 15th argument to `buildKeyResolutionContext`. This causes `{{entryKey}}` references in `postHistoryOverride`, `character.postHistoryInstructions`, and proactive case messages to be STRIPPED to empty by Phase 7 cleanup.
+
+- **A tertiary bug**: the partial re-resolution in Phase 6 (`resolveLorebookAttributeKeys`) and Phase 6.1 (`resolveLorebookEntryKeys`) only re-runs Phase 1 (template vars) + Phase 2 (stats). It does NOT re-run Phase 3 (`{{eventos}}`), Phase 4 (`{{sonidos}}`), Phase 5 (`{{activeQuests}}`), or recurse into nested `{{injectionKey}}`/`{{entryKey}}`. Phase 7 then STRIPS these unresolved keys, causing silent data loss when lorebook entry content contains these keys.
+
+- **The `default` provider branch in proactive/route.ts:1711** bypasses `postHistoryOverride` entirely and uses raw `effectiveCharacter.postHistoryInstructions` — a separate bug that should be fixed alongside Fix #2.
+
+- **Recommended fixes** (in priority order):
+  1. Fix #1: Add `lorebookEntryKeyMap` to the route-level `keyContext` in both routes (1-line change each).
+  2. Fix #2: Make `buildChatMessages` and `buildCompletionPrompt` accept an optional `keyContext` parameter and resolve `postHistoryInstructions`/`authorNote` internally before pushing them into `systemParts`. Update all 12 call sites across both routes to pass `keyContext`.
+  3. Fix #3: Fix proactive/route.ts:1711 `default` branch to use `effectivePostHistory` instead of raw character value.
+  4. Fix #4: Remove the misleading comment and dead-code local var.
+  5. Fix #5: Replace partial re-resolution (Phase 1+2 only) at the end of Phase 6 and Phase 6.1 with `resolveAllKeysWithPasses(result, context, 3)` to catch `{{eventos}}`, `{{sonidos}}`, `{{activeQuests}}`, and nested keys in injected lorebook content.
+  6. Fix #6 (optional, defensive): Switch `buildSystemPrompt` from `resolveSectionsKeys` to `resolveSectionsKeysWithPasses(... , 3)` at line 696.
+
+---
+Task ID: FIX-EXPLORE-3
+Agent: main (Z.ai Code)
+Task: Fix de resolución de keys de lorebook en todas las secciones del prompt (chat normal + proactivo).
+
+Work Log:
+- EXPLORE-3 audit encontró 5 bugs:
+  1. postHistoryInstructions se pasaba CRUDO a buildChatMessages → LLM veía {{user}}, {{char}}, {{vida}}, {{entryKey}} literales.
+  2. keyContext en ambas rutas (stream + proactive) faltaba el 15º arg lorebookEntryKeyMap → {{entryKey}} (traditional lorebook keys) se strippeaba por Phase 7.
+  3. Rama default del proactivo bypassa el effectivePostHistory override.
+  4. Phase 6/6.1 re-resolution era parcial (solo Phase 1+2) → contenido de lorebook con {{eventos}}, {{sonidos}}, {{activeQuests}} se perdía silenciosamente.
+  5. Dead-code local var + comentario engañoso.
+
+Fixes aplicados:
+- Fix #1: Agregado lorebookEntryKeyMap (15º arg) a buildKeyResolutionContext en stream/route.ts:590 y proactive/route.ts:596.
+- Fix #2: Resolver postHistoryInstructions con resolveAllKeys antes de pasar a buildChatMessages/buildCompletionPrompt.
+  * stream/route.ts: declarado resolvedPostHistoryInstructions a nivel handler, reemplazados 9 call sites (6 buildChatMessages + 3 buildCompletionPrompt).
+  * proactive/route.ts: effectivePostHistory ahora se resuelve con resolveAllKeys (antes era raw).
+- Fix #3: proactive default branch (línea 1714) ahora usa effectivePostHistory en lugar de effectiveCharacter.postHistoryInstructions?.trim().
+- Fix #4: Eliminado dead-code local var en ambas rutas (stream:836-839, stream:856-859, proactive:985-988) + comentario engañoso.
+- Fix #5: Phase 6 (resolveLorebookAttributeKeys) y Phase 6.1 (resolveLorebookEntryKeys) ahora usan resolveAllKeysWithPasses(result, context, 3) en lugar de solo resolveTemplateVariables + resolveStatsKeys. Esto resuelve recursivamente {{eventos}}, {{sonidos}}, {{activeQuests}}, {{slots}}, y keys anidadas en contenido de lorebook.
+- Fix #6 (defensivo): buildSystemPrompt ahora usa resolveSectionsKeysWithPasses(sections, keyContext, 3) en lugar de resolveSectionsKeys. Aplica a ambas llamadas (líneas 700 y 1322).
+
+Verificación end-to-end (POST /api/chat/proactive con personaje con statsConfig + keys en TODAS las secciones):
+- System Prompt: "Eres Aria hablando con Hero. Tu codicia es Codicia: (85/100)." ✅
+- Character Description: "Mercante astuta. Su vida actual es Vida: (75/100)." ✅
+- Personality: "Ambiciosa. Codicia: Codicia: (85/100)." ✅
+- Post-History Instructions: "[POSTHIST] Aria recuerda: Hero es tu cliente. Vida: Vida: (75/100). Codicia: Codicia: (85/100)." ✅ (FIX — antes se veían {{char}}, {{user}}, {{vida}}, {{codicia}} literales)
+- Mensaje Proactivo (caso): "Aria mira a Hero con codicia (Codicia: (85/100)/100, vida Vida: (75/100)) y planea algo." ✅
+- ESLint: LIMPIO
+
+Stage Summary:
+- Todas las secciones del prompt (card + post-history + caso proactivo) ahora resuelven correctamente las keys de lorebook, stats, y variables de plantilla.
+- El bug principal era que postHistoryInstructions se pasaba crudo a buildChatMessages (que no resuelve keys internamente). Ahora se resuelve antes.
+- El bug secundario era que keyContext faltaba lorebookEntryKeyMap, así que {{entryKey}} de lorebooks tradicionales se strippeaba.
+- Phase 6/6.1 ahora re-resuelve recursivamente (3 passes con convergence check) para soportar contenido de lorebook con keys anidadas.
+- Backward compatible: si no hay keys en el contenido, el comportamiento es idéntico.

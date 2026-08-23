@@ -1,10 +1,21 @@
 {
-  "activeSessionId": null,
-  "activeCharacterId": null,
+  "activeSessionId": "13b9843e-675c-41fd-b73d-ab8db70eea32",
+  "activeCharacterId": "be42648b-b892-4284-b90c-207627b8569b",
   "activeGroupId": null,
-  "activeBackground": null,
-  "activeOverlayBack": null,
-  "activeOverlayFront": null,
+  "activeBackground": "/backgrounds/Room/Room (1).png",
+  "activeOverlayBack": "",
+  "activeOverlayFront": "",
   "activePersonaId": "default",
-  "activeLorebookIds": []
+  "activeLorebookIds": [
+    "c7313714-3b49-4976-b315-7b644bf70524",
+    "c0982fb3-2c52-4ead-82a6-c33654736338",
+    "b897f3a1-7348-482b-b2ca-7ea0213ecd59",
+    "2fbf5ad1-071b-43e6-b976-3d78900766d2",
+    "74a5ad70-e093-46e6-84fb-7f0dd66d2f02",
+    "7f1410a6-06ba-4009-959c-a23b7883a114",
+    "ef0383c0-ffb9-4b9a-ab20-f552c45a24c8",
+    "275a584d-f697-4002-afc2-0c19b2b68b91",
+    "272bfce2-1a68-41c0-9043-cd548cc8de58",
+    "57bc4f03-f53a-48d9-8ab9-5113e9d4f86a"
+  ]
 }

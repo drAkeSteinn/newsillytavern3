@@ -655,12 +655,15 @@ export function resolveLorebookAttributeKeys(
     result = result.replace(regex, content);
   }
 
-  // After injecting attribute content, re-resolve template variables and stats keys
-  // because the injected content may contain {{char}}, {{user}}, {{time}}, {{vida}}, etc.
+  // After injecting attribute content, re-resolve ALL keys because the injected
+  // content may contain {{char}}, {{user}}, {{vida}}, {{eventos}}, {{sonidos}},
+  // {{activeQuests}}, {{slots}}, or even nested {{injectionKey}} / {{entryKey}}.
+  // FIX EXPLORE-3: antes solo se re-resolvían template vars + stats (Phase 1+2),
+  // lo que causaba que {{eventos}}, {{sonidos}}, {{activeQuests}} en el contenido
+  // inyectado se strippearan silenciosamente por Phase 7. Ahora usamos passes
+  // múltiples con convergence check para resolver recursivamente.
   if (result !== text) {
-    result = resolveTemplateVariables(result, context);
-    // Also re-resolve stats keys that may be in the injected content
-    result = resolveStatsKeys(result, context.resolvedStats, context.personaResolvedStats);
+    result = resolveAllKeysWithPasses(result, context, 3);
   }
 
   return result;
@@ -722,11 +725,14 @@ export function resolveLorebookEntryKeys(
     anyReplaced = true;
   }
 
-  // After injecting lorebook content, re-resolve template variables and stats keys
-  // because the injected content may contain {{char}}, {{user}}, {{time}}, {{vida}}, etc.
+  // After injecting lorebook content, re-resolve ALL keys because the injected
+  // content may contain {{char}}, {{user}}, {{vida}}, {{eventos}}, {{sonidos}},
+  // {{activeQuests}}, {{slots}}, or nested {{injectionKey}} / {{entryKey}}.
+  // FIX EXPLORE-3: antes solo se re-resolvían template vars + stats (Phase 1+2),
+  // lo que causaba pérdida silenciosa de otras keys en contenido de lorebook.
+  // Ahora usamos passes múltiples con convergence check.
   if (anyReplaced) {
-    result = resolveTemplateVariables(result, context);
-    result = resolveStatsKeys(result, context.resolvedStats, context.personaResolvedStats);
+    result = resolveAllKeysWithPasses(result, context, 3);
   }
 
   return result;

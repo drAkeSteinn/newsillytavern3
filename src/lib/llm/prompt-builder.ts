@@ -44,6 +44,7 @@ import {
 import {
   resolveAllKeys,
   resolveSectionsKeys,
+  resolveSectionsKeysWithPasses,
   buildKeyResolutionContext,
   type KeyResolutionContext,
 } from '@/lib/key-resolver';
@@ -693,7 +694,10 @@ export function buildSystemPrompt(
   // - Template variables: {{user}}, {{char}}, {{userpersona}}, etc.
   // - Stats keys: {{resistencia}}, {{habilidades}}, etc.
   // All in one place, consistently
-  const processedSections = resolveSectionsKeys(sections, keyContext);
+  // FIX EXPLORE-3: usar resolveSectionsKeysWithPasses (3 passes) para resolver
+  // recursivamente keys anidadas (ej. un {{injectionKey}} cuyo contenido contiene
+  // {{user}} y {{eventos}}). El convergence check evita loops infinitos.
+  const processedSections = resolveSectionsKeysWithPasses(sections, keyContext, 3);
 
   // Build the prompt string from processed sections
   const prompt = processedSections.map(s => `[${s.label}]\n${s.content}`).join('\n\n');
@@ -1316,7 +1320,10 @@ export function buildGroupSystemPrompt(
   // ========================================
   // UNIFIED KEY RESOLUTION - Apply to ALL sections
   // ========================================
-  const processedSections = resolveSectionsKeys(sections, keyContext);
+  // FIX EXPLORE-3: usar resolveSectionsKeysWithPasses (3 passes) para resolver
+  // recursivamente keys anidadas (ej. un {{injectionKey}} cuyo contenido contiene
+  // {{user}} y {{eventos}}). El convergence check evita loops infinitos.
+  const processedSections = resolveSectionsKeysWithPasses(sections, keyContext, 3);
 
   // Build the prompt string from processed sections
   const prompt = processedSections.map(s => `[${s.label}]\n${s.content}`).join('\n\n');

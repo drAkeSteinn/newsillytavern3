@@ -586,11 +586,21 @@ export async function POST(request: NextRequest) {
       questSettings,    // Pass quest settings
       outletSections,   // Pass outlet sections for {{outlet::name}}
       lorebookAttributeKeys,  // Pass lorebook attribute keys for {{injectionKey}}
-      inventoryData     // Pass inventory data for {{inventory}} and {{currency}} key resolution
+      inventoryData,    // Pass inventory data for {{inventory}} and {{currency}} key resolution
+      lorebookEntryKeyMap // FIX EXPLORE-3: {{entryKey}} de lorebook tradicional (Phase 6.1)
     );
 
     // Build HUD context section if enabled (now resolves keys!)
     const hudContextSection = hudContext ? buildHUDContextSection(hudContext, keyContext) : null;
+
+    // FIX EXPLORE-3: Resolver post-history instructions con resolveAllKeys antes de pasarlas
+    // a buildChatMessages/buildCompletionPrompt. buildChatMessages NO resuelve keys internamente
+    // (las pushea crudas), por eso el LLM recibía {{user}}, {{char}}, {{vida}}, {{entryKey}},
+    // {{injectionKey}}, {{activeQuests}}, etc. literales. Resolvemos una vez aquí y reusamos.
+    const _rawPostHistoryInstructions = effectiveCharacter.postHistoryInstructions?.trim();
+    const resolvedPostHistoryInstructions: string | undefined = _rawPostHistoryInstructions
+      ? resolveAllKeys(_rawPostHistoryInstructions, keyContext)
+      : undefined;
 
 
     // Build chat history sections (for prompt viewer)
@@ -821,16 +831,10 @@ export async function POST(request: NextRequest) {
 
           let generator: AsyncGenerator<string>;
 
-          // Get post-history instructions from character and RESOLVE ALL KEYS
-          // This ensures {{user}}, {{char}}, {{stats}}, etc. are replaced
-          const rawPostHistoryInstructions = effectiveCharacter.postHistoryInstructions?.trim();
-          const postHistoryInstructions = rawPostHistoryInstructions 
-            ? resolveAllKeys(rawPostHistoryInstructions, keyContext)
-            : undefined;
-
           // Route to appropriate provider
           // If tools are enabled and provider supports native tool calling,
           // use the tool-aware streaming functions.
+          // FIX EXPLORE-3: resolvedPostHistoryInstructions ya está resuelto arriba (nivel handler).
           let accumulatedContent = '';
           const maxToolRounds = toolsSettings.maxToolCallsPerTurn || 2;
           let toolRound = 0;
@@ -846,13 +850,8 @@ export async function POST(request: NextRequest) {
             let generator: AsyncGenerator<string>;
             let isToolRound = toolRound > 0;
 
-            // Get post-history instructions from character and RESOLVE ALL KEYS
-            // This ensures {{user}}, {{char}}, {{stats}}, etc. are replaced
+            // FIX EXPLORE-3: resolvedPostHistoryInstructions ya está resuelto a nivel handler.
             if (toolRound === 0) {
-              const rawPostHistoryInstructions = effectiveCharacter.postHistoryInstructions?.trim();
-              const postHistoryInstructions = rawPostHistoryInstructions 
-                ? resolveAllKeys(rawPostHistoryInstructions, keyContext)
-                : undefined;
               // Store for reuse in tool rounds
               baseSystemPrompt = finalSystemPrompt;
             }
@@ -898,7 +897,7 @@ Y cambiar mi expresión:
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  effectiveCharacter.postHistoryInstructions?.trim(),
+                  resolvedPostHistoryInstructions,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1061,7 +1060,7 @@ Y cambiar mi expresión:
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  effectiveCharacter.postHistoryInstructions?.trim(),
+                  resolvedPostHistoryInstructions,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1241,7 +1240,7 @@ Y cambiar mi expresión:
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  effectiveCharacter.postHistoryInstructions?.trim(),
+                  resolvedPostHistoryInstructions,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1397,7 +1396,7 @@ Y cambiar mi expresión:
                     allMessages,
                     effectiveCharacter,
                     effectiveUserName,
-                    effectiveCharacter.postHistoryInstructions?.trim(),
+                    resolvedPostHistoryInstructions,
                     undefined, true, embeddingsContext,
                     lorebookChatInjections,
                   exampleMessages
@@ -1507,7 +1506,7 @@ Y cambiar mi expresión:
                     messages: allMessages,
                     character: effectiveCharacter,
                     userName: effectiveUserName,
-                    postHistoryInstructions: effectiveCharacter.postHistoryInstructions?.trim(),
+                    postHistoryInstructions: resolvedPostHistoryInstructions,
                     embeddingsContext: embeddingsContext,
                     exampleMessages: exampleMessages,
                     allCharacters: allCharacters  // Pass all characters for proper speaker attribution
@@ -1524,7 +1523,7 @@ Y cambiar mi expresión:
                   allMessages,
                   effectiveCharacter,
                   effectiveUserName,
-                  effectiveCharacter.postHistoryInstructions?.trim(),
+                  resolvedPostHistoryInstructions,
                   undefined, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
@@ -1635,7 +1634,7 @@ Y cambiar mi expresión:
                     allMessages,
                     effectiveCharacter,
                     effectiveUserName,
-                    effectiveCharacter.postHistoryInstructions?.trim(),
+                    resolvedPostHistoryInstructions,
                     undefined, true, embeddingsContext,
                     lorebookChatInjections,
                   exampleMessages
@@ -1706,7 +1705,7 @@ Y cambiar mi expresión:
                     messages: allMessages,
                     character: effectiveCharacter,
                     userName: effectiveUserName,
-                    postHistoryInstructions: effectiveCharacter.postHistoryInstructions?.trim(),
+                    postHistoryInstructions: resolvedPostHistoryInstructions,
                     embeddingsContext: embeddingsContext,
                     exampleMessages: exampleMessages,
                     allCharacters: allCharacters  // Pass all characters for proper speaker attribution

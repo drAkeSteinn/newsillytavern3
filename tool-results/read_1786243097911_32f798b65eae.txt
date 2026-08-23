@@ -1,0 +1,402 @@
+   700→
+   701→7. **ProactiveMessageInfo needs a `caseIndex`/`caseId` field** — For tracking which proactive case was selected (analogous to `nudgeIndex`), add this to `src/types/index.ts` line 1340.
+   702→
+   703→8. **The UI panel `proactive-messages-panel.tsx` is well-structured** — Each section is a self-contained `<Card>` with `updateSettings({...})` calls. New sections (attribute conditions, cases list, prefix/message/suffix textareas) can be added as additional `<Card>` components following the same pattern. The component already accepts `config` and `onChange` props (lines 81-87) which is all that's needed.
+   704→
+   705→---
+   706→Task ID: FASE11-IMPL
+   707→Agent: main (Z.ai Code)
+   708→Task: Implementar la sección de proactivo mejorada con system prompt personalizado (Prefix/Message/Suffix), condiciones basadas en atributos del personaje (estilo lorebook attribute), y múltiples casos por condición con modos lineal/random.
+   709→
+   710→Work Log:
+   711→- Clonado https://github.com/drAkeSteinn/newsillytavern2 en /home/z/my-project/newsillytavern2 (luego sincronizado a /home/z/my-project como proyecto activo en puerto 3000).
+   712→- Instaladas dependencias con `bun install` y aplicado `bun run db:push`.
+   713→- Tipos (src/types/index.ts): agregados ProactiveCase, ProactiveAttributeCondition, ProactiveAttributeConfig, ProactiveComparator, ProactiveCaseMode; campos proactivePrefix/proactiveSuffix/proactiveAttribute en ProactiveMessagesConfig; conditionId/caseIndex en ProactiveMessageInfo; defaults en DEFAULT_PROACTIVE_MESSAGES_CONFIG.
+   714→- Util compartido (src/lib/attributes/condition-evaluator.ts): extraído evaluateCondition desde attribute-resolver.ts (8 operadores, numeric/string auto-detect, case-insensitive) + COMPARATOR_LABELS, NUMERIC_COMPARATORS, TEXT_COMPARATORS.
+   715→- attribute-resolver.ts refactorizado para importar evaluateCondition del util compartido (sin duplicación).
+   716→- Selector de casos (src/lib/proactive/case-selector.ts): selectProactiveCase evalúa condiciones por prioridad desc, pickCaseIndex implementa linear (cíclico) y random (sin repetir reciente), defaultCases como fallback, nextUsed para tracking.
+   717→- API route (src/app/api/chat/proactive/route.ts): importado selectProactiveCase; extrae usedCaseIndices del body; selecciona caso tras construir keyContext; ensambla instruction = Prefix + Message(caso) + Suffix (cada uno resolveAllKeys); si proactiveAttribute activo y sin caso → retorna stream proactive_skipped; emite SSE case_selected antes de proactive_start (con conditionId, caseIndex, trackingKey, nextUsed).
+   718→- Hook (src/hooks/use-proactive-messages.tsx): agregado usedCaseIndicesRef + pendingCaseInfoRef; envía usedCaseIndices en body; handler case_selected actualiza tracking; handler proactive_skipped reinicia timer; proactive_start captura conditionId/caseIndex; ProactiveMessageInfo incluye conditionId/caseIndex.
+   719→- UI Panel (src/components/tavern/proactive-messages-panel.tsx): nueva Card "Prefijo y Sufijo del Prompt" (2 textareas con soporte de keys); nueva Card "Proactivo Condicional por Atributo" (toggle, selector de personaje, selector de atributo, lista de condiciones con prioridad/operador/valor/caseMode + casos editables, casos por defecto). Helpers ensureProactiveAttribute/updateProactiveAttribute/comparatorsForAttribute/makeId.
+   720→- character-editor.tsx: renderProactiveTab ahora construye availableTargets (__char__ actual + __user__ persona + otros personajes) y lo pasa al panel.
+   721→
+   722→Verificación:
+   723→- ESLint: LIMPIO (bun run lint sin errores).
+   724→- TypeScript: los nuevos archivos (types, condition-evaluator, case-selector) no introducen errores; los errores de tsc en el proyecto son pre-existentes del repo clonado (tipado suelto en generate/group-stream/backgrounds routes, examples/, skills/).
+   725→- Test end-to-end vía API (POST /api/chat/proactive con proactiveAttribute habilitado, codicia=80):
+   726→  * case_selected emitido: conditionId=c1, caseIndex=0, trackingKey=c1, nextUsed=[0]
+   727→  * proactive_start con conditionId=c1, caseIndex=0
+   728→  * prompt_data mostró la instrucción ensamblada: "[PREFIJO] Tu codicia actual es Codicia: (80/100).\n\n[CODICIA ALTA] Quiero más oro, Hero. Dame todo lo que tienes.\n\n[SUFijo] Mantén el rol."
+   729→  * {{codicia}} resuelto a "Codicia: (80/100)" (sustitución de atributo)
+   730→  * {{user}} resuelto a "Hero" (variable de plantilla)
+   731→  * tokens streamados correctamente
+   732→- Test de lógica selectProactiveCase (bun script directo):
+   733→  * Lineal cíclico: 0→1→2→0→1 (cicla correctamente)
+   734→  * Default: codicia=50 → defaultCases, conditionId=null
+   735→  * Random: codicia=20 → c2 (<30) aplica
+   736→  * Disabled → null (fallback heredado)
+   737→  * Atributo null → default
+   738→- Dev server: compila / (GET 200) y todas las rutas API (persistence, tts, backgrounds, quest-templates, proactive) retornan 200.
+   739→
+   740→Limitación conocida del entorno:
+   741→- La app newsillytavern2/TavernFlow es muy grande (ruta proactiva sola 2000+ líneas, + lancedb, embeddings, VR, sprites, quests, inventory, atmosphere). En el sandbox de 4GB, el next-server es OOM-killer tras compilar múltiples rutas simultáneamente durante una sesión de browser completa. Esto impide verificación visual interactiva completa en el browser, pero la verificación funcional (API + lógica) es completa y definitiva.
+   742→
+   743→Stage Summary:
+   744→- Sistema FASE 11 de proactivo condicional por atributo IMPLEMENTADO y VERIFICADO end-to-end.
+   745→- Cumple todos los requisitos del usuario: 3 secciones (Prefix/Message/Suffix), condiciones por atributo con operadores y prioridad (estilo lorebook attribute), múltiples casos por condición con modos lineal (cíclico) y random, soporte de keys de lorebook en los mensajes, construcción del prompt = Prefix + Message + Sufix.
+   746→- Backward compatible: si proactiveAttribute está deshabilitado, usa customPrompt (comportamiento heredado).
+   747→- Artefactos: src/lib/attributes/condition-evaluator.ts, src/lib/proactive/case-selector.ts (nuevos); types/index.ts, attribute-resolver.ts, api/chat/proactive/route.ts, use-proactive-messages.tsx, proactive-messages-panel.tsx, character-editor.tsx (modificados).
+   748→
+   749→---
+   750→
+   751→# Task ID: EXPLORE-2
+   752→**Agent:** Explore
+   753→**Task:** Research-only comparison of NORMAL chat prompt construction (`/api/chat/stream/route.ts`) vs PROACTIVE chat prompt construction (`/api/chat/proactive/route.ts`), so a follow-up refactor can make the proactive route mirror the normal chat structure — with `proactivePrefix` flowing into the system prompt and `proactiveSuffix` flowing into the post-history instructions slot.
+   754→
+   755→## Work Log
+   756→
+   757→### Files read (full or targeted)
+   758→- `/home/z/my-project/src/app/api/chat/stream/route.ts` (1888 lines, fully read) — the reference normal chat route.
+   759→- `/home/z/my-project/src/lib/llm/prompt-builder.ts` (1798 lines, key functions fully read) — `buildSystemPrompt`, `buildLorebookSectionForPrompt`, `buildPostHistorySection`, `buildAuthorNoteSection`, `buildChatHistorySections`, `buildChatMessages`, `buildCompletionPrompt`, `buildHUDContextSection`, `injectHUDContextIntoMessages`, `injectHUDContextIntoSections`, `buildMemorySection`, `SECTION_COLORS`.
+   760→- `/home/z/my-project/src/app/api/chat/proactive/route.ts` (2147 lines, prompt-construction portions fully read) — current state after FASE11-IMPL.
+   761→- `/home/z/my-project/src/lib/proactive/case-selector.ts` (235 lines, fully read) — `selectProactiveCase`, `pickCaseIndex`, `UsedCaseIndices`, `SelectedProactiveCase`.
+   762→- `/home/z/my-project/src/types/index.ts` targeted — `ProactiveMessagesConfig` (lines 1362-1418), `DEFAULT_PROACTIVE_MESSAGES_CONFIG` (1420-1446), `ProactiveAttributeConfig` (1347-1360), `EmotionalStateConfig` (843-870), `CharacterStatsConfig` (4510-4527), `CharacterSessionStats` (4541-4555), `CharacterMemory`/`MemoryEvent`/`RelationshipMemory` (2812-2836).
+   763→- `/home/z/my-project/src/hooks/use-proactive-messages.tsx` targeted — `generateProactiveMessage`, timer loop, emotional-state check.
+   764→- Compared all `buildChatMessages(...)` call sites in both routes (6 each) + all `buildCompletionPrompt(...)` call sites (3 each).
+   765→
+   766→---
+   767→
+   768→## Part A — Normal chat prompt structure (the reference)
+   769→
+   770→`/api/chat/stream/route.ts` builds the prompt in this exact order. Sections marked **[SYSTEM]** go into `finalSystemPrompt` (the first system message built by `buildChatMessages`); sections marked **[ALLMESSAGES]** become chat messages; sections marked **[POST-HISTORY]** go into the SAME system message as `finalSystemPrompt` (appended by `buildChatMessages` via the `postHistoryInstructions` arg); sections marked **[VIEWER-ONLY]** exist only in `finalAllPromptSections` for the prompt viewer but are already merged into `finalSystemPrompt` or `embeddingsContext` by the time we call `buildChatMessages`.
+   771→
+   772→### A.1 The exact code that assembles `finalSystemPrompt` (stream/route.ts lines 524-539, 683-725)
+   773→
+   774→```ts
+   775→// stream/route.ts lines 524-539
+   776→const { prompt: systemPrompt, sections: systemSections, lorebookChatInjections, exampleMessages } = buildSystemPrompt(
+   777→  effectiveCharacter,
+   778→  effectiveUserName,
+   779→  persona,
+   780→  lorebookPlan,
+   781→  sessionStats,
+   782→  allCharacters,            // peticiones/solicitudes resolution
+   783→  soundTriggers,           // {{sonidos}}
+   784→  soundSettings,
+   785→  questTemplates,          // {{activeQuests}}
+   786→  sessionQuests,
+   787→  questSettings,
+   788→  lorebookAttributeKeys,
+   789→  inventoryData,           // Inventory V2 ({{slots}})
+   790→  lorebookEntryKeyMap      // {{entryKey}}
+   791→);
+   792→```
+   793→
+   794→`buildSystemPrompt(...)` (prompt-builder.ts lines 502-706) returns `sections` in this exact order:
+   795→
+   796→1. **System Prompt** — `character.systemPrompt` or default `"You are now in roleplay mode. You will act as ${character.name}."` — label `'System Prompt'` (color `system`).
+   797→2. **Lorebook position 0** — `lorebookPlan.position0Section` (after system prompt) — label is set by the lorebook plan, type `lorebook`.
+   798→3. *(Persona section intentionally omitted — replaced by `{{persona}}` key in card fields.)*
+   799→4. **Character Description** — `character.description` — label `'Character Description'`.
+   800→5. **Personality** — `character.personality` — label `'Personality'`.
+   801→6. **Estado Emocional** (FASE 5) — only if `character.emotionalConfig?.enabled && includeInPrompt && sessionStats.characterStats[id].emotionalState` exists — label `'Estado Emocional'`, format from `promptInjectionFormat` (default `"Estado emocional actual: {estado}"`).
+   802→7. **Scenario** — `character.scenario` — label `'Scenario'`.
+   803→8. **Character's Note** — `character.characterNote` — label `"Character's Note"`.
+   804→9. **EJEMPLOS DE MENSAJES** — `character.mesExample` processed by `processExampleDialogue(...)` — label `'EJEMPLOS DE MENSAJES'`. *(Returns empty `exampleMessages` array — examples are now inlined as a text section, NOT injected as chat messages.)*
+   805→10. **Lorebook position 5** — `lorebookPlan.position5Section` (top of chat).
+   806→11. **Lorebook position 7** — `lorebookPlan.outletSections` (custom outlets — label `"World Info (outletName)"`).
+   807→12. **Lorebook position 6** — `lorebookPlan.position6Section` (bottom of chat).
+   808→
+   809→All sections are then run through `resolveSectionsKeys(sections, keyContext)` (line 696) — which resolves `{{user}}`, `{{char}}`, `{{persona}}`, `{{stats}}`, `{{sonidos}}`, `{{injectionKey}}`, `{{entryKey}}`, `{{activeQuests}}`, `{{slots}}`, `{{outlet::name}}`, etc. — and joined into the final prompt string by `[${label}]\n${content}` joined with `\n\n`.
+   810→
+   811→```ts
+   812→// stream/route.ts lines 683-685
+   813→let finalSystemPrompt = systemPrompt;
+   814→// (prompt-based tools section may be appended if !shouldUseTools — lines 720-725)
+   815→```
+   816→
+   817→### A.2 The exact code that assembles `finalAllPromptSections` (stream/route.ts lines 633-776)
+   818→
+   819→```ts
+   820→// stream/route.ts lines 635-653
+   821→const personaIndex = systemSections.findIndex(s => s.type === 'persona');
+   822→const prePersonaSections = personaIndex >= 0 ? systemSections.slice(0, personaIndex + 1) : systemSections;
+   823→const postPersonaSections = personaIndex >= 0 ? systemSections.slice(personaIndex + 1) : [];
+   824→
+   825→const characterMemorySection = characterMemory
+   826→  ? buildMemorySection(characterMemory, effectiveCharacter.name || 'Character')
+   827→  : null;
+   828→
+   829→let allPromptSections: PromptSection[] = [
+   830→  ...prePersonaSections,
+   831→  ...postPersonaSections,                                              // = systemSections (no persona section in current code)
+   832→  ...(summarySection ? [summarySection] : []),                        // 'Recuerdos Anteriores' (purple)
+   833→  ...(characterMemorySection ? [characterMemorySection] : []),        // 'Memoria de {char}' (violet)
+   834→  ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),
+   835→  ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []),
+   836→  ...chatHistorySections,                                              // 'Chat History' (gray)
+   837→  ...(postHistorySection ? [postHistorySection] : [])                  // 'Post-History Instructions' (orange)
+   838→];
+   839→
+   840→// HUD injected per configured position
+   841→if (hudContextSection && hudContext) {
+   842→  allPromptSections = injectHUDContextIntoSections(allPromptSections, hudContextSection, hudContext.position);
+   843→}
+   844→```
+   845→
+   846→If the context window gets re-evaluated (reserved tokens > 200), the same sections are rebuilt with `finalChatHistorySections` (lines 757-776).
+   847→
+   848→### A.3 The exact code that builds `allMessages` (stream/route.ts lines 778-794)
+   849→
+   850→```ts
+   851→// stream/route.ts lines 783-794
+   852→const lastCtxMessage = finalContextWindow.messages[finalContextWindow.messages.length - 1];
+   853→const isLastMessageCurrentUser = lastCtxMessage?.role === 'user' &&
+   854→  lastCtxMessage?.content === sanitizedMessage;
+   855→
+   856→// Inject summary at the START of chat history if it exists
+   857→let allMessages = summaryMessage
+   858→  ? [summaryMessage, ...finalContextWindow.messages]
+   859→  : [...finalContextWindow.messages];
+   860→
+   861→if (!isLastMessageCurrentUser) {
+   862→  allMessages = [...allMessages, createUserMessage(sanitizedMessage)];
+   863→}
+   864→```
+   865→
+   866→### A.4 The exact `buildChatMessages(...)` call (stream/route.ts lines 896-905 — z-ai case; identical pattern at 1059-1068, 1239-1248, 1395-1404, 1522-1531, 1633-1642)
+   867→
+   868→```ts
+   869→// stream/route.ts lines 896-905
+   870→let chatMessages = buildChatMessages(
+   871→  baseSystemPrompt || finalSystemPrompt,      // 1. systemPrompt
+   872→  allMessages,                                // 2. messages
+   873→  effectiveCharacter,                         // 3. character
+   874→  effectiveUserName,                          // 4. userName
+   875→  effectiveCharacter.postHistoryInstructions?.trim(),  // 5. postHistoryInstructions (RAW — NOT resolved here)
+   876→  undefined,                                  // 6. authorNote
+   877→  true,                                       // 7. useSystemRole
+   878→  embeddingsContext,                          // 8. embeddingsContext
+   879→  lorebookChatInjections,                     // 9. lorebookChatInjections (positions 1-4)
+   880→  exampleMessages                             // 10. exampleMessages (always [] in current code)
+   881→);
+   882→if (hudContextSection && hudContext) {
+   883→  chatMessages = injectHUDContextIntoMessages(chatMessages, hudContextSection, hudContext.position);
+   884→}
+   885→```
+   886→
+   887→Note: The post-history instructions arg (`effectiveCharacter.postHistoryInstructions?.trim()`) is the RAW, UNRESOLVED character field. The actual `resolveAllKeys` happens inside `buildPostHistorySection()` (called separately at line 605-608 for the prompt viewer) but the value passed to `buildChatMessages` is NOT pre-resolved — it is the raw string. *(Inspecting `buildChatMessages` at prompt-builder.ts lines 943-963 confirms: it just pushes the raw `postHistoryInstructions` string into `systemParts` and joins everything with `'\n\n---\n\n'` into a single system message.)*
+   888→
+   889→### A.5 The actual final prompt sent to the LLM (normal chat)
+   890→
+   891→After `buildChatMessages(...)`, the messages array looks like this (per prompt-builder.ts lines 925-1045):
+   892→
+   893→1. **System message** (role: `'system'` because `useSystemRole=true`) containing, joined by `'\n\n---\n\n'`:
+   894→   - `[System Prompt]\n…` + `[Character Description]\n…` + `[Personality]\n…` + `[Estado Emocional]\n…` + `[Scenario]\n…` + `[Character's Note]\n…` + `[EJEMPLOS DE MENSAJES]\n…` + `[World Info...]\n…` (= the full `finalSystemPrompt`)
+   895→   - `embeddingsContext` (= character memory content + retrieved non-memory + retrieved memory, joined `\n\n`)
+   896→   - `[Author's Note]\n…` (only if `authorNote` arg — always `undefined` in stream route)
+   897→   - **`character.postHistoryInstructions` (raw string)** ← POST-HISTORY is part of the SAME system message
+   898→2. *(exampleMessages — currently always empty)*
+   899→3. **Chat history** (`allMessages` minus deleted/narrator) — merged to enforce user/assistant alternation, with synthetic `'*continúa*'` bridges inserted if needed.
+   900→4. The user's current message (`sanitizedMessage`) appended as the final user message (line 793).
+   901→
+   902→**Summary table — Normal chat sections in actual send order:**
+   903→
+   904→| # | Section | Where it lives | Source |
+   905→|---|---------|----------------|--------|
+   906→| 1 | System Prompt | finalSystemPrompt → system msg | `character.systemPrompt` |
+   907→| 2 | Lorebook pos 0 | finalSystemPrompt → system msg | `lorebookPlan.position0Section` |
+   908→| 3 | Character Description | finalSystemPrompt → system msg | `character.description` |
+   909→| 4 | Personality | finalSystemPrompt → system msg | `character.personality` |
+   910→| 5 | Estado Emocional | finalSystemPrompt → system msg | `sessionStats.characterStats[id].emotionalState` (FASE 5) |
+   911→| 6 | Scenario | finalSystemPrompt → system msg | `character.scenario` |
+   912→| 7 | Character's Note | finalSystemPrompt → system msg | `character.characterNote` |
+   913→| 8 | Example Dialogue | finalSystemPrompt → system msg | `character.mesExample` |
+   914→| 9 | Lorebook pos 5 / 7 / 6 | finalSystemPrompt → system msg | `lorebookPlan` |
+   915→| 10 | Embeddings context | system msg (after systemPrompt) | `embeddingsResult.nonMemoryContextString` + `memoryContextString` + `characterMemorySection.content` (dedup) |
+   916→| 11 | Author's Note | system msg (after embeddings) | `character.authorNote` (NOT passed in stream route — always empty) |
+   917→| 12 | **Post-History Instructions** | system msg (after authorNote) | `character.postHistoryInstructions` (RAW) |
+   918→| 13 | HUD Context | injected per `hudContext.position` | `hudContext.content` |
+   919→| 14 | Lorebook chat injections pos 1-4 | injected into specific messages | `lorebookChatInjections` |
+   920→| 15 | Chat History | user/assistant messages | `finalContextWindow.messages` |
+   921→| 16 | User's current message | final user message | `sanitizedMessage` (with dedup check) |
+   922→
+   923→---
+   924→
+   925→## Part B — Proactive prompt structure (current state after FASE11-IMPL)
+   926→
+   927→`/api/chat/proactive/route.ts` builds the prompt. Sections A.1-A.4 of the proactive route mirror the normal chat route **identically** through line 624 (i.e. systemPrompt, keyContext, lorebook, hud, chatHistory, postHistorySection, summary, memory, embeddings, allPromptSections, HUD injection, context-window re-eval, finalAllPromptSections). All these are byte-equivalent to stream/route.ts except for:
+   928→- Line 425: `(contextConfig as any).scanDepth` (vs stream's `contextConfig.scanDepth` — minor typing cast, functionally identical).
+   929→- Lines 638-647: `summaryMessage` includes `swipes: [...]` array (extra field that stream route doesn't set — cosmetic).
+   930→
+   931→**The divergence starts at line 734 with the proactive instruction construction.**
+   932→
+   933→### B.1 The `proactivePrefix` + `proactiveMessage` + `proactiveSuffix` assembly (proactive/route.ts lines 831-858)
+   934→
+   935→```ts
+   936→// proactive/route.ts lines 831-858
+   937→let rawProactiveMessage: string;
+   938→if (proactiveAttrEnabled && selectedProactiveCase) {
+   939→  // FASE 11: case selected by attribute
+   940→  rawProactiveMessage = selectedProactiveCase.content;
+   941→} else {
+   942→  // Legacy: customPrompt or default/group instruction
+   943→  rawProactiveMessage = proactiveConfig.customPrompt?.trim()
+   944→    || (isGroupChat ? groupChatInstruction : defaultInstruction);
+   945→}
+   946→
+   947→// Resolve keys in each section (prefix, message, suffix)
+   948→const rawProactivePrefix = proactiveConfig.proactivePrefix?.trim() ?? '';
+   949→const rawProactiveSuffix = proactiveConfig.proactiveSuffix?.trim() ?? '';
+   950→const proactivePrefixResolved = resolveAllKeys(rawProactivePrefix, keyContext);
+   951→const proactiveSuffixResolved = resolveAllKeys(rawProactiveSuffix, keyContext);
+   952→const proactiveMessageResolved = resolveAllKeys(rawProactiveMessage, keyContext);
+   953→
+   954→// Assemble the final instruction: Prefix + Message + Suffix
+   955→const proactiveInstructionParts: string[] = [];
+   956→if (proactivePrefixResolved) proactiveInstructionParts.push(proactivePrefixResolved);
+   957→if (proactiveMessageResolved) proactiveInstructionParts.push(proactiveMessageResolved);
+   958→if (proactiveSuffixResolved) proactiveInstructionParts.push(proactiveSuffixResolved);
+   959→const proactiveInstruction = proactiveInstructionParts.join('\n\n');
+   960→
+   961→// Build the final system prompt
+   962→let finalSystemPrompt = systemPrompt;
+   963→finalSystemPrompt += `\n\n[Proactive Message Instruction]\n${proactiveInstruction}`;
+   964→```
+   965→
+   966→**KEY OBSERVATION**: `proactivePrefix`, `proactiveMessage`, AND `proactiveSuffix` are all concatenated into a SINGLE string `proactiveInstruction`, which is then appended to `finalSystemPrompt` as ONE block labeled `[Proactive Message Instruction]`. The suffix is NOT treated as post-history — it's baked into the system prompt.
+   967→
+   968→### B.2 FASE 9 context sections appended to `finalSystemPrompt` (lines 860-1033)
+   969→
+   970→Six optional context blocks built conditionally:
+   971→1. **`[Estado Emocional Actual]`** — emotional state + FASE 5 config (lines 872-885).
+   972→2. **`[Relación con {user}]`** — top 3 relationships filtered to user (lines 888-909).
+   973→3. **`[Misiones Activas]`** — top 3 active quests with progress squares (lines 911-930).
+   974→4. **`[Contexto reciente de la conversación]`** — last N messages with truncation (lines 932-954).
+   975→5. **`[Temas abandonados que puedes retomar]`** — crude substring-based topic extraction (lines 956-1019).
+   976→6. **`[Evita repetir estos temas recientes: …]`** — thematic cooldown (lines 1021-1028).
+   977→
+   978→All joined with `\n\n` and appended to `finalSystemPrompt` (line 1032):
+   979→```ts
+   980→if (contextInSystemPrompt && proactiveContextSections.length > 0) {
+   981→  finalSystemPrompt += '\n\n' + proactiveContextSections.join('\n\n');
+   982→}
+   983→```
+   984→
+   985→### B.3 Tool prompt section appended (lines 1063-1068, only when prompt-based fallback)
+   986→
+   987→Same as stream route.
+   988→
+   989→### B.4 Nudge message construction (lines 1089-1167)
+   990→
+   991→A nudge template is selected from `proactiveConfig.nudgeTemplate` + `proactiveConfig.nudgeTemplates[]` (rotation with `clientUsedNudgeIndices`), default `"[La escena continúa] {{user}} parece distraído así que {{char}} decide hacer o decir algo para que todo continúe."`. Resolved with `resolveAllKeys(rawNudgeMessage, keyContext)`. Optionally appends `contextSnippet` and `cooldownInstruction` IF `contextInSystemPrompt === false` (i.e. they duplicate what was put in the system prompt when the flag is false).
+   992→
+   993→### B.5 Prompt viewer sections extended (lines 1170-1194)
+   994→
+   995→Three extra sections appended **to the END** of `allPromptSections` (AFTER the postHistorySection):
+   996→```ts
+   997→allPromptSections.push(
+   998→  { type: 'instructions', label: '✨ Proactive Message Instruction', content: proactiveInstruction, color: 'amber-100...' },
+   999→);
+  1000→if (proactiveContextSections.length > 0) {
+  1001→  allPromptSections.push({ type: 'system', label: '🧠 Contexto para Proactividad (FASE 9)', content: proactiveContextSections.join('\n\n'), color: 'teal-100...' });
+  1002→}
+  1003→allPromptSections.push(
+  1004→  { type: 'user', label: '✨ Nudge (Proactive User Message)', content: nudgeContent, color: 'amber-50...' },
+  1005→);
+  1006→```
+  1007→
+  1008→> **Note**: This prompt-viewer ordering is inconsistent with the actual prompt sent to the LLM. The viewer shows: `…systemSections → summary → memory → embeddings → chatHistory → postHistory → proactiveInstruction → FASE 9 context → nudge`. The actual system message (built by `buildChatMessages`) puts `proactiveInstruction + FASE 9 context` BEFORE the post-history (because they were appended to `finalSystemPrompt`, and `buildChatMessages` appends post-history AFTER the system prompt). So the viewer lies about the order.
+  1009→
+  1010→### B.6 `allMessages` construction (lines 1196-1215)
+  1011→
+  1012→```ts
+  1013→let allMessages: ChatMessage[] = summaryMessage
+  1014→  ? [summaryMessage, ...finalContextWindow.messages]
+  1015→  : [...finalContextWindow.messages];
+  1016→
+  1017→// Add nudge as the last user message
+  1018→allMessages = [...allMessages, {
+  1019→  id: 'nudge-' + Date.now(),
+  1020→  role: 'user' as const,
+  1021→  characterId: effectiveCharacter.id,
+  1022→  content: nudgeContent,
+  1023→  isDeleted: false,
+  1024→  timestamp: new Date().toISOString(),
+  1025→  swipeId: 'nudge',
+  1026→  swipeIndex: 0,
+  1027→  swipes: [nudgeContent],
+  1028→}];
+  1029→```
+  1030→
+  1031→**KEY OBSERVATION**: The nudge is appended as an ADDITIONAL final user message AFTER `finalContextWindow.messages`. There is NO dedup check (unlike stream/route.ts lines 783-785). If the last context-window message is also a user message (rare in idle scenarios), `buildChatMessages` will merge them via its same-role merge logic (prompt-builder.ts lines 996-1002).
+  1032→
+  1033→### B.7 The `buildChatMessages(...)` call sites (proactive/route.ts — same pattern at lines 1315-1324, 1447-1456, 1568-1577, 1683-1692, 1803-1812, 1917-1926)
+  1034→
+  1035→```ts
+  1036→// proactive/route.ts lines 1315-1324 (z-ai case)
+  1037→let chatMessages = buildChatMessages(
+  1038→  baseSystemPrompt || finalSystemPrompt,             // 1. systemPrompt (= systemPrompt + [Proactive Message Instruction] + FASE 9 context)
+  1039→  allMessages,                                       // 2. messages (= contextWindow + nudge as final user msg)
+  1040→  effectiveCharacter,                                // 3. character
+  1041→  effectiveUserName,                                 // 4. userName
+  1042→  effectiveCharacter.postHistoryInstructions?.trim(), // 5. postHistoryInstructions (RAW — NOT merged with proactiveSuffix!)
+  1043→  undefined, true, embeddingsContext,
+  1044→  lorebookChatInjections,
+  1045→  exampleMessages                                    // always []
+  1046→);
+  1047→```
+  1048→
+  1049→**Same call pattern for `buildCompletionPrompt(...)` at lines 1786-1795, 1985-1994, 2001-2010.**
+  1050→
+  1051→### B.8 Summary table — Proactive chat sections in actual send order
+  1052→
+  1053→| # | Section | Where it lives | Source |
+  1054→|---|---------|----------------|--------|
+  1055→| 1-12 | (same as normal chat) | finalSystemPrompt → system msg | character card + lorebook + FASE 5 emotion |
+  1056→| 13 | `[Proactive Message Instruction]` block | finalSystemPrompt → system msg | `proactivePrefix + proactiveMessage + proactiveSuffix` joined `\n\n` (the SUFFIX is here, NOT in post-history!) |
+  1057→| 14 | FASE 9 context (emotional/relationship/quest/recent/abandoned/cooldown) | finalSystemPrompt → system msg | inline-built in route.ts |
+  1058→| 15 | Tool prompt-based instructions | finalSystemPrompt → system msg (if prompt-based fallback) | `buildPromptBasedToolsSection(...)` |
+  1059→| 16 | Embeddings context | system msg (after systemPrompt) | `embeddingsResult.*` |
+  1060→| 17 | Author's Note | system msg (after embeddings) | NOT passed — always empty |
+  1061→| 18 | **Post-History Instructions** | system msg (after authorNote) | `character.postHistoryInstructions` (RAW) — NOT merged with `proactiveSuffix` |
+  1062→| 19 | HUD Context | injected per position | `hudContext.content` |
+  1063→| 20 | Lorebook chat injections pos 1-4 | injected into specific messages | `lorebookChatInjections` |
+  1064→| 21 | Chat History | user/assistant messages | `finalContextWindow.messages` |
+  1065→| 22 | **Nudge message** | FINAL user message (appended) | `nudgeContent` (rotated nudge template, resolved with keys) |
+  1066→
+  1067→---
+  1068→
+  1069→## Part C — Differences between normal and proactive prompt construction
+  1070→
+  1071→### C.1 `buildSystemPrompt(...)` usage — **IDENTICAL** ✓
+  1072→Both routes call `buildSystemPrompt(...)` with the exact same 14 arguments in the exact same order. Same character card sections (description, personality, scenario, character note, example dialogue, emotional state, etc.) are included. Same key resolution applies.
+  1073→
+  1074→### C.2 Lorebook sections — **IDENTICAL** ✓
+  1075→Both routes call `buildLorebookSectionForPrompt(messages, lorebooks, options, attributeContext)` with the same parameters (only minor: proactive casts `scanDepth` as `any`). Same constant + scanned + attribute lorebook injection. Same `lorebookAttributeKeys` and `lorebookEntryKeyMap` returned and passed to `buildSystemPrompt` and `buildKeyResolutionContext`.
+  1076→
+  1077→### C.3 Memory section — **IDENTICAL** ✓
+  1078→Both routes call `buildMemorySection(characterMemory, effectiveCharacter.name)` (stream: line 641, proactive: line 657). Same `characterMemorySection` included in `allPromptSections`. Same dedup logic vs embeddings (`embeddingsFoundMemory` flag).
+  1079→
+  1080→### C.4 HUD context — **IDENTICAL** ✓
+  1081→Both routes call `buildHUDContextSection(hudContext, keyContext)` and `injectHUDContextIntoSections(allPromptSections, hudContextSection, hudContext.position)`. Both call `injectHUDContextIntoMessages(chatMessages, hudContextSection, hudContext.position)` after `buildChatMessages`.
+  1082→
+  1083→### C.5 Post-history instructions passed to `buildChatMessages` — **DIFFERENT** ✗
+  1084→- **Normal chat**: `effectiveCharacter.postHistoryInstructions?.trim()` (raw character field).
+  1085→- **Proactive chat**: `effectiveCharacter.postHistoryInstructions?.trim()` (raw character field — **identical**, BUT this is the bug). The `proactiveSuffix` is NOT flowing into this slot — it's already baked into `finalSystemPrompt` as part of the `[Proactive Message Instruction]` block (lines 850-858). So the proactive route ends up with the character's post-history as the LAST system-parts entry, but the `proactiveSuffix` (which semantically should function as post-history) appears earlier in the system message as part of the proactive instruction block.
+  1086→
+  1087→### C.6 Nudge message vs user message — **DIFFERENT** ✗
+  1088→- **Normal chat**: `sanitizedMessage` is the user's actual input, appended with a dedup check (lines 783-794) to avoid duplicating if the user's message is already in the context window.
+  1089→- **Proactive chat**: `nudgeContent` (selected from `nudgeTemplate` + `nudgeTemplates[]` rotation pool, resolved with keys, optionally extended with `contextSnippet` + `cooldownInstruction`) is appended as the final user message **WITHOUT** a dedup check. The nudge is an ADDITIONAL user message on top of history, NOT a replacement. If the last context-window message is a user message, both will exist; `buildChatMessages` will merge them via the same-role merge logic. The nudge functions as the "trigger" that prompts the character to take initiative.
+  1090→
+  1091→### C.7 Example dialogue handling — **IDENTICAL** ✓ (effectively)
+  1092→Both routes receive `exampleMessages = []` from `buildSystemPrompt(...)` (since example dialogue is now inlined as a section in the system prompt, prompt-builder.ts line 701-705). Both pass `exampleMessages` (empty) as the 10th arg to `buildChatMessages`. No difference.
+  1093→
+  1094→### C.8 Prompt-viewer section ordering — **DIFFERENT** ✗ (cosmetic but misleading)
+  1095→- **Normal chat** `finalAllPromptSections` order: `systemSections → summary → memory → embeddings → chatHistory → postHistory`. Matches the actual system message order.
+  1096→- **Proactive chat** `allPromptSections` order: same as normal, THEN APPENDS `proactiveInstruction → FASE 9 context → nudge` AT THE END. This means the viewer shows post-history BEFORE the proactive instruction, while in reality the proactive instruction is appended to `finalSystemPrompt` (i.e. before post-history in the actual system message). The viewer is misleading.
+  1097→
+  1098→### C.9 FASE 9 context sections (emotional, relationship, quest, recent, abandoned, cooldown) — **NEW IN PROACTIVE** ⚠
+  1099→These 6 context blocks are UNIQUE to the proactive route (lines 860-1033). The normal chat route does NOT inject them into the system prompt — it only has the FASE 5 emotional state injection inside `buildSystemPrompt` (item A.1.6). The FASE 9 context is proactive-specific and intended to make the character "feel alive" when generating a proactive message.
+
+[showing lines 700-1099 of 1537; use offset=1100 with limit to continue reading]

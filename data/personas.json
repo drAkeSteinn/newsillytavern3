@@ -1,11 +1,139 @@
 [
   {
     "id": "default",
-    "name": "User",
-    "description": "",
+    "name": "drAke",
+    "description": "{{user}} es un hombre con una vergota, se le nota el paquete en el pantalon.\nLe gusta el shibari y penetrar culos grandes y bocas babosas para hacer facefuck o que le hagan garganta profunda.\nEstado actual de {{user}}:\n{{pene_visible}}\n{{pene_erecto}}\n{{orgasmo}}\n--\n{{testloreb}}\n--",
     "avatar": "",
     "isActive": true,
-    "createdAt": "2026-08-08T21:29:16.557Z",
-    "updatedAt": "2026-08-08T21:29:16.557Z"
+    "createdAt": "2026-03-01T21:37:31.485Z",
+    "updatedAt": "2026-08-07T07:42:05.627Z",
+    "statsConfig": {
+      "enabled": true,
+      "attributes": [
+        {
+          "id": "attr-1775983375695",
+          "name": "Pene visible",
+          "key": "pene_visible",
+          "type": "text",
+          "defaultValue": "NO",
+          "showInHUD": true,
+          "caseSensitive": false,
+          "icon": "🍆",
+          "hudStyle": "status",
+          "color": "purple"
+        },
+        {
+          "id": "attr-1775983447360",
+          "name": "Pene erecto",
+          "key": "pene_erecto",
+          "type": "text",
+          "defaultValue": "NO",
+          "showInHUD": true,
+          "caseSensitive": false,
+          "icon": "⚡",
+          "color": "orange",
+          "hudStyle": "status"
+        },
+        {
+          "id": "attr-1775983488569",
+          "name": "Progreso de orgasmo",
+          "key": "orgasmo",
+          "type": "number",
+          "defaultValue": 0,
+          "showInHUD": true,
+          "caseSensitive": false,
+          "min": 0,
+          "max": 100,
+          "icon": "🤤",
+          "hudStyle": "progress",
+          "color": "white"
+        },
+        {
+          "id": "attr-1777601745274",
+          "name": "Lugar",
+          "key": "lugar",
+          "type": "text",
+          "defaultValue": "ESCRITORIO",
+          "showInHUD": true,
+          "caseSensitive": false,
+          "icon": "🏠",
+          "hudStyle": "badge"
+        }
+      ],
+      "skills": [],
+      "intentions": [],
+      "invitations": [
+        {
+          "id": "invitation-1773401043535",
+          "name": "Analisis psyquiatrico",
+          "requirements": [],
+          "objetivo": {
+            "characterId": "fbbdc8e8-12e1-421b-8a38-d4a37231de2a",
+            "solicitudId": "sol-1773397776153"
+          }
+        }
+      ],
+      "solicitudDefinitions": [
+        {
+          "id": "solicitud-1773401167519",
+          "name": "Test",
+          "peticionKey": "pedir_test",
+          "solicitudKey": "dar_test",
+          "peticionDescription": "Le pides a {{solicitado}} que se realice un test medico",
+          "solicitudDescription": "{{solicitante}} le pide a {{solicitado}} un test medico",
+          "requirements": [],
+          "completionDescription": "{{solicitado}} acepto aplicar un test medico a {{solicitante}}"
+        }
+      ],
+      "blockHeaders": {
+        "skills": "[ACCIONES DISPONIBLES]",
+        "intentions": "Intenciones disponibles:",
+        "invitations": "[PETICIONES POSIBLES]",
+        "solicitudesRecibidas": "[SOLICITUDES RECIBIDAS]"
+      }
+    },
+    "inventoryItems": [
+      {
+        "itemId": "mask-002",
+        "quantity": 1,
+        "equipped": false
+      },
+      {
+        "itemId": "dildo-002",
+        "quantity": 1,
+        "equipped": true,
+        "equippedSlotId": "main_hand"
+      },
+      {
+        "itemId": "cum-002",
+        "quantity": 1,
+        "equipped": false
+      },
+      {
+        "itemId": "cum-003",
+        "quantity": 1,
+        "equipped": false
+      },
+      {
+        "itemId": "cum-001",
+        "quantity": 1,
+        "equipped": true,
+        "equippedSlotId": "main_hand"
+      },
+      {
+        "itemId": "plug-002",
+        "quantity": 1,
+        "equipped": false
+      },
+      {
+        "itemId": "plug-001",
+        "quantity": 1,
+        "equipped": true,
+        "equippedSlotId": "slot-1780243589021-wpam34n"
+      }
+    ],
+    "currency": 121,
+    "currencyName": "Puntos",
+    "currencyIcon": "💰"
   }
 ]
