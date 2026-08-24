@@ -23,6 +23,11 @@ export interface GroupSlice {
   toggleGroupMemberActive: (groupId: string, characterId: string) => void;
   toggleGroupMemberPresent: (groupId: string, characterId: string) => void;
   toggleGroupMemberNarrator: (groupId: string, characterId: string) => void;
+  /**
+   * Apply a scene change triggered by the manage_scene tool (LLM decision).
+   * Sets a member's isPresent flag directly (used by the scene_activation SSE handler).
+   */
+  applySceneChange: (groupId: string, characterId: string, present: boolean) => void;
 
   // Utilities
   getGroupById: (id: string) => CharacterGroup | undefined;
@@ -137,6 +142,19 @@ export const createGroupSlice = (set: any, _get: any): GroupSlice => ({
         ...g,
         members: (g.members || []).map(m =>
           m.characterId === characterId ? { ...m, isPresent: !m.isPresent } : m
+        ),
+        updatedAt: new Date().toISOString()
+      };
+    })
+  })),
+
+  applySceneChange: (groupId, characterId, present) => set((state: any) => ({
+    groups: state.groups.map((g: CharacterGroup) => {
+      if (g.id !== groupId) return g;
+      return {
+        ...g,
+        members: (g.members || []).map(m =>
+          m.characterId === characterId ? { ...m, isPresent: present } : m
         ),
         updatedAt: new Date().toISOString()
       };

@@ -52,6 +52,7 @@ import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
 import { selectProactiveCase, type UsedCaseIndices } from '@/lib/proactive/case-selector';
 import {
   getAllToolDefinitions,
+  GROUP_ONLY_TOOL_IDS,
   getToolDefinitionsByIds,
   resolveToolDefinitionsKeys,
   executeTool,
@@ -197,6 +198,62 @@ async function executeToolCallsAndContinue(
         activationCosts: action.activationCosts,
         activationRewards: action.activationRewards,
         characterId: action.characterId,
+      }));
+    }
+
+    // Check for relationship activation and send SSE event
+    if (toolResult.relationshipActivation) {
+      const rel = toolResult.relationshipActivation;
+      console.log(`[Tools] Relationship activation from ${tc.name}:`, rel.aName, '↔', rel.bName, rel.prevPoints, '→', rel.newPoints);
+
+      controller.enqueue(createSSEJSON({
+        type: 'relationship_activation',
+        toolName: tc.name,
+        aId: rel.aId,
+        aName: rel.aName,
+        bId: rel.bId,
+        bName: rel.bName,
+        prevPoints: rel.prevPoints,
+        newPoints: rel.newPoints,
+        reason: rel.reason,
+      }));
+    }
+
+    // Check for world-time activation and send SSE event
+    if (toolResult.timeActivation) {
+      const timeAct = toolResult.timeActivation;
+      console.log(`[Tools] Time activation from ${tc.name}:`, timeAct.type, timeAct.minutes || timeAct.hour || timeAct.season);
+
+      controller.enqueue(createSSEJSON({
+        type: 'time_activation',
+        toolName: tc.name,
+        activationType: timeAct.type,
+        minutes: timeAct.minutes,
+        hour: timeAct.hour,
+        minute: timeAct.minute,
+        season: timeAct.season,
+      }));
+    }
+
+    // Check for skill check activation and send SSE event
+    if (toolResult.checkActivation) {
+      const check = toolResult.checkActivation;
+      console.log(`[Tools] Skill check from ${tc.name}:`, check.statName, `${check.roll}${check.modifier >= 0 ? '+' : ''}${check.modifier}=${check.total} vs CD ${check.dc} → ${check.outcome}`);
+
+      controller.enqueue(createSSEJSON({
+        type: 'check_activation',
+        toolName: tc.name,
+        characterId: check.characterId,
+        characterName: check.characterName,
+        statName: check.statName,
+        statValue: check.statValue,
+        roll: check.roll,
+        modifier: check.modifier,
+        dc: check.dc,
+        total: check.total,
+        outcome: check.outcome,
+        outcomeLabel: check.outcomeLabel,
+        narrative: check.narrative,
       }));
     }
 
@@ -860,6 +917,11 @@ export async function POST(request: NextRequest) {
     const globalDisabled = toolsSettings.disabledTools || [];
     if (globalDisabled.length > 0) {
       availableTools = availableTools.filter(t => !globalDisabled.includes(t.id));
+    }
+
+    // Filter out group-only tools (1-on-1 route — no scene management here)
+    if (availableTools.length > 0) {
+      availableTools = availableTools.filter(t => !GROUP_ONLY_TOOL_IDS.includes(t.id));
     }
     
     const toolsEnabled = toolsSettings.enabled && availableTools.length > 0;

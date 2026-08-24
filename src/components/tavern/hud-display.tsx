@@ -187,7 +187,14 @@ export function HUDDisplay({ className }: HUDDisplayProps) {
       values[attr.key] = attr.defaultValue;
     }
     if (storedValues) {
-      Object.assign(values, storedValues);
+      // Only copy values for DEFINED persona attributes — skips internal mirrors
+      // (relacion/relacion_etapa/hora/momento_del_dia/dia/estacion) that live in the
+      // same record but shouldn't flood the persona HUD panel.
+      for (const attr of attributes) {
+        if (storedValues[attr.key] !== undefined) {
+          values[attr.key] = storedValues[attr.key];
+        }
+      }
     }
 
     if (attributes.length > 0) {
@@ -305,14 +312,13 @@ function MultiCharacterAttributesHUD({ charactersWithAttributes, compact, isGrou
               style === 'holographic' && 'text-cyan-300',
               (!['neon', 'fantasy', 'retro', 'holographic'].includes(style)) && 'text-white/80'
             )}>
-              {style === 'fantasy' && <span className="mr-1">⚔</span>}
-              {style === 'retro' && <span className="mr-1">&gt;</span>}
-              {character.name}
+              <span aria-hidden>🎭</span>
+              <span className="truncate max-w-[120px]">{character.name}</span>
             </div>
           )}
 
-          {/* Attributes - Ensure all are visible */}
-          <div className={cn('flex flex-col', compact ? 'gap-1.5' : 'gap-2.5')}>
+          {/* Attributes - Ensure all are visible (scrollable after ~5 rows) */}
+          <div className={cn('flex flex-col max-h-56 overflow-y-auto pr-0.5', compact ? 'gap-1.5' : 'gap-2.5')}>
             {attributes.map((attr) => (
               <AttributeHUDField
                 key={attr.id}
@@ -345,9 +351,9 @@ function MultiCharacterAttributesHUD({ charactersWithAttributes, compact, isGrou
             style === 'holographic' && 'text-cyan-300',
             (!['neon', 'fantasy', 'retro', 'holographic'].includes(style)) && 'text-white/80'
           )}>
-            {style === 'fantasy' && <span className="mr-1">🛡</span>}
-            {style === 'retro' && <span className="mr-1">&gt;</span>}
-            {personaAttributes.personaName}
+            <span aria-hidden>👤</span>
+            <span className="truncate max-w-[120px]">{personaAttributes.personaName}</span>
+            <span className="text-[9px] opacity-60 font-normal">(tú)</span>
           </div>
 
           <div className={cn('flex flex-col', compact ? 'gap-1.5' : 'gap-2.5')}>

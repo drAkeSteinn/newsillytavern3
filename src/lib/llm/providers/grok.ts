@@ -20,7 +20,7 @@ export async function* streamGrok(
   const timeoutMs = config.parameters.timeout || DEFAULT_TIMEOUT;
 
   const requestBody: Record<string, unknown> = {
-    model: config.model || 'grok-3',
+    model: config.model || 'grok-4-1-fast-non-reasoning',
     messages: messages,
     max_tokens: config.parameters.maxTokens,
     temperature: config.parameters.temperature,
@@ -102,7 +102,7 @@ export async function* streamGrokWithTools(
   console.log(`[Grok+Tools] Streaming with ${openAITools.length} tools`);
 
   const requestBody: Record<string, unknown> = {
-    model: config.model || 'grok-3',
+    model: config.model || 'grok-4-1-fast-non-reasoning',
     messages: messages,
     max_tokens: config.parameters.maxTokens,
     temperature: config.parameters.temperature,
@@ -189,7 +189,7 @@ export async function callGrok(
   const timeoutMs = DEFAULT_TIMEOUT;
 
   const requestBody: Record<string, unknown> = {
-    model: config.model || 'grok-3',
+    model: config.model || 'grok-4-1-fast-non-reasoning',
     messages: messages,
     max_tokens: config.parameters.maxTokens,
     temperature: config.parameters.temperature,

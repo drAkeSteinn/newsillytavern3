@@ -2754,8 +2754,6 @@
   ],
   "inventorySettings": {
     "enabled": true,
-    "maxItems": 100,
-    "autoAdd": false,
     "showInChat": true,
     "showNotifications": true,
     "promptInclude": false,
@@ -2794,7 +2792,9 @@
         "name": "pezones",
         "key": "pezones"
       }
-    ]
+    ],
+    "maxItems": 100,
+    "autoAdd": false
   },
   "inventoryNotifications": [
     {

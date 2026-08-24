@@ -257,13 +257,40 @@
   }
 }
 
-/* Fog Effects */
-@keyframes fog-drift {
-  0%, 100% {
-    transform: translateX(-2%) scale(1.02);
+/* Fog Effects — layered drifting banks (used by overlay-atmosphere-layer) */
+.fog-bank {
+  position: absolute;
+  inset: -10%;
+  will-change: transform, opacity;
+}
+
+@keyframes fog-bank-a {
+  0% {
+    transform: translate3d(-4%, 0, 0) scale(1.05);
+    opacity: 0.75;
   }
   50% {
-    transform: translateX(2%) scale(1);
+    transform: translate3d(3%, -1.5%, 0) scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-3%, 1%, 0) scale(1.06);
+    opacity: 0.8;
+  }
+}
+
+@keyframes fog-bank-b {
+  0% {
+    transform: translate3d(5%, 1%, 0) scale(1.1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(-4%, -2%, 0) scale(1.18);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(4%, 2%, 0) scale(1.12);
+    opacity: 0.6;
   }
 }
 
@@ -333,6 +360,71 @@
   .rain-heavy {
     animation: none !important;
   }
+}
+
+
+/* ============================================
+   TIMELINE EDITOR — Visual Polish
+   ============================================ */
+
+/* Track headers: subtle top sheen + side accent glow */
+.timeline-track-header {
+  position: relative;
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 40%);
+  box-shadow: inset 2px 0 0 0 var(--track-accent, transparent);
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.timeline-track-header:hover {
+  box-shadow: inset 2px 0 0 0 var(--track-accent, transparent), 0 0 12px -4px var(--track-accent, transparent);
+}
+
+/* Keyframe hover glow (sound + haptic diamonds) */
+.timeline-keyframe {
+  transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.timeline-keyframe:hover {
+  filter: brightness(1.3);
+  box-shadow: 0 0 8px -1px currentColor;
+}
+
+/* Playhead: animated pulse at the top grab handle */
+.timeline-playhead-line {
+  background: linear-gradient(180deg, rgba(239,68,68,0.9) 0%, rgba(239,68,68,0.35) 100%);
+  box-shadow: 0 0 6px rgba(239,68,68,0.5);
+}
+
+.timeline-playhead-handle {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(239,68,68,0.4);
+  animation: timeline-playhead-pulse 2s ease-in-out infinite;
+}
+
+@keyframes timeline-playhead-pulse {
+  0%, 100% { box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 6px rgba(239,68,68,0.3); }
+  50% { box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 0 14px rgba(239,68,68,0.6); }
+}
+
+/* Ruler: subtle gradient background */
+.timeline-ruler {
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 100%);
+}
+
+/* Keyframe lane: faint horizontal grid texture for haptic tracks */
+.timeline-haptic-lane {
+  background-image:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0px,
+      transparent 23px,
+      rgba(217,70,239,0.05) 24px
+    );
+}
+
+/* Empty-state cards */
+.timeline-empty-gradient {
+  background-image: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.06) 0%, transparent 60%);
 }
 
 /* ============================================

@@ -11,6 +11,7 @@ import type {
   ToolExecutionResult,
   ToolContext,
   ToolCategory,
+  ToolParameterSchema,
 } from './types';
 import type { KeyResolutionContext } from '@/lib/key-resolver';
 import { resolveAllKeys } from '@/lib/key-resolver';
@@ -69,6 +70,13 @@ export function getToolsByCategory(category: ToolCategory): ToolDefinition[] {
 }
 
 /**
+ * Tools that only make sense in GROUP chats (they require group context like
+ * scene members). These are filtered out of 1-on-1 chat requests so the LLM
+ * never sees them outside groups.
+ */
+export const GROUP_ONLY_TOOL_IDS: string[] = ['manage_scene'];
+
+/**
  * Resolve all {{keys}} in tool definitions (descriptions and parameter descriptions).
  * Returns NEW tool definition objects with resolved descriptions.
  * This should be called ONCE after filtering tools, before passing them to the LLM.
@@ -103,23 +111,44 @@ export function resolveToolDefinitionsKeys(
   });
 }
 
-/** Convert tool definitions to OpenAI tools format */
+/**
+ * Convert internal ToolParameterSchema to strict JSON Schema.
+ * Fixes provider validation errors (xAI/Grok is strict):
+ *   - `type: 'enum'` is NOT valid JSON Schema → becomes `type: 'string'` + `enum: [...]`
+ *   - per-property `required: boolean` is not part of JSON Schema → stripped
+ *     (top-level `required: string[]` is the correct place)
+ */
+export function toJSONSchemaParameters(parameters: ToolParameterSchema): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(parameters.properties)) {
+    const prop: Record<string, unknown> = {};
+    if (val.type === 'enum') {
+      prop.type = 'string';
+      if (Array.isArray(val.enum) && val.enum.length > 0) {
+        prop.enum = val.enum;
+      }
+    } else {
+      prop.type = val.type;
+    }
+    if (val.description) prop.description = val.description;
+    if (val.default !== undefined) prop.default = val.default;
+    properties[key] = prop;
+  }
+  return {
+    type: 'object',
+    properties,
+    required: parameters.required,
+  };
+}
+
+/** Convert tool definitions to OpenAI tools format (strict JSON Schema) */
 export function toOpenAITools(tools: ToolDefinition[]) {
   return tools.map(t => ({
     type: 'function' as const,
     function: {
       name: t.name,
       description: t.description,
-      parameters: {
-        type: 'object',
-        properties: Object.fromEntries(
-          Object.entries(t.parameters.properties).map(([key, val]) => {
-            const { required: _required, ...cleanProps } = val;
-            return [key, cleanProps];
-          })
-        ),
-        required: t.parameters.required,
-      },
+      parameters: toJSONSchemaParameters(t.parameters),
     },
   }));
 }
@@ -270,6 +299,10 @@ import { manageQuestTool, manageQuestExecutor } from './tools/manage-quest';
 import { manageSolicitudTool, manageSolicitudExecutor } from './tools/manage-solicitud';
 import { manageMemoryTool, manageMemoryExecutor } from './tools/manage-memory';
 import { manageActionTool, manageActionExecutor } from './tools/manage-action';
+import { manageSceneTool, manageSceneExecutor } from './tools/manage-scene';
+import { manageRelationshipTool, manageRelationshipExecutor } from './tools/manage-relationship';
+import { skillCheckTool, skillCheckExecutor } from './tools/skill-check';
+import { manageTimeTool, manageTimeExecutor } from './tools/manage-time';
 
 // Register built-in tools
 registerTool(rollDiceTool, rollDiceExecutor);
@@ -283,5 +316,9 @@ registerTool(manageQuestTool, manageQuestExecutor);
 registerTool(manageSolicitudTool, manageSolicitudExecutor);
 registerTool(manageMemoryTool, manageMemoryExecutor);
 registerTool(manageActionTool, manageActionExecutor);
+registerTool(manageSceneTool, manageSceneExecutor);
+registerTool(manageRelationshipTool, manageRelationshipExecutor);
+registerTool(skillCheckTool, skillCheckExecutor);
+registerTool(manageTimeTool, manageTimeExecutor);
 
 console.log(`[Tools] Registered ${toolRegistry.size} built-in tools: ${Array.from(toolRegistry.keys()).join(', ')}`);

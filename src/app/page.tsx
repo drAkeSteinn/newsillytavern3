@@ -9,6 +9,7 @@ import { BackgroundGallery } from '@/components/tavern/background-gallery';
 import { InventoryPanel } from '@/components/inventory/inventory-panel';
 import { SettingsApplier } from '@/components/tavern/settings-applier';
 import { AtmosphereRenderer } from '@/components/atmosphere';
+import { SceneLighting } from '@/components/atmosphere/scene-lighting';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { 
@@ -32,6 +33,7 @@ import { t } from '@/lib/i18n';
 export default function TavernFlow() {
   // Use individual selectors to avoid re-rendering the entire page on every store change
   const sidebarOpen = useTavernStore((s) => s.sidebarOpen);
+  const worldClock = useTavernStore((s) => (s.sessions.find(x => x.id === s.activeSessionId) as { sessionStats?: { worldClock?: import('@/lib/world/time').WorldClock } } | undefined)?.sessionStats?.worldClock ?? null);
   const setSidebarOpen = useTavernStore((s) => s.setSidebarOpen);
   const settingsOpen = useTavernStore((s) => s.settingsOpen);
   const setSettingsOpen = useTavernStore((s) => s.setSettingsOpen);
@@ -58,6 +60,9 @@ export default function TavernFlow() {
       
       {/* Atmosphere Effects Renderer */}
       {hydrated && <AtmosphereRenderer />}
+      
+      {/* Scene Lighting — subtle day-moment color grading driven by the world clock */}
+      {hydrated && <SceneLighting worldClock={worldClock} />}
       
       {/* Header */}
       <header className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center justify-between px-4 flex-shrink-0">

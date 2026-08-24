@@ -2,9 +2,7 @@
   "summaries": [],
   "summarySettings": {
     "enabled": true,
-    "maxSummaries": 10,
     "autoSummarize": true,
-    "threshold": 50,
     "normalChatInterval": 10,
     "groupChatInterval": 20,
     "triggerThreshold": 20,
@@ -13,7 +11,9 @@
     "promptTemplate": "You are a conversation summarizer for a roleplay chat. Your task is to create a concise but comprehensive summary of the conversation.\n\n**Instructions:**\n1. Preserve key events, decisions, and plot developments\n2. Track emotional moments and character development\n3. Note important dialogue exchanges\n4. Keep track of items, locations, and relationships\n5. Maintain chronological order\n\n**Format:**\nWrite a narrative summary (not bullet points) that captures the essence of the conversation.\n\n**Conversation to summarize:**\n{{conversation}}\n\n**Summary:**",
     "summarizeOnTurnEnd": true,
     "includeCharacterThoughts": true,
-    "preserveEmotionalMoments": true
+    "preserveEmotionalMoments": true,
+    "maxSummaries": 10,
+    "threshold": 50
   },
   "characterMemories": [
     {

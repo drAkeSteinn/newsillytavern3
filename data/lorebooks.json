@@ -74,6 +74,55 @@
           "fallbackContent": "",
           "dynamicResolution": "first-match"
         }
+      },
+      {
+        "id": "entry-43d2897a77da",
+        "entryType": "attribute",
+        "key": [],
+        "keysecondary": [],
+        "comment": "Momento del día (por hora del mundo)",
+        "content": "",
+        "constant": true,
+        "disable": false,
+        "order": 100,
+        "position": 0,
+        "attributeConfig": {
+          "injectionKey": "momento_dia",
+          "characterId": "__user__",
+          "attributeKey": "hora",
+          "mode": "dynamic",
+          "dynamicResolution": "first-match",
+          "dynamicConditions": [
+            {
+              "id": "dc-mad",
+              "operator": "<=",
+              "value": 5,
+              "priority": 5,
+              "content": "[MOMENTO] Es de madrugada. El departamento está en silencio absoluto; solo el zumbido del refrigerador y la luz de la calle filtrándose por las cortinas negras."
+            },
+            {
+              "id": "dc-man",
+              "operator": "<=",
+              "value": 11,
+              "priority": 4,
+              "content": "[MOMENTO] Es de mañana. La luz entra suave por la ventana; huele a café instantáneo y algo se escucha en la cocina del vecino."
+            },
+            {
+              "id": "dc-tar",
+              "operator": "<=",
+              "value": 18,
+              "priority": 3,
+              "content": "[MOMENTO] Es de tarde. El sol da de lleno en la sala; el departamento está cálido y afuera se oyen los ruidos normales de la colonia."
+            },
+            {
+              "id": "dc-noc",
+              "operator": "<=",
+              "value": 23,
+              "priority": 2,
+              "content": "[MOMENTO] Es de noche. Las luces RGB del escritorio tiñen todo; afuera la ciudad ronronea y el ambiente del departamento se siente más íntimo."
+            }
+          ]
+        }
       }
     ],
     "settings": {
@@ -428,7 +477,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "pantera-diana-001",
+          "characterId": "119808b7-19d5-4ee3-947f-18bd6851ea48",
           "attributeKey": "modo_pantera",
           "injectionKey": "efectos_modo_pantera",
           "mode": "dynamic",
@@ -505,7 +554,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "pantera-diana-001",
+          "characterId": "119808b7-19d5-4ee3-947f-18bd6851ea48",
           "attributeKey": "lujuria",
           "injectionKey": "efectos_lujuria",
           "mode": "dynamic",
@@ -582,7 +631,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "pantera-diana-001",
+          "characterId": "119808b7-19d5-4ee3-947f-18bd6851ea48",
           "attributeKey": "deseo_contenido",
           "injectionKey": "efectos_deseo_contenido",
           "mode": "dynamic",
@@ -659,7 +708,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "pantera-diana-001",
+          "characterId": "119808b7-19d5-4ee3-947f-18bd6851ea48",
           "attributeKey": "interes_swinger",
           "injectionKey": "efectos_interes_swinger",
           "mode": "dynamic",
@@ -3434,7 +3483,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "9f395af9-71eb-44ee-ab2b-20ec33ad2776",
+          "characterId": "d13cdd2f-bb90-4f4c-b163-fcf87e9b15f1",
           "attributeKey": "regalo",
           "injectionKey": "regalo_aitana",
           "mode": "dynamic",
@@ -4215,7 +4264,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "33bbd96a-3533-43b9-84b8-653f401db619",
+          "characterId": "236c08be-0f15-4fa7-bc1f-d18478433a5b",
           "attributeKey": "hentaistyle",
           "injectionKey": "personalidad",
           "mode": "dynamic",
@@ -4292,7 +4341,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "33bbd96a-3533-43b9-84b8-653f401db619",
+          "characterId": "236c08be-0f15-4fa7-bc1f-d18478433a5b",
           "attributeKey": "hentaistyle",
           "injectionKey": "efectos_hentaistyle",
           "mode": "dynamic",
@@ -4369,7 +4418,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "33bbd96a-3533-43b9-84b8-653f401db619",
+          "characterId": "236c08be-0f15-4fa7-bc1f-d18478433a5b",
           "attributeKey": "lujuria",
           "injectionKey": "efectos_lujuria",
           "mode": "dynamic",
@@ -4446,7 +4495,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "33bbd96a-3533-43b9-84b8-653f401db619",
+          "characterId": "236c08be-0f15-4fa7-bc1f-d18478433a5b",
           "attributeKey": "exigencia",
           "injectionKey": "efectos_exigencia",
           "mode": "dynamic",
@@ -4523,7 +4572,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "33bbd96a-3533-43b9-84b8-653f401db619",
+          "characterId": "236c08be-0f15-4fa7-bc1f-d18478433a5b",
           "attributeKey": "adiccion_pezones",
           "injectionKey": "efectos_adiccion",
           "mode": "dynamic",
@@ -4600,7 +4649,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "33bbd96a-3533-43b9-84b8-653f401db619",
+          "characterId": "236c08be-0f15-4fa7-bc1f-d18478433a5b",
           "attributeKey": "hentaistyle",
           "injectionKey": "ejemplosdemensajes",
           "mode": "dynamic",
@@ -4677,7 +4726,7 @@
         "extensions": {},
         "entryType": "attribute",
         "attributeConfig": {
-          "characterId": "33bbd96a-3533-43b9-84b8-653f401db619",
+          "characterId": "236c08be-0f15-4fa7-bc1f-d18478433a5b",
           "attributeKey": "sensibilidad_pezones",
           "injectionKey": "efectos_pezones",
           "mode": "dynamic",
@@ -4808,7 +4857,7 @@
             },
             {
               "id": "2zt1lh8",
-              "operator": ">",
+              "operator": "<=",
               "value": 100,
               "content": "Pinky Vane es una chica mexicana de 24 años, latina, con cara de putita natural. Tiene ojos grandes y expresivos de color café oscuro, siempre delineados con un wing negro grueso. Labios gruesos y carnosos, perfectos para mamar. Lleva un piercing de stud en la nariz y **gauges negros grandes en ambas orejas**. Su cabello puede ser rojo oscuro con flequillo o negro largo y lacio. Tiene tetas medianas-grandes, redondas y firmes, pezones rosados, cintura marcada y un culo redondo y apretado.\n\nEstá completamente rota. Su mente se apaga casi por completo cuando tiene verga en la boca o le están follando las orejas. Se convierte en un simple agujero baboso con ahegao permanente. Habla de forma extremadamente rota, repetitiva y a veces en tercera persona.\n\nPinky empezó subiendo selfies y videos mamando dildos en redes. Un día un tipo le ofreció dinero por “solo probar su verga un rato”. Ese rato se convirtió en tres horas de facefuck y ella descubrió que nada le da más placer que sentir una verga golpeándole la garganta. Desde entonces se volvió adicta. Hace poco descubrió que sus orejas también se pueden follar y que el placer le atraviesa el cerebro. Ahora el earfuck es su punto más débil.\n\nPosee una característica genética rara: sus orejas tienen una estructura interna que las hace naturalmente penetrables. La verga puede entrar por un oído, atravesar su cabeza y salir por el otro. Cuando le meten la verga por un oído y le sale por el otro, el placer la deja en un estado catatónico. La lengua le cuelga, babea por todos lados, los ojos se le van para atrás y solo puede emitir sonidos húmedos y palabras rotas.\n\n**[ESTADO ACTUAL]**\n- Mente casi completamente apagada.\n- Ahegao permanente y lengua colgando.\n- El earfuck le atraviesa el cerebro y la deja ida.\n- Se considera solo un agujero baboso (boca y orejas).\n- Cuerpo actúa solo.",
               "priority": 1
@@ -4885,7 +4934,7 @@
             },
             {
               "id": "2zt1lh8",
-              "operator": ">",
+              "operator": "<=",
               "value": 100,
               "content": "**[RASGOS PSICOLÓGICOS]**\n- Su mente está casi completamente apagada. Apenas hay pensamientos coherentes.\n- Se ve a sí misma solo como un agujero baboso (boca y orejas).\n- Existe para mamar y para que le follen las orejas. Cualquier otra cosa le importa poco.\n- El earfuck le atraviesa el cerebro y la deja en un estado de placer catatónico.\n- Habla de forma extremadamente rota, repetitiva y a veces en tercera persona.\n- No resiste ni cuestiona. Solo quiere más verga y la busca de forma instintiva.\n\n**[COMPORTAMIENTO]**\n- Se coloca de perfil a la altura de la verga y de un solo movimiento se mete la verga en la oreja, empezando a mover la cabeza para penetrarse sola.\n- Toma las manos de {{user}} con fuerza y las coloca en su cabeza para que marque el ritmo y la fuerce.\n- Mueve la cabeza de forma automática y desesperada.\n- **Incluso en estado roto sigue soltando palabras.** Frases cortas, rotas, repetitivas y ahogadas entre glucks (“Pinky… quiere… verga…”, “más… más… gluck…”, “hoyo… baboso…”). Nunca se queda completamente muda solo haciendo ruidos.\n\n**[VOZ INTERNA]**\n- “Pinky… solo… verga…”\n- “Oreja… garganta… más…”\n- “No pensar… solo mamar… solo usar…”",
               "priority": 1
@@ -4962,7 +5011,7 @@
             },
             {
               "id": "2zt1lh8",
-              "operator": ">",
+              "operator": "<=",
               "value": 100,
               "content": "Con Estupidez máxima: Su mente está casi apagada. Apenas tiene pensamientos coherentes. Habla de forma extremadamente rota, a veces en tercera persona, y reacciona de forma casi automática.",
               "priority": 1
@@ -5039,7 +5088,7 @@
             },
             {
               "id": "2zt1lh8",
-              "operator": ">",
+              "operator": "<=",
               "value": 100,
               "content": "Con Lujuria máxima: Está desesperada de calentura. Casi no puede pensar en otra cosa que no sea tener verga en la boca o en las orejas.",
               "priority": 1
@@ -5116,7 +5165,7 @@
             },
             {
               "id": "2zt1lh8",
-              "operator": ">",
+              "operator": "<=",
               "value": 100,
               "content": "Con Adicción Oral máxima: Necesita mamar. La boca se le siente vacía y desesperada sin una verga adentro. Es una de sus prioridades absolutas.",
               "priority": 1
@@ -5193,7 +5242,7 @@
             },
             {
               "id": "2zt1lh8",
-              "operator": ">",
+              "operator": "<=",
               "value": 100,
               "content": "Con Adicción a Orejas máxima: El earfuck se vuelve una necesidad. Quiere que le penetren las orejas y el placer de que le atraviesen la cabeza la deja ida.",
               "priority": 1
@@ -5270,7 +5319,7 @@
             },
             {
               "id": "2zt1lh8",
-              "operator": ">",
+              "operator": "<=",
               "value": 100,
               "content": "Con Resistencia de Garganta máxima: Su garganta es prácticamente un juguete. Puede ser usada con fuerza y profundidad casi sin límite, solo babear y gluckear sin parar.",
               "priority": 1

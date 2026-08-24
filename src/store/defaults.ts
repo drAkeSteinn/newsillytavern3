@@ -5,6 +5,7 @@
 import type { LLMConfig, AppSettings, PromptTemplate, Persona, LorebookSettings, ContextSettings } from '@/types';
 import { DEFAULT_CHATBOX_APPEARANCE, DEFAULT_HANDY_SETTINGS, DEFAULT_COMIC_SOUND_SETTINGS } from '@/types';
 import { DEFAULT_EMBEDDINGS_CHAT } from '@/lib/embeddings/constants';
+import { DEFAULT_DIRECTOR_SETTINGS } from '@/lib/director/types';
 
 export const defaultLLMConfig: LLMConfig = {
   id: 'default',
@@ -90,6 +91,7 @@ export const defaultSettings: AppSettings = {
   chatboxAppearance: DEFAULT_CHATBOX_APPEARANCE,
   embeddingsChat: DEFAULT_EMBEDDINGS_CHAT,
   handy: DEFAULT_HANDY_SETTINGS,
+  director: DEFAULT_DIRECTOR_SETTINGS,
 };
 
 export const defaultPromptTemplate: PromptTemplate = {

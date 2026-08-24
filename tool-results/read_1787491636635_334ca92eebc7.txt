@@ -1,0 +1,562 @@
+     1→   530→
+     2→   531→    // Validate request (automatically detects group request)
+     3→   532→    const validation = validateRequest(null, body);
+     4→   533→    if (!validation.success) {
+     5→   534→      return createErrorResponse(validation.error, 400);
+     6→   535→    }
+     7→   536→
+     8→   537→    const {
+     9→   538→      message,
+    10→   539→      group,
+    11→   540→      characters,
+    12→   541→      messages = [],
+    13→   542→      llmConfig,
+    14→   543→      userName = 'User',
+    15→   544→      persona,
+    16→   545→      lastResponderId,
+    17→   546→      sessionStats,
+    18→   547→      hudContext
+    19→   548→    } = validation.data;
+    20→   549→
+    21→   550→    // Extract lorebooks from body (not validated by validation.ts)
+    22→   551→    const lorebooks: Lorebook[] = body.lorebooks || [];
+    23→   552→
+    24→   553→    // Build allCharacters including persona for cross-character lookups (target requirements, peticiones)
+    25→   554→    const allCharacters: CharacterCard[] = [...(characters || [])];
+    26→   555→    if (persona?.statsConfig?.enabled) {
+    27→   556→      allCharacters.push({
+    28→   557→        id: '__user__',
+    29→   558→        name: persona.name || 'User',
+    30→   559→        statsConfig: persona.statsConfig,
+    31→   560→      } as CharacterCard);
+    32→   561→    }
+    33→   562→
+    34→   563→    // Quest data still needed for buildGroupSystemPrompt {{activeQuests}} key resolution
+    35→   564→    const questTemplates: QuestTemplate[] = body.questTemplates || [];
+    36→   565→    const sessionQuests: SessionQuestInstance[] = body.sessionQuests || [];
+    37→   566→    const questSettings = { ...DEFAULT_QUEST_SETTINGS, ...(body.questSettings || {}) };
+    38→   567→
+    39→   568→    // Extract summaries for memory/context compression
+    40→   569→    const summary: SessionSummary | undefined = body.summary;
+    41→   570→
+    42→   571→    // Extract embeddings chat settings
+    43→   572→    const embeddingsChat: Partial<EmbeddingsChatSettings> = body.embeddingsChat || {};
+    44→   573→    const sessionId: string | undefined = body.sessionId;
+    45→   574→    const characterMemory: CharacterMemory | undefined = body.characterMemory;
+    46→   575→
+    47→   576→    // Extract tools settings for tool/action system (native tool calling only)
+    48→   577→    const toolsSettings: ToolsSettings = {
+    49→   578→      enabled: body.toolsSettings?.enabled ?? true,
+    50→   579→      maxToolCallsPerTurn: body.toolsSettings?.maxToolCallsPerTurn ?? 2,
+    51→   580→      characterConfigs: body.toolsSettings?.characterConfigs || [],
+    52→   581→      usePromptBasedFallback: body.toolsSettings?.usePromptBasedFallback ?? false,
+    53→   582→      disabledTools: body.toolsSettings?.disabledTools || [],
+    54→   583→    };
+    55→   584→
+    56→   585→    // Extract inventory data for Inventory V2 system
+    57→   586→    const inventoryData: InventoryPromptData | undefined = body.inventoryData;
+    58→   587→
+    59→   588→    // Extract Sound data for {{sonidos}} key resolution
+    60→   589→    const soundTriggers: SoundTrigger[] = body.soundTriggers || [];
+    61→   590→    const soundSettings = body.settings?.sound;
+    62→   591→
+    63→   592→    // Cast sessionStats to proper type
+    64→   593→    const typedSessionStats = sessionStats as SessionStats | undefined;
+    65→   594→
+    66→   595→    // Cast hudContext to proper type
+    67→   596→    const typedHUDContext = hudContext as HUDContextConfig | undefined;
+    68→   597→
+    69→   598→    // Extract per-character lorebook map for when group has no lorebooks
+    70→   599→    const characterLorebooksMap: Record<string, string[]> = body.characterLorebooksMap || {};
+    71→   600→
+    72→   601→    // Extract per-character memory map for deduplication (characterId → CharacterMemory)
+    73→   602→    const characterMemoryMap: Record<string, CharacterMemory> = body.characterMemoryMap || {};
+    74→   603→
+    75→   604→    // Determine if we should use per-character lorebooks
+    76→   605→    // When characterLorebooksMap is present (group has no lorebooks), each character
+    77→   606→    // should only see their own lorebooks — NOT a merged plan from all characters.
+    78→   607→    // When characterLorebooksMap is null/empty, the group has its own lorebooks
+    79→   608→    // that are shared across all characters.
+    80→   609→    const useGroupLorebooks = !characterLorebooksMap || Object.keys(characterLorebooksMap).length === 0;
+    81→   610→
+    82→   611→    // Extract narrator-related data
+    83→   612→    const turnCount: number = body.turnCount || 0;
+    84→   613→    const activeQuestsCount: number = sessionQuests.filter(q => q.status === 'active').length;
+    85→   614→    const narratorLastTurn: number = body.narratorLastTurn || -999; // Turn when narrator last spoke
+    86→   615→
+    87→   616→    // Get narrator settings from group
+    88→   617→    const narratorSettings = group.narratorSettings;
+    89→   618→
+    90→   619→    // Find narrator character (if any)
+    91→   620→    const narratorMember = (group.members || []).find(m => m.isNarrator);
+    92→   621→    const narratorCharacter = narratorMember
+    93→   622→      ? characters.find(c => c.id === narratorMember.characterId)
+    94→   623→      : null;
+    95→   624→
+    96→   625→    // Determine if narrator should intervene based on conditions
+    97→   626→    const shouldNarratorIntervene = (): boolean => {
+    98→   627→      if (!narratorCharacter || !narratorSettings) return false;
+    99→   628→
+   100→   629→      const { conditional } = narratorSettings;
+   101→   630→
+   102→   631→      // Check turn interval
+   103→   632→      if (conditional.minTurnInterval > 0) {
+   104→   633→        const turnsSinceLastNarration = turnCount - narratorLastTurn;
+   105→   634→        if (turnsSinceLastNarration < conditional.minTurnInterval) {
+   106→   635→          return false;
+   107→   636→        }
+   108→   637→      }
+   109→   638→
+   110→   639→      // Check if only when no active quests
+   111→   640→      if (conditional.onlyWhenNoActiveQuests && activeQuestsCount > 0) {
+   112→   641→        return false;
+   113→   642→      }
+   114→   643→
+   115→   644→      return true;
+   116→   645→    };
+   117→   646→
+   118→   647→    const narratorCanIntervene = shouldNarratorIntervene();
+   119→   648→
+   120→   649→    if (!llmConfig) {
+   121→   650→      return createErrorResponse('No LLM configuration provided', 400);
+   122→   651→    }
+   123→   652→
+   124→   653→    // Validate API key for providers that require one
+   125→   654→    const providersRequiringApiKey = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'grok'];
+   126→   655→    if (providersRequiringApiKey.includes(llmConfig.provider) && !llmConfig.apiKey) {
+   127→   656→      return createErrorResponse(
+   128→   657→        `API Key is required for ${llmConfig.provider} provider. Please configure it in Settings.`,
+   129→   658→        400
+   130→   659→      );
+   131→   660→    }
+   132→   661→
+   133→   662→    // Validate endpoint for providers that require one
+   134→   663→    const providersRequiringEndpoint = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'ollama', 'text-generation-webui', 'koboldcpp'];
+   135→   664→    if (providersRequiringEndpoint.includes(llmConfig.provider) && !llmConfig.endpoint) {
+   136→   665→      return createErrorResponse(
+   137→   666→        `Endpoint URL is required for ${llmConfig.provider} provider. Please configure it in Settings.`,
+   138→   667→        400
+   139→   668→      );
+   140→   669→    }
+   141→   670→
+   142→   671→    // Resolve Z.ai runtime token from gateway headers
+   143→   672→    let zaiRuntimeToken: string | undefined;
+   144→   673→    if (llmConfig.provider === 'z-ai') {
+   145→   674→      const gatewayToken = incomingXToken || fcSecurityToken || undefined;
+   146→   675→      if (gatewayToken) {
+   147→   676→        zaiRuntimeToken = gatewayToken;
+   148→   677→        console.log(`[Group Stream Route] Z.ai runtime token available (${gatewayToken.length} chars, source: ${incomingXToken ? 'X-Token' : 'fc-security-token'})`);
+   149→   678→      }
+   150→   679→    }
+   151→   680→
+   152→   681→    // Sanitize user message
+   153→   682→    const sanitizedMessage = sanitizeInput(message);
+   154→   683→
+   155→   684→    // Determine which characters should respond
+   156→   685→    const selectionResult = getResponders(sanitizedMessage, characters, group, lastResponderId, typedSessionStats);
+   157→   686→    const { responders, stopForUser, reasons } = selectionResult;
+   158→   687→
+   159→   688→    // If stopForUser is true, return a special response indicating user should respond
+   160→   689→    if (stopForUser) {
+   161→   690→      // Create a stream that immediately returns a "user_turn" event
+   162→   691→      const stream = new ReadableStream({
+   163→   692→        start(controller) {
+   164→   693→          controller.enqueue(createSSEJSON({
+   165→   694→            type: 'user_turn',
+   166→   695→            reason: 'Hay una petición pendiente dirigida a ti. Espera tu respuesta.'
+   167→   696→          }));
+   168→   697→          controller.close();
+   169→   698→        }
+   170→   699→      });
+   171→   700→      return createSSEStreamResponse(stream);
+   172→   701→    }
+   173→   702→
+   174→   703→    if (responders.length === 0) {
+   175→   704→      return createErrorResponse('No active characters to respond', 400);
+   176→   705→    }
+   177→   706→
+   178→   707→    // Log responder selection reasons
+   179→   708→    console.log('[Group Stream Route] Selected responders:', responders.map(r => ({
+   180→   709→      name: r.name,
+   181→   710→      reason: reasons.get(r.id)
+   182→   711→    })));
+   183→   712→
+   184→   713→    // Get effective user name
+   185→   714→    const effectiveUserName = getEffectiveUserName(persona, userName);
+   186→   715→
+   187→   716→    // Build context configuration from request or use defaults
+   188→   717→    const contextConfig: Partial<ContextConfig> = body.contextConfig || {};
+   189→   718→
+   190→   719→    // Apply sliding window to messages
+   191→   720→    const contextWindow = selectContextMessages(messages, llmConfig, contextConfig);
+   192→   721→
+   193→   722→    // Build group-level lorebook injection plan if group has lorebooks
+   194→   723→    let groupLorebookPlan: LorebookInjectionPlan | null = null;
+   195→   724→    let groupLorebookAttributeKeys: Record<string, string> = {};
+   196→   725→    let groupLorebookEntryKeyMap: Record<string, string> = {};
+   197→   726→    if (useGroupLorebooks && lorebooks.length > 0) {
+   198→   727→      const { plan, lorebookAttributeKeys: _groupAttrKeys, lorebookEntryKeyMap: _groupEntryKeyMap } = buildLorebookSectionForPrompt(
+   199→   728→        messages,
+   200→   729→        lorebooks,
+   201→   730→        {
+   202→   731→          scanDepth: contextConfig.scanDepth,
+   203→   732→          // tokenBudget: let the injector use the lorebook's own setting
+   204→   733→          userName: effectiveUserName,
+   205→   734→          charName: undefined, // group-level lorebook has no specific character
+   206→   735→        },
+   207→   736→        { sessionStats: typedSessionStats, characters: allCharacters }
+   208→   737→      );
+   209→   738→      groupLorebookPlan = plan;
+   210→   739→      groupLorebookAttributeKeys = _groupAttrKeys || {};
+   211→   740→      groupLorebookEntryKeyMap = _groupEntryKeyMap || {};
+   212→   741→    }
+   213→   742→
+   214→   743→    // Note: HUD context section is built inside the character loop
+   215→   744→    // so it can resolve keys for each specific character
+   216→   745→
+   217→   746→    // ========================================
+   218→   747→    // Narrator Integration
+   219→   748→    // ========================================
+   220→   749→    // Build the final responders list with narrator inserted in the correct positions
+   221→   750→    let narratorAddedToResponders = false;
+   222→   751→    if (narratorCharacter && narratorCanIntervene && narratorSettings) {
+   223→   752→      const mode = narratorSettings.responseMode;
+   224→   753→      if (mode === 'turn_start') {
+   225→   754→        responders.unshift(narratorCharacter);
+   226→   755→        narratorAddedToResponders = true;
+   227→   756→      } else if (mode === 'turn_end') {
+   228→   757→        responders.push(narratorCharacter);
+   229→   758→        narratorAddedToResponders = true;
+   230→   759→      } else if (mode === 'before_each') {
+   231→   760→        // Insert narrator before each non-narrator responder
+   232→   761→        const expandedResponders: typeof responders = [];
+   233→   762→        for (const r of responders) {
+   234→   763→          expandedResponders.push(narratorCharacter);
+   235→   764→          expandedResponders.push(r);
+   236→   765→        }
+   237→   766→        responders.length = 0;
+   238→   767→        responders.push(...expandedResponders);
+   239→   768→        narratorAddedToResponders = true;
+   240→   769→      } else if (mode === 'after_each') {
+   241→   770→        // Insert narrator after each non-narrator responder
+   242→   771→        const expandedResponders: typeof responders = [];
+   243→   772→        for (const r of responders) {
+   244→   773→          expandedResponders.push(r);
+   245→   774→          expandedResponders.push(narratorCharacter);
+   246→   775→        }
+   247→   776→        responders.length = 0;
+   248→   777→        responders.push(...expandedResponders);
+   249→   778→        narratorAddedToResponders = true;
+   250→   779→      }
+   251→   780→    }
+   252→   781→
+   253→   782→    // Create a TransformStream for SSE
+   254→   783→    const stream = new ReadableStream({
+   255→   784→      async start(controller) {
+   256→   785→        const responsesThisTurn: Array<{ characterId: string; characterName: string; content: string }> = [];
+   257→   786→        let allQuestActivations: QuestActivation[] = [];
+   258→   787→        let allToolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+   259→   788→        // Track effectiveEmbeddingsChat outside loop for memory reinforcement after all responses
+   260→   789→        let effectiveEmbeddingsChatForReinforcement: typeof embeddingsChat = embeddingsChat;
+   261→   790→
+   262→   791→        try {
+   263→   792→          // Generate responses sequentially
+   264→   793→          for (let i = 0; i < responders.length; i++) {
+   265→   794→            const responder = responders[i];
+   266→   795→
+   267→   796→            // Send character_start event
+   268→   797→            controller.enqueue(createSSEJSON({
+   269→   798→              type: 'character_start',
+   270→   799→              characterId: responder.id,
+   271→   800→              characterName: responder.name,
+   272→   801→              responseIndex: i + 1,
+   273→   802→              totalResponses: responders.length
+   274→   803→            }));
+   275→   804→
+   276→   805→            // Determine lorebook plan for this character
+   277→   806→            // When using group lorebooks (shared), start with the group plan.
+   278→   807→            // When using per-character lorebooks, start with null and let the
+   279→   808→            // per-character override below build the correct plan.
+   280→   809→            let lorebookSectionForCharacter: LorebookInjectionPlan | null = useGroupLorebooks ? groupLorebookPlan : null;
+   281→   810→            let lorebookAttributeKeys: Record<string, string> = useGroupLorebooks ? groupLorebookAttributeKeys : {};
+   282→   811→            let lorebookEntryKeyMap: Record<string, string> = useGroupLorebooks ? groupLorebookEntryKeyMap : {};
+   283→   812→
+   284→   813→            // ========================================
+   285→   814→            // Embeddings Context Retrieval (per-character)
+   286→   815→            // ========================================
+   287→   816→            // If group has custom namespaces, use those; otherwise fall back to character's own namespaces
+   288→   817→            const groupNamespaces = group.embeddingNamespaces;
+   289→   818→            const characterNamespaces = responder.embeddingNamespaces;
+   290→   819→            const effectiveEmbeddingsChat = (groupNamespaces && groupNamespaces.length > 0)
+   291→   820→              ? { ...embeddingsChat, customNamespaces: groupNamespaces }
+   292→   821→              : (characterNamespaces && characterNamespaces.length > 0)
+   293→   822→                ? { ...embeddingsChat, customNamespaces: characterNamespaces }
+   294→   823→                : embeddingsChat;
+   295→   824→            // Update outer scope for memory reinforcement after all responses
+   296→   825→            effectiveEmbeddingsChatForReinforcement = effectiveEmbeddingsChat;
+   297→   826→
+   298→   827→            // Enrich search query with recent context for better semantic matching
+   299→   828→            const searchCtxDepth = effectiveEmbeddingsChat.searchContextDepth || 0;
+   300→   829→            let groupEnrichedQuery = sanitizedMessage;
+   301→   830→            if (searchCtxDepth > 0) {
+   302→   831→              const recentHist = messages
+   303→   832→                .filter(m => !m.isDeleted)
+   304→   833→                .slice(-(searchCtxDepth * 2 + 1))
+   305→   834→                .map(m => m.content?.trim())
+   306→   835→                .filter(Boolean)
+   307→   836→                .slice(0, -1);
+   308→   837→              if (recentHist.length > 0) {
+   309→   838→                groupEnrichedQuery = recentHist.join(' ') + ' ' + sanitizedMessage;
+   310→   839→              }
+   311→   840→            }
+   312→   841→
+   313→   842→            // Safety: smart truncation based on embedding model's context window.
+   314→   843→            try {
+   315→   844→              const { MODEL_CONTEXT_LENGTHS, DEFAULT_CONTEXT_LENGTH, CHARS_PER_TOKEN } = await import('@/lib/embeddings/types');
+   316→   845→              const { loadConfig } = await import('@/lib/embeddings/config-persistence');
+   317→   846→              const embConfig = loadConfig();
+   318→   847→              const modelKey = embConfig.model || 'bge-m3:567m';
+   319→   848→              const modelCtx = MODEL_CONTEXT_LENGTHS[modelKey]
+   320→   849→                || MODEL_CONTEXT_LENGTHS[modelKey.split(':')[0]]
+   321→   850→                || DEFAULT_CONTEXT_LENGTH;
+   322→   851→              const maxQueryChars = Math.floor(modelCtx * 0.75 * CHARS_PER_TOKEN);
+   323→   852→
+   324→   853→              if (groupEnrichedQuery.length > maxQueryChars) {
+   325→   854→                // Keep the most recent part (current message at end)
+   326→   855→                groupEnrichedQuery = groupEnrichedQuery.slice(-maxQueryChars);
+   327→   856→                console.warn(
+   328→   857→                  `[Group Stream] Search query trimmed to ${groupEnrichedQuery.length} chars ` +
+   329→   858→                  `(model: ${modelKey}, context: ${modelCtx} tokens)`
+   330→   859→                );
+   331→   860→              }
+   332→   861→            } catch { /* fallback: Ollama client handles truncation */ }
+   333→   862→
+   334→   863→            // Extract last assistant message for bidirectional search
+   335→   864→            const lastAssistantMsg = messages
+   336→   865→              .filter(m => !m.isDeleted && m.role === 'assistant')
+   337→   866→              .pop()?.content;
+   338→   867→
+   339→   868→            const embeddingsResult = await retrieveEmbeddingsContext(
+   340→   869→              groupEnrichedQuery,
+   341→   870→              responder.id,
+   342→   871→              sessionId,
+   343→   872→              effectiveEmbeddingsChat,
+   344→   873→              group.id,
+   345→   874→              characterMemoryMap[responder.id]?.events?.map(e => ({
+   346→   875→                content: e.content,
+   347→   876→                importance: e.importance,
+   348→   877→              })), // for deduplication with Character Memory
+   349→   878→              lastAssistantMsg, // bidirectional search with last assistant message
+   350→   879→            );
+   351→   880→            
+   352→   881→            if (embeddingsResult.found) {
+   353→   882→              console.log(`[Group Stream] Retrieved ${embeddingsResult.count} embeddings for ${responder.name}`);
+   354→   883→            }
+   355→   884→
+   356→   885→            // If group has no lorebooks, use character's own lorebooks
+   357→   886→            if (!useGroupLorebooks) {
+   358→   887→              const characterLorebookIds = characterLorebooksMap[responder.id] || [];
+   359→   888→              if (characterLorebookIds.length > 0) {
+   360→   889→                const characterLorebooksFiltered = lorebooks.filter(lb =>
+   361→   890→                  characterLorebookIds.includes(lb.id) && lb.active
+   362→   891→                );
+   363→   892→
+   364→   893→                if (characterLorebooksFiltered.length > 0) {
+   365→   894→                  const { plan, lorebookAttributeKeys: charAttrKeys, lorebookEntryKeyMap: charEntryKeyMap } = buildLorebookSectionForPrompt(
+   366→   895→                    messages,
+   367→   896→                    characterLorebooksFiltered,
+   368→   897→                    {
+   369→   898→                      scanDepth: contextConfig.scanDepth,
+   370→   899→                      // tokenBudget: let the injector use the lorebook's own setting
+   371→   900→                      userName: effectiveUserName,
+   372→   901→                      charName: responder.name,
+   373→   902→                    },
+   374→   903→                    { sessionStats: typedSessionStats, characterId: responder.id, characters: allCharacters }
+   375→   904→                  );
+   376→   905→                  lorebookSectionForCharacter = plan;
+   377→   906→                  if (charAttrKeys) lorebookAttributeKeys = charAttrKeys;
+   378→   907→                  if (charEntryKeyMap) lorebookEntryKeyMap = charEntryKeyMap;
+   379→   908→                }
+   380→   909→              } else {
+   381→   910→                lorebookSectionForCharacter = null;
+   382→   911→              }
+   383→   912→            }
+   384→   913→
+   385→   914→            // ========================================
+   386→   915→            // Build system prompt with unified key resolution
+   387→   916→            // ========================================
+   388→   917→            // This handles ALL key resolution internally:
+   389→   918→            // - Template variables: {{user}}, {{char}}, {{userpersona}}
+   390→   919→            // - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+   391→   920→            // - All sections including post-history instructions
+   392→   921→            const { prompt: systemPrompt, sections: promptSections, lorebookChatInjections, exampleMessages } = buildGroupSystemPrompt(
+   393→   922→              responder,
+   394→   923→              group,
+   395→   924→              effectiveUserName,
+   396→   925→              persona,
+   397→   926→              lorebookSectionForCharacter,
+   398→   927→              typedSessionStats,
+   399→   928→              undefined, // postHistoryInstructions
+   400→   929→              allCharacters, // allCharacters - needed for peticiones/solicitudes resolution (includes persona)
+   401→   930→              questTemplates, // Pass quest templates for {{activeQuests}} key resolution
+   402→   931→              sessionQuests,  // Pass session quests for {{activeQuests}} key resolution
+   403→   932→              questSettings,   // Pass quest settings for {{activeQuests}} key resolution
+   404→   933→              lorebookAttributeKeys,
+   405→   934→              inventoryData,     // Pass inventory data for Inventory V2 section
+   406→   935→              lorebookEntryKeyMap // Pass lorebook entry key map for {{entryKey}} resolution
+   407→   936→            );
+   408→   937→
+   409→   938→            // Build key resolution context for this character
+   410→   939→            // Session stats now already include item effects (applied directly to SessionStats
+   411→   940→            // when items are activated/equipped in the store). No need for virtual overlay.
+   412→   941→            const effectiveGroupSessionStats = typedSessionStats;
+   413→   942→
+   414→   943→            let groupPersonaResolvedStats: import('@/types').ResolvedStats | null = null;
+   415→   944→            if (persona?.statsConfig?.enabled && effectiveGroupSessionStats) {
+   416→   945→              groupPersonaResolvedStats = resolveStats({
+   417→   946→                characterId: '__user__',
+   418→   947→                statsConfig: persona.statsConfig,
+   419→   948→                sessionStats: effectiveGroupSessionStats,
+   420→   949→              });
+   421→   950→            }
+   422→   951→            const resolvedStats = resolveStats({
+   423→   952→              characterId: responder.id,
+   424→   953→              statsConfig: responder.statsConfig,
+   425→   954→              sessionStats: effectiveGroupSessionStats,
+   426→   955→              allCharacters: allCharacters,
+   427→   956→              userName: effectiveUserName,
+   428→   957→              characterName: responder.name,
+   429→   958→              questTemplates,
+   430→   959→              personaDescription: persona?.description,
+   431→   960→              personaResolvedStats: groupPersonaResolvedStats,
+   432→   961→            });
+   433→   962→
+   434→   963→            // Build outlet sections map from lorebook plan for {{outlet::name}} macro resolution
+   435→   964→            const outletSections: Record<string, string> = {};
+   436→   965→            if (lorebookSectionForCharacter?.outletSections.length) {
+   437→   966→              for (const outletSection of lorebookSectionForCharacter.outletSections) {
+   438→   967→                const match = outletSection.label.match(/^World Info \((.+)\)$/);
+   439→   968→                const outletName = match ? match[1] : outletSection.label;
+   440→   969→                outletSections[outletName] = outletSection.content;
+   441→   970→              }
+   442→   971→            }
+   443→   972→
+   444→   973→            const keyContext = buildKeyResolutionContext(
+   445→   974→              responder,
+   446→   975→              effectiveUserName,
+   447→   976→              persona,
+   448→   977→              resolvedStats,
+   449→   978→              effectiveGroupSessionStats,  // sessionStats (with inventory effects) for {{eventos}} key resolution
+   450→   979→              soundTriggers,       // sound triggers for {{sonidos}} key resolution
+   451→   980→              soundSettings,       // sound settings for {{sonidos}} template
+   452→   981→              groupPersonaResolvedStats,  // persona resolved stats
+   453→   982→              questTemplates,     // quest templates for {{activeQuests}}
+   454→   983→              sessionQuests,      // session quests for {{activeQuests}}
+   455→   984→              questSettings,      // quest settings
+   456→   985→              outletSections,     // outlet sections for {{outlet::name}}
+   457→   986→              lorebookAttributeKeys,  // lorebook attribute keys for {{injectionKey}}
+   458→   987→              inventoryData       // inventory data for {{inventory}} and {{currency}} key resolution
+   459→   988→            );
+   460→   989→
+   461→   990→            // Build HUD context section for this character (resolves keys!)
+   462→   991→            const hudContextSection = typedHUDContext ? buildHUDContextSection(typedHUDContext, keyContext) : null;
+   463→   992→
+   464→   993→            // Send embeddings context metadata to the client for UI display
+   465→   994→            if (embeddingsResult.found) {
+   466→   995→              controller.enqueue(createSSEJSON({
+   467→   996→                type: 'embeddings_context',
+   468→   997→                data: formatEmbeddingsForSSE(embeddingsResult),
+   469→   998→                characterId: responder.id,
+   470→   999→                characterName: responder.name,
+   471→  1000→              }));
+   472→  1001→            }
+   473→  1002→
+   474→  1003→            // Check if this responder is a narrator in the group
+   475→  1004→            const responderMember = group.members?.find(m => m.characterId === responder.id);
+   476→  1005→            const isResponderNarrator = responderMember?.isNarrator || false;
+   477→  1006→
+   478→  1007→            // Build character memory section for this responder (from Zustand store)
+   479→  1008→            const responderMemory = characterMemoryMap[responder.id];
+   480→  1009→            const characterMemorySection = responderMemory
+   481→  1010→              ? buildMemorySection(responderMemory, responder.name || 'Character')
+   482→  1011→              : null;
+   483→  1012→
+   484→  1013→            // Build combined embeddings context: [CONTEXTO RELEVANTE] then [MEMORIA RELEVANTE]
+   485→  1014→            // Both injected before chat history (not in system prompt)
+   486→  1015→            const contextParts: string[] = [];
+   487→  1016→            if (embeddingsResult.nonMemoryContextString?.trim()) {
+   488→  1017→              contextParts.push(embeddingsResult.nonMemoryContextString);
+   489→  1018→            }
+   490→  1019→            // Add character memory section BEFORE embeddings memory (with deduplication)
+   491→  1020→            // If embeddings already found memory results, skip the character memory to avoid duplication
+   492→  1021→            const embeddingsFoundMemory = embeddingsResult.memoryContextString?.trim()?.length > 0;
+   493→  1022→            if (characterMemorySection && !embeddingsFoundMemory) {
+   494→  1023→              contextParts.push(characterMemorySection.content);
+   495→  1024→            }
+   496→  1025→            if (embeddingsResult.memoryContextString?.trim()) {
+   497→  1026→              contextParts.push(embeddingsResult.memoryContextString);
+   498→  1027→            }
+   499→  1028→            const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
+   500→  1029→
+   501→  1030→            // Re-evaluate context window with reserved tokens for summary + embeddings
+   502→  1031→            // This reduces chat history when summary/embeddings use significant budget
+   503→  1032→            const gSummaryTokens = summary?.content ? estimateContentTokens(`[RECUERDOS ANTERIORES]\n${summary.content}`) : 0;
+   504→  1033→            const gEmbeddingsTokens = embeddingsContext ? estimateContentTokens(embeddingsContext) : 0;
+   505→  1034→            const gReservedTokens = gSummaryTokens + gEmbeddingsTokens;
+   506→  1035→            
+   507→  1036→            let groupContextWindow = contextWindow;
+   508→  1037→            if (gReservedTokens > 200) {
+   509→  1038→              const adjustedGroupConfig: Partial<ContextConfig> = {
+   510→  1039→                ...contextConfig,
+   511→  1040→                reservedTokens: gReservedTokens,
+   512→  1041→              };
+   513→  1042→              groupContextWindow = selectContextMessages(messages, llmConfig, adjustedGroupConfig);
+   514→  1043→              console.log(`[Group Context Budget] Reserved ${gReservedTokens} tokens (summary: ${gSummaryTokens}, embeddings: ${gEmbeddingsTokens}). Chat messages: ${contextWindow.messages.length} → ${groupContextWindow.messages.length}`);
+   515→  1044→            }
+   516→  1045→
+   517→  1046→            // Build the final system prompt (quest content resolved via {{activeQuests}} key)
+   518→  1047→            let finalSystemPrompt = systemPrompt;
+   519→  1048→
+   520→  1049→            // ===== TOOL/ACTION SYSTEM (Native + Prompt-Based Tool Calling) =====
+   521→  1050→            const charToolConfig = toolsSettings.characterConfigs.find(
+   522→  1051→              c => c.characterId === responder.id
+   523→  1052→            );
+   524→  1053→            const charEnabledToolIds = charToolConfig?.enabledTools || [];
+   525→  1054→            let charAvailableTools = charEnabledToolIds.length > 0
+   526→  1055→              ? getToolDefinitionsByIds(charEnabledToolIds)
+   527→  1056→              : getAllToolDefinitions();
+   528→  1057→            // Filter out globally disabled tools
+   529→  1058→            const charGlobalDisabled = toolsSettings.disabledTools || [];
+   530→  1059→            if (charGlobalDisabled.length > 0) {
+   531→  1060→              charAvailableTools = charAvailableTools.filter(t => !charGlobalDisabled.includes(t.id));
+   532→  1061→            }
+   533→  1062→            const charToolsEnabled = toolsSettings.enabled && charAvailableTools.length > 0;
+   534→  1063→
+   535→  1064→            // Resolve {{keys}} in tool descriptions and parameter descriptions
+   536→  1065→            // This ensures {{user}}, {{char}}, {{userpersona}}, stats keys, etc.
+   537→  1066→            // are properly replaced before tools are sent to the LLM
+   538→  1067→            if (charToolsEnabled && charAvailableTools.length > 0) {
+   539→  1068→              charAvailableTools = resolveToolDefinitionsKeys(charAvailableTools, keyContext);
+   540→  1069→            }
+   541→  1070→
+   542→  1071→            const charSupportsTools = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'ollama', 'z-ai', 'grok', 'text-generation-webui', 'koboldcpp'].includes(llmConfig.provider);
+   543→  1072→            // If usePromptBasedFallback is true, disable native tools so prompt-based injection is used instead
+   544→  1073→            const charShouldUseTools = charToolsEnabled && charSupportsTools && !toolsSettings.usePromptBasedFallback;
+   545→  1074→
+   546→  1075→            // Only inject text-based tool instructions when native tool calling is NOT available.
+   547→  1076→            // Injecting text instructions alongside native tools confuses the model.
+   548→  1077→            if (charToolsEnabled && charAvailableTools.length > 0 && !charShouldUseTools) {
+   549→  1078→              const toolPromptSection = buildPromptBasedToolsSection(charAvailableTools, responder.name);
+   550→  1079→              if (toolPromptSection) {
+   551→  1080→                finalSystemPrompt += `\n\n${toolPromptSection}`;
+   552→  1081→              }
+   553→  1082→            }
+   554→  1083→
+   555→  1084→            // Build chat messages with previous responses from this turn
+   556→  1085→            const previousResponses = responsesThisTurn.map(r => ({
+   557→  1086→              characterName: r.characterName,
+   558→  1087→              content: r.content
+   559→  1088→            }));
+   560→  1089→
+   561→
+   562→[showing lines 530-1089 of 2017; use offset=1090 with limit to continue reading]

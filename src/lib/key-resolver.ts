@@ -17,6 +17,16 @@
 import type { CharacterCard, Persona, SessionStats, SoundTrigger, AppSettings, QuestTemplate, SessionQuestInstance, QuestSettings, Item, PersonaInventoryEntry, ActiveConsumableEffect, InventoryV2Settings, SessionEquipmentEntry } from '@/types';
 import type { ResolvedStats } from '@/types';
 import { resolveStatsInText } from '@/lib/stats/stats-resolver';
+import { MAX_EVENT_LOG_IN_PROMPT, eventLogTypeLabel } from '@/lib/stats/event-log';
+import { getRelationship, computeRelationshipStage, DEFAULT_RELATIONSHIP_POINTS } from '@/lib/relationships';
+import {
+  formatHour as formatWorldHour,
+  computeHour,
+  computeMinute,
+  computeMoment,
+  computeDay,
+  formatWorldClock,
+} from '@/lib/world/time';
 import { buildQuestPromptSection } from '@/lib/triggers/handlers/quest-handler';
 import { getExampleKey } from '@/lib/quest/quest-detector';
 import { DEFAULT_QUEST_SETTINGS } from '@/types';
@@ -271,6 +281,30 @@ export function resolveEventKeys(
     result = result.replace(/\{\{solicitado\}\}/gi, '');
   }
 
+  // {{relacion}} / {{relacion_etapa}} — bond between the current character and the user
+  const bondSource = sessionStats?.relationships
+    ? getRelationship(sessionStats.relationships, characterId || '__char__', '__user__')
+    : null;
+  const bondPoints = bondSource?.points
+    ?? (typeof (sessionStats?.characterStats?.[characterId || '']?.attributeValues as Record<string, unknown> | undefined)?.['relacion'] === 'number'
+      ? (sessionStats.characterStats[characterId || ''].attributeValues['relacion'] as number)
+      : DEFAULT_RELATIONSHIP_POINTS);
+  const bondStage = bondSource?.stage ?? computeRelationshipStage(bondPoints);
+  result = result.replace(/\{\{relacion\}\}/gi, String(bondPoints));
+  result = result.replace(/\{\{relacion_etapa\}\}/gi, bondStage.label);
+
+  // {{hora}} / {{momento}} / {{dia}} / {{estacion}} / {{tiempo_mundo}} — world clock
+  const worldClock = sessionStats?.worldClock;
+  const wTotal = worldClock?.totalMinutes;
+  const wHour = computeHour(wTotal ?? 20 * 60);
+  const wMoment = computeMoment(wHour);
+  const wMinute = computeMinute(wTotal ?? 0);
+  result = result.replace(/\{\{hora\}\}/gi, formatWorldHour(wTotal ?? 20 * 60));
+  result = result.replace(/\{\{momento\}\}/gi, wMoment);
+  result = result.replace(/\{\{dia\}\}/gi, String(computeDay(wTotal ?? 20 * 60)));
+  result = result.replace(/\{\{estacion\}\}/gi, worldClock?.season || 'primavera');
+  result = result.replace(/\{\{tiempo_mundo\}\}/gi, worldClock ? formatWorldClock(worldClock) : '');
+
   // {{eventos}} - Recent events summary
   if (sessionStats) {
     console.log(`[resolveEventKeys] sessionStats received for {{eventos}}:`, {
@@ -294,15 +328,27 @@ export function resolveEventKeys(
 
 /**
  * Build the eventos block showing recent events
- * Only shows fields that have actual values (not undefined or empty)
- * Format:
- * [ULTIMOS EVENTOS]
- * - ultimo_objetivo_completado : <value>
- * - ultima_solicitud_realizada : <value>
- * - ultima_solicitud_completada : <value>
- * - ultima accion realizada de <characterName>: "<completedDescription>"
+ * Prefers the event log ring buffer ({{eventos}} history with authors) when available;
+ * falls back to the legacy "ultima_X" scalar fields for backwards compatibility.
  */
 function buildEventosBlock(sessionStats: SessionStats): string {
+  // ── New: render from the event log ring buffer ──
+  const log = sessionStats.eventLog;
+  if (log && log.length > 0) {
+    const recent = log.slice(-MAX_EVENT_LOG_IN_PROMPT); // oldest → newest
+    const lines = recent.map((entry, idx) => {
+      const label = eventLogTypeLabel(entry.type);
+      let who = entry.characterName || '';
+      const turnStr = typeof entry.turn === 'number' ? ` (turno ${entry.turn})` : '';
+      if (entry.targetName) {
+        who = who ? `${who} → ${entry.targetName}` : entry.targetName;
+      }
+      return `${idx + 1}. [${label}]${who ? ` ${who}:` : ''} ${entry.description}${turnStr}`;
+    });
+    return `[ULTIMOS EVENTOS]\n(Bitácora reciente, del más viejo al más nuevo — los personajes pueden reaccionar a estos eventos)\n${lines.join('\n')}`;
+  }
+
+  // ── Legacy fallback: scalar fields ──
   const lines: string[] = [];
   
   // Only add fields that have actual values

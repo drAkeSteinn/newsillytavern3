@@ -77,12 +77,25 @@ import {
   WifiOff,
   Power,
   Plus,
+  Crosshair,
+  X,
 } from 'lucide-react';
 import { useTavernStore } from '@/store/tavern-store';
 import { useToast } from '@/hooks/use-toast';
 import { useHapticPlayback } from '@/hooks/use-haptic-playback';
 import type { HspPoint } from '@/hooks/use-haptic-playback';
 import { generateHspPattern } from '@/lib/haptic/hsp-pattern-generator';
+import { AnimatedFrameDecoder } from '@/lib/sprites/frame-decoder';
+import {
+  trackVideo,
+  trackAnimatedImage,
+  trackingToHapticPosition,
+  simplifyKeyframesRDP,
+  RDP_TOLERANCES,
+  createRangeRemapper,
+} from '@/lib/sprites/tracker';
+import type { RDPToleranceKey } from '@/lib/sprites/tracker';
+import type { TrackingMapMode, TrackingKeyframeValue, TimelineKeyframe } from '@/types';
 
 // Audio cache for preloading sounds
 const audioCache = new Map<string, HTMLAudioElement>();
@@ -267,10 +280,120 @@ export function SpriteTimelineEditor() {
   const [seekPreview, setSeekPreview] = useState(false);
   const seekPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── FRAME-EXACT PREVIEW (webp/gif via WebCodecs ImageDecoder) ──
+  // Replaces the "2s animated flash" workaround when the API is available:
+  // the preview canvas renders the exact frame at the playhead position.
+  const frameDecoderRef = useRef<AnimatedFrameDecoder | null>(null);
+  const [decoderInfo, setDecoderInfo] = useState<{ frameCount: number; supported: boolean; loading: boolean }>({ frameCount: 0, supported: false, loading: false });
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [previewFrameIndex, setPreviewFrameIndex] = useState(-1);
+
+  // ── TRACKING (point + trajectory) ──
+  // Marker placed by clicking the preview (normalized 0-1 coords)
+  const [trackPoint, setTrackPoint] = useState<{ x: number; y: number } | null>(null);
+  const [trackingBusy, setTrackingBusy] = useState(false);
+  const [trackingProgress, setTrackingProgress] = useState(0);
+  const [trackingMapMode, setTrackingMapMode] = useState<TrackingMapMode>('combined');
+  // Keyframe optimization tolerance applied when converting tracking → haptic
+  const [rdpTolerance, setRdpTolerance] = useState<RDPToleranceKey>('balanced');
+
+  // Haptic output range: the tracked curve's lowest/highest peaks remap to
+  // these positions (0-100). Scales the device stroke without editing the curve.
+  const [hapticRangeMin, setHapticRangeMin] = useState(0);
+  const [hapticRangeMax, setHapticRangeMax] = useState(100);
+
+  // Scrub-follow: after tracking, the red marker walks the stored trajectory
+  // as the user moves the playhead (for fine inspection before →HSP).
+  const [followTrackId, setFollowTrackId] = useState<string | null>(null);
+
+
+  // Dispose decoder on unmount
+  useEffect(() => () => frameDecoderRef.current?.dispose(), []);
+
+
+
   // Get selected items
   const selectedCollection = timelineCollections.find(c => c.id === editorState.selectedCollectionId);
   const selectedSprite = selectedCollection?.sprites.find(s => s.id === editorState.selectedSpriteId);
   const selectedTrack = selectedSprite?.timeline.tracks.find(t => t.id === editorState.selectedTrackId);
+
+  // Load/reload the frame decoder when the selected animated image changes
+  useEffect(() => {
+    const isAnimatedImage = selectedSprite?.format === 'webp' || selectedSprite?.format === 'gif';
+    if (!selectedSprite?.url || !isAnimatedImage || !AnimatedFrameDecoder.isSupported()) {
+      frameDecoderRef.current?.dispose();
+      frameDecoderRef.current = null;
+      setDecoderInfo({ frameCount: 0, supported: false, loading: false });
+      setPreviewFrameIndex(-1);
+      return;
+    }
+
+    let cancelled = false;
+    setDecoderInfo({ frameCount: 0, supported: true, loading: true });
+
+    (async () => {
+      try {
+        const decoder = new AnimatedFrameDecoder();
+        const info = await decoder.load(selectedSprite.url);
+        if (cancelled) { decoder.dispose(); return; }
+        if (info.animated) {
+          frameDecoderRef.current = decoder;
+          setDecoderInfo({ frameCount: info.frameCount, supported: true, loading: false });
+        } else {
+          decoder.dispose();
+          setDecoderInfo({ frameCount: 0, supported: false, loading: false });
+        }
+      } catch (e) {
+        console.warn('[TimelineEditor] FrameDecoder failed, fallback to <img>:', e);
+        if (!cancelled) setDecoderInfo({ frameCount: 0, supported: false, loading: false });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSprite?.url, selectedSprite?.format]);
+
+  // ── SCRUB-FOLLOW: red marker walks the tracked trajectory ──
+  // After a tracking run (followTrackId set), moving the playhead positions
+  // the marker at the tracked point for that time (linear interpolation
+  // between the two surrounding keyframes). Lets the user verify the track
+  // frame by frame and place the playhead exactly where they want to adjust
+  // before converting to haptic.
+  useEffect(() => {
+    if (!selectedSprite || !followTrackId || trackingBusy || isPlaying) return;
+    const track = selectedSprite.timeline.tracks.find(t => t.id === followTrackId && t.type === 'tracking');
+    if (!track || track.keyframes.length === 0) return;
+
+    const kfs = track.keyframes.slice().sort((a, b) => a.time - b.time);
+
+    // Before the first keyframe → snap to it; after the last → snap to it
+    if (playbackTime <= kfs[0].time) {
+      const tv = kfs[0].value as TrackingKeyframeValue;
+      setTrackPoint({ x: tv.x, y: tv.y });
+      return;
+    }
+    const lastKf = kfs[kfs.length - 1];
+    if (playbackTime >= lastKf.time) {
+      const tv = lastKf.value as TrackingKeyframeValue;
+      setTrackPoint({ x: tv.x, y: tv.y });
+      return;
+    }
+
+    // Find surrounding keyframes and interpolate
+    let i = 0;
+    while (i < kfs.length - 1 && kfs[i + 1].time < playbackTime) i++;
+    const a = kfs[i];
+    const b = kfs[i + 1];
+    const ta = a.value as TrackingKeyframeValue;
+    const tb = b.value as TrackingKeyframeValue;
+    const ratio = b.time === a.time ? 0 : (playbackTime - a.time) / (b.time - a.time);
+    setTrackPoint({
+      x: ta.x + (tb.x - ta.x) * ratio,
+      y: ta.y + (tb.y - ta.y) * ratio,
+    });
+  }, [playbackTime, followTrackId, trackingBusy, isPlaying, selectedSprite]);
+
 
   // Find selected keyframe across ALL tracks (not just selectedTrack),
   // since selectedTrackId may not be set when a keyframe is clicked.
@@ -613,7 +736,7 @@ export function SpriteTimelineEditor() {
   // Update preview media position
   const updatePreviewPosition = useCallback((time: number) => {
     if (!selectedSprite) return;
-    
+
     const video = previewVideoRef.current;
     if (video && (selectedSprite.format === 'webm' || selectedSprite.format === 'mp4')) {
       const videoTime = (time / 1000);
@@ -623,24 +746,48 @@ export function SpriteTimelineEditor() {
       return;
     }
 
-    // For animated images (WEBP/GIF): trigger a brief seek preview
-    // so the user can see the animation when scrubbing the timeline.
-    // Browsers don't support frame seeking on <img>, so we restart
-    // the animation briefly and return to static frame after 2 seconds.
-    if ((selectedSprite.format === 'webp' || selectedSprite.format === 'gif') && !isPlayingRef.current) {
-      // Clear previous timer
-      if (seekPreviewTimerRef.current) {
-        clearTimeout(seekPreviewTimerRef.current);
+    // Animated images (WEBP/GIF): frame-exact rendering via ImageDecoder
+    if ((selectedSprite.format === 'webp' || selectedSprite.format === 'gif')) {
+      const decoder = frameDecoderRef.current;
+      const canvas = previewCanvasRef.current;
+      if (decoder && decoder.animated && canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Canvas is sized to the container by CSS; use its box for fitting
+          const rect = canvas.getBoundingClientRect();
+          const w = Math.max(1, Math.round(rect.width));
+          const h = Math.max(1, Math.round(rect.height));
+          if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+          decoder.renderAt(ctx, time, w, h).then((idx) => {
+            if (idx >= 0) setPreviewFrameIndex(idx);
+          }).catch(() => { /* fallback below */ });
+          return; // frame-exact path — no seek preview flash needed
+        }
       }
-      // Show animated version
-      setSeekPreview(true);
-      // Return to static after 2 seconds
-      seekPreviewTimerRef.current = setTimeout(() => {
-        setSeekPreview(false);
-        seekPreviewTimerRef.current = null;
-      }, 2000);
+
+      // Fallback (no ImageDecoder): brief animated seek preview
+      if (!isPlayingRef.current) {
+        if (seekPreviewTimerRef.current) {
+          clearTimeout(seekPreviewTimerRef.current);
+        }
+        setSeekPreview(true);
+        seekPreviewTimerRef.current = setTimeout(() => {
+          setSeekPreview(false);
+          seekPreviewTimerRef.current = null;
+        }, 2000);
+      }
     }
   }, [selectedSprite]);
+
+  // Render the current frame whenever the decoder becomes available,
+  // the sprite changes, or the playhead moves while paused (frame-exact).
+  useEffect(() => {
+    if (!decoderInfo.supported || decoderInfo.loading || !frameDecoderRef.current) return;
+    if (!selectedSprite || isPlaying) return;
+    if (selectedSprite.format !== 'webp' && selectedSprite.format !== 'gif') return;
+    // updatePreviewPosition renders the frame at playbackTime
+    updatePreviewPosition(playbackTime);
+  }, [decoderInfo.supported, decoderInfo.loading, selectedSprite?.id, selectedSprite?.format, playbackTime, isPlaying, updatePreviewPosition]);
 
   // Play sound from sound trigger
   const playSoundFromTrigger = useCallback(async (trigger: SoundTrigger, volume: number = 1) => {
@@ -1340,6 +1487,246 @@ export function SpriteTimelineEditor() {
   }, [selectedSprite, handleUpdateSprite, toast]);
 
   // Handle add track
+  // ── TRACKING: run optical-flow analysis and create a tracking track ──
+  const handleRunTracking = async () => {
+    if (!selectedSprite || !trackPoint || trackingBusy) return;
+    if (!['webm', 'mp4', 'webp', 'gif'].includes(selectedSprite.format)) {
+      toast({ title: 'Formato no trackeable', description: 'Usa un video (webm/mp4) o imagen animada (webp/gif).', variant: 'destructive' });
+      return;
+    }
+
+    setTrackingBusy(true);
+    setTrackingProgress(0);
+
+    try {
+      let samples: import('@/lib/sprites/tracker').TrackSample[] = [];
+
+      // Live marker: move the red dot as the tracker advances so the user
+      // SEES the tracking following the motion in real time.
+      const moveMarker = (s: import('@/lib/sprites/tracker').TrackSample) => {
+        if (!s.lost) setTrackPoint({ x: s.x, y: s.y });
+      };
+
+      if (selectedSprite.format === 'webm' || selectedSprite.format === 'mp4') {
+        const result = await trackVideo(selectedSprite.url, {
+          startX: trackPoint.x,
+          startY: trackPoint.y,
+          // Track the WHOLE video — the timeline duration is extended below
+          // so no orphan keyframes are left past the end.
+          durationMs: Number.POSITIVE_INFINITY,
+          sampleEveryMs: 100,
+          onProgress: setTrackingProgress,
+          onSample: moveMarker,
+        });
+        samples = result.samples;
+      } else {
+        const decoder = frameDecoderRef.current;
+        if (!decoder || !decoder.animated) {
+          throw new Error('Decodificador de frames no disponible para este archivo');
+        }
+        const result = await trackAnimatedImage(
+          (idx) => decoder.getFrameBitmap(idx),
+          decoder.frameCount,
+          (idx) => decoder.frameTimeMs(idx),
+          {
+            startX: trackPoint.x,
+            startY: trackPoint.y,
+            // No duration limit: track every frame, then extend the timeline
+            // to cover the animation (fixes "keys sueltos" beyond the end).
+            durationMs: Number.POSITIVE_INFINITY,
+            onProgress: setTrackingProgress,
+            onSample: moveMarker,
+          },
+        );
+        samples = result.samples;
+      }
+
+      if (samples.length < 2) {
+        throw new Error('No se pudieron trackear suficientes frames');
+      }
+
+      // Extend the timeline when the tracked content outlasts the current
+      // duration (e.g. default 3000ms vs a 9.7s webp) — keeps every key
+      // inside the visible timeline instead of leaving orphans.
+      const lastSampleTime = samples[samples.length - 1].time;
+      const newDuration = Math.max(
+        selectedSprite.timeline.duration,
+        Math.ceil(lastSampleTime) + 1,
+      );
+
+      // Create the tracking track with keyframes
+      const trackId = crypto.randomUUID ? crypto.randomUUID() : `track_${Date.now()}`;
+      const keyframes: TimelineKeyframe[] = samples.map((s) => ({
+        id: crypto.randomUUID ? crypto.randomUUID() : `kf_${Date.now()}_${s.frame}`,
+        time: Math.round(s.time),
+        value: {
+          type: 'tracking' as const,
+          x: s.x,
+          y: s.y,
+          confidence: s.confidence,
+          lost: s.lost,
+        } as TrackingKeyframeValue,
+        interpolation: 'linear' as const,
+      }));
+
+      const trackCount = selectedSprite.timeline.tracks.filter(t => t.type === 'tracking').length;
+      const newTrack: import('@/types').TimelineTrack = {
+        id: trackId,
+        type: 'tracking',
+        name: `Tracking ${trackCount + 1}`,
+        keyframes,
+        enabled: true,
+        locked: false,
+        muted: false,
+        volume: 1,
+        color: '#ef4444',
+      };
+
+      setTimelineCollections(prev => prev.map(col => ({
+        ...col,
+        sprites: col.sprites.map(s =>
+          s.id === selectedSprite.id
+            ? {
+                ...s,
+                ...(newDuration !== s.timeline.duration ? { duration: newDuration } : {}),
+                timeline: { ...s.timeline, duration: newDuration, tracks: [...s.timeline.tracks, newTrack] },
+              }
+            : s
+        ),
+      })));
+
+      // Scrub-follow ON: moving the playhead now walks the marker through
+      // the tracked trajectory (fine inspection before converting to HSP).
+      setFollowTrackId(trackId);
+
+      const okCount = samples.filter(s => !s.lost).length;
+      toast({
+        title: '🎯 Tracking completado',
+        description: `${okCount}/${samples.length} frames trackeados · ${newDuration !== selectedSprite.timeline.duration ? `timeline extendido a ${formatTime(newDuration)} · ` : ''}mueve el playhead para ver el punto recorrer la trayectoria. Usa "→ HSP" en la pista para el patrón haptic.`,
+      });
+    } catch (e) {
+      toast({
+        title: 'Tracking falló',
+        description: e instanceof Error ? e.message : 'Error desconocido',
+        variant: 'destructive',
+      });
+    } finally {
+      setTrackingBusy(false);
+      setTrackingProgress(0);
+    }
+  };
+
+  // ── TRACKING → HAPTIC: convert a tracking track to haptic keyframes ──
+  const handleTrackingToHaptic = (sourceTrackId: string) => {
+    if (!selectedSprite) return;
+    const source = selectedSprite.timeline.tracks.find(t => t.id === sourceTrackId);
+    if (!source || source.type !== 'tracking' || source.keyframes.length === 0) return;
+
+    // Convert each sample via the selected mapping mode
+    const mappedAll = source.keyframes
+      .filter(kf => !(kf.value as TrackingKeyframeValue).lost)
+      .map((kf) => {
+        const tv = kf.value as TrackingKeyframeValue;
+        return {
+          kf,
+          position: trackingToHapticPosition(tv.x, tv.y, trackingMapMode),
+        };
+      })
+      .sort((a, b) => a.kf.time - b.kf.time);
+
+    // OUTPUT SCALE (range remap): the trajectory's lowest/highest peaks are
+    // remapped to [rangeMin, rangeMax] — compresses or expands the device
+    // stroke WITHOUT modifying the tracked curve. E.g. min 10 / max 80 turns
+    // a full 0-100 sweep into a 10-80 stroke.
+    const rMin = Math.max(0, Math.min(100, Number.isFinite(hapticRangeMin) ? hapticRangeMin : 0));
+    const rMax = Math.max(0, Math.min(100, Number.isFinite(hapticRangeMax) ? hapticRangeMax : 100));
+    const effMin = Math.min(rMin, rMax);
+    const effMax = Math.max(rMin, rMax);
+    let scaledAll = mappedAll;
+    if (effMin !== 0 || effMax !== 100) {
+      let pMin = Infinity, pMax = -Infinity;
+      for (const m of mappedAll) {
+        if (m.position < pMin) pMin = m.position;
+        if (m.position > pMax) pMax = m.position;
+      }
+      const remap = createRangeRemapper(pMin, pMax, effMin, effMax);
+      scaledAll = mappedAll.map(m => ({ ...m, position: Math.round(remap(m.position)) }));
+    }
+
+    // OPTIMIZATION (Ramer-Douglas-Peucker): collapse dense tracking samples
+    // (e.g. 1 keyframe per frame) into the minimal set of keyframes whose
+    // curve stays within ±tolerance of the original. Extremes and direction
+    // changes are always preserved — only redundant collinear points drop.
+    const epsilon = RDP_TOLERANCES[rdpTolerance];
+    const simplified = simplifyKeyframesRDP(scaledAll, (m) => m.position, epsilon);
+
+    const hapticKeyframes: TimelineKeyframe[] = simplified.map((m) => ({
+      id: crypto.randomUUID ? crypto.randomUUID() : `kf_${Date.now()}_${m.kf.time}`,
+      time: m.kf.time,
+      value: {
+        type: 'haptic' as const,
+        position: m.position,
+        velocity: 1.0,
+        velocityMode: 'auto' as const,
+        stopOnTarget: false,
+      },
+      interpolation: 'linear' as const,
+    }));
+
+    if (hapticKeyframes.length < 2) {
+      toast({ title: 'Pocos puntos', description: 'El tracking no tiene suficientes frames confiables para convertir.', variant: 'destructive' });
+      return;
+    }
+
+    // Add (or reuse) a haptic track
+    const existingHaptic = selectedSprite.timeline.tracks.find(t => t.type === 'haptic' && t.name === `HSP ${source.name}`);
+    if (existingHaptic) {
+      setTimelineCollections(prev => prev.map(col => ({
+        ...col,
+        sprites: col.sprites.map(s =>
+          s.id === selectedSprite.id
+            ? {
+                ...s,
+                timeline: {
+                  ...s.timeline,
+                  tracks: s.timeline.tracks.map(t =>
+                    t.id === existingHaptic.id ? { ...t, keyframes: hapticKeyframes } : t
+                  ),
+                },
+              }
+            : s
+        ),
+      })));
+    } else {
+      const newTrack: import('@/types').TimelineTrack = {
+        id: crypto.randomUUID ? crypto.randomUUID() : `track_${Date.now()}`,
+        type: 'haptic',
+        name: `HSP ${source.name}`,
+        keyframes: hapticKeyframes,
+        enabled: true,
+        locked: false,
+        muted: false,
+        volume: 1,
+      };
+      setTimelineCollections(prev => prev.map(col => ({
+        ...col,
+        sprites: col.sprites.map(s =>
+          s.id === selectedSprite.id
+            ? { ...s, timeline: { ...s.timeline, tracks: [...s.timeline.tracks, newTrack] } }
+            : s
+        ),
+      })));
+    }
+
+    const reduction = mappedAll.length > 0
+      ? Math.round((1 - hapticKeyframes.length / mappedAll.length) * 100)
+      : 0;
+    toast({
+      title: '💜 Patrón HSP generado',
+      description: `${hapticKeyframes.length} keyframes (de ${mappedAll.length} puntos, −${reduction}%) · mapeo "${trackingMapMode === 'combined' ? 'combinado (Y + X invertido)' : trackingMapMode === 'x' ? 'horizontal invertido' : 'vertical'}" · optimizado ±${epsilon} pos · escala ${effMin}–${effMax}`,
+    });
+  };
+
   const handleAddTrack = (type: 'sound' | 'haptic' = 'sound') => {
     if (!selectedSprite) return;
 
@@ -1986,31 +2373,32 @@ export function SpriteTimelineEditor() {
     const totalSeconds = Math.ceil(duration / 1000);
     
     for (let second = 0; second <= totalSeconds; second++) {
-      // Main second mark
-      const mainPosition = second * 1000 * pixelsPerMs;
-      
       // Add subdivision marks
       for (let sub = 0; sub < 5; sub++) {
         const subMs = second * 1000 + sub * subdivisionMs;
         if (subMs > duration) break;
-        
+
         const position = subMs * pixelsPerMs;
         const isMainMark = sub === 0;
-        
+
         marks.push(
           <div
             key={`mark-${subMs}`}
-            className="absolute top-0 flex flex-col items-center"
+            className="absolute top-0 flex flex-col items-center pointer-events-none"
             style={{ left: `${position}px` }}
           >
-            <div 
+            <div
               className={cn(
-                "w-px bg-muted-foreground/50",
-                isMainMark ? "h-3" : "h-1.5 opacity-50"
-              )} 
+                "w-px",
+                isMainMark
+                  ? "h-3 bg-foreground/60"
+                  : "h-1.5 bg-muted-foreground/40"
+              )}
             />
             {isMainMark && (
-              <span className="text-[10px] text-muted-foreground mt-0.5">{second}s</span>
+              <span className="text-[10px] font-mono tabular-nums text-muted-foreground mt-0.5 -translate-x-1/2 ml-[0px] left-0 relative">
+                {second < 60 ? `${second}s` : `${Math.floor(second / 60)}:${String(second % 60).padStart(2, '0')}`}
+              </span>
             )}
           </div>
         );
@@ -2271,7 +2659,23 @@ export function SpriteTimelineEditor() {
               <div className="p-3 border-b bg-muted/30 flex-shrink-0 space-y-3">
                 {/* Sprite Preview - Large */}
                 <div className="flex justify-center">
-                  <div className="relative w-full max-w-xl h-72 bg-black/20 rounded-lg overflow-hidden flex items-center justify-center">
+                  <div
+                    className="relative w-full max-w-xl h-72 rounded-xl overflow-hidden flex items-center justify-center ring-1 ring-white/10 shadow-inner bg-[repeating-conic-gradient(hsl(var(--muted)/0.4)_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]"
+                    onClick={(e) => {
+                      // Click on preview (empty area) → place/move the tracking point
+                      // Only for trackable formats, and not while playing
+                      if (!selectedSprite || isPlaying) return;
+                      if (!['webm', 'mp4', 'webp', 'gif'].includes(selectedSprite.format)) return;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = (e.clientX - rect.left) / rect.width;
+                      const y = (e.clientY - rect.top) / rect.height;
+                      if (x < 0 || x > 1 || y < 0 || y > 1) return;
+                      setTrackPoint({ x, y });
+                    }}
+                    title={selectedSprite && ['webm', 'mp4', 'webp', 'gif'].includes(selectedSprite.format)
+                      ? 'Clic para colocar el punto de tracking 🎯'
+                      : undefined}
+                  >
                     {selectedSprite.format === 'webm' || selectedSprite.format === 'mp4' ? (
                       <video
                         ref={previewVideoRef}
@@ -2282,11 +2686,16 @@ export function SpriteTimelineEditor() {
                         loop
                       />
                     ) : selectedSprite.format === 'gif' || selectedSprite.format === 'webp' ? (
-                      /* Animated image (GIF/WebP): 
+                      /* Animated image (GIF/WebP):
+                         - Frame-exact canvas when ImageDecoder is available (paused scrubbing!)
                          - Playing: show animated image
-                         - Seeking while paused: briefly show animation (seekPreview)
-                         - Paused: show static first frame */
-                      (isPlaying || seekPreview) ? (
+                         - Fallback paused: static first frame */
+                      (frameDecoderRef.current && decoderInfo.supported && decoderInfo.frameCount > 0) ? (
+                        <canvas
+                          ref={previewCanvasRef}
+                          className="max-w-full max-h-full w-full h-full"
+                        />
+                      ) : (isPlaying || seekPreview) ? (
                         <img
                           key={`anim-${selectedSprite.id}-${seekPreview ? `seek-${playbackTime}` : (playbackTime === 0 ? 'start' : 'play')}`}
                           src={selectedSprite.url}
@@ -2307,9 +2716,70 @@ export function SpriteTimelineEditor() {
                         className="max-w-full max-h-full object-contain"
                       />
                     )}
+
+                    {/* Tracking point marker (draggable red dot) */}
+                    {trackPoint && !isPlaying && (
+                      <div
+                        className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-red-500 border-2 border-white shadow-lg cursor-grab active:cursor-grabbing z-10 group"
+                        style={{
+                          left: `${trackPoint.x * 100}%`,
+                          top: `${trackPoint.y * 100}%`,
+                        }}
+                        title="Punto de tracking — arrastra para mover, doble clic para quitar"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setTrackPoint(null);
+                          setFollowTrackId(null); // exit scrub-follow mode
+                        }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setFollowTrackId(null); // manual override: user takes control
+                          const container = (e.currentTarget.parentElement as HTMLElement);
+                          if (!container) return;
+                          const rect = container.getBoundingClientRect();
+
+                          const onMove = (ev: MouseEvent) => {
+                            const x = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+                            const y = Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height));
+                            setTrackPoint({ x, y });
+                          };
+                          const onUp = () => {
+                            window.removeEventListener('mousemove', onMove);
+                            window.removeEventListener('mouseup', onUp);
+                          };
+                          window.addEventListener('mousemove', onMove);
+                          window.addEventListener('mouseup', onUp);
+                        }}
+                      >
+                        <div className="absolute inset-0 rounded-full bg-red-500/40 animate-ping" />
+                        <Crosshair className="absolute inset-0 m-auto w-3 h-3 text-white pointer-events-none" />
+                      </div>
+                    )}
+
+                    {/* Format badge */}
+                    <div className={cn(
+                      "absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border",
+                      selectedSprite.format === 'webm' || selectedSprite.format === 'mp4'
+                        ? "bg-violet-500/20 border-violet-400/30 text-violet-300"
+                        : selectedSprite.format === 'webp' || selectedSprite.format === 'gif'
+                          ? "bg-teal-500/20 border-teal-400/30 text-teal-300"
+                          : "bg-white/10 border-white/20 text-white/70"
+                    )}>
+                      {selectedSprite.format}
+                    </div>
+
                     {/* Time overlay */}
-                    <div className="absolute bottom-2 right-2 bg-black/70 px-3 py-1 rounded text-sm font-mono text-white">
+                    <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-sm px-3 py-1 rounded-md text-sm font-mono text-white tabular-nums shadow-lg">
                       {formatTime(playbackTime)}
+                      {decoderInfo.supported && decoderInfo.frameCount > 0 && previewFrameIndex >= 0 && (
+                        <span className="ml-2 text-teal-300">
+                          Frame {previewFrameIndex + 1}/{decoderInfo.frameCount}
+                        </span>
+                      )}
+                      {decoderInfo.loading && (
+                        <span className="ml-2 text-muted-foreground">decodificando…</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2337,6 +2807,111 @@ export function SpriteTimelineEditor() {
                     >
                       <Square className="w-4 h-4" />
                     </Button>
+                  </div>
+
+                  {/* Tracking Controls: place point on preview, then analyze */}
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "h-8 gap-1.5 text-xs",
+                        trackPoint
+                          ? "bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20 hover:text-red-300"
+                          : "text-muted-foreground",
+                      )}
+                      onClick={handleRunTracking}
+                      disabled={trackingBusy || !trackPoint || isPlaying || !selectedSprite || !['webm', 'mp4', 'webp', 'gif'].includes(selectedSprite.format)}
+                      title={trackPoint ? 'Analiza el movimiento del punto rojo frame a frame (flujo óptico Lucas-Kanade)' : 'Primero haz clic en el preview para colocar el punto rojo'}
+                    >
+                      {trackingBusy ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Crosshair className="w-3.5 h-3.5" />
+                      )}
+                      {trackingBusy ? `Trackeando ${Math.round(trackingProgress * 100)}%` : 'Tracking'}
+                    </Button>
+                    {trackPoint && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs text-muted-foreground"
+                        onClick={() => setTrackPoint(null)}
+                        title="Quitar punto"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                    {/* Mapping mode for Tracking → HSP conversion */}
+                    <Select
+                      value={trackingMapMode}
+                      onValueChange={(v) => setTrackingMapMode(v as TrackingMapMode)}
+                    >
+                      <SelectTrigger className="h-8 w-[150px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="combined" className="text-xs">Mapeo: Combinado (Y+X)</SelectItem>
+                        <SelectItem value="y" className="text-xs">Mapeo: Solo vertical</SelectItem>
+                        <SelectItem value="x" className="text-xs">Mapeo: Solo horizontal</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {/* Keyframe optimization tolerance (RDP) */}
+                    <Select
+                      value={rdpTolerance}
+                      onValueChange={(v) => setRdpTolerance(v as RDPToleranceKey)}
+                    >
+                      <SelectTrigger className="h-8 w-[170px] text-xs" title="Optimización Ramer-Douglas-Peucker: colapsa los puntos densos del tracking en los mínimos keyframes que mantienen la curva dentro de la tolerancia">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="precise" className="text-xs">Optimizar: Preciso (±1)</SelectItem>
+                        <SelectItem value="balanced" className="text-xs">Optimizar: Equilibrado (±2.5)</SelectItem>
+                        <SelectItem value="smooth" className="text-xs">Optimizar: Suave (±5)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {/* Haptic output scale (range remap) */}
+                    <div
+                      className="flex items-center gap-1"
+                      title="Escala del dispositivo: el pico más bajo y más alto de la curva se remapean a estas posiciones (0-100). Comprime o expande el recorrido del Handy sin modificar la gráfica. Ej.: 10 y 80 convierten un barrido completo 0-100 en un recorrido 10-80."
+                    >
+                      <Label className="text-xs whitespace-nowrap">Escala</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={hapticRangeMin}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10);
+                          if (Number.isFinite(n)) setHapticRangeMin(Math.max(0, Math.min(100, n)));
+                        }}
+                        onBlur={(e) => {
+                          const n = parseInt(e.target.value, 10);
+                          setHapticRangeMin(Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                        }}
+                        className="w-14 h-8 text-xs"
+                        aria-label="Posición mínima del rango haptic"
+                      />
+                      <span className="text-xs text-muted-foreground">→</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={hapticRangeMax}
+                        onBlur={(e) => {
+                          const n = parseInt(e.target.value, 10);
+                          setHapticRangeMax(Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 100);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                        }}
+                        className="w-14 h-8 text-xs"
+                        aria-label="Posición máxima del rango haptic"
+                      />
+                    </div>
                   </div>
 
                   {/* Haptic Playback Controls */}
@@ -2531,7 +3106,7 @@ export function SpriteTimelineEditor() {
                     {/* Timeline Ruler - Clickable for seeking */}
                     <div 
                       ref={rulerRef}
-                      className="h-6 border-b bg-muted/50 sticky top-0 z-10 cursor-crosshair"
+                      className="timeline-ruler h-6 border-b bg-muted/60 sticky top-0 z-10 cursor-crosshair backdrop-blur-[2px]"
                       onClick={handleRulerClick}
                     >
                       <div className="relative h-full" style={{ width: `${timelineWidth}px`, marginLeft: '180px' }}>
@@ -2558,25 +3133,30 @@ export function SpriteTimelineEditor() {
                           
                           {/* Playhead line - visible part */}
                           <div className={cn(
-                            "w-0.5 bg-red-500 h-full transition-all",
+                            "timeline-playhead-line w-0.5 h-full transition-all",
                             isDraggingPlayhead ? "w-1" : "hover:w-1"
                           )} />
-                          
-                          {/* Playhead handle - more visible and easier to grab */}
-                          <div 
+
+                          {/* Playhead handle — red knob with pulse + time badge while dragging */}
+                          <div
                             className={cn(
-                              "absolute top-0 left-1/2 -translate-x-1/2 w-5 h-5 bg-red-500 rounded-full",
-                              "flex items-center justify-center shadow-lg",
-                              "border-2 border-white z-50",
-                              "hover:scale-110 transition-transform",
-                              isDraggingPlayhead && "scale-125 bg-red-600"
+                              "timeline-playhead-handle absolute top-0 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full",
+                              "flex items-center justify-center z-50",
+                              "border-2 border-white/90",
+                              "hover:scale-110 active:scale-95 transition-transform",
+                              isDraggingPlayhead && "scale-125"
                             )}
                             style={{ cursor: isDraggingPlayhead ? 'grabbing' : 'grab' }}
                           >
                             <div className="w-2 h-2 bg-white rounded-full" />
                           </div>
+                          {isDraggingPlayhead && (
+                            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 px-1.5 py-0.5 rounded bg-red-500 text-white text-[10px] font-mono tabular-nums shadow-lg pointer-events-none whitespace-nowrap">
+                              {formatTime(playbackTime)}
+                            </div>
+                          )}
                           {/* Playhead line extending through tracks */}
-                          <div className="absolute top-6 left-1/2 -translate-x-1/2 w-0.5 h-[2000px] bg-red-500/30 pointer-events-none" />
+                          <div className="timeline-playhead-line absolute top-6 left-1/2 -translate-x-1/2 w-0.5 h-[2000px] pointer-events-none" />
                         </div>
                       </div>
                     </div>
@@ -2589,20 +3169,37 @@ export function SpriteTimelineEditor() {
                       return (
                       <div key={track.id} data-track-id={track.id} className="flex border-b" style={{ minHeight: `${trackHeight}px` }}>
                         {/* Track header - Fixed width */}
-                        <div className={cn(
-                          "w-44 flex-shrink-0 p-2 border-r flex flex-col gap-1 sticky left-0 z-10",
-                          isHaptic ? "bg-fuchsia-950/20" : "bg-muted/30"
-                        )}>
-                          <div className="flex items-center gap-2">
-                            {isHaptic ? (
-                              <Waves className="w-3 h-3 text-fuchsia-500" />
-                            ) : (
-                              <Music className="w-3 h-3 text-blue-400" />
-                            )}
+                        <div
+                          className={cn(
+                            "timeline-track-header w-44 flex-shrink-0 p-2 border-r flex flex-col gap-1 sticky left-0 z-10",
+                            isHaptic ? "bg-fuchsia-950/25 backdrop-blur-[2px]" : "bg-muted/40 backdrop-blur-[2px]"
+                          )}
+                          style={{ '--track-accent': track.type === 'tracking' ? 'rgb(239 68 68)' : isHaptic ? 'rgb(217 70 239)' : 'rgb(96 165 250)' } as React.CSSProperties}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn(
+                              "flex items-center justify-center w-5 h-5 rounded-md flex-shrink-0",
+                              track.type === 'tracking' ? "bg-red-500/15 text-red-400" : isHaptic ? "bg-fuchsia-500/15 text-fuchsia-400" : "bg-blue-500/15 text-blue-400"
+                            )}>
+                              {track.type === 'tracking' ? (
+                                <Crosshair className="w-3 h-3" />
+                              ) : isHaptic ? (
+                                <Waves className="w-3 h-3" />
+                              ) : (
+                                <Music className="w-3 h-3" />
+                              )}
+                            </span>
                             <span className={cn(
                               "text-xs font-medium truncate flex-1",
+                              track.type === 'tracking' && "text-red-400",
                               isHaptic && "text-fuchsia-400"
                             )}>{track.name}</span>
+                            <span className={cn(
+                              "text-[9px] font-mono px-1 py-0.5 rounded-sm flex-shrink-0",
+                              track.type === 'tracking' ? "bg-red-500/10 text-red-400/80" : isHaptic ? "bg-fuchsia-500/10 text-fuchsia-400/80" : "bg-blue-500/10 text-blue-400/80"
+                            )}>
+                              {track.keyframes.length}
+                            </span>
                           </div>
                           <div className="flex items-center gap-1">
                             {isHaptic ? (
@@ -2677,28 +3274,42 @@ export function SpriteTimelineEditor() {
                               <Trash2 className="w-2.5 h-2.5" />
                             </Button>
                           </div>
-                          {isHaptic && track.keyframes.length > 0 && (
+                          {(isHaptic || track.type === 'tracking') && track.keyframes.length > 0 && (
                             <div className="mt-1">
-                              {/* Mini waveform preview */}
-                              <svg viewBox="0 0 160 20" className="w-full h-4 opacity-60" preserveAspectRatio="none">
-                                <polyline
-                                  fill="none"
-                                  stroke="rgb(217 70 239)"
-                                  strokeWidth="1.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  points={
-                                    track.keyframes
-                                      .sort((a, b) => a.time - b.time)
-                                      .map((kf) => {
-                                        const hv = kf.value as HapticKeyframeValue;
-                                        const x = (kf.time / selectedSprite.timeline.duration) * 160;
-                                        const y = 20 - (hv.position / 100) * 20;
-                                        return `${x},${y}`;
-                                      })
-                                      .join(' ')
-                                  }
-                                />
+                              {/* Mini waveform preview with gradient fill under the curve */}
+                              <svg viewBox="0 0 160 20" className="w-full h-4" preserveAspectRatio="none">
+                                <defs>
+                                  <linearGradient id={`wf-${track.id}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor={track.type === 'tracking' ? 'rgb(239 68 68)' : 'rgb(217 70 239)'} stopOpacity="0.35" />
+                                    <stop offset="100%" stopColor={track.type === 'tracking' ? 'rgb(239 68 68)' : 'rgb(217 70 239)'} stopOpacity="0" />
+                                  </linearGradient>
+                                </defs>
+                                {(() => {
+                                  const pts = track.keyframes
+                                    .slice()
+                                    .sort((a, b) => a.time - b.time)
+                                    .map((kf) => {
+                                      const v = kf.value as HapticKeyframeValue | TrackingKeyframeValue;
+                                      const pos = 'position' in v ? v.position : (v as TrackingKeyframeValue).y * 100;
+                                      const x = (kf.time / selectedSprite.timeline.duration) * 160;
+                                      const y = 20 - (pos / 100) * 20;
+                                      return `${x},${y}`;
+                                    })
+                                    .join(' ');
+                                  return (
+                                    <>
+                                      <polygon fill={`url(#wf-${track.id})`} points={`0,20 ${pts} 160,20`} />
+                                      <polyline
+                                        fill="none"
+                                        stroke={track.type === 'tracking' ? 'rgb(239 68 68)' : 'rgb(217 70 239)'}
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        points={pts}
+                                      />
+                                    </>
+                                  );
+                                })()}
                               </svg>
                             </div>
                           )}
@@ -2708,8 +3319,9 @@ export function SpriteTimelineEditor() {
                         <div
                           className={cn(
                             "flex-1 relative bg-muted/10 transition-colors duration-150",
-                            isHaptic && "bg-fuchsia-950/5",
-                            !isHaptic && dragOverTrackId === track.id && "bg-blue-100 dark:bg-blue-950/40 ring-1 ring-blue-400 dark:ring-blue-600 ring-inset"
+                            isHaptic && "timeline-haptic-lane bg-fuchsia-950/5",
+                            track.type === 'tracking' && "bg-red-950/5",
+                            !isHaptic && track.type !== 'tracking' && dragOverTrackId === track.id && "bg-blue-100 dark:bg-blue-950/40 ring-1 ring-blue-400 dark:ring-blue-600 ring-inset"
                           )}
                           data-track-content
                           style={{ width: `${timelineWidth}px`, minHeight: `${trackHeight}px` }}
@@ -2863,7 +3475,7 @@ export function SpriteTimelineEditor() {
                                     <div
                                       data-keyframe
                                       className={cn(
-                                        "absolute w-4 h-4 cursor-grab active:cursor-grabbing group z-20",
+                                        "timeline-keyframe text-fuchsia-500 absolute w-4 h-4 cursor-grab active:cursor-grabbing group z-20",
                                         "transition-transform",
                                         isDragging && "scale-125"
                                       )}
@@ -2960,6 +3572,96 @@ export function SpriteTimelineEditor() {
                                 );
                               })}
                             </>
+                          ) : track.type === 'tracking' ? (
+                            <>
+                              {/* Tracking track: red keypoints + trajectory mini-curve + →HSP button */}
+                              {track.keyframes.length > 1 && (
+                                <svg
+                                  className="absolute inset-0 w-full h-full pointer-events-none"
+                                  preserveAspectRatio="none"
+                                >
+                                  {/* Trajectory mini-curve: X-position over time (top=left, bottom=right) */}
+                                  <polyline
+                                    fill="none"
+                                    stroke="rgb(239 68 68)"
+                                    strokeWidth="1.5"
+                                    strokeLinecap="round"
+                                    strokeOpacity="0.55"
+                                    points={
+                                      track.keyframes
+                                        .slice()
+                                        .sort((a, b) => a.time - b.time)
+                                        .map((kf) => {
+                                          const tv = kf.value as TrackingKeyframeValue;
+                                          const x = kf.time * pixelsPerMs;
+                                          const y = (1 - tv.x) * trackHeight; // inverted X: left = top
+                                          return `${x},${y}`;
+                                        })
+                                        .join(' ')
+                                    }
+                                  />
+                                  {/* Y-position curve (dotted, secondary) */}
+                                  <polyline
+                                    fill="none"
+                                    stroke="rgb(56 189 248)"
+                                    strokeWidth="1"
+                                    strokeDasharray="2,2"
+                                    strokeOpacity="0.4"
+                                    points={
+                                      track.keyframes
+                                        .slice()
+                                        .sort((a, b) => a.time - b.time)
+                                        .map((kf) => {
+                                          const tv = kf.value as TrackingKeyframeValue;
+                                          const x = kf.time * pixelsPerMs;
+                                          const y = tv.y * trackHeight;
+                                          return `${x},${y}`;
+                                        })
+                                        .join(' ')
+                                    }
+                                  />
+                                </svg>
+                              )}
+                              {track.keyframes.map((keyframe) => {
+                                const tv = keyframe.value as TrackingKeyframeValue;
+                                const kfX = keyframe.time * pixelsPerMs;
+                                const kfY = (1 - tv.x) * trackHeight;
+                                const isSelected = editorState.selectedKeyframeId === keyframe.id;
+                                const lowConf = tv.confidence < 0.3 || tv.lost;
+                                return (
+                                  <div
+                                    key={keyframe.id}
+                                    data-keyframe
+                                    className={cn(
+                                      "absolute w-3 h-3 rounded-full cursor-pointer group z-20 transition-transform",
+                                      lowConf ? "bg-red-900 border border-red-500/50" : "bg-red-500 border-2 border-white",
+                                      isSelected && "scale-150 ring-2 ring-red-300",
+                                    )}
+                                    style={{ left: `${kfX - 6}px`, top: `${kfY - 6}px` }}
+                                    title={`Frame t=${formatTime(keyframe.time)} · x=${tv.x.toFixed(2)} y=${tv.y.toFixed(2)} · conf=${tv.confidence.toFixed(2)}${tv.lost ? ' · PERDIDO' : ''}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      selectKeyframe(keyframe.id);
+                                      // Jump the playhead to this keyframe so the
+                                      // scrub-follow marker shows the tracked point here
+                                      setPlaybackTime(keyframe.time);
+                                    }}
+                                  />
+                                );
+                              })}
+                              {/* Convert to HSP button (top-right of the lane) */}
+                              <button
+                                type="button"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 z-30 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium bg-fuchsia-600/20 border border-fuchsia-500/40 text-fuchsia-300 hover:bg-fuchsia-600/30 transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleTrackingToHaptic(track.id);
+                                }}
+                                title={`Generar keyframes haptic con mapeo ${trackingMapMode}`}
+                              >
+                                → HSP
+                              </button>
+                            </>
                           ) : (
                             <>
                               {/* Sound keyframes (original rendering) */}
@@ -2970,9 +3672,9 @@ export function SpriteTimelineEditor() {
                                   key={keyframe.id}
                                   data-keyframe
                                   className={cn(
-                                    "absolute top-1/2 -translate-y-1/2 w-5 h-7 rounded cursor-grab active:cursor-grabbing group",
+                                    "timeline-keyframe text-amber-500 absolute top-1/2 -translate-y-1/2 w-5 h-7 rounded cursor-grab active:cursor-grabbing group",
                                     editorState.selectedKeyframeId === keyframe.id
-                                      ? "bg-amber-500 hover:bg-amber-400 border-2 border-amber-300"
+                                      ? "bg-amber-500 hover:bg-amber-400 border-2 border-amber-300 shadow-md shadow-amber-500/30"
                                       : isInMultiSelection
                                       ? "bg-amber-400 hover:bg-amber-300 border-2 border-amber-200"
                                       : "bg-blue-500 hover:bg-blue-400 border border-blue-300",
@@ -3073,7 +3775,7 @@ export function SpriteTimelineEditor() {
 
                           {/* Playhead indicator for this track */}
                           <div
-                            className="absolute top-0 bottom-0 w-0.5 bg-red-500/50 pointer-events-none"
+                            className="timeline-playhead-line absolute top-0 bottom-0 w-0.5 pointer-events-none"
                             style={{ left: `${playbackTime * pixelsPerMs}px` }}
                           />
                         </div>
@@ -3084,14 +3786,17 @@ export function SpriteTimelineEditor() {
                     {/* Empty state for tracks */}
                     {selectedSprite.timeline.tracks.length === 0 && (
                       <div className="flex border-b min-h-[100px]">
-                        <div className="w-44 flex-shrink-0 p-2 border-r bg-muted/30 flex items-center justify-center sticky left-0 z-10">
-                          <span className="text-xs text-muted-foreground">Sin tracks</span>
+                        <div className="w-44 flex-shrink-0 p-2 border-r bg-muted/40 flex items-center justify-center sticky left-0 z-10">
+                          <span className="text-xs text-muted-foreground">Sin pistas</span>
                         </div>
                         <div
-                          className="flex-1 flex items-center justify-center text-muted-foreground text-sm"
+                          className="timeline-empty-gradient flex-1 flex items-center justify-center text-muted-foreground text-sm"
                           style={{ width: `${timelineWidth}px` }}
                         >
-                          Haz clic en "Añadir Track" para crear un track
+                          <span className="flex items-center gap-2">
+                            <Plus className="w-4 h-4 opacity-50" />
+                            Añade una pista de sonido o haptic para sincronizar
+                          </span>
                         </div>
                       </div>
                     )}
@@ -3101,9 +3806,12 @@ export function SpriteTimelineEditor() {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              <div className="text-center">
-                <ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                <p>Selecciona un sprite para editar su timeline</p>
+              <div className="timeline-empty-gradient text-center rounded-2xl border border-dashed border-muted-foreground/20 px-12 py-10">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-muted/50 flex items-center justify-center">
+                  <ImageIcon className="w-8 h-8 opacity-40" />
+                </div>
+                <p className="text-sm font-medium">Selecciona un sprite</p>
+                <p className="text-xs mt-1 opacity-60">para editar su timeline con sonidos y haptic</p>
               </div>
             </div>
           )}

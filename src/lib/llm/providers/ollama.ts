@@ -5,6 +5,7 @@
 import type { LLMConfig, GenerateResponse } from '../types';
 import type { ChatApiMessage } from '../types';
 import type { ToolDefinition } from '@/lib/tools/types';
+import { toOpenAITools } from '@/lib/tools/tool-registry';
 import type { ToolCallAccumulator } from '@/lib/tools/parsers/native-parser';
 import { processOllamaToolDelta } from '@/lib/tools/parsers/native-parser';
 
@@ -107,25 +108,10 @@ export async function* streamOllamaWithTools(
     return msg;
   });
 
-  // Convert tools to Ollama format (same structure as OpenAI)
-  // IMPORTANT: Strip per-property 'required: boolean' — Ollama only accepts 'required: string[]' at schema level
-  const ollamaTools = tools.map(t => ({
-    type: 'function' as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: {
-        type: 'object',
-        properties: Object.fromEntries(
-          Object.entries(t.parameters.properties).map(([key, val]) => {
-            const { required: _required, ...cleanProps } = val;
-            return [key, cleanProps];
-          })
-        ),
-        required: t.parameters.required,
-      },
-    },
-  }));
+  // Convert tools to Ollama format (same structure as OpenAI, strict JSON Schema)
+  // Uses the shared converter: maps type:'enum' → type:'string'+enum[] and
+  // strips per-property 'required' (Ollama only accepts 'required: string[]' at schema level)
+  const ollamaTools = toOpenAITools(tools);
 
   console.log(`[Ollama+Tools] Streaming with ${ollamaTools.length} tools via /api/chat`);
   console.log(`[Ollama+Tools] Tool names:`, ollamaTools.map(t => t.function.name));

@@ -1,8 +1,6 @@
 {
   "dialogueSettings": {
     "enabled": true,
-    "autoGenerate": false,
-    "style": "default",
     "bubbleStyle": "modern",
     "showCharacterAvatar": true,
     "avatarPosition": "right",
@@ -89,6 +87,8 @@
     "animationDurationMs": 200,
     "parseEmotions": true,
     "highlightActions": true,
-    "separateDialogue": false
+    "separateDialogue": false,
+    "autoGenerate": false,
+    "style": "default"
   }
 }

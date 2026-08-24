@@ -3,8 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTavernStore } from '@/store/tavern-store';
 import type { AtmosphereLayer } from '@/types';
-import { CSSAtmosphereLayer } from './css-atmosphere-layer';
-import { CanvasAtmosphereLayer } from './canvas-atmosphere-layer';
+import { EngineAtmosphereLayer } from './engine-atmosphere-layer';
 import { OverlayAtmosphereLayer } from './overlay-atmosphere-layer';
 
 // ============================================
@@ -25,10 +24,11 @@ export function AtmosphereRenderer() {
   const sortedLayers = activeAtmosphereLayers
     .filter(layer => layer.active)
     .sort((a, b) => a.priority - b.priority);
-  
-  // Group layers by render type for efficient rendering
-  const cssLayers = sortedLayers.filter(l => l.renderType === 'css');
-  const canvasLayers = sortedLayers.filter(l => l.renderType === 'canvas');
+
+  // ALL particle effects (css rain + canvas) now run on the professional engine
+  const engineLayers = sortedLayers.filter(
+    l => l.renderType === 'canvas' || l.renderType === 'css'
+  );
   const overlayLayers = sortedLayers.filter(l => l.renderType === 'overlay');
   
   // Handle audio loops
@@ -98,18 +98,9 @@ export function AtmosphereRenderer() {
       className="atmosphere-container fixed inset-0 pointer-events-none z-30 overflow-hidden"
       aria-hidden="true"
     >
-      {/* CSS-based layers (rain, etc.) */}
-      {cssLayers.map(layer => (
-        <CSSAtmosphereLayer
-          key={layer.id}
-          layer={layer}
-          globalIntensity={atmosphereGlobalIntensity}
-        />
-      ))}
-      
-      {/* Canvas-based layers (particles) */}
-      {canvasLayers.map(layer => (
-        <CanvasAtmosphereLayer
+      {/* Professional particle engine layers (rain, snow, fireflies, embers, leaves, dust) */}
+      {engineLayers.map(layer => (
+        <EngineAtmosphereLayer
           key={layer.id}
           layer={layer}
           globalIntensity={atmosphereGlobalIntensity}

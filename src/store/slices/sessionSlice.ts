@@ -15,6 +15,7 @@ import type {
 import { processMessageTemplate } from '@/lib/prompt-template';
 import { uuidv4 } from '@/lib/uuid';
 import { checkAllRequirements } from '@/lib/triggers/handlers/skill-activation-handler';
+import { appendEventLogEntry } from '@/lib/stats/event-log';
 import {
   executeObjectiveRewards,
   executeQuestCompletionRewards,
@@ -1187,28 +1188,39 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
   },
 
   // Message Actions
-  addMessage: (sessionId, message) => set((state: any) => {
-    // Ensure swipes array is initialized
-    const content = message.content || '';
-    const swipes = message.swipes?.length ? message.swipes : [content];
-    
-    return {
-      sessions: state.sessions.map((s: ChatSession) =>
-        s.id === sessionId ? {
-          ...s,
-          messages: [...s.messages, {
-            ...message,
-            id: uuidv4(),
-            timestamp: new Date().toISOString(),
-            content,
-            swipes,
-            swipeIndex: message.swipeIndex ?? 0
-          }],
-          updatedAt: new Date().toISOString()
-        } : s
-      )
-    };
-  }),
+  addMessage: (sessionId, message) => {
+    set((state: any) => {
+      // Ensure swipes array is initialized
+      const content = message.content || '';
+      const swipes = message.swipes?.length ? message.swipes : [content];
+
+      return {
+        sessions: state.sessions.map((s: ChatSession) =>
+          s.id === sessionId ? {
+            ...s,
+            messages: [...s.messages, {
+              ...message,
+              id: uuidv4(),
+              timestamp: new Date().toISOString(),
+              content,
+              swipes,
+              swipeIndex: message.swipeIndex ?? 0
+            }],
+            updatedAt: new Date().toISOString()
+          } : s
+        )
+      };
+    });
+
+    // World clock: advance fictional time on every USER turn
+    if ((message as { role?: string }).role === 'user') {
+      try {
+        get().advanceWorldTime?.(sessionId, 1);
+      } catch (e) {
+        console.warn('[WorldTime] advance failed:', e);
+      }
+    }
+  },
 
   updateMessage: (sessionId, messageId, content) => set((state: any) => ({
     sessions: state.sessions.map((s: ChatSession) =>
@@ -1826,11 +1838,15 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
             };
           }),
           // Save event to sessionStats for {{eventos}} key
-          sessionStats: s.sessionStats ? {
+          sessionStats: s.sessionStats ? appendEventLogEntry({
             ...s.sessionStats,
             ultimo_objetivo_completado: targetObjective?.completionDescription || targetObjective?.description,
             lastModified: Date.now(),
-          } : s.sessionStats,
+          }, {
+            type: 'quest_objective',
+            description: targetObjective?.completionDescription || targetObjective?.description || 'Objetivo completado',
+            characterId,
+          }) : s.sessionStats,
           updatedAt: new Date().toISOString(),
         };
       }),

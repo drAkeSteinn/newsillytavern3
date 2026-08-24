@@ -18,6 +18,26 @@ import type {
 } from '@/types';
 import { evaluateTimerTicks, hasActiveTimers, type TimerEvaluationResult } from '@/lib/stats/timer-processor';
 import { evaluateThresholdEffects } from '@/lib/sprites/condition-evaluator';
+import { appendEventLogEntry } from '@/lib/stats/event-log';
+import {
+  relationshipPairKey,
+  clampRelationshipPoints,
+  computeRelationshipStage,
+  DEFAULT_RELATIONSHIP_POINTS,
+  RELATIONSHIP_MIRROR_KEY,
+  RELATIONSHIP_STAGE_KEY,
+} from '@/lib/relationships';
+import {
+  createDefaultWorldClock,
+  advanceMinutes as worldAdvanceMinutes,
+  catchUpRealTime,
+  setToHour,
+  worldClockAttributes,
+  computeHour,
+  computeMoment,
+  formatWorldClock,
+  type WorldClock,
+} from '@/lib/world/time';
 
 // ============================================
 // Types
@@ -136,6 +156,39 @@ export interface StatsSlice {
     eventType: 'ultimo_objetivo_completado' | 'ultima_solicitud_completada' | 'ultima_solicitud_realizada' | 'ultima_accion_realizada' | 'ultima_accion_character',
     description: string
   ) => void;
+
+  // Push a custom entry into the session event log ({{eventos}} ring buffer).
+  // Used for scene changes (enter/leave/focus) and future event sources.
+  pushSessionEvent: (
+    sessionId: string,
+    entry: {
+      type: import('@/types').SessionEventLogType;
+      description: string;
+      characterId?: string;
+      characterName?: string;
+      targetName?: string;
+    }
+  ) => void;
+
+  // Relationships (bonds between entities). Updates points, mirrors
+  // `relacion`/`relacion_etapa` into both parties' attributeValues and
+  // pushes an event-log entry so other characters can react.
+  updateRelationship: (
+    sessionId: string,
+    aId: string,
+    bId: string,
+    updates: { delta?: number; set?: number; reason?: string },
+    names?: { aName?: string; bName?: string }
+  ) => { points: number; stageKey: string; stageLabel: string; pairKey: string } | null;
+
+  // World time — advance by N turns (minutesPerTurn each), mirror hora/momento/dia/estacion
+  advanceWorldTime: (sessionId: string, turns?: number) => WorldClock | null;
+  // World time — set/override clock values (hour, minutes, season, config)
+  setWorldTime: (
+    sessionId: string,
+    updates: { hour?: number; minute?: number; minutes?: number; season?: string; realTimeSync?: boolean; minutesPerTurn?: number; enabled?: boolean }
+  ) => WorldClock | null;
+  getWorldClock: (sessionId: string) => WorldClock | null;
 
   // Timer System (automatic attribute changes over time)
   processTimerTicks: (
@@ -913,8 +966,11 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     // Add to target character's solicitudes
     const currentSolicitudes = sessionStats.solicitudes.characterSolicitudes[targetCharacterId] || [];
     const updatedSolicitudes = [...currentSolicitudes, newSolicitud];
+    const targetCharacterName = (get() as any).characters?.find(
+      (c: { id: string }) => c.id === targetCharacterId
+    )?.name;
     
-    const newSessionStats: SessionStats = {
+    const newSessionStats: SessionStats = appendEventLogEntry({
       ...sessionStats,
       solicitudes: {
         characterSolicitudes: {
@@ -926,7 +982,13 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       // Save event for {{eventos}} key - peticion was activated
       ultima_solicitud_realizada: solicitudData.description,
       lastModified: Date.now(),
-    };
+    }, {
+      type: 'solicitud_created',
+      description: solicitudData.description,
+      characterId: solicitudData.fromCharacterId,
+      characterName: solicitudData.fromCharacterName,
+      targetName: targetCharacterName,
+    });
     
     set((state: any) => ({
       sessions: state.sessions.map((s: any) =>
@@ -980,7 +1042,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     };
     updatedSolicitudes[solicitudIndex] = completedSolicitud;
     
-    const newSessionStats: SessionStats = {
+    const newSessionStats: SessionStats = appendEventLogEntry({
       ...sessionStats,
       solicitudes: {
         characterSolicitudes: {
@@ -993,7 +1055,12 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       ultima_solicitud_completada: completedSolicitud.completionDescription || 
         `Solicitud "${solicitudKey}" completada por ${completedSolicitud.fromCharacterName}`,
       lastModified: Date.now(),
-    };
+    }, {
+      type: 'solicitud_completed',
+      description: completedSolicitud.completionDescription ||
+        `Solicitud "${solicitudKey}" completada por ${completedSolicitud.fromCharacterName}`,
+      characterId,
+    });
     
     set((state: any) => ({
       sessions: state.sessions.map((s: any) =>
@@ -1122,8 +1189,11 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     // Add to target character's solicitudes
     const currentSolicitudes = sessionStats.solicitudes.characterSolicitudes[targetCharacterId] || [];
     const updatedSolicitudes = [...currentSolicitudes, newSolicitud];
+    const targetCharacterName = (get() as any).characters?.find(
+      (c: { id: string }) => c.id === targetCharacterId
+    )?.name;
     
-    const newSessionStats: SessionStats = {
+    const newSessionStats: SessionStats = appendEventLogEntry({
       ...sessionStats,
       solicitudes: {
         characterSolicitudes: {
@@ -1135,7 +1205,13 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       // Save event for {{eventos}} key - user made a peticion to a character
       ultima_solicitud_realizada: description,
       lastModified: Date.now(),
-    };
+    }, {
+      type: 'solicitud_user',
+      description,
+      characterId: '__user__',
+      characterName: userName || 'Usuario',
+      targetName: targetCharacterName,
+    });
     
     set((state: any) => ({
       sessions: state.sessions.map((s: any) =>
@@ -1430,11 +1506,42 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       }
       
       // Update the specific event field
-      const newSessionStats: SessionStats = {
+      let newSessionStats: SessionStats = {
         ...sessionStats,
         [eventType]: description,
         lastModified: Date.now(),
       };
+
+      // Push to the event log ring buffer ({{eventos}} history)
+      try {
+        const turn = get().getTurnCount?.(sessionId) || undefined;
+        if (eventType === 'ultimo_objetivo_completado') {
+          newSessionStats = appendEventLogEntry(newSessionStats, {
+            type: 'quest_objective', description, turn,
+          });
+        } else if (eventType === 'ultima_solicitud_realizada') {
+          newSessionStats = appendEventLogEntry(newSessionStats, {
+            type: 'solicitud_created', description, turn,
+          });
+        } else if (eventType === 'ultima_solicitud_completada') {
+          newSessionStats = appendEventLogEntry(newSessionStats, {
+            type: 'solicitud_completed', description, turn,
+          });
+        } else if (eventType === 'ultima_accion_character') {
+          // Arrives right after 'ultima_accion_realizada' — build the full entry here
+          const actionDesc = sessionStats.ultima_accion_realizada || newSessionStats.ultima_accion_realizada;
+          if (actionDesc) {
+            newSessionStats = appendEventLogEntry(newSessionStats, {
+              type: 'action',
+              description: actionDesc,
+              characterName: description, // description param carries the author name here
+              turn,
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('[SessionEvent] Failed to append event log entry:', e);
+      }
       
       return {
         sessions: state.sessions.map((s: any) =>
@@ -1450,6 +1557,244 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     });
     
     console.log(`[SessionEvent] Updated ${eventType}: ${description}`);
+  },
+
+  /**
+   * Push a custom entry into the session event log ({{eventos}} ring buffer).
+   */
+  pushSessionEvent: (sessionId, entry) => {
+    set((state: any) => {
+      const sessions = state.sessions as Array<{
+        id: string;
+        sessionStats?: SessionStats;
+      }>;
+      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+      if (sessionIndex === -1) return state;
+
+      const session = sessions[sessionIndex];
+      if (!session.sessionStats) return state; // events require initialized stats
+
+      const turn = get().getTurnCount?.(sessionId) || undefined;
+      const newSessionStats = appendEventLogEntry(session.sessionStats, { ...entry, turn });
+
+      return {
+        sessions: state.sessions.map((s: any) =>
+          s.id === sessionId
+            ? {
+                ...s,
+                sessionStats: newSessionStats,
+                updatedAt: new Date().toISOString(),
+              }
+            : s
+        ),
+      };
+    });
+
+    console.log(`[SessionEvent] Pushed ${entry.type}: ${entry.description}`);
+  },
+
+  /**
+   * Update a relationship bond (a↔b), mirror it into both parties'
+   * attributeValues and log the event.
+   */
+  updateRelationship: (sessionId, aId, bId, updates, names) => {
+    const result = ((): { points: number; stageKey: string; stageLabel: string; pairKey: string; prevPoints: number } | null => {
+      const state = get();
+      const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+      const session = sessions.find(s => s.id === sessionId);
+      if (!session?.sessionStats) return null;
+
+      const sessionStats = session.sessionStats;
+      const pairKey = relationshipPairKey(aId, bId);
+      const prev = (sessionStats.relationships?.[pairKey]?.points) ?? DEFAULT_RELATIONSHIP_POINTS;
+      const raw = typeof updates.set === 'number' ? updates.set : prev + (updates.delta ?? 0);
+      const points = clampRelationshipPoints(raw);
+      const stage = computeRelationshipStage(points);
+
+      const bond: import('@/types').SessionRelationship = {
+        pairKey,
+        aId,
+        bId,
+        points,
+        lastChangedAt: Date.now(),
+        lastReason: updates.reason,
+      };
+
+      // Mirror into both parties' attributeValues (creates CharacterSessionStats if missing)
+      const characterStats: SessionStats['characterStats'] = { ...sessionStats.characterStats };
+      for (const id of [aId, bId]) {
+        const existing = characterStats[id] || { attributeValues: {}, lastUpdated: {} };
+        characterStats[id] = {
+          ...existing,
+          attributeValues: {
+            ...existing.attributeValues,
+            [RELATIONSHIP_MIRROR_KEY]: points,
+            [RELATIONSHIP_STAGE_KEY]: stage.label,
+          },
+          lastUpdated: {
+            ...existing.lastUpdated,
+            [RELATIONSHIP_MIRROR_KEY]: Date.now(),
+            [RELATIONSHIP_STAGE_KEY]: Date.now(),
+          },
+        };
+      }
+
+      const aName = names?.aName || (state as any).characters?.find((c: any) => c.id === aId)?.name || aId;
+      const bName = names?.bName || (state as any).characters?.find((c: any) => c.id === bId)?.name || (bId === '__user__' ? (get() as any).personas?.find?.((p: any) => p.isActive)?.name || 'Usuario' : bId);
+      const direction = points > prev ? 'mejoró' : points < prev ? 'empeoró' : 'se mantuvo';
+      const eventDesc = `La relación entre ${aName} y ${bName} ${direction}: ${stage.label} (${points}/100)${updates.reason ? ` — ${updates.reason}` : ''}`;
+
+      let newSessionStats: SessionStats = {
+        ...sessionStats,
+        characterStats,
+        relationships: { ...(sessionStats.relationships || {}), [pairKey]: bond },
+      };
+      newSessionStats = appendEventLogEntry(newSessionStats, {
+        type: 'relationship',
+        description: eventDesc,
+        characterId: aId,
+        characterName: aName,
+        targetName: bName,
+      });
+
+      set((state: any) => ({
+        sessions: state.sessions.map((s: any) =>
+          s.id === sessionId
+            ? { ...s, sessionStats: newSessionStats, updatedAt: new Date().toISOString() }
+            : s
+        ),
+      }));
+
+      console.log(`[Relationship] ${aName} ↔ ${bName}: ${prev} → ${points} (${stage.label})`);
+      return { points, stageKey: stage.key, stageLabel: stage.label, pairKey, prevPoints: prev };
+    })();
+
+    return result;
+  },
+
+  // ============================================
+  // World Time
+  // ============================================
+  advanceWorldTime: (sessionId, turns = 1) => {
+    const result = ((): WorldClock | null => {
+      const state = get();
+      const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+      const session = sessions.find(s => s.id === sessionId);
+      if (!session?.sessionStats) return null;
+
+      const prevClock = session.sessionStats.worldClock || createDefaultWorldClock();
+      if (!prevClock.enabled) return prevClock;
+
+      // Real-time catch-up first (if enabled), then turn advance
+      let nextClock = catchUpRealTime(prevClock);
+      const prevMoment = computeMoment(computeHour(prevClock.totalMinutes));
+      nextClock = worldAdvanceMinutes(nextClock, (turns || 1) * (prevClock.minutesPerTurn || 20));
+      const nextMoment = computeMoment(computeHour(nextClock.totalMinutes));
+
+      // Mirror into __user__ stats (single source for lorebook/sprite gating)
+      const userStats = session.sessionStats.characterStats['__user__'] || { attributeValues: {}, lastUpdated: {} };
+      const characterStats: SessionStats['characterStats'] = {
+        ...session.sessionStats.characterStats,
+        '__user__': {
+          ...userStats,
+          attributeValues: { ...userStats.attributeValues, ...worldClockAttributes(nextClock) },
+          lastUpdated: { ...userStats.lastUpdated },
+        },
+      };
+
+      let newSessionStats: SessionStats = {
+        ...session.sessionStats,
+        characterStats,
+        worldClock: nextClock,
+      };
+
+      // Log moment transitions only (avoids event-log spam every turn)
+      if (prevMoment !== nextMoment) {
+        newSessionStats = appendEventLogEntry(newSessionStats, {
+          type: 'custom',
+          description: `El tiempo pasa: ahora es ${nextMoment} (${formatWorldClock(nextClock)})`,
+        });
+      }
+
+      set((state: any) => ({
+        sessions: state.sessions.map((s: any) =>
+          s.id === sessionId ? { ...s, sessionStats: newSessionStats, updatedAt: new Date().toISOString() } : s
+        ),
+      }));
+
+      return nextClock;
+    })();
+
+    return result;
+  },
+
+  setWorldTime: (sessionId, updates) => {
+    const result = ((): WorldClock | null => {
+      const state = get();
+      const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+      const session = sessions.find(s => s.id === sessionId);
+      if (!session?.sessionStats) return null;
+
+      const prevClock = session.sessionStats.worldClock || createDefaultWorldClock();
+      let nextClock: WorldClock = { ...prevClock };
+
+      if (typeof updates.minutes === 'number' && updates.minutes > 0) {
+        nextClock = worldAdvanceMinutes(nextClock, updates.minutes);
+      }
+      if (typeof updates.hour === 'number') {
+        nextClock = setToHour(nextClock, updates.hour, updates.minute ?? 0);
+      }
+      if (typeof updates.season === 'string' && updates.season.trim()) {
+        nextClock.season = updates.season.trim().toLowerCase();
+      }
+      if (typeof updates.realTimeSync === 'boolean') {
+        nextClock.realTimeSync = updates.realTimeSync;
+        nextClock.lastRealSync = Date.now();
+      }
+      if (typeof updates.minutesPerTurn === 'number' && updates.minutesPerTurn > 0) {
+        nextClock.minutesPerTurn = updates.minutesPerTurn;
+      }
+      if (typeof updates.enabled === 'boolean') {
+        nextClock.enabled = updates.enabled;
+      }
+
+      const userStats = session.sessionStats.characterStats['__user__'] || { attributeValues: {}, lastUpdated: {} };
+      const characterStats: SessionStats['characterStats'] = {
+        ...session.sessionStats.characterStats,
+        '__user__': {
+          ...userStats,
+          attributeValues: { ...userStats.attributeValues, ...worldClockAttributes(nextClock) },
+          lastUpdated: { ...userStats.lastUpdated },
+        },
+      };
+
+      let newSessionStats: SessionStats = {
+        ...session.sessionStats,
+        characterStats,
+        worldClock: nextClock,
+      };
+      newSessionStats = appendEventLogEntry(newSessionStats, {
+        type: 'custom',
+        description: `El tiempo del mundo cambia: ${formatWorldClock(nextClock)}`,
+      });
+
+      set((state: any) => ({
+        sessions: state.sessions.map((s: any) =>
+          s.id === sessionId ? { ...s, sessionStats: newSessionStats, updatedAt: new Date().toISOString() } : s
+        ),
+      }));
+
+      return nextClock;
+    })();
+
+    return result;
+  },
+
+  getWorldClock: (sessionId) => {
+    const state = get();
+    const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+    const session = sessions.find(s => s.id === sessionId);
+    return session?.sessionStats?.worldClock || null;
   },
 
   // ============================================

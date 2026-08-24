@@ -7,7 +7,7 @@
 // (roll dice, search memory, get weather, etc.)
 // during chat responses.
 
-import type { SessionQuestInstance, QuestTemplate, CharacterStatsConfig, SessionStats, ActivationCost, QuestReward, SkillDefinition, CharacterCard, SolicitudInstance } from '@/types';
+import type { SessionQuestInstance, QuestTemplate, CharacterStatsConfig, SessionStats, ActivationCost, QuestReward, SkillDefinition, CharacterCard, SolicitudInstance, GroupMember } from '@/types';
 
 // ============================================
 // Tool Definition
@@ -70,6 +70,8 @@ export interface ToolContext {
   characterMemory?: import('@/types').CharacterMemory;
   /** Lorebooks for resolving {{key}} in action descriptions and completion descriptions */
   lorebooks?: import('@/types').Lorebook[];
+  /** Group members with presence state (for manage_scene, group chats only) */
+  groupMembers?: GroupMember[];
 }
 
 /** Result from tool execution */
@@ -120,6 +122,55 @@ export interface ToolExecutionResult {
     oldValue: number | string | undefined;
     newValue: number | string;
     reason: string;
+  };
+  /** Special result for scene management tools (group chats) — synced to client group store */
+  sceneActivation?: {
+    /** 'scene_change' mutates isPresent; 'scene_focus' only logs a narrative event */
+    type: 'scene_change' | 'scene_focus';
+    /** enter | leave (for scene_change) */
+    action: 'enter' | 'leave' | 'focus';
+    /** Character that enters/leaves the scene */
+    characterId: string;
+    characterName: string;
+    /** Character that triggered the change (the speaker) */
+    byCharacterId: string;
+    byCharacterName: string;
+    /** New presence state (for scene_change) */
+    present: boolean;
+    /** Optional narrative for the scene change */
+    narrative?: string;
+  };
+  /** Special result for relationship tools — synced to client statsSlice.updateRelationship */
+  relationshipActivation?: {
+    aId: string;
+    aName: string;
+    bId: string;
+    bName: string;
+    prevPoints: number;
+    newPoints: number;
+    reason: string;
+  };
+  /** Special result for world-time tools — client applies via setWorldTime/advanceWorldTime */
+  timeActivation?: {
+    type: 'advance' | 'set_hour' | 'set_season';
+    minutes?: number;
+    hour?: number;
+    minute?: number;
+    season?: string;
+  };
+  /** Special result for skill_check tools — client logs event + toast */
+  checkActivation?: {
+    characterId: string;
+    characterName: string;
+    statName: string;
+    statValue: number | null;
+    roll: number;
+    modifier: number;
+    dc: number;
+    total: number;
+    outcome: 'critical_success' | 'success' | 'partial' | 'failure' | 'critical_failure';
+    outcomeLabel: string;
+    narrative: string;
   };
   /** Special result for memory tools — syncs to client-side Character Memory */
   memoryActivation?: {

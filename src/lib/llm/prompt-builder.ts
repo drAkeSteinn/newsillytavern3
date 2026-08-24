@@ -2,6 +2,8 @@
 // Prompt Builder - Unified prompt construction
 // ============================================
 
+import { formatWorldClock, createDefaultWorldClock } from '@/lib/world/time';
+import { buildTextActionsSection } from '@/lib/tools/text-actions';
 import type {
   CharacterCard,
   ChatMessage,
@@ -578,6 +580,26 @@ export function buildSystemPrompt(
     type: 'system',
     label: 'System Prompt',
     content: systemContent,
+    color: SECTION_COLORS.system
+  });
+
+  // World Time (fictional clock) — compact context so the LLM knows when the scene happens
+  const worldClock = sessionStats?.worldClock;
+  if (!worldClock || worldClock.enabled !== false) {
+    sections.push({
+      type: 'scenario',
+      label: 'World Time',
+      content: `[TIEMPO DEL MUNDO] ${formatWorldClock(worldClock || createDefaultWorldClock())} (avanza ${worldClock?.minutesPerTurn || 20} min por turno)`,
+      color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
+    });
+  }
+
+  // Text Actions — universal fallback tokens ([check:] [rel:] [tiempo:]) that work
+  // even when tool calling is disabled or the provider lacks tool support
+  sections.push({
+    type: 'system',
+    label: 'Text Actions',
+    content: buildTextActionsSection(),
     color: SECTION_COLORS.system
   });
 
@@ -1196,6 +1218,25 @@ export function buildGroupSystemPrompt(
     color: SECTION_COLORS.system
   });
 
+  // World Time (fictional clock) — group builder
+  const worldClock = sessionStats?.worldClock;
+  if (!worldClock || worldClock.enabled !== false) {
+    sections.push({
+      type: 'scenario',
+      label: 'World Time',
+      content: `[TIEMPO DEL MUNDO] ${formatWorldClock(worldClock || createDefaultWorldClock())} (avanza ${worldClock?.minutesPerTurn || 20} min por turno)`,
+      color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
+    });
+  }
+
+  // Text Actions — universal fallback tokens
+  sections.push({
+    type: 'system',
+    label: 'Text Actions',
+    content: buildTextActionsSection(),
+    color: SECTION_COLORS.system
+  });
+
   // Lorebook position 0: After system prompt
   if (lorebookPlan?.position0Section) {
     sections.push(lorebookPlan.position0Section);
@@ -1233,11 +1274,26 @@ export function buildGroupSystemPrompt(
   if (allCharacters && allCharacters.length > 0) {
     const otherChars = allCharacters.filter(c => c.id !== character.id && c.id !== '__user__');
     if (otherChars.length > 0) {
-      const otherNames = otherChars.map(c => c.name).join(', ');
+      // Split by scene presence (group members only). Members without an explicit
+      // member record default to present (legacy fallback).
+      const memberById = new Map((group.members || []).map(m => [m.characterId, m]));
+      const presentNames: string[] = [];
+      const absentNames: string[] = [];
+      for (const c of otherChars) {
+        const member = memberById.get(c.id);
+        if (member?.isNarrator) continue; // narrators are not scene characters
+        if (member && member.isPresent === false) absentNames.push(c.name);
+        else presentNames.push(c.name);
+      }
+
+      let sceneContent = `Other characters present in this conversation: ${presentNames.join(', ') || '(ninguno)'}`;
+      if (absentNames.length > 0) {
+        sceneContent += `\nCharacters OUT of the scene right now (they are NOT present; they may join later if the story calls for it): ${absentNames.join(', ')}`;
+      }
       sections.push({
         type: 'character_description',
         label: 'Other Characters in Group',
-        content: `Other characters present in this conversation: ${otherNames}`,
+        content: sceneContent,
         color: SECTION_COLORS.character_description
       });
     }

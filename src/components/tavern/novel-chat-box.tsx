@@ -54,6 +54,7 @@ import {
   Trash2,
   Plus,
   ShoppingCart,
+  Heart,
 } from 'lucide-react';
 import {
   Popover,
@@ -101,6 +102,7 @@ import type { CharacterQuickReply, GroupQuickReply, QuickReplyAttributeModifier,
 import { evaluatePackConditionalSprites, evaluateConditionalEntries } from '@/lib/sprites/condition-evaluator';
 import { evaluateRequirements } from '@/store/slices/statsSlice';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { SessionActionBar } from './session-action-bar';
 
 // Tab type for the chatbox
 type ChatboxTab = 'chat' | 'solicitudes' | 'misiones' | 'memorias' | 'tienda';
@@ -139,6 +141,18 @@ interface NovelChatBoxProps {
   memoryExtracting?: boolean;
   /** Current session ID for session-scoped memory namespaces */
   sessionId?: string;
+  /** Session action bar: open relationship graph */
+  onOpenRelationships?: () => void;
+  /** Session action bar: run the Director now */
+  onRunDirector?: () => void;
+  /** Session action bar: world clock state */
+  worldClock?: import('@/lib/world/time').WorldClock | null;
+  /** Session action bar: update world clock */
+  onSetWorldTime?: (updates: { hour?: number; minute?: number; minutes?: number; season?: string; realTimeSync?: boolean; minutesPerTurn?: number; enabled?: boolean }) => void;
+  /** Scene mode (controlled collapse): when provided, collapse is controlled from outside */
+  isSceneMode?: boolean;
+  /** Scene mode (controlled collapse): notify toggle requests */
+  onSceneModeChange?: (collapsed: boolean) => void;
 }
 
 // Format memory date to relative time
@@ -257,6 +271,12 @@ export function NovelChatBox({
   ttsPlaying = false,
   memoryExtracting = false,
   sessionId,
+  onOpenRelationships,
+  onRunDirector,
+  worldClock = null,
+  onSetWorldTime,
+  isSceneMode,
+  onSceneModeChange,
 }: NovelChatBoxProps) {
   const [input, setInput] = useState('');
   // Global audio mute state
@@ -271,6 +291,13 @@ export function NovelChatBox({
   const [showSettings, setShowSettings] = useState(false);
   const [showVariables, setShowVariables] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  // Scene mode: collapse can be controlled from outside (SceneDock). The internal
+  // state remains the source of truth when no controller is provided.
+  const effectiveCollapsed = onSceneModeChange ? !!isSceneMode : isCollapsed;
+  const toggleCollapsed = () => {
+    if (onSceneModeChange) onSceneModeChange(!isSceneMode);
+    else setIsCollapsed(!isCollapsed);
+  };
   const [activeTab, setActiveTab] = useState<ChatboxTab>('chat');
   const [showAvailableQuests, setShowAvailableQuests] = useState(false);
   const [showAutoQuestConfig, setShowAutoQuestConfig] = useState(false);
@@ -582,6 +609,17 @@ export function NovelChatBox({
 
   // Get session stats for the variables panel
   const sessionStats = activeSession?.sessionStats;
+
+  // Inline relationship chip label: bond between the active character and the user
+  const relationshipLabel = useMemo(() => {
+    if (!sessionStats || !activeCharacter) return '15';
+    const rels = sessionStats.relationships as Record<string, { points?: number }> | undefined;
+    const pairKey = [activeCharacter.id, '__user__'].sort().join('|');
+    const mirror = sessionStats.characterStats?.[activeCharacter.id]?.attributeValues?.['relacion'];
+    const points = rels?.[pairKey]?.points
+      ?? (typeof mirror === 'number' ? mirror : 15);
+    return String(points);
+  }, [sessionStats, activeCharacter]);
   
   // Get session quests for the quests panel
   const sessionQuests = activeSession?.sessionQuests || [];
@@ -649,7 +687,7 @@ export function NovelChatBox({
 
   // Drag handlers
   const handleDragStart = (e: React.MouseEvent) => {
-    if (isCollapsed || isMobile) return;
+    if (effectiveCollapsed || isMobile) return;
     e.preventDefault();
     setIsDragging(true);
     dragStartRef.current = {
@@ -698,7 +736,7 @@ export function NovelChatBox({
 
   // Resize handlers
   const handleResizeStart = (e: React.MouseEvent) => {
-    if (isCollapsed || isMobile) return;
+    if (effectiveCollapsed || isMobile) return;
     e.preventDefault();
     e.stopPropagation();
     setIsResizing(true);
@@ -1524,10 +1562,10 @@ export function NovelChatBox({
           top: `${layout.chatY}%`,
           transform: 'translate(-50%, -50%)',
           width: `${layout.chatWidth}%`,
-          height: isCollapsed ? 'auto' : `${layout.chatHeight}%`,
+          height: effectiveCollapsed ? 'auto' : `${layout.chatHeight}%`,
           minWidth: '280px',
-          minHeight: isCollapsed ? 'auto' : '180px',
-          maxHeight: isCollapsed ? 'auto' : '95vh',
+          minHeight: effectiveCollapsed ? 'auto' : '180px',
+          maxHeight: effectiveCollapsed ? 'auto' : '95vh',
         }),
         backgroundColor: safeAppearance.background.customBackgroundColor || `hsl(var(--background) / ${layout.chatOpacity})`,
         backdropFilter: safeAppearance.background.useGlassEffect ? `blur(${safeAppearance.background.blur}px)` : layout.blurBackground ? 'blur(12px)' : undefined,
@@ -1580,6 +1618,19 @@ export function NovelChatBox({
             <span className="text-sm font-medium truncate max-w-[100px]">
               {headerName}
             </span>
+
+            {/* Inline relationship chip (💜 stage with the user) — opens graph on click */}
+            {onOpenRelationships && (
+              <button
+                type="button"
+                onClick={onOpenRelationships}
+                className="flex items-center gap-1 px-1.5 h-5 rounded-full bg-fuchsia-500/10 border border-fuchsia-500/20 text-[10px] text-fuchsia-300 hover:bg-fuchsia-500/20 transition-colors whitespace-nowrap"
+                title="Ver grafo de relaciones"
+              >
+                <Heart className="w-2.5 h-2.5" />
+                <span className="tabular-nums">{relationshipLabel}</span>
+              </button>
+            )}
             
             {/* Turn count - only show on chat tab (1 turn = 1 user message) */}
             {activeTab === 'chat' && (
@@ -1651,6 +1702,17 @@ export function NovelChatBox({
                   )}
                 </div>
               </TooltipProvider>
+            )}
+
+            {/* Session Action Bar: relationships / director / world clock */}
+            {(onOpenRelationships || onRunDirector || onSetWorldTime) && (
+              <SessionActionBar
+                onOpenRelationships={() => onOpenRelationships?.()}
+                onRunDirector={() => onRunDirector?.()}
+                worldClock={worldClock}
+                onSetWorldTime={(u) => onSetWorldTime?.(u)}
+                compact
+              />
             )}
 
             {/* Session Variables Popover */}
@@ -1883,9 +1945,9 @@ export function NovelChatBox({
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              onClick={() => setIsCollapsed(!isCollapsed)}
+              onClick={toggleCollapsed}
             >
-              {isCollapsed ? (
+              {effectiveCollapsed ? (
                 <ChevronUp className="w-4 h-4" />
               ) : (
                 <ChevronDown className="w-4 h-4" />
@@ -1895,7 +1957,7 @@ export function NovelChatBox({
         </div>
         
         {/* Tab Bar */}
-        {!isCollapsed && (
+        {!effectiveCollapsed && (
           <div 
             className="flex items-center gap-0.5 px-2 pb-1.5 border-b border-border/50"
             onMouseDown={(e) => e.stopPropagation()}
@@ -1989,15 +2051,9 @@ export function NovelChatBox({
               <Brain className="w-3.5 h-3.5" />
               <span>Memorias</span>
               {memories.length > 0 && (
-                <Badge 
-                  className="ml-0.5 h-4 min-w-4 px-1 text-[9px] font-bold"
-                  style={{ 
-                    backgroundColor: activeTab === 'memorias' ? 'rgba(255,255,255,0.3)' : themeColors.primary,
-                    color: 'white'
-                  }}
-                >
+                <span className="ml-0.5 text-[9px] tabular-nums text-muted-foreground/70">
                   {memories.length}
-                </Badge>
+                </span>
               )}
             </button>
             
@@ -2016,22 +2072,62 @@ export function NovelChatBox({
             >
               <ShoppingCart className="w-3.5 h-3.5" />
               <span>Tienda</span>
-              <Badge 
-                className="ml-0.5 h-4 min-w-4 px-1 text-[9px] font-bold"
-                style={{ 
-                  backgroundColor: activeTab === 'tienda' ? 'rgba(255,255,255,0.3)' : themeColors.primary,
-                  color: 'white'
-                }}
-              >
-                {activePersona?.currency || 0}
-              </Badge>
+              {/* Currency as subtle text — NOT a notification badge (avoids false urgency) */}
+              {(activePersona?.currency || 0) > 0 && (
+                <span className="ml-0.5 text-[9px] tabular-nums text-amber-500/90">
+                  💰 {activePersona?.currency}
+                </span>
+              )}
             </button>
           </div>
         )}
       </div>
 
+      {/* SCENE MODE strip: when collapsed, show the last message as a
+          cinematic subtitle so the sprite/background stays the protagonist */}
+      {effectiveCollapsed && (() => {
+        const lastMsg = [...(activeSession?.messages || [])]
+          .filter(m => !m.isDeleted)
+          .reverse()
+          .find(m => m.role === 'assistant' && m.content?.trim());
+        if (!lastMsg) return null;
+        const speakerChar = lastMsg.characterId
+          ? (characters || []).find(c => c.id === lastMsg.characterId)
+          : activeCharacter || undefined;
+        const speakerName = isGroupMode && lastMsg.characterId
+          ? speakerChar?.name || headerName
+          : headerName;
+        return (
+          <button
+            type="button"
+            onClick={() => (onSceneModeChange ? onSceneModeChange(false) : setIsCollapsed(false))}
+            className="w-full flex items-start gap-2 px-3 py-2 text-left border-t border-border/40 hover:bg-muted/30 transition-colors group"
+            title="Clic para expandir el chat"
+          >
+            <div className="w-5 h-5 rounded-full overflow-hidden flex-shrink-0 mt-0.5">
+              {speakerChar?.avatar ? (
+                <img src={speakerChar.avatar} alt={speakerName} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+                  <span className="text-white font-bold text-[9px]">{speakerName?.[0]?.toUpperCase() || '?'}</span>
+                </div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-medium text-muted-foreground">
+                {speakerName} · modo escena
+              </span>
+              <p className="text-xs leading-snug text-foreground/80 line-clamp-2 italic">
+                "{lastMsg.content.trim().slice(0, 140)}{(lastMsg.content.trim().length || 0) > 140 ? '…' : ''}"
+              </p>
+            </div>
+            <ChevronUp className="w-3.5 h-3.5 text-muted-foreground/50 mt-1 group-hover:text-muted-foreground transition-colors flex-shrink-0" />
+          </button>
+        );
+      })()}
+
       {/* Content Area */}
-      {!isCollapsed && (
+      {!effectiveCollapsed && (
         <>
           {/* Chat Tab Content */}
           {activeTab === 'chat' && (

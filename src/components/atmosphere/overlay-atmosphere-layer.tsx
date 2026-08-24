@@ -46,13 +46,13 @@ export function OverlayAtmosphereLayer({ layer, globalIntensity }: OverlayAtmosp
     switch (layer.id) {
       case 'fog-light':
       case 'fog-heavy':
+        // Layered drifting fog: two blurred pseudo-banks at different speeds
+        // (CSS keyframes fog-bank-a / fog-bank-b in globals.css)
         return {
           ...baseStyle,
-          background: `radial-gradient(ellipse at center, transparent 0%, ${layer.color} 100%)`,
           opacity,
-          animation: layer.speed > 0 ? `fog-drift ${20 / layer.speed}s ease-in-out infinite` : undefined,
         };
-      
+
       case 'night-filter':
         return {
           ...baseStyle,
@@ -95,7 +95,38 @@ export function OverlayAtmosphereLayer({ layer, globalIntensity }: OverlayAtmosp
   
   // Don't render if no color defined
   if (!layer.color) return null;
-  
+
+  // Fog renders its own drifting banks (not the single-gradient overlay)
+  if (layer.id === 'fog-light' || layer.id === 'fog-heavy') {
+    const heavy = layer.id === 'fog-heavy';
+    const durA = heavy ? 46 : 68;
+    const durB = heavy ? 34 : 52;
+    return (
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: layer.opacity * globalIntensity }} aria-hidden="true">
+        {/* Bank A: wide slow bottom fog */}
+        <div
+          className="fog-bank"
+          style={{
+            background: `radial-gradient(120% 55% at 30% 110%, ${layer.color} 0%, transparent 65%), radial-gradient(110% 45% at 80% 108%, ${layer.color} 0%, transparent 60%)`,
+            filter: 'blur(14px)',
+            animation: `fog-bank-a ${durA}s ease-in-out infinite alternate`,
+            opacity: heavy ? 0.85 : 0.6,
+          }}
+        />
+        {/* Bank B: faster mid-height wisps */}
+        <div
+          className="fog-bank"
+          style={{
+            background: `radial-gradient(90% 40% at 60% 65%, ${layer.color} 0%, transparent 70%), radial-gradient(70% 35% at 15% 55%, ${layer.color} 0%, transparent 70%)`,
+            filter: 'blur(22px)',
+            animation: `fog-bank-b ${durB}s ease-in-out infinite alternate`,
+            opacity: heavy ? 0.6 : 0.4,
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className="atmosphere-overlay"

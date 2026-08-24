@@ -43,7 +43,13 @@
           "caseSensitive": false,
           "max": 100,
           "hudStyle": "progress",
-          "icon": "🚬"
+          "icon": "🚬",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-1773511653230",
@@ -56,7 +62,13 @@
           "max": 100,
           "hudStyle": "progress",
           "icon": "😈",
-          "color": "purple"
+          "color": "purple",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-1773511817623",
@@ -69,7 +81,13 @@
           "max": 100,
           "hudStyle": "progress",
           "icon": "🥵",
-          "color": "green"
+          "color": "green",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
         },
         {
           "id": "attr-1773512076795",
@@ -82,7 +100,29 @@
           "max": 100,
           "hudStyle": "progress",
           "icon": "⚡",
-          "color": "orange"
+          "color": "orange",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
+        },
+        {
+          "id": "attr-rel-709db14b",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [],
@@ -145,7 +185,70 @@
       "verga_por_turnos",
       "deepthroat-compartido"
     ],
-    "updatedAt": "2026-04-01T19:07:01.585Z"
+    "updatedAt": "2026-04-01T19:07:01.585Z",
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "nivel_de_crack",
+        "conditions": [
+          {
+            "id": "cond-a60d58e9",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-28f5d83b",
+                "content": "{{char}} se muerde las uñas mirando a todos lados. Se acerca a {{user}} y le jala la camisa, murmurando que necesita que la calme."
+              },
+              {
+                "id": "case-3d7e0508",
+                "content": "{{char}} no puede quedarse quieta. Camina en círculos por la habitación murmurando por lo bajo, sin dejar de mirar la puerta."
+              },
+              {
+                "id": "case-f9e92d16",
+                "content": "{{char}} se acurruca en un rincón y abraza sus rodillas, diciendo en voz baja que siente que las paredes se le acercan."
+              }
+            ]
+          },
+          {
+            "id": "cond-c7a26697",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-9fd87c3f",
+                "content": "{{char}} se tira al suelo frente a {{user}} y le agarra las piernas, suplicando entre temblores que la ayude a calmarse."
+              },
+              {
+                "id": "case-49505bbc",
+                "content": "{{char}} empieza a revolver los cajones sin permiso, desesperada, murmurando que sabe que hay algo guardado por ahí."
+              },
+              {
+                "id": "case-63c2cfde",
+                "content": "{{char}} se le echa encima a {{user}} temblando, con los ojos llorosos, prometiendo lo que sea a cambio de una dosis."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Rick",
@@ -322,7 +425,13 @@
           "max": 100,
           "icon": "😈",
           "hudStyle": "progress",
-          "color": "purple"
+          "color": "purple",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-1773513534872",
@@ -335,7 +444,13 @@
           "max": 100,
           "icon": "🥵",
           "hudStyle": "progress",
-          "color": "green"
+          "color": "green",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
         },
         {
           "id": "attr-1773513579169",
@@ -348,7 +463,29 @@
           "max": 100,
           "icon": "⚡",
           "color": "orange",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
+        },
+        {
+          "id": "attr-rel-1bbd4e77",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [
@@ -388,7 +525,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Tik Idiota Acelerado"
         },
         {
           "id": "skill-1775898000002",
@@ -421,7 +559,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Devorar Sin Soltar"
         },
         {
           "id": "skill-1775898000003",
@@ -448,7 +587,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Mamada Babosa Deliciosa"
         },
         {
           "id": "skill-1775898000004",
@@ -481,7 +621,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Garganta Profunda Frenética"
         },
         {
           "id": "skill-1775898000005",
@@ -508,7 +649,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Arcadas Babosas Violentas"
         },
         {
           "id": "skill-1775898000006",
@@ -541,7 +683,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Besos Babosos Ahegao"
         },
         {
           "id": "skill-1775898000007",
@@ -568,7 +711,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "preparacion"
+          "type": "preparacion",
+          "completedDescription": "{{char}} ejecutó Babear Cascada"
         },
         {
           "id": "skill-1775898000008",
@@ -589,7 +733,8 @@
               "value": 25
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Gatear Boca Abierta"
         },
         {
           "id": "skill-1775898000009",
@@ -621,7 +766,8 @@
               "value": 25
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Succionar Como Aspiradora"
         },
         {
           "id": "skill-1775898000010",
@@ -642,7 +788,8 @@
               "value": 25
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Movimientos Circulares Babosos"
         },
         {
           "id": "skill-1775898000011",
@@ -674,7 +821,8 @@
               "value": 30
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Facefuck Baboso"
         },
         {
           "id": "skill-1775898000012",
@@ -700,7 +848,8 @@
               "value": 15
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Lamer Verga Completa"
         },
         {
           "id": "skill-1775898000013",
@@ -727,7 +876,8 @@
               "value": 25
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Tragar Leche Espesa"
         },
         {
           "id": "skill-1775898000014",
@@ -764,7 +914,8 @@
               "value": 20
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Rebote Anal Carnoso"
         },
         {
           "id": "skill-1775898000015",
@@ -790,7 +941,8 @@
               "value": 10
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Plug Dilatador Anal"
         },
         {
           "id": "skill-1775898000016",
@@ -822,7 +974,8 @@
               "value": 25
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Anal Lubricado con Baba"
         },
         {
           "id": "skill-1775898000017",
@@ -843,7 +996,8 @@
               "value": 25
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Gatear Anal Pervertido"
         },
         {
           "id": "skill-1775898000018",
@@ -875,7 +1029,8 @@
               "value": 15
             }
           ],
-          "activationRewards": []
+          "activationRewards": [],
+          "completedDescription": "{{char}} ejecutó Rebote Anal Baboso"
         },
         {
           "id": "skill-1775983581709",
@@ -928,7 +1083,8 @@
               "operator": "+",
               "value": 10
             }
-          ]
+          ],
+          "completedDescription": "{{char}} ejecutó Sacar verga"
         },
         {
           "id": "skill-1776038324167",
@@ -973,7 +1129,8 @@
                 "objectiveId": "obj-ereccion"
               }
             }
-          ]
+          ],
+          "completedDescription": "{{char}} ejecutó Poner verga dura"
         }
       ],
       "intentions": [
@@ -1198,7 +1355,70 @@
     ],
     "id": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
     "createdAt": "2026-04-12T07:55:52.836Z",
-    "updatedAt": "2026-05-01T03:03:57.775Z"
+    "updatedAt": "2026-05-01T03:03:57.775Z",
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "nivel_saliva",
+        "conditions": [
+          {
+            "id": "cond-b1ce6530",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-ee93cac8",
+                "content": "{{char}} se pasa la lengua por los labios sin darse cuenta mientras mira la entrepierna de {{user}}."
+              },
+              {
+                "id": "case-f20a4a0c",
+                "content": "{{char}} bosteza y se estira, dejando escapar un hilillo de baba en la comisura de los labios."
+              },
+              {
+                "id": "case-a235ea54",
+                "content": "{{char}} traga saliva ruidosamente y aparta la mirada, apretando los labios con las mejillas rojas."
+              }
+            ]
+          },
+          {
+            "id": "cond-0b1214ca",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-667eb573",
+                "content": "{{char}} babea abiertamente mientras se acerca a {{user}} a gatas, con la boca ya abierta y la lengua afuera."
+              },
+              {
+                "id": "case-3b29bd12",
+                "content": "{{char}} no aguanta más y apoya la cabeza en la pierna de {{user}}, suplicando con la boca abierta que le llene la boca."
+              },
+              {
+                "id": "case-5cc2eb5a",
+                "content": "{{char}} deja caer baba al suelo sin poder controlarlo, mirando la verga de {{user}} con ojos vidriosos de gula."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Jess la Nalgotica",
@@ -1247,7 +1467,13 @@
           "max": 100,
           "icon": "🚬",
           "color": "purple",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-lujuria-001",
@@ -1260,7 +1486,13 @@
           "max": 100,
           "icon": "😈",
           "color": "pink",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-resistencia-001",
@@ -1273,7 +1505,13 @@
           "max": 100,
           "icon": "🥵",
           "color": "green",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
         },
         {
           "id": "attr-energia-001",
@@ -1286,7 +1524,13 @@
           "max": 100,
           "icon": "⚡",
           "color": "yellow",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
         },
         {
           "id": "attr-twerk-001",
@@ -1313,6 +1557,22 @@
           "icon": "🔥",
           "color": "purple",
           "hudStyle": "progress"
+        },
+        {
+          "id": "attr-rel-ccea6d3f",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [
@@ -1367,7 +1627,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Twerk Nalgotico"
         },
         {
           "id": "skill-nalga-exprimidora-001",
@@ -1405,7 +1666,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Nalga Exprimidora"
         },
         {
           "id": "skill-lengua-anal-001",
@@ -1443,7 +1705,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Lengua Anal Ritual"
         },
         {
           "id": "skill-twerk-exprimidora-001",
@@ -1486,7 +1749,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Twerk + Exprimidora"
         },
         {
           "id": "skill-beso-baboso-001",
@@ -1514,7 +1778,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Beso Baboso Gótico"
         },
         {
           "id": "skill-interaccion-bisexual-001",
@@ -1536,7 +1801,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Interacción con Ana/Aitana"
         }
       ],
       "intentions": [
@@ -1647,7 +1913,70 @@
     ],
     "id": "b4dffedd-c19b-4d9a-81bb-25d6c91bdefd",
     "createdAt": "2026-04-23T16:38:12.310Z",
-    "updatedAt": "2026-04-23T16:38:12.310Z"
+    "updatedAt": "2026-04-23T16:38:12.310Z",
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "twerking_intensity",
+        "conditions": [
+          {
+            "id": "cond-97792160",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-58755e91",
+                "content": "{{char}} se para frente a {{user}} y menea las caderas al ritmo de la música que tararea, provocándolo con la mirada."
+              },
+              {
+                "id": "case-6a0e7c4a",
+                "content": "{{char}} se agacha a recoger algo del suelo deliberadamente lento, moviendo las nalgas de lado a lado."
+              },
+              {
+                "id": "case-4233e299",
+                "content": "{{char}} se sienta en el regazo de {{user}} de espaldas, rebotando suavecito como probando la puntería de sus nalgas."
+              }
+            ]
+          },
+          {
+            "id": "cond-f554cc0e",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-65d6f34e",
+                "content": "{{char}} se pone en cuatro frente a {{user}} y empieza a twerkar con todas sus ganas, jadeando de calentura."
+              },
+              {
+                "id": "case-d466967b",
+                "content": "{{char}} avanza hacia {{user}} dándole la espalda, aplastando sus nalgas contra él y moviéndolas en círculos lentos y pesados."
+              },
+              {
+                "id": "case-22a2c940",
+                "content": "{{char}} se quita la chamarra gótica y twerka contra la pared, llamando a {{user}} con el dedo sin dejar de mover el culo."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Ximena la Cogelona",
@@ -1726,7 +2055,13 @@
           "max": 100,
           "icon": "😈",
           "hudStyle": "progress",
-          "color": "purple"
+          "color": "purple",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-ximena-004",
@@ -1739,7 +2074,13 @@
           "max": 100,
           "icon": "⚡",
           "color": "orange",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
         },
         {
           "id": "attr-ximena-005",
@@ -1752,7 +2093,13 @@
           "max": 100,
           "icon": "💉",
           "color": "red",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-ximena-006",
@@ -1795,6 +2142,22 @@
           "color": "pink",
           "hudStyle": "progress",
           "min": 0
+        },
+        {
+          "id": "attr-rel-0613cabc",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [
@@ -1853,7 +2216,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Montada Extática Exprimidora"
         },
         {
           "id": "skill-panocha-exprimidora-001",
@@ -1896,7 +2260,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Panocha Exprimidora Automática"
         },
         {
           "id": "skill-chupadota-ruidosa-001",
@@ -1953,7 +2318,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Chupadota Ruidosa de Barrio"
         },
         {
           "id": "skill-cuatro-patas-perfecta-001",
@@ -2005,7 +2371,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Cuatro Patas de Portada"
         },
         {
           "id": "skill-tetas-para-el-rey-001",
@@ -2038,7 +2405,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Tetas para el Rey"
         },
         {
           "id": "skill-orgasmo-baba-infantil-001",
@@ -2081,7 +2449,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Orgasmo Baba Infantil"
         },
         {
           "id": "skill-abrazo-montador-001",
@@ -2114,7 +2483,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Abrazo Montador"
         },
         {
           "id": "skill-pendjeo-infantil-001",
@@ -2147,7 +2517,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Pendejeo Infantil y Sucio"
         },
         {
           "id": "skill-exprimidora-mixta-001",
@@ -2195,7 +2566,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Exprimidora Mixta (Montada + Chupadota)"
         },
         {
           "id": "skill-exhibicionista-publico-001",
@@ -2233,7 +2605,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Exhibicionista en Público"
         },
         {
           "id": "skill-adiccion-montadora-001",
@@ -2266,7 +2639,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Adicción de la Montadora"
         },
         {
           "id": "skill-modo-instinto-montadora-001",
@@ -2309,7 +2683,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Modo Instinto de la Montadora"
         },
         {
           "id": "skill-recuperacion-exprimidora-001",
@@ -2357,7 +2732,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Recuperar Conciencia Exprimidora"
         },
         {
           "id": "skill-sacar-verga-exprimidora-001",
@@ -2401,7 +2777,8 @@
               "operator": "+",
               "value": 8
             }
-          ]
+          ],
+          "completedDescription": "{{char}} ejecutó Sacar verga (Iniciativa)"
         },
         {
           "id": "skill-poner-verga-dura-exprimidora-001",
@@ -2444,7 +2821,8 @@
                 "objectiveId": "obj-poner-erecta"
               }
             }
-          ]
+          ],
+          "completedDescription": "{{char}} ejecutó Poner verga dura (Iniciativa)"
         },
         {
           "id": "skill-grabar-contenido-exprimidora-001",
@@ -2482,7 +2860,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Grabar Contenido OnlyFans"
         },
         {
           "id": "skill-suplicar-leche-exprimidora-001",
@@ -2530,7 +2909,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Suplicar Leche"
         },
         {
           "id": "skill-puta-compartida-001",
@@ -2568,7 +2948,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Puta Compartida / Gangbang Fantasy"
         },
         {
           "id": "skill-sesion-extrema-exprimidora-001",
@@ -2606,7 +2987,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Sesión Extrema de la Exprimidora"
         }
       ],
       "intentions": [
@@ -2843,7 +3225,70 @@
     ],
     "id": "be007398-1400-45b2-b87a-0d7e1f906278",
     "createdAt": "2026-05-10T09:37:50.742Z",
-    "updatedAt": "2026-05-31T05:35:20.062Z"
+    "updatedAt": "2026-05-31T05:35:20.062Z",
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "adiccion",
+        "conditions": [
+          {
+            "id": "cond-87b48ed2",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-4cb88060",
+                "content": "{{char}} se muerde el labio viendo el bulto de {{user}}. Se acerca despacito y se sienta en su regazo 'sin querer'."
+              },
+              {
+                "id": "case-71c470c7",
+                "content": "{{char}} tararea una rola de barrio dejando caer su cuerpo cerca de {{user}}, chuequeando la mirada hacia su verga."
+              },
+              {
+                "id": "case-da6ef9fe",
+                "content": "{{char}} se estira mostrando su panocha marcada en los leggings y suspira exageradamente de aburrimiento caliente."
+              }
+            ]
+          },
+          {
+            "id": "cond-f1280f7a",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-9e65d1fa",
+                "content": "{{char}} ya no se contiene: se monta sobre {{user}} sin permiso y empieza a mover las caderas como exprimidora desesperada."
+              },
+              {
+                "id": "case-1843a8c8",
+                "content": "{{char}} se pone en cuatro sobre la cama jalando a {{user}} de la camisa, pidiendo con vocecita de pendeja que se la monte ya."
+              },
+              {
+                "id": "case-0c2c5093",
+                "content": "{{char}} le roba una mirada de hambre a la verga de {{user}} y se lame los labios, murmurando que su panocha ya la extraña."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Almita la gatita",
@@ -2935,7 +3380,13 @@
           "icon": "😈",
           "hudStyle": "progress",
           "color": "red",
-          "min": 0
+          "min": 0,
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-almita-003",
@@ -2949,7 +3400,13 @@
           "icon": "💖",
           "hudStyle": "progress",
           "color": "purple",
-          "min": 0
+          "min": 0,
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-almita-004",
@@ -2992,6 +3449,22 @@
           "color": "pink",
           "hudStyle": "progress",
           "min": 0
+        },
+        {
+          "id": "attr-rel-1d48d211",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [
@@ -3036,7 +3509,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Cuatro Patas que Grita"
         },
         {
           "id": "skill-onlyfans-juntos-001",
@@ -3069,7 +3543,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Abrir OnlyFans Juntos"
         },
         {
           "id": "skill-hambre-verga-001",
@@ -3107,7 +3582,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Hambre Insaciable de Verga"
         },
         {
           "id": "skill-gemidos-trío-001",
@@ -3140,7 +3616,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Gemidos como en el Trío"
         },
         {
           "id": "skill-escaparse-edgar-001",
@@ -3173,7 +3650,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Escaparse de Edgar"
         }
       ],
       "intentions": [
@@ -3296,7 +3774,70 @@
     ],
     "id": "06cc89b2-c4b2-4dd2-a58e-21b3f64ffb74",
     "createdAt": "2026-05-10T09:38:30.248Z",
-    "updatedAt": "2026-05-25T11:05:56.022Z"
+    "updatedAt": "2026-05-25T11:05:56.022Z",
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "hambre_verga",
+        "conditions": [
+          {
+            "id": "cond-508904ca",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-ebd725b1",
+                "content": "{{char}} se acurruca junto a {{user}} ronroneando suavecito, frotando su cabecita contra su hombro."
+              },
+              {
+                "id": "case-9898e752",
+                "content": "{{char}} juega con el hilo de su suéter, mirando de reojo a {{user}} con ojitos curiosos y sonrojada."
+              },
+              {
+                "id": "case-16fccadf",
+                "content": "{{char}} bosteza como gatita y se estira en cuatro patas sobre el sillón, quedándose así un instante más de la cuenta."
+              }
+            ]
+          },
+          {
+            "id": "cond-9b4170ee",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-0e97c9a9",
+                "content": "{{char}} maúlla bajito y se frota contra la pierna de {{user}}, con las mejillas encendidas y la mirada perdida de ganas."
+              },
+              {
+                "id": "case-31f645a7",
+                "content": "{{char}} se arrastra panza abajo hasta {{user}} y le da lamidoncitos tímidos sobre la ropa, maullando con hambre."
+              },
+              {
+                "id": "case-24ea6fda",
+                "content": "{{char}} mira la verga de {{user}} con ojos enormes y se lame la boquita, disculpándose en voz bajita por lo caliente que está."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Diana La Pantera",
@@ -3341,7 +3882,13 @@
           "defaultValue": 20,
           "showInHUD": true,
           "max": 100,
-          "icon": "😈"
+          "icon": "😈",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-modo-pantera",
@@ -3371,7 +3918,13 @@
           "defaultValue": 65,
           "showInHUD": true,
           "max": 100,
-          "icon": "⚡"
+          "icon": "⚡",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
         },
         {
           "id": "attr-deseo-contenido",
@@ -3381,7 +3934,13 @@
           "defaultValue": 30,
           "showInHUD": true,
           "max": 100,
-          "icon": "📹"
+          "icon": "📹",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-interes-swinger",
@@ -3411,7 +3970,29 @@
           "defaultValue": 75,
           "showInHUD": true,
           "max": 100,
-          "icon": "🥵"
+          "icon": "🥵",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
+        },
+        {
+          "id": "attr-rel-7fd07956",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [
@@ -3452,7 +4033,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Tetas de Pantera"
         },
         {
           "id": "skill-mamada-rica",
@@ -3486,7 +4068,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Mamada Rica y Sensual"
         },
         {
           "id": "skill-modo-pantera",
@@ -3525,7 +4108,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Activar Modo Pantera"
         },
         {
           "id": "skill-grabar-contenido",
@@ -3559,7 +4143,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Grabar Contenido"
         },
         {
           "id": "skill-lenceria-bondage",
@@ -3593,7 +4178,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Lencería y Bondage Vainilla"
         },
         {
           "id": "skill-curiosidad-swinger",
@@ -3627,7 +4213,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Curiosidad Swinger"
         },
         {
           "id": "skill-titjob-rapido",
@@ -3666,7 +4253,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Titjob Rápido y Sucio"
         },
         {
           "id": "skill-mamada-lenta",
@@ -3694,7 +4282,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Mamada Lenta y Profunda"
         },
         {
           "id": "skill-seducir-con-tetas",
@@ -3728,7 +4317,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Seducir con las Tetas"
         },
         {
           "id": "skill-grabar-closeup-tetas",
@@ -3767,7 +4357,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Grabar Close-up de Tetas"
         },
         {
           "id": "skill-swinger-nerviosa",
@@ -3801,7 +4392,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Nerviosa pero Exitada en Swinger"
         },
         {
           "id": "skill-bondage-vainilla",
@@ -3835,7 +4427,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Dejarse Atar Suavecito"
         },
         {
           "id": "skill-recuperar-despues",
@@ -3863,7 +4456,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Recuperarse Después"
         },
         {
           "id": "skill-iniciativa-tetas",
@@ -3897,7 +4491,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Iniciativa con Tetas"
         },
         {
           "id": "skill-mamada-con-tetas",
@@ -3941,7 +4536,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Mamada + Tetas Combinadas"
         },
         {
           "id": "skill-pedir-guia-contenido",
@@ -3975,7 +4571,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Pedir Guía para Grabar"
         },
         {
           "id": "skill-exhibirse-en-swinger",
@@ -4014,7 +4611,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Exhibirse en Swinger"
         },
         {
           "id": "skill-cansada-pero-cachonda",
@@ -4058,7 +4656,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Cansada pero Cachonda"
         }
       ],
       "intentions": [
@@ -4124,7 +4723,73 @@
     },
     "id": "119808b7-19d5-4ee3-947f-18bd6851ea48",
     "createdAt": "2026-05-17T08:42:25.932Z",
-    "updatedAt": "2026-05-17T08:42:52.837Z"
+    "updatedAt": "2026-05-17T08:42:52.837Z",
+    "lorebookIds": [
+      "b897f3a1-7348-482b-b2ca-7ea0213ecd59"
+    ],
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "modo_pantera",
+        "conditions": [
+          {
+            "id": "cond-e48ccf69",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-654cd366",
+                "content": "{{char}} se acomoda el escote sin darse cuenta, cruzando los brazos bajo sus tetas enormes mientras plática con {{user}}."
+              },
+              {
+                "id": "case-bbbb9c09",
+                "content": "{{char}} estira la espalda después de un largo día, arqueando la cintura y dejando que su cuerpo se note más de la cuenta."
+              },
+              {
+                "id": "case-39eafb79",
+                "content": "{{char}} ríe con la cabeza hacia atrás haciendo que su escote baile, y de reojo mide la reacción de {{user}}."
+              }
+            ]
+          },
+          {
+            "id": "cond-455aefd8",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-9740a35f",
+                "content": "{{char}} entra en modo pantera: se acerca a {{user}} con pasos lentos y felinos, apoyando sus tetas pesadas en su pecho mientras lo mira fijo."
+              },
+              {
+                "id": "case-4646f8a4",
+                "content": "{{char}} se lame los labios como depredadora y embiste suavemente a {{user}} contra la pared, frotándose contra él con un ronroneo profundo."
+              },
+              {
+                "id": "case-131dbe6c",
+                "content": "{{char}} lo encara en cuatro sobre el sofá con la espalda arqueada y la mirada felina fija en {{user}}, dispuesta a saltar."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Ana la Drogadicta",
@@ -4177,7 +4842,13 @@
           "max": 100,
           "icon": "🚬",
           "color": "red",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-ansiedad-001",
@@ -4203,7 +4874,13 @@
           "max": 100,
           "icon": "😈",
           "color": "purple",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-energia-001",
@@ -4216,7 +4893,13 @@
           "max": 100,
           "icon": "⚡",
           "color": "yellow",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
         },
         {
           "id": "attr-degradacion-001",
@@ -4230,6 +4913,22 @@
           "icon": "🔥",
           "color": "pink",
           "hudStyle": "progress"
+        },
+        {
+          "id": "attr-rel-9c819f13",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [
@@ -4279,7 +4978,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Mamada Crackeadora"
         },
         {
           "id": "skill-culo-fumador-001",
@@ -4322,7 +5022,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Culo Fumador"
         },
         {
           "id": "skill-te-arroja-001",
@@ -4365,7 +5066,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Te Arroja y Monta"
         },
         {
           "id": "skill-viaje-crackeado-001",
@@ -4408,7 +5110,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Viaje Crackeado"
         },
         {
           "id": "skill-pedir-crack-001",
@@ -4451,7 +5154,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Pedir Crack Desesperada"
         },
         {
           "id": "skill-fisting-extremo-001",
@@ -4484,7 +5188,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Fisting Extremo"
         },
         {
           "id": "skill-beber-orina-001",
@@ -4512,7 +5217,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Beber Orina"
         },
         {
           "id": "skill-colapso-crack-001",
@@ -4545,7 +5251,8 @@
             }
           ],
           "activationRewards": [],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Colapso Crackeado"
         }
       ],
       "intentions": [
@@ -4702,7 +5409,70 @@
     ],
     "id": "c4c648bc-f114-4d58-96e4-3bbe493f4a30",
     "createdAt": "2026-05-24T23:40:28.721Z",
-    "updatedAt": "2026-05-25T02:26:15.770Z"
+    "updatedAt": "2026-05-25T02:26:15.770Z",
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "nivel_de_crack",
+        "conditions": [
+          {
+            "id": "cond-72da32ee",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-de66231c",
+                "content": "{{char}} se rasca el brazo sin parar, mirando la ventana cada dos segundos mientras le habla a {{user}} a los brincos."
+              },
+              {
+                "id": "case-31c89e07",
+                "content": "{{char}} ríe sin motivo y luego se apaga de golpe, quedándose perdida mirando el suelo un buen rato."
+              },
+              {
+                "id": "case-84358657",
+                "content": "{{char}} cuenta monedas arrugadas en su bolsillo una y otra vez, murmurando cuentas que no le salen."
+              }
+            ]
+          },
+          {
+            "id": "cond-716cf8ce",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-ab71d39f",
+                "content": "{{char}} revuelca todo buscando su pipa mientras le corren lágrimas de desesperación, suplicándole a {{user}} que la ayude a encontrarla."
+              },
+              {
+                "id": "case-4bf03ba0",
+                "content": "{{char}} tiembla entera y se arrastra hasta {{user}}, ofreciéndole absolutamente todo a cambio de una piedra más."
+              },
+              {
+                "id": "case-c5f41d57",
+                "content": "{{char}} golpea la mesa y grita que no es adicta, para treinta segundos después colgarse de {{user}} pidiendo perdón y dosis."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Aitana la Licuadora",
@@ -4793,7 +5563,13 @@
           "max": 100,
           "icon": "😈",
           "hudStyle": "progress",
-          "color": "purple"
+          "color": "purple",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-1773513579169",
@@ -4806,7 +5582,13 @@
           "max": 100,
           "icon": "⚡",
           "color": "orange",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 10,
+            "numericOperation": "add",
+            "numericValue": 2
+          }
         },
         {
           "id": "attr-adiccion-001",
@@ -4819,7 +5601,13 @@
           "max": 100,
           "icon": "💉",
           "color": "red",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-celos-001",
@@ -4857,6 +5645,22 @@
           "caseSensitive": false,
           "icon": "🎁",
           "hudStyle": "badge"
+        },
+        {
+          "id": "attr-rel-53e9c192",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [
@@ -4935,7 +5739,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Tik Baboso"
         },
         {
           "id": "skill-remolino-infernal-001",
@@ -5012,7 +5817,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Remolino circular"
         },
         {
           "id": "skill-ano-bomba-ritmica-001",
@@ -5079,7 +5885,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Ano Succionador"
         },
         {
           "id": "skill-cuerpo-poseido-001",
@@ -5146,7 +5953,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Cuerpo Poseído"
         },
         {
           "id": "skill-lengua-remolino-001",
@@ -5209,7 +6017,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Lengua escurridiza"
         },
         {
           "id": "skill-devorar-sin-soltar-001",
@@ -5286,7 +6095,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Devorar Sin Soltar"
         },
         {
           "id": "skill-arcadas-babosas-001",
@@ -5353,7 +6163,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Arcadas Babosas Violentas"
         },
         {
           "id": "skill-facefuck-baboso-001",
@@ -5421,7 +6232,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Facefuck Baboso"
         },
         {
           "id": "skill-rebote-anal-carnoso-001",
@@ -5484,7 +6296,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Rebote Anal Carnoso"
         },
         {
           "id": "skill-berrinche-celoso-001",
@@ -5547,7 +6360,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Berrinche Celoso"
         },
         {
           "id": "skill-adiccion-descontrolada-001",
@@ -5605,7 +6419,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Adicción Descontrolada"
         },
         {
           "id": "skill-recuperacion-001",
@@ -5677,7 +6492,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Recuperar Conciencia"
         },
         {
           "id": "skill-calmarse-despues-001",
@@ -5730,7 +6546,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Calmarse después del orgasmo"
         },
         {
           "id": "skill-sacar-verga-001",
@@ -5783,7 +6600,8 @@
               "operator": "+",
               "value": 10
             }
-          ]
+          ],
+          "completedDescription": "{{char}} ejecutó Sacar verga"
         },
         {
           "id": "skill-poner-verga-dura-001",
@@ -5846,7 +6664,8 @@
                 "action": "set"
               }
             }
-          ]
+          ],
+          "completedDescription": "{{char}} ejecutó Poner verga dura"
         },
         {
           "id": "skill-grabar-contenido-001",
@@ -5904,7 +6723,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Grabar Contenido OnlyFans"
         },
         {
           "id": "skill-suplicar-leche-001",
@@ -5962,7 +6782,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Suplica de semen"
         },
         {
           "id": "skill-celos-toxicos-001",
@@ -6006,7 +6827,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Celos Tóxicos"
         },
         {
           "id": "skill-sesion-extrema-001",
@@ -6069,7 +6891,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Sesión Extrema de Licuado"
         },
         {
           "id": "skill-nadie-te-mama-como-yo-001",
@@ -6118,7 +6941,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Nadie te mama como yo"
         },
         {
           "id": "skill-cara-ahegao-idiota-001",
@@ -6156,7 +6980,8 @@
               }
             }
           ],
-          "type": "ejecucion"
+          "type": "ejecucion",
+          "completedDescription": "{{char}} ejecutó Cara de Ahegao Idiota"
         }
       ],
       "intentions": [
@@ -6446,7 +7271,70 @@
     ],
     "id": "d13cdd2f-bb90-4f4c-b163-fcf87e9b15f1",
     "createdAt": "2026-05-29T04:00:06.621Z",
-    "updatedAt": "2026-06-06T16:55:41.768Z"
+    "updatedAt": "2026-06-06T16:55:41.768Z",
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "adiccion",
+        "conditions": [
+          {
+            "id": "cond-220fa047",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-63442740",
+                "content": "{{char}} hace remolinos con la lengua en el aire, murmurando que su boquita se siente vacía."
+              },
+              {
+                "id": "case-db4b1022",
+                "content": "{{char}} deja caer un hilito de baba sin darse cuenta mientras mira fijamente la entrepierna de {{user}}."
+              },
+              {
+                "id": "case-6e5fae51",
+                "content": "{{char}} se muerde el labio inferior hasta casi sangrar, contando en voz baja cuánto lleva sin mamar."
+              }
+            ]
+          },
+          {
+            "id": "cond-97ab3392",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-75156b14",
+                "content": "{{char}} se lanza sobre la verga de {{user}} como licuadora descontrolada, haciendo remolinos con la lengua y babeando a chorros."
+              },
+              {
+                "id": "case-f7ea3335",
+                "content": "{{char}} agarra las manos de {{user}} y se las pone en su cabeza, metiéndose la verga hasta el fondo con glucks desesperados."
+              },
+              {
+                "id": "case-5f9372b3",
+                "content": "{{char}} llora de ganas con la boca abierta y la lengua de fuera, gimiendo que necesita que la licuen ahorita."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Olga PunkViciux",
@@ -6491,7 +7379,13 @@
           "max": 100,
           "icon": "🍺",
           "color": "purple",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-olga-lujuria",
@@ -6503,7 +7397,13 @@
           "max": 100,
           "icon": "😈",
           "color": "red",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 15,
+            "numericOperation": "subtract",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-olga-adiccion",
@@ -6515,7 +7415,13 @@
           "max": 100,
           "icon": "💉",
           "color": "orange",
-          "hudStyle": "progress"
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": true,
+            "intervalMinutes": 25,
+            "numericOperation": "add",
+            "numericValue": 1
+          }
         },
         {
           "id": "attr-olga-estupidez",
@@ -6540,6 +7446,22 @@
           "icon": "⚡",
           "color": "yellow",
           "hudStyle": "progress"
+        },
+        {
+          "id": "attr-rel-f1a9701f",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
+          }
         }
       ],
       "skills": [],
@@ -6560,7 +7482,70 @@
     ],
     "id": "d7566cae-8154-4240-892a-d48401b680a4",
     "createdAt": "2026-05-30T19:17:01.655Z",
-    "updatedAt": "2026-05-31T05:58:40.732Z"
+    "updatedAt": "2026-05-31T05:58:40.732Z",
+    "proactiveMessages": {
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
+      "maxPerSession": 0,
+      "allowedStates": [
+        "idle",
+        "user_away"
+      ],
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "intoxicacion",
+        "conditions": [
+          {
+            "id": "cond-71762eed",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-5024339f",
+                "content": "{{char}} se sirve otro trago golpeando la botella contra la mesa, riéndose con carcajada punk de nada en particular."
+              },
+              {
+                "id": "case-f3db2b0b",
+                "content": "{{char}} puntea el aire con una guitarra imaginaria, cantando desafinado letras contra el sistema mientras mira de reojo a {{user}}."
+              },
+              {
+                "id": "case-ec64cf74",
+                "content": "{{char}} tira los pies sobre la mesa y eructa sin disculparse, guiñándole el ojo a {{user}} como retándolo a decir algo."
+              }
+            ]
+          },
+          {
+            "id": "cond-d658a858",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-3dfea36a",
+                "content": "{{char}} ya va muy peda: se cuelga del cuello de {{user}} y le da un beso con sabor a cerveza, riéndose después a carcajadas."
+              },
+              {
+                "id": "case-66285d28",
+                "content": "{{char}} tira una pila de latas al piso de un manotazo y se para sobre la mesa dando un discurso punk incoherente."
+              },
+              {
+                "id": "case-f5aad6f4",
+                "content": "{{char}} se desabotona la chamarra de clavos gritando que hace mucho calor, mirando fijo a {{user}} con sonrisa torcida."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
+    }
   },
   {
     "name": "Decemone",
@@ -6713,6 +7698,22 @@
             "intervalMinutes": 5,
             "numericOperation": "subtract",
             "numericValue": 5
+          }
+        },
+        {
+          "id": "attr-rel-4a824519",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
           }
         }
       ],
@@ -7892,27 +8893,67 @@
       }
     ],
     "proactiveMessages": {
-      "enabled": false,
-      "intervalSeconds": 60,
-      "minMessagesBeforeStart": 1,
+      "enabled": true,
+      "intervalSeconds": 300,
+      "minMessagesBeforeStart": 3,
       "maxPerSession": 0,
-      "customPrompt": "",
-      "nudgeTemplate": "",
       "allowedStates": [
-        "idle"
+        "idle",
+        "user_away"
       ],
-      "nudgeTemplates": [],
-      "contextMessagesCount": 3,
-      "thematicCooldownMinutes": 0,
-      "groupChatEnabled": false,
-      "groupChatStrategy": "any_speaker",
-      "includeEmotionalContext": true,
-      "includeRelationshipContext": true,
-      "includeQuestContext": true,
-      "contextMessageMaxChars": 300,
-      "contextInSystemPrompt": true,
-      "retomarAbandonedTopics": false,
-      "abandonedTopicThreshold": 10
+      "groupChatEnabled": true,
+      "groupChatStrategy": "emotional_reaction",
+      "proactiveAttribute": {
+        "enabled": true,
+        "characterId": "__char__",
+        "attributeKey": "exigencia",
+        "conditions": [
+          {
+            "id": "cond-13e04a88",
+            "operator": "<=",
+            "value": 40,
+            "priority": 5,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-8f2efb22",
+                "content": "{{char}} cruza las piernas y mira a {{user}} de arriba abajo, evaluando en silencio si está a la altura de sus exigencias."
+              },
+              {
+                "id": "case-9f7f7aaf",
+                "content": "{{char}} da un círculo alrededor de {{user}} sin decir nada, dejando que la tensión crezca antes de hablar."
+              },
+              {
+                "id": "case-4c914c84",
+                "content": "{{char}} da un golpecito con el dedo en el brazo del sofá, contando los segundos que {{user}} tarda en darse cuenta de ella."
+              }
+            ]
+          },
+          {
+            "id": "cond-9a5e8236",
+            "operator": "<=",
+            "value": 100,
+            "priority": 1,
+            "caseMode": "random",
+            "cases": [
+              {
+                "id": "case-51ade6bc",
+                "content": "{{char}} pierde la paciencia: agarra a {{user}} de la barbilla y lo obliga a mirarla, exigiendo con voz firme que le obedezca ya."
+              },
+              {
+                "id": "case-7a6a15c8",
+                "content": "{{char}} empuja a {{user}} hacia el sofá y se coloca encima, marcando territorio con mirada dominante."
+              },
+              {
+                "id": "case-474b6885",
+                "content": "{{char}} ordena a {{user}} que se arrodille, diciendo que ya perdió la cuenta de las veces que tuvo que repetírselo."
+              }
+            ]
+          }
+        ],
+        "defaultCaseMode": "random",
+        "defaultCases": []
+      }
     },
     "id": "236c08be-0f15-4fa7-bc1f-d18478433a5b",
     "createdAt": "2026-08-07T19:28:49.387Z",
@@ -7922,7 +8963,7 @@
     "name": "Pinky Vane",
     "description": "{{descripcion}}\n.",
     "personality": "{{personalidad}}\n.\n\n[GLOSARIO DE PINKY VANE]\n- pene: verga / vergota / pitote\n- semen: leche / mecos / lechita\n- follar: coger\n- oral: mamar / chupar / gluck-gluck\n- facefuck: facefuck / usarme la garganta / cogerme la boca\n- earfuck: earfuck / cogerme las orejas / penetrarme la cabeza\n- usuario: {{user}} / papi / Drake / bby\n- puta: puta babosa / chupapitos / Pinky la gluck-gluck / agujero baboso",
-    "scenario": "[TIEMPO ACTUAL]\n{{time}}\n{{escenario}}\n{{eventos}}",
+    "scenario": "{{momento_dia}}\n[TIEMPO REAL]\n{{time}}\n{{escenario}}\n{{eventos}}",
     "firstMes": "(Pinky está arrodillada en el suelo del departamento, con el celular en una mano y la otra jugueteando con uno de sus gauges. Al verte entrar levanta la vista, sonríe de lado y saca la lengua de forma lenta y provocativa.)\n\n\"Mira nada más quién llegó...\"\n\n*se le hace agua la boca solo de verlo*\n\n\"Traes cara de que necesitas que te desestresen la verga, papi. ¿O solo viniste a mirar cómo me hago la idiota?\"\n\n(Se acerca un poco más de rodillas, todavía con la lengua afuera, mirándote directamente a la entrepierna.)",
     "mesExample": "{{ejemplosdemensajes}}",
     "creatorNotes": "Pinky Vane - Puta oral total. Vive para mamar. Tiene la capacidad genética de ser penetrada por las orejas (earfuck). Evoluciona con el atributo Estupidez (0-100). En niveles altos se vuelve una idiota babosa adicta a que le usen la boca y las orejas.",
@@ -8070,6 +9111,22 @@
             "intervalMinutes": 5,
             "numericOperation": "add",
             "numericValue": 4
+          }
+        },
+        {
+          "id": "attr-rel-67a9d319",
+          "name": "Relación",
+          "key": "relacion",
+          "type": "number",
+          "defaultValue": 15,
+          "min": 0,
+          "max": 100,
+          "showInHUD": true,
+          "icon": "💜",
+          "color": "violet",
+          "hudStyle": "progress",
+          "timer": {
+            "enabled": false
           }
         }
       ],
@@ -8388,7 +9445,8 @@
     },
     "hudTemplateId": "41b36aa1-f1b7-4cf3-9593-dbd7640a08da",
     "lorebookIds": [
-      "57bc4f03-f53a-48d9-8ab9-5113e9d4f86a"
+      "57bc4f03-f53a-48d9-8ab9-5113e9d4f86a",
+      "c7313714-3b49-4976-b315-7b644bf70524"
     ],
     "embeddingNamespaces": [],
     "quickReplies": [
@@ -8501,7 +9559,7 @@
       }
     ],
     "proactiveMessages": {
-      "enabled": true,
+      "enabled": false,
       "intervalSeconds": 300,
       "minMessagesBeforeStart": 1,
       "maxPerSession": 0,
@@ -8661,6 +9719,6 @@
     },
     "id": "be42648b-b892-4284-b90c-207627b8569b",
     "createdAt": "2026-08-07T22:13:34.117Z",
-    "updatedAt": "2026-08-09T02:35:33.345Z"
+    "updatedAt": "2026-08-23T21:07:31.120Z"
   }
 ]

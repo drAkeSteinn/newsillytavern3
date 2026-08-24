@@ -4,6 +4,7 @@
 
 import type { LLMConfig, ChatApiMessage, GenerateResponse } from '../types';
 import type { ToolDefinition } from '@/lib/tools/types';
+import { toJSONSchemaParameters } from '@/lib/tools/tool-registry';
 import type { AnthropicToolState } from '@/lib/tools/parsers/native-parser';
 import {
   createAnthropicToolState,
@@ -117,7 +118,8 @@ export async function* streamAnthropicWithTools(
   const anthropicTools = tools.map(t => ({
     name: t.name,
     description: t.description,
-    input_schema: t.parameters,
+    // Strict JSON Schema: type:'enum' → 'string'+enum[], per-property 'required' stripped
+    input_schema: toJSONSchemaParameters(t.parameters),
   }));
 
   console.log(`[Anthropic+Tools] Streaming with ${anthropicTools.length} tools`);

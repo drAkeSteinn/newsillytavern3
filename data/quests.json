@@ -2,10 +2,9 @@
   "quests": [],
   "questSettings": {
     "enabled": true,
-    "autoTrack": true,
-    "showNotifications": true,
     "autoDetect": true,
     "realtimeEnabled": true,
+    "showNotifications": true,
     "showCompletedInLog": true,
     "maxActiveQuests": 10,
     "promptInclude": true,
@@ -18,7 +17,8 @@
     "objectiveCompletionPrefix": "Objetivo",
     "notificationDedupEnabled": true,
     "notificationDedupWindowMs": 30000,
-    "notificationAutoDismissMs": 5000
+    "notificationAutoDismissMs": 5000,
+    "autoTrack": true
   },
   "questNotifications": [
     {

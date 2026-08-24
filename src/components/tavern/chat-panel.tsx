@@ -11,13 +11,20 @@ import { useBackgroundTriggers } from '@/hooks/use-background-triggers';
 import { useTTS, useTTSAutoGeneration } from '@/hooks/use-tts';
 import { useTimelineSpriteSounds } from '@/hooks/use-timeline-sprite-sounds';
 import { useProactiveMessages } from '@/hooks/use-proactive-messages';
+import { useDirector } from '@/hooks/use-director';
+import { useAutoAtmosphere } from '@/hooks/use-auto-atmosphere';
+import { parseTextActions } from '@/lib/tools/text-actions';
+import { rollD20, statToModifier, DIFFICULTY_DC, OUTCOME_LABELS } from '@/lib/tools/tools/skill-check';
 import { GroupSprites } from './group-sprites';
 import { HUDDisplay } from './hud-display';
 import { QuestNotifications } from './quest-notifications';
 import { InventoryHUD } from '@/components/inventory/inventory-hud';
 import { TTSFloatingIndicator } from './tts-playback-controls';
 import { ComicSoundOverlay } from './comic-sound-overlay';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Clapperboard, Heart } from 'lucide-react';
+import { RelationshipPanel } from './relationship-panel';
+import { SceneDock } from './scene-dock';
+import { OnboardingHints, type OnboardingHintDef } from './onboarding-hints';
 import type { CharacterCard, SummaryData, ChatMessage, CharacterMemory, MicroReaction } from '@/types';
 import { generateMicroReactions } from '@/lib/micro-reactions';
 import { EmbeddingsContextContainer } from '@/components/embeddings/embeddings-context-indicator';
@@ -73,6 +80,7 @@ export function ChatPanel() {
   const activeOverlayFront = useTavernStore((state) => state.activeOverlayFront);
   const personas = useTavernStore((state) => state.personas);
   const activePersonaId = useTavernStore((state) => state.activePersonaId);
+  const setWorldTime = useTavernStore((state: any) => state.setWorldTime);
   const hudTemplates = useTavernStore((state) => state.hudTemplates);
   const hudSessionState = useTavernStore((state) => state.hudSessionState);
   const setActiveHUD = useTavernStore((state) => state.setActiveHUD);
@@ -206,6 +214,7 @@ export function ChatPanel() {
   
   // Get derived values from subscribed state
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const worldClock = (activeSession as { sessionStats?: { worldClock?: import('@/lib/world/time').WorldClock } } | undefined)?.sessionStats?.worldClock ?? null;
   const activeCharacter = characters.find((c) => c.id === activeCharacterId);
   const activeGroup = groups.find((g) => g.id === activeGroupId);
   const activePersona = personas.find((p) => p.id === activePersonaId);
@@ -346,7 +355,127 @@ export function ChatPanel() {
       setStreamingCharacter(null);
     }, []),
   });
-  
+
+  // ============================================
+  // DIRECTOR AGENT (drama manager)
+  // Runs after each turn / while idle. Applies world events,
+  // group scene rotations and tension telemetry.
+  // ============================================
+  const { triggerNow: triggerDirectorNow } = useDirector(activeSessionId);
+
+  // Relationships visual panel (bond graph)
+  const [showRelationships, setShowRelationships] = useState(false);
+
+  // Scene mode (chatbox collapse controlled from the SceneDock)
+  const [isSceneMode, setIsSceneMode] = useState(false);
+
+  // Auto atmosphere: scene lighting follows the world clock's day moment (opt-in)
+  useAutoAtmosphere(worldClock);
+
+  // First-use onboarding hints (only for features present in this context)
+  const onboardingHints = useMemo<OnboardingHintDef[]>(() => {
+    const hints: OnboardingHintDef[] = [];
+    hints.push({ key: 'reloj-mundo', text: '🕐 El reloj del mundo avanza con cada turno. Clic en el chip 🕐 del chat para configurar saltos, estaciones y atmósfera automática.' });
+    hints.push({ key: 'relaciones', text: '💜 El chip morado junto al nombre muestra tu vínculo con el personaje. Clic para ver el grafo de relaciones completo.' });
+    hints.push({ key: 'director', text: '🎬 El Director (icono de claqueta) genera eventos del mundo y rota la escena para mantener viva la sesión.' });
+    hints.push({ key: 'text-actions', text: '🎲 El narrador puede tirar dados escribiendo [check:stat:hard] y cambiar vínculos con [rel:+10 motivo] — funcionan sin tool calling.' });
+    hints.push({ key: 'modo-escena', text: '👁️ Modo escena: colapsa el chat desde el dock lateral (🖥️) para ver el sprite y el fondo a pantalla completa.' });
+    return hints;
+  }, []);
+
+  // ============================================
+  // TEXT ACTIONS — NO tool-calling required
+  // Scans finished assistant messages for [check:...] [rel:...] [tiempo:...]
+  // tokens and executes them through the same store actions the tools use.
+  // Catches every path: send, group, regenerate, proactive, replay.
+  // ============================================
+  const processedTextActionIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!activeSessionId || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant' || !last.content) return;
+    if (processedTextActionIdsRef.current.has(last.id)) return;
+    processedTextActionIdsRef.current.add(last.id);
+
+    const content = last.content || '';
+    if (!/\[(check|rel|tiempo):/i.test(content)) return;
+
+    const speakerId = last.characterId as string | undefined;
+    const speakerName = speakerId
+      ? characters.find(c => c.id === speakerId)?.name || activeCharacter?.name
+      : activeCharacter?.name;
+
+    (async () => {
+      const { toast } = await import('sonner');
+      const store = useTavernStore.getState();
+      const session = (store.sessions as Array<{ id: string; sessionStats?: import('@/types').SessionStats }>)?.find(s => s.id === activeSessionId);
+      const stats = session?.sessionStats;
+      const actions = parseTextActions(content);
+
+      for (const action of actions) {
+        try {
+          if (action.kind === 'check') {
+            const userVal = stats?.characterStats?.['__user__']?.attributeValues?.[action.stat];
+            const charVal = speakerId ? stats?.characterStats?.[speakerId]?.attributeValues?.[action.stat] : undefined;
+            const raw = userVal ?? charVal;
+            const statNum = typeof raw === 'string' ? parseFloat(raw) : typeof raw === 'number' ? raw : NaN;
+            const modifier = statToModifier(Number.isFinite(statNum) ? statNum : null);
+            const dc = DIFFICULTY_DC[action.difficulty] ?? (parseInt(action.difficulty, 10) || DIFFICULTY_DC.medium);
+            const roll = rollD20();
+            const total = roll + modifier;
+            const outcome = roll === 20 ? 'critical_success'
+              : roll === 1 ? 'critical_failure'
+              : total >= dc ? 'success'
+              : total >= dc - 2 ? 'partial'
+              : 'failure';
+            const label = OUTCOME_LABELS[outcome];
+            const who = speakerName || 'Usuario';
+            store.pushSessionEvent?.(activeSessionId, {
+              type: 'skill_check',
+              description: `${who} — tirada de ${action.stat}: ${label} (${total} vs CD ${dc})`,
+              characterId: speakerId,
+              characterName: speakerName,
+            });
+            const icon = outcome === 'critical_success' ? '🎲✨' : outcome === 'critical_failure' ? '🎲💥' : '🎲';
+            toast.info(`${icon} ${label}: d20(${roll})${modifier >= 0 ? '+' : ''}${modifier} = ${total} vs CD ${dc}`);
+          } else if (action.kind === 'rel') {
+            let bId = '__user__';
+            let bName: string | undefined;
+            if (action.target) {
+              const found = (store.characters as Array<{ id: string; name: string }>)?.find(c =>
+                c.name?.toLowerCase() === action.target!.toLowerCase() ||
+                c.name?.toLowerCase()?.split(' ')[0] === action.target!.toLowerCase());
+              if (found) { bId = found.id; bName = found.name; }
+            }
+            const aId = speakerId || '__user__';
+            if (aId !== bId) {
+              const result = store.updateRelationship?.(activeSessionId, aId, bId, {
+                ...(action.op === '=' ? { set: action.value } : { delta: action.op === '+' ? action.value : -action.value }),
+                reason: action.reason,
+              }, { aName: speakerName, bName });
+              if (result) {
+                toast.success(`💜 ${speakerName || '?'} ↔ ${bName || 'Usuario'}: ${result.stageLabel} (${result.points}/100)`);
+              }
+            }
+          } else if (action.kind === 'tiempo') {
+            if (action.mode === 'advance' && action.minutes && action.minutes > 0) {
+              store.setWorldTime?.(activeSessionId, { minutes: action.minutes });
+              toast.info(`🕐 El tiempo avanza ${action.minutes >= 60 ? `${Math.round(action.minutes / 60)}h` : `${action.minutes}m`}`);
+            } else if (action.mode === 'hour' && typeof action.hour === 'number') {
+              store.setWorldTime?.(activeSessionId, { hour: action.hour, minute: action.minute });
+              toast.info(`🕐 El tiempo salta a las ${String(action.hour).padStart(2, '0')}:${String(action.minute || 0).padStart(2, '0')}`);
+            } else if (action.mode === 'season' && action.season) {
+              store.setWorldTime?.(activeSessionId, { season: action.season });
+              toast.info(`🕐 Estación: ${action.season}`);
+            }
+          }
+        } catch (err) {
+          console.warn('[TextActions] action failed:', err);
+        }
+      }
+    })();
+  }, [messages, activeSessionId, characters, activeCharacter]);
+
   // Track current streaming message key for triggers
   const streamingMessageKeyRef = useRef<string>('');
 
@@ -904,6 +1033,79 @@ export function ChatPanel() {
                     parsed.skillCompletedDescription || '',
                   );
                   toast.success(`⚔️ Acción: ${parsed.skillName}`);
+                } else if (parsed.type === 'scene_activation') {
+                  // Scene change (enter/leave/focus) triggered by manage_scene tool - execute on client side
+                  console.log('[ChatPanel] Scene activation from tool:', parsed.toolName, parsed.action, parsed.characterName, 'present:', parsed.present);
+                  const store = useTavernStore.getState();
+                  const sceneSession = (store.sessions as Array<{ id: string; groupId?: string }>)?.find(s => s.id === activeSessionId);
+                  if (sceneSession?.groupId) {
+                    if (parsed.activationType === 'scene_change') {
+                      store.applySceneChange?.(sceneSession.groupId, parsed.characterId, !!parsed.present);
+                    }
+                    const eventType = parsed.action === 'enter' ? 'scene_enter'
+                      : parsed.action === 'leave' ? 'scene_leave'
+                      : 'scene_focus';
+                    const defaultDesc = parsed.action === 'enter'
+                      ? `${parsed.characterName} entró a la escena`
+                      : parsed.action === 'leave'
+                        ? `${parsed.characterName} salió de la escena`
+                        : `La atención se centra en ${parsed.characterName}`;
+                    store.pushSessionEvent?.(activeSessionId, {
+                      type: eventType,
+                      description: parsed.narrative || defaultDesc,
+                      characterId: parsed.characterId,
+                      characterName: parsed.characterName,
+                    });
+                    const icon = parsed.action === 'enter' ? '🚪➡️' : parsed.action === 'leave' ? '🚪⬅️' : '🎭';
+                    const byTxt = parsed.byCharacterName && parsed.byCharacterName !== parsed.characterName ? ` (por ${parsed.byCharacterName})` : '';
+                    toast.success(`${icon} ${parsed.characterName} ${parsed.action === 'enter' ? 'entró a' : parsed.action === 'leave' ? 'salió de' : 'es el foco de'} la escena${byTxt}`);
+                  }
+                } else if (parsed.type === 'relationship_activation') {
+                  // Relationship bond changed via manage_relationship tool - execute on client side
+                  console.log('[ChatPanel] Relationship activation from tool:', parsed.toolName, parsed.aName, '↔', parsed.bName, parsed.prevPoints, '→', parsed.newPoints);
+                  const store = useTavernStore.getState();
+                  const relResult = store.updateRelationship?.(
+                    activeSessionId,
+                    parsed.aId,
+                    parsed.bId,
+                    {
+                      set: parsed.newPoints,
+                      reason: parsed.reason || undefined,
+                    },
+                    { aName: parsed.aName, bName: parsed.bName },
+                  );
+                  if (relResult) {
+                    const up = (parsed.newPoints ?? 0) > (parsed.prevPoints ?? 0);
+                    toast.success(`💜 ${parsed.aName} ↔ ${parsed.bName}: ${relResult.stageLabel} (${parsed.newPoints}/100) ${up ? '▲' : '▼'}`);
+                  }
+                } else if (parsed.type === 'check_activation') {
+                  // Dice check resolved via skill_check tool - log event + toast
+                  console.log('[ChatPanel] Check activation from tool:', parsed.toolName, parsed.statName, parsed.total, 'vs', parsed.dc, '→', parsed.outcome);
+                  const store = useTavernStore.getState();
+                  const who = parsed.characterName || 'Usuario';
+                  const attempt = parsed.narrative || `tirada de ${parsed.statName || 'habilidad'}`;
+                  store.pushSessionEvent?.(activeSessionId, {
+                    type: 'skill_check',
+                    description: `${who} intentó ${attempt}: ${parsed.outcomeLabel} (${parsed.total} vs CD ${parsed.dc})`,
+                    characterId: parsed.characterId,
+                    characterName: parsed.characterName,
+                  });
+                  const icon = parsed.outcome === 'critical_success' ? '🎲✨' : parsed.outcome === 'critical_failure' ? '🎲💥' : '🎲';
+                  toast.info(`${icon} ${parsed.outcomeLabel}: ${parsed.total} vs CD ${parsed.dc}`);
+                } else if (parsed.type === 'time_activation') {
+                  // World time changed via manage_time tool - execute on client side
+                  console.log('[ChatPanel] Time activation from tool:', parsed.toolName, parsed.activationType, parsed.minutes || parsed.hour || parsed.season);
+                  const store = useTavernStore.getState();
+                  if (parsed.activationType === 'advance' && typeof parsed.minutes === 'number') {
+                    store.setWorldTime?.(activeSessionId, { minutes: parsed.minutes });
+                    toast.info(`🕐 El tiempo avanza ${parsed.minutes >= 60 ? `${Math.round(parsed.minutes / 60)}h` : `${parsed.minutes}m`}`);
+                  } else if (parsed.activationType === 'set_hour' && typeof parsed.hour === 'number') {
+                    store.setWorldTime?.(activeSessionId, { hour: parsed.hour, minute: parsed.minute });
+                    toast.info(`🕐 El tiempo salta a las ${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute || 0).padStart(2, '0')}`);
+                  } else if (parsed.activationType === 'set_season' && parsed.season) {
+                    store.setWorldTime?.(activeSessionId, { season: parsed.season });
+                    toast.info(`🕐 Estación: ${parsed.season}`);
+                  }
                 } else if (parsed.type === 'stat_activation') {
                   // Stat modified by tool - execute on client side
                   console.log('[ChatPanel] Stat activation from tool:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue);
@@ -1634,6 +1836,79 @@ export function ChatPanel() {
                     parsed.skillCompletedDescription || '',
                   );
                   toast.success(`⚔️ Acción: ${parsed.skillName}`);
+                } else if (parsed.type === 'scene_activation') {
+                  // Scene change (enter/leave/focus) triggered by manage_scene tool - execute on client side
+                  console.log('[ChatPanel] Scene activation from tool:', parsed.toolName, parsed.action, parsed.characterName, 'present:', parsed.present);
+                  const store = useTavernStore.getState();
+                  const sceneSession = (store.sessions as Array<{ id: string; groupId?: string }>)?.find(s => s.id === activeSessionId);
+                  if (sceneSession?.groupId) {
+                    if (parsed.activationType === 'scene_change') {
+                      store.applySceneChange?.(sceneSession.groupId, parsed.characterId, !!parsed.present);
+                    }
+                    const eventType = parsed.action === 'enter' ? 'scene_enter'
+                      : parsed.action === 'leave' ? 'scene_leave'
+                      : 'scene_focus';
+                    const defaultDesc = parsed.action === 'enter'
+                      ? `${parsed.characterName} entró a la escena`
+                      : parsed.action === 'leave'
+                        ? `${parsed.characterName} salió de la escena`
+                        : `La atención se centra en ${parsed.characterName}`;
+                    store.pushSessionEvent?.(activeSessionId, {
+                      type: eventType,
+                      description: parsed.narrative || defaultDesc,
+                      characterId: parsed.characterId,
+                      characterName: parsed.characterName,
+                    });
+                    const icon = parsed.action === 'enter' ? '🚪➡️' : parsed.action === 'leave' ? '🚪⬅️' : '🎭';
+                    const byTxt = parsed.byCharacterName && parsed.byCharacterName !== parsed.characterName ? ` (por ${parsed.byCharacterName})` : '';
+                    toast.success(`${icon} ${parsed.characterName} ${parsed.action === 'enter' ? 'entró a' : parsed.action === 'leave' ? 'salió de' : 'es el foco de'} la escena${byTxt}`);
+                  }
+                } else if (parsed.type === 'relationship_activation') {
+                  // Relationship bond changed via manage_relationship tool - execute on client side
+                  console.log('[ChatPanel] Relationship activation from tool:', parsed.toolName, parsed.aName, '↔', parsed.bName, parsed.prevPoints, '→', parsed.newPoints);
+                  const store = useTavernStore.getState();
+                  const relResult = store.updateRelationship?.(
+                    activeSessionId,
+                    parsed.aId,
+                    parsed.bId,
+                    {
+                      set: parsed.newPoints,
+                      reason: parsed.reason || undefined,
+                    },
+                    { aName: parsed.aName, bName: parsed.bName },
+                  );
+                  if (relResult) {
+                    const up = (parsed.newPoints ?? 0) > (parsed.prevPoints ?? 0);
+                    toast.success(`💜 ${parsed.aName} ↔ ${parsed.bName}: ${relResult.stageLabel} (${parsed.newPoints}/100) ${up ? '▲' : '▼'}`);
+                  }
+                } else if (parsed.type === 'check_activation') {
+                  // Dice check resolved via skill_check tool - log event + toast
+                  console.log('[ChatPanel] Check activation from tool:', parsed.toolName, parsed.statName, parsed.total, 'vs', parsed.dc, '→', parsed.outcome);
+                  const store = useTavernStore.getState();
+                  const who = parsed.characterName || 'Usuario';
+                  const attempt = parsed.narrative || `tirada de ${parsed.statName || 'habilidad'}`;
+                  store.pushSessionEvent?.(activeSessionId, {
+                    type: 'skill_check',
+                    description: `${who} intentó ${attempt}: ${parsed.outcomeLabel} (${parsed.total} vs CD ${parsed.dc})`,
+                    characterId: parsed.characterId,
+                    characterName: parsed.characterName,
+                  });
+                  const icon = parsed.outcome === 'critical_success' ? '🎲✨' : parsed.outcome === 'critical_failure' ? '🎲💥' : '🎲';
+                  toast.info(`${icon} ${parsed.outcomeLabel}: ${parsed.total} vs CD ${parsed.dc}`);
+                } else if (parsed.type === 'time_activation') {
+                  // World time changed via manage_time tool - execute on client side
+                  console.log('[ChatPanel] Time activation from tool:', parsed.toolName, parsed.activationType, parsed.minutes || parsed.hour || parsed.season);
+                  const store = useTavernStore.getState();
+                  if (parsed.activationType === 'advance' && typeof parsed.minutes === 'number') {
+                    store.setWorldTime?.(activeSessionId, { minutes: parsed.minutes });
+                    toast.info(`🕐 El tiempo avanza ${parsed.minutes >= 60 ? `${Math.round(parsed.minutes / 60)}h` : `${parsed.minutes}m`}`);
+                  } else if (parsed.activationType === 'set_hour' && typeof parsed.hour === 'number') {
+                    store.setWorldTime?.(activeSessionId, { hour: parsed.hour, minute: parsed.minute });
+                    toast.info(`🕐 El tiempo salta a las ${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute || 0).padStart(2, '0')}`);
+                  } else if (parsed.activationType === 'set_season' && parsed.season) {
+                    store.setWorldTime?.(activeSessionId, { season: parsed.season });
+                    toast.info(`🕐 Estación: ${parsed.season}`);
+                  }
                 } else if (parsed.type === 'stat_activation') {
                   // Stat modified by tool - execute on client side
                   console.log('[ChatPanel] Stat activation from tool:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue);
@@ -2764,55 +3039,18 @@ export function ChatPanel() {
         <HUDDisplay />
       )}
 
-      {/* Proactive Messages Indicator - inline above chatbox */}
-      {isProactiveConfigured && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30">
-          {isProactiveActive ? (
-            <button
-              type="button"
-              onClick={triggerProactiveNow}
-              disabled={isGeneratingProactive}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 text-amber-300 text-xs shadow-lg backdrop-blur-sm border border-amber-500/30 hover:bg-amber-500/30 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              title="Clic para enviar mensaje proactivo ahora"
-            >
-              {isGeneratingProactive ? (
-                <>
-                  <div className="w-3 h-3 border-2 border-amber-300/30 border-t-amber-300 rounded-full animate-spin" />
-                  <span className="font-medium">Generando mensaje...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3 w-3" />
-                  <span className="font-medium">Proactivo</span>
-                  {proactiveNextIn !== null && proactiveNextIn > 0 && (
-                    <span className="opacity-70 tabular-nums">
-                      {proactiveNextIn >= 60
-                        ? `${Math.floor(proactiveNextIn / 60)}:${String(proactiveNextIn % 60).padStart(2, '0')}`
-                        : `${proactiveNextIn}s`
-                      }
-                    </span>
-                  )}
-                  {proactiveNextIn !== null && proactiveNextIn === 0 && (
-                    <span className="opacity-80">● Listo</span>
-                  )}
-                </>
-              )}
-            </button>
-          ) : (
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-300/50 text-xs backdrop-blur-sm border border-amber-500/15"
-            >
-              <Sparkles className="h-3 w-3" />
-              <span>Proactivo</span>
-              <span className="opacity-70">
-                {proactiveInactiveReason === 'no_session' && '— Inicia un chat'}
-                {proactiveInactiveReason === 'no_llm' && '— Configura un LLM'}
-                {proactiveInactiveReason === 'group_chat' && '— Activa proactividad grupal'}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Scene Dock — desktop utility rail (atmosphere / sound / HUD / scene mode) */}
+      <div className="absolute top-1/2 -translate-y-1/2 right-3 z-30 hidden lg:block pointer-events-none">
+        <SceneDock
+          isSceneMode={isSceneMode}
+          onToggleSceneMode={() => setIsSceneMode(!isSceneMode)}
+        />
+      </div>
+
+      {/* Onboarding hints (one at a time, first use only) */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+        <OnboardingHints hints={onboardingHints} />
+      </div>
 
       {/* Floating Chat Box */}
       <NovelChatBox
@@ -2849,6 +3087,19 @@ export function ChatPanel() {
         ttsPlaying={isTTSPlaying}
         memoryExtracting={memoryExtractingInfo.active}
         sessionId={activeSessionId}
+        onOpenRelationships={() => setShowRelationships(true)}
+        onRunDirector={() => { triggerDirectorNow?.(); }}
+        worldClock={worldClock}
+        onSetWorldTime={(updates) => { setWorldTime?.(activeSessionId || '', updates); }}
+        isSceneMode={isSceneMode}
+        onSceneModeChange={setIsSceneMode}
+      />
+
+      {/* Relationships bond graph panel */}
+      <RelationshipPanel
+        open={showRelationships}
+        onOpenChange={setShowRelationships}
+        activeSession={activeSession}
       />
 
       {/* Quest Notifications */}

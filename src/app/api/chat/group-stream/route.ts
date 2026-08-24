@@ -353,6 +353,7 @@ async function executeGroupToolCalls(
   allCharacters?: CharacterCard[],
   characterMemory?: CharacterMemory,
   lorebooks?: Lorebook[],
+  group?: CharacterGroup,
 ): Promise<{ results: string; shouldContinue: boolean; questActivations: QuestActivation[]; toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> }> {
   if (toolCalls.length === 0) {
     return { results: '', shouldContinue: false, questActivations: [], toolsUsed: [] };
@@ -395,6 +396,8 @@ async function executeGroupToolCalls(
         allCharacters,
         characterMemory,
         lorebooks,
+        groupId: group?.id,
+        groupMembers: group?.members,
       },
     );
 
@@ -429,6 +432,81 @@ async function executeGroupToolCalls(
         activationCosts: action.activationCosts,
         activationRewards: action.activationRewards,
         characterId: action.characterId,
+      }));
+    }
+
+    // Check for scene activation (enter/leave/focus) and send SSE event
+    if (toolResult.sceneActivation) {
+      const scene = toolResult.sceneActivation;
+      console.log(`[GroupStream-Tools] Scene activation from ${tc.name}:`, scene.action, scene.characterName, 'present:', scene.present);
+
+      controller.enqueue(createSSEJSON({
+        type: 'scene_activation',
+        toolName: tc.name,
+        activationType: scene.type,
+        action: scene.action,
+        characterId: scene.characterId,
+        characterName: scene.characterName,
+        byCharacterId: scene.byCharacterId,
+        byCharacterName: scene.byCharacterName,
+        present: scene.present,
+        narrative: scene.narrative,
+      }));
+    }
+
+    // Check for relationship activation and send SSE event
+    if (toolResult.relationshipActivation) {
+      const rel = toolResult.relationshipActivation;
+      console.log(`[GroupStream-Tools] Relationship activation from ${tc.name}:`, rel.aName, '↔', rel.bName, rel.prevPoints, '→', rel.newPoints);
+
+      controller.enqueue(createSSEJSON({
+        type: 'relationship_activation',
+        toolName: tc.name,
+        aId: rel.aId,
+        aName: rel.aName,
+        bId: rel.bId,
+        bName: rel.bName,
+        prevPoints: rel.prevPoints,
+        newPoints: rel.newPoints,
+        reason: rel.reason,
+      }));
+    }
+
+    // Check for world-time activation and send SSE event
+    if (toolResult.timeActivation) {
+      const timeAct = toolResult.timeActivation;
+      console.log(`[GroupStream-Tools] Time activation from ${tc.name}:`, timeAct.type, timeAct.minutes || timeAct.hour || timeAct.season);
+
+      controller.enqueue(createSSEJSON({
+        type: 'time_activation',
+        toolName: tc.name,
+        activationType: timeAct.type,
+        minutes: timeAct.minutes,
+        hour: timeAct.hour,
+        minute: timeAct.minute,
+        season: timeAct.season,
+      }));
+    }
+
+    // Check for skill check activation and send SSE event
+    if (toolResult.checkActivation) {
+      const check = toolResult.checkActivation;
+      console.log(`[GroupStream-Tools] Skill check from ${tc.name}:`, check.statName, `${check.roll}${check.modifier >= 0 ? '+' : ''}${check.modifier}=${check.total} vs CD ${check.dc} → ${check.outcome}`);
+
+      controller.enqueue(createSSEJSON({
+        type: 'check_activation',
+        toolName: tc.name,
+        characterId: check.characterId,
+        characterName: check.characterName,
+        statName: check.statName,
+        statValue: check.statValue,
+        roll: check.roll,
+        modifier: check.modifier,
+        dc: check.dc,
+        total: check.total,
+        outcome: check.outcome,
+        outcomeLabel: check.outcomeLabel,
+        narrative: check.narrative,
       }));
     }
 
@@ -1222,7 +1300,8 @@ export async function POST(request: NextRequest) {
                         zaiAccumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                       allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1295,7 +1374,8 @@ export async function POST(request: NextRequest) {
                         accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                       allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1346,7 +1426,8 @@ export async function POST(request: NextRequest) {
                           nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                         if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
                         if (shouldContinue) {
@@ -1429,7 +1510,8 @@ export async function POST(request: NextRequest) {
                           toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                         allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1474,7 +1556,8 @@ export async function POST(request: NextRequest) {
                           nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                         allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1554,7 +1637,8 @@ export async function POST(request: NextRequest) {
                         accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                       allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1602,7 +1686,8 @@ export async function POST(request: NextRequest) {
                           nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                         allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1694,7 +1779,8 @@ export async function POST(request: NextRequest) {
                         accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                       allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1739,7 +1825,8 @@ export async function POST(request: NextRequest) {
                           })), charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                         allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1815,7 +1902,8 @@ export async function POST(request: NextRequest) {
                         accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
                         responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
-                        lorebooks
+                        lorebooks,
+                        group
                       );
                       allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
@@ -1913,6 +2001,46 @@ export async function POST(request: NextRequest) {
                 promptSections: allPromptSections,
                 isNarrator: isResponderNarrator
               }));
+
+              // ========================================
+              // Character-to-Character Mentions (dialogue A ↔ B)
+              // If this character's response mentions another ELIGIBLE group member
+              // (active, present, not narrator, not the speaker, not already in the
+              // queue), append them to the responder queue so they can reply in the
+              // SAME turn. This enables real character↔character conversations that
+              // don't go through the user. Capped by maxResponsesPerTurn (except for
+              // the 'all' strategy where everyone responds anyway).
+              // ========================================
+              if (!isResponderNarrator && cleanedContent && group.activationStrategy !== 'all') {
+                try {
+                  const maxResponses = group.maxResponsesPerTurn ?? 3;
+                  const queuedOrDone = new Set<string>(responders.map(r => r.id));
+                  let nonNarratorCount = responders.filter(r => {
+                    const m = (group.members || []).find(mm => mm.characterId === r.id);
+                    return !m?.isNarrator;
+                  }).length;
+
+                  const charMentions = detectMentions(cleanedContent, characters, group);
+                  for (const mention of charMentions) {
+                    if (mention.characterId === responder.id) continue;          // self-mention
+                    if (queuedOrDone.has(mention.characterId)) continue;          // already queued/done
+                    if (nonNarratorCount >= maxResponses) break;                  // per-turn cap
+
+                    const member = (group.members || []).find(m => m.characterId === mention.characterId);
+                    if (!member || !member.isActive || member.isPresent === false || member.isNarrator) continue;
+
+                    const mentionedChar = characters.find(c => c.id === mention.characterId);
+                    if (!mentionedChar) continue;
+
+                    responders.push(mentionedChar);
+                    queuedOrDone.add(mention.characterId);
+                    nonNarratorCount += 1;
+                    console.log(`[GroupStream] ${responder.name} mencionó a ${mentionedChar.name} en su respuesta → se agrega a la cola del turno (mención personaje→personaje)`);
+                  }
+                } catch (mentionErr) {
+                  console.warn('[GroupStream] Character-to-character mention detection failed:', mentionErr);
+                }
+              }
 
             } catch (charError) {
               // Send character_error event but continue with other characters
