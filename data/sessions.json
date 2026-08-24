@@ -2405,7 +2405,7 @@
       }
     ],
     "createdAt": "2026-08-07T22:14:18.140Z",
-    "updatedAt": "2026-08-24T07:29:13.082Z",
+    "updatedAt": "2026-08-24T09:38:24.431Z",
     "sessionStats": {
       "characterStats": {
         "be42648b-b892-4284-b90c-207627b8569b": {
@@ -2417,319 +2417,13 @@
             "resistencia_garganta": 100
           },
           "lastUpdated": {
-            "estupidez": 1787550304007,
-            "lujuria": 1787556553021,
-            "adiccion_oral": 1787550304046,
-            "adiccion_orejas": 1787550304066,
-            "resistencia_garganta": 1787556553052
+            "estupidez": 1787564064492,
+            "lujuria": 1787564064512,
+            "adiccion_oral": 1787564064537,
+            "adiccion_orejas": 1787564064554,
+            "resistencia_garganta": 1787564304418
           },
           "changeLog": [
-            {
-              "attributeId": "attr-pinky-adiccion-oral",
-              "attributeKey": "adiccion_oral",
-              "attributeName": "Adicción Oral",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787501483322
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-orejas",
-              "attributeKey": "adiccion_orejas",
-              "attributeName": "Adicción a Orejas",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787501483377
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787501483417
-            },
-            {
-              "attributeId": "attr-pinky-estupidez",
-              "attributeKey": "estupidez",
-              "attributeName": "Estupidez",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787501509399
-            },
-            {
-              "attributeId": "attr-pinky-lujuria",
-              "attributeKey": "lujuria",
-              "attributeName": "Lujuria",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787501509421
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-oral",
-              "attributeKey": "adiccion_oral",
-              "attributeName": "Adicción Oral",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787501509440
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-orejas",
-              "attributeKey": "adiccion_orejas",
-              "attributeName": "Adicción a Orejas",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787501509477
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787501509496
-            },
-            {
-              "attributeId": "attr-pinky-estupidez",
-              "attributeKey": "estupidez",
-              "attributeName": "Estupidez",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787518949219
-            },
-            {
-              "attributeId": "attr-pinky-lujuria",
-              "attributeKey": "lujuria",
-              "attributeName": "Lujuria",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787518949241
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-oral",
-              "attributeKey": "adiccion_oral",
-              "attributeName": "Adicción Oral",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787518949289
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-orejas",
-              "attributeKey": "adiccion_orejas",
-              "attributeName": "Adicción a Orejas",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787518949367
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787518949432
-            },
-            {
-              "attributeId": "attr-pinky-lujuria",
-              "attributeKey": "lujuria",
-              "attributeName": "Lujuria",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787519203949
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-oral",
-              "attributeKey": "adiccion_oral",
-              "attributeName": "Adicción Oral",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787519203967
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-orejas",
-              "attributeKey": "adiccion_orejas",
-              "attributeName": "Adicción a Orejas",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787519203984
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787519204002
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787519542948
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787519844489
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787520114595
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787520402159
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787520749487
-            },
-            {
-              "attributeId": "attr-pinky-estupidez",
-              "attributeKey": "estupidez",
-              "attributeName": "Estupidez",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787526588148
-            },
-            {
-              "attributeId": "attr-pinky-lujuria",
-              "attributeKey": "lujuria",
-              "attributeName": "Lujuria",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787526588170
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-oral",
-              "attributeKey": "adiccion_oral",
-              "attributeName": "Adicción Oral",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787526588205
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-orejas",
-              "attributeKey": "adiccion_orejas",
-              "attributeName": "Adicción a Orejas",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787526588232
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787526588253
-            },
-            {
-              "attributeId": "attr-pinky-estupidez",
-              "attributeKey": "estupidez",
-              "attributeName": "Estupidez",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787528106307
-            },
-            {
-              "attributeId": "attr-pinky-lujuria",
-              "attributeKey": "lujuria",
-              "attributeName": "Lujuria",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787528106324
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-oral",
-              "attributeKey": "adiccion_oral",
-              "attributeName": "Adicción Oral",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787528106343
-            },
-            {
-              "attributeId": "attr-pinky-adiccion-orejas",
-              "attributeKey": "adiccion_orejas",
-              "attributeName": "Adicción a Orejas",
-              "oldValue": 0,
-              "newValue": 0,
-              "reason": "timer",
-              "timestamp": 1787528106361
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787528106379
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787528412317
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787528698315
-            },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
               "attributeKey": "resistencia_garganta",
@@ -3028,13 +2722,94 @@
               "timestamp": 1787537420962
             },
             {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787537732017
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787537995007
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787538295023
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787538595020
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787538895013
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787539195011
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787539495012
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787539795016
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787540095037
+            },
+            {
               "attributeId": "attr-pinky-estupidez",
               "attributeKey": "estupidez",
               "attributeName": "Estupidez",
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787550304007
+              "timestamp": 1787550920605
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3043,7 +2818,7 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787550304028
+              "timestamp": 1787550920631
             },
             {
               "attributeId": "attr-pinky-adiccion-oral",
@@ -3052,7 +2827,7 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787550304046
+              "timestamp": 1787550920652
             },
             {
               "attributeId": "attr-pinky-adiccion-orejas",
@@ -3061,7 +2836,7 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787550304066
+              "timestamp": 1787550920677
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3070,7 +2845,7 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787550304083
+              "timestamp": 1787550920700
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3079,7 +2854,7 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787550604005
+              "timestamp": 1787551228138
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3088,79 +2863,16 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787550904005
+              "timestamp": 1787551528137
             },
             {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
+              "attributeId": "attr-pinky-estupidez",
+              "attributeKey": "estupidez",
+              "attributeName": "Estupidez",
+              "oldValue": 0,
+              "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787551195011
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787551495011
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787551803031
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787552095016
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787552395018
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787552695011
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787552995018
-            },
-            {
-              "attributeId": "attr-pinky-resistencia-garganta",
-              "attributeKey": "resistencia_garganta",
-              "attributeName": "Resistencia de Garganta",
-              "oldValue": 100,
-              "newValue": 100,
-              "reason": "timer",
-              "timestamp": 1787553315013
+              "timestamp": 1787552312215
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3169,7 +2881,25 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787553673016
+              "timestamp": 1787552312325
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787552312402
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787552312469
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3178,7 +2908,16 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787553673034
+              "timestamp": 1787552312533
+            },
+            {
+              "attributeId": "attr-pinky-estupidez",
+              "attributeKey": "estupidez",
+              "attributeName": "Estupidez",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787554892934
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3187,7 +2926,25 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787554033019
+              "timestamp": 1787554892948
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787554892966
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787554892986
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3196,7 +2953,7 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787554033037
+              "timestamp": 1787554893003
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3205,7 +2962,25 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787554393025
+              "timestamp": 1787555157270
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787555157302
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787555157327
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3214,7 +2989,25 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787554393041
+              "timestamp": 1787555157353
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787555480672
+            },
+            {
+              "attributeId": "attr-pinky-estupidez",
+              "attributeKey": "estupidez",
+              "attributeName": "Estupidez",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787555973298
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3223,7 +3016,25 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787554753021
+              "timestamp": 1787555973409
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787555973531
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787555973638
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3232,7 +3043,16 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787554753039
+              "timestamp": 1787555973778
+            },
+            {
+              "attributeId": "attr-pinky-estupidez",
+              "attributeKey": "estupidez",
+              "attributeName": "Estupidez",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787556618660
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3241,7 +3061,25 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787555113029
+              "timestamp": 1787556618679
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787556618717
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787556618729
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3250,7 +3088,7 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787555113044
+              "timestamp": 1787556618745
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3259,7 +3097,7 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787555473024
+              "timestamp": 1787556887899
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3268,7 +3106,7 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787555473040
+              "timestamp": 1787556887984
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3277,7 +3115,25 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787555833014
+              "timestamp": 1787557316370
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787557316389
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787557316406
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3286,7 +3142,7 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787555833035
+              "timestamp": 1787557316422
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3295,7 +3151,25 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787556193020
+              "timestamp": 1787557726392
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787557726402
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787557726417
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3304,7 +3178,16 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787556193033
+              "timestamp": 1787557726430
+            },
+            {
+              "attributeId": "attr-pinky-estupidez",
+              "attributeKey": "estupidez",
+              "attributeName": "Estupidez",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787560871116
             },
             {
               "attributeId": "attr-pinky-lujuria",
@@ -3313,7 +3196,25 @@
               "oldValue": 0,
               "newValue": 0,
               "reason": "timer",
-              "timestamp": 1787556553021
+              "timestamp": 1787560871139
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787560871161
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787560871182
             },
             {
               "attributeId": "attr-pinky-resistencia-garganta",
@@ -3322,7 +3223,106 @@
               "oldValue": 100,
               "newValue": 100,
               "reason": "timer",
-              "timestamp": 1787556553052
+              "timestamp": 1787560871226
+            },
+            {
+              "attributeId": "attr-pinky-estupidez",
+              "attributeKey": "estupidez",
+              "attributeName": "Estupidez",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787563304283
+            },
+            {
+              "attributeId": "attr-pinky-lujuria",
+              "attributeKey": "lujuria",
+              "attributeName": "Lujuria",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787563304336
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787563304399
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787563304470
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787563304505
+            },
+            {
+              "attributeId": "attr-pinky-estupidez",
+              "attributeKey": "estupidez",
+              "attributeName": "Estupidez",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787564064492
+            },
+            {
+              "attributeId": "attr-pinky-lujuria",
+              "attributeKey": "lujuria",
+              "attributeName": "Lujuria",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787564064512
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-oral",
+              "attributeKey": "adiccion_oral",
+              "attributeName": "Adicción Oral",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787564064537
+            },
+            {
+              "attributeId": "attr-pinky-adiccion-orejas",
+              "attributeKey": "adiccion_orejas",
+              "attributeName": "Adicción a Orejas",
+              "oldValue": 0,
+              "newValue": 0,
+              "reason": "timer",
+              "timestamp": 1787564064554
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787564064571
+            },
+            {
+              "attributeId": "attr-pinky-resistencia-garganta",
+              "attributeKey": "resistencia_garganta",
+              "attributeName": "Resistencia de Garganta",
+              "oldValue": 100,
+              "newValue": 100,
+              "reason": "timer",
+              "timestamp": 1787564304418
             }
           ]
         },
@@ -3359,8 +3359,8 @@
         "lastModified": 1786242221010
       },
       "initialized": true,
-      "lastModified": 1787556553082,
-      "lastTimerUpdate": 1787556521010,
+      "lastModified": 1787564304431,
+      "lastTimerUpdate": 1787564261010,
       "keywordCycleIndex": {},
       "ultima_accion_realizada": "Pinky hizo un gluck-gluck extremo hasta la base",
       "ultima_accion_character": "Pinky Vane"

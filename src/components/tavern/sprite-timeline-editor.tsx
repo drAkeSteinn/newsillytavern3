@@ -79,6 +79,7 @@ import {
   Plus,
   Crosshair,
   X,
+  Ruler,
 } from 'lucide-react';
 import { useTavernStore } from '@/store/tavern-store';
 import { useToast } from '@/hooks/use-toast';
@@ -90,11 +91,17 @@ import {
   trackVideo,
   trackAnimatedImage,
   trackingToHapticPosition,
+  trackingToHapticPositionsCombined,
+  computeVerticalPosition,
+  computeHorizontalPosition,
   simplifyKeyframesRDP,
   RDP_TOLERANCES,
   createRangeRemapper,
+  densifyTrajectoryCatmullRom,
+  catmullRomPathD,
+  DEFAULT_GUIDES,
 } from '@/lib/sprites/tracker';
-import type { RDPToleranceKey } from '@/lib/sprites/tracker';
+import type { RDPToleranceKey, MovementRange, TrackingGuides } from '@/lib/sprites/tracker';
 import type { TrackingMapMode, TrackingKeyframeValue, TimelineKeyframe } from '@/types';
 
 // Audio cache for preloading sounds
@@ -296,15 +303,37 @@ export function SpriteTimelineEditor() {
   const [trackingMapMode, setTrackingMapMode] = useState<TrackingMapMode>('combined');
   // Keyframe optimization tolerance applied when converting tracking → haptic
   const [rdpTolerance, setRdpTolerance] = useState<RDPToleranceKey>('balanced');
+  // Movement range: how far the tracker is willing to look between frames.
+  // 'small' = precise/slow motion; 'medium' default; 'large' = fast/wide strokes.
+  const [movementRange, setMovementRange] = useState<MovementRange>('medium');
 
   // Haptic output range: the tracked curve's lowest/highest peaks remap to
   // these positions (0-100). Scales the device stroke without editing the curve.
   const [hapticRangeMin, setHapticRangeMin] = useState(0);
   const [hapticRangeMax, setHapticRangeMax] = useState(100);
 
+  // Reference guides on the sprite preview: define the active region for
+  // tracking conversion. With guides ENABLED, the trajectory's position is
+  // computed relative to the guide limits (topY → 100 = up, bottomY → 0 =
+  // down, leftX → 0, rightX → 100) — no auto-normalization, the curve lands
+  // where the motion actually took it inside the guides. With guides
+  // DISABLED, conversion auto-normalizes (curve min → effMin, max → effMax).
+  const [guides, setGuides] = useState<TrackingGuides>(DEFAULT_GUIDES);
+
   // Scrub-follow: after tracking, the red marker walks the stored trajectory
   // as the user moves the playhead (for fine inspection before →HSP).
   const [followTrackId, setFollowTrackId] = useState<string | null>(null);
+
+  // "Latest ref" for handleAddTrackingPoint — used by the red-point drag
+  // handler's `onMouseUp` callback. The drag handler is created inside the
+  // onMouseDown event (a fresh closure each time), but it captures state at
+  // mousedown time. By the time the user releases the mouse, the React state
+  // has been updated by every mousemove (setTrackPoint), but the onUp closure
+  // still references the OLD handleAddTrackingPoint. This ref always points
+  // to the latest version so onUp applies the FINAL drag position to the
+  // currently-selected tracking keyframe (requirement: "mueve en el preview
+  // → crea o actualiza el keyframe").
+  const handleAddTrackingPointRef = useRef<(trackId: string) => void>(() => {});
 
 
   // Dispose decoder on unmount
@@ -354,15 +383,40 @@ export function SpriteTimelineEditor() {
     };
   }, [selectedSprite?.url, selectedSprite?.format]);
 
-  // ── SCRUB-FOLLOW: red marker walks the tracked trajectory ──
-  // After a tracking run (followTrackId set), moving the playhead positions
-  // the marker at the tracked point for that time (linear interpolation
-  // between the two surrounding keyframes). Lets the user verify the track
-  // frame by frame and place the playhead exactly where they want to adjust
-  // before converting to haptic.
+  // ── SCRUB-FOLLOW + PLAYBACK-FOLLOW: red marker walks the tracked trajectory ──
+  // When a tracking track is "active" the red marker walks its trajectory:
+  //   - On manual scrub (playhead drag): live inspection of the tracked path.
+  //   - DURING PLAYBACK: the marker follows the tracked point as the sprite
+  //     animates — the user sees the tracking point move in lockstep with the
+  //     animation, which is exactly what the user asked for ("al reproducir
+  //     el sprite con el boton de Play deberia verse como se mueve el track
+  //     point segun la pista de tracking").
+  // The marker is rendered non-interactive during playback so the user can't
+  // drag it while it's auto-following (see the preview marker JSX below).
+  //
+  // Active track resolution (in priority order):
+  //   1. followTrackId — set after auto-tracking OR after a manual-point drag
+  //      (the latter is re-enabled in the drag's onMouseUp). User clears it
+  //      by double-clicking the red point ("remove marker + exit follow").
+  //   2. The selected track, if it's a tracking track with keyframes — lets
+  //      playback follow the tracking track the user is currently editing
+  //      even if no auto-run has happened (e.g. all-manual trajectories).
+  //   3. The first tracking track with keyframes — last-resort fallback so
+  //      Play ALWAYS moves the marker if any tracking data exists.
   useEffect(() => {
-    if (!selectedSprite || !followTrackId || trackingBusy || isPlaying) return;
-    const track = selectedSprite.timeline.tracks.find(t => t.id === followTrackId && t.type === 'tracking');
+    if (!selectedSprite || trackingBusy) return;
+
+    // Pick the active tracking track (priority order — see comment above).
+    let track: TimelineTrack | undefined;
+    if (followTrackId) {
+      track = selectedSprite.timeline.tracks.find(t => t.id === followTrackId && t.type === 'tracking');
+    }
+    if (!track && selectedTrack?.type === 'tracking' && selectedTrack.keyframes.length > 0) {
+      track = selectedTrack;
+    }
+    if (!track) {
+      track = selectedSprite.timeline.tracks.find(t => t.type === 'tracking' && t.keyframes.length > 0);
+    }
     if (!track || track.keyframes.length === 0) return;
 
     const kfs = track.keyframes.slice().sort((a, b) => a.time - b.time);
@@ -392,7 +446,7 @@ export function SpriteTimelineEditor() {
       x: ta.x + (tb.x - ta.x) * ratio,
       y: ta.y + (tb.y - ta.y) * ratio,
     });
-  }, [playbackTime, followTrackId, trackingBusy, isPlaying, selectedSprite]);
+  }, [playbackTime, followTrackId, trackingBusy, selectedSprite, selectedTrack]);
 
 
   // Find selected keyframe across ALL tracks (not just selectedTrack),
@@ -1515,6 +1569,7 @@ export function SpriteTimelineEditor() {
           // so no orphan keyframes are left past the end.
           durationMs: Number.POSITIVE_INFINITY,
           sampleEveryMs: 100,
+          movementRange,
           onProgress: setTrackingProgress,
           onSample: moveMarker,
         });
@@ -1534,6 +1589,7 @@ export function SpriteTimelineEditor() {
             // No duration limit: track every frame, then extend the timeline
             // to cover the animation (fixes "keys sueltos" beyond the end).
             durationMs: Number.POSITIVE_INFINITY,
+            movementRange,
             onProgress: setTrackingProgress,
             onSample: moveMarker,
           },
@@ -1617,52 +1673,141 @@ export function SpriteTimelineEditor() {
   };
 
   // ── TRACKING → HAPTIC: convert a tracking track to haptic keyframes ──
+  //
+  // Two regimes, handled automatically based on the source trajectory's
+  // density:
+  //
+  //   DENSE  (auto-tracking, ≥ SPARSE_THRESHOLD samples): apply Ramer-Douglas-
+  //   Peucker simplification with the selected tolerance. RDP keeps every
+  //   extreme and direction change, collapses only collinear/redundant points
+  //   → a minimal set whose curve stays within ±epsilon of the original.
+  //
+  //   SPARSE (manual tracking, < SPARSE_THRESHOLD samples): the user placed
+  //   every point by hand — none are redundant. RDP would still keep them all
+  //   (they all deviate from any line), but the device's linear interpolation
+  //   between so few points looks angular. We instead DENSIFY the trajectory
+  //   with Catmull-Rom spline samples inserted between every pair of manual
+  //   points so the device receives a smooth curve that passes exactly through
+  //   every manual anchor.
+  //
+  // Both regimes apply the same output-scale remap (effMin–effMax) BEFORE
+  // the regime-specific step so the curve shape is preserved through scaling.
+  // The remap ALWAYS runs: the trajectory's lowest peak → effMin and highest
+  // peak → effMax, regardless of the scale values (this means the default
+  // 0-100 scale fully normalizes the curve to fill the device range).
+  const SPARSE_THRESHOLD = 12;
+
   const handleTrackingToHaptic = (sourceTrackId: string) => {
     if (!selectedSprite) return;
     const source = selectedSprite.timeline.tracks.find(t => t.id === sourceTrackId);
     if (!source || source.type !== 'tracking' || source.keyframes.length === 0) return;
 
-    // Convert each sample via the selected mapping mode
-    const mappedAll = source.keyframes
+    // Convert each tracked sample to a haptic position. Two paths:
+    //   - 'combined' mode: use trackingToHapticPositionsCombined — the new
+    //     delta-sum rule (item 3): baseline = first keyframe's vertical
+    //     position; each subsequent keyframe adds (deltaV - deltaH) so the
+    //     horizontal delta SUMS to the vertical axis (right=down → negative
+    //     contribution; left=up → positive contribution). Naturally reduces
+    //     to vertical-only when deltaH=0, and to "left=up/right=down" when
+    //     deltaV=0 (item 4).
+    //   - 'y' / 'x' modes: single-point mapping (each keyframe independent).
+    // In both paths, guides (if enabled) define the absolute reference
+    // (topY→100=up, bottomY→0=down) instead of using the full sprite range.
+    const validKfs = source.keyframes
       .filter(kf => !(kf.value as TrackingKeyframeValue).lost)
-      .map((kf) => {
+      .sort((a, b) => a.time - b.time);
+
+    if (validKfs.length === 0) {
+      toast({ title: 'Pocos puntos', description: 'El tracking no tiene frames confiables (todos lost).', variant: 'destructive' });
+      return;
+    }
+
+    let mappedAll: Array<{ kf: typeof validKfs[number]; time: number; position: number }>;
+    if (trackingMapMode === 'combined') {
+      // Delta-sum: needs the whole trajectory at once. Map points →
+      // positions array, then zip with keyframes.
+      const points = validKfs.map(kf => {
+        const tv = kf.value as TrackingKeyframeValue;
+        return { x: tv.x, y: tv.y, time: kf.time };
+      });
+      const positions = trackingToHapticPositionsCombined(points, guides);
+      mappedAll = validKfs.map((kf, i) => ({
+        kf,
+        time: kf.time,
+        position: positions[i] ?? 0,
+      }));
+    } else {
+      // Single-point mapping (y or x mode).
+      mappedAll = validKfs.map(kf => {
         const tv = kf.value as TrackingKeyframeValue;
         return {
           kf,
-          position: trackingToHapticPosition(tv.x, tv.y, trackingMapMode),
+          time: kf.time,
+          position: trackingToHapticPosition(tv.x, tv.y, trackingMapMode, guides),
         };
-      })
-      .sort((a, b) => a.kf.time - b.kf.time);
+      });
+    }
 
-    // OUTPUT SCALE (range remap): the trajectory's lowest/highest peaks are
-    // remapped to [rangeMin, rangeMax] — compresses or expands the device
-    // stroke WITHOUT modifying the tracked curve. E.g. min 10 / max 80 turns
-    // a full 0-100 sweep into a 10-80 stroke.
+    // OUTPUT SCALE (range remap): the trajectory's peaks map to [effMin, effMax].
+    //   - With GUIDES enabled (item 2): the positions are already absolute
+    //     (relative to the guide limits), so the source range is [0, 100].
+    //     The curve lands where the motion actually took it inside the
+    //     guides — NOT auto-normalized to fill the device range.
+    //   - Without guides: auto-normalize so the curve's lowest peak → effMin
+    //     and highest peak → effMax (the curve fills the configured range).
+    // The remap is applied BEFORE the regime-specific step (sparse densify /
+    // dense simplify) so the curve shape is preserved through scaling.
     const rMin = Math.max(0, Math.min(100, Number.isFinite(hapticRangeMin) ? hapticRangeMin : 0));
     const rMax = Math.max(0, Math.min(100, Number.isFinite(hapticRangeMax) ? hapticRangeMax : 100));
     const effMin = Math.min(rMin, rMax);
     const effMax = Math.max(rMin, rMax);
-    let scaledAll = mappedAll;
-    if (effMin !== 0 || effMax !== 100) {
-      let pMin = Infinity, pMax = -Infinity;
+
+    let srcMin: number, srcMax: number;
+    if (guides.enabled) {
+      // Absolute reference: guides define where 0% and 100% of the device
+      // stroke are on the sprite. Positions are in [0, 100] already.
+      srcMin = 0;
+      srcMax = 100;
+    } else {
+      // Auto-normalize: lowest peak → effMin, highest → effMax.
+      srcMin = Infinity;
+      srcMax = -Infinity;
       for (const m of mappedAll) {
-        if (m.position < pMin) pMin = m.position;
-        if (m.position > pMax) pMax = m.position;
+        if (m.position < srcMin) srcMin = m.position;
+        if (m.position > srcMax) srcMax = m.position;
       }
-      const remap = createRangeRemapper(pMin, pMax, effMin, effMax);
-      scaledAll = mappedAll.map(m => ({ ...m, position: Math.round(remap(m.position)) }));
+    }
+    const remap = createRangeRemapper(srcMin, srcMax, effMin, effMax);
+    const scaledAll = mappedAll.map(m => ({ ...m, position: Math.round(remap(m.position)) }));
+
+    // REGIME DETECTION: sparse (manual) vs dense (auto).
+    const isSparse = scaledAll.length < SPARSE_THRESHOLD;
+
+    // REGIME-SPECIFIC PROCESSING
+    let processed: typeof scaledAll;
+    let regimeLabel: string;
+    if (isSparse) {
+      // SPARSE: densify via Catmull-Rom spline. Every original manual point
+      // is preserved; intermediate samples are inserted between pairs so the
+      // device's linear interpolation looks like a smooth curve through the
+      // manual anchors (instead of N-1 straight segments).
+      processed = densifyTrajectoryCatmullRom(scaledAll, (m) => m.position, 50);
+      regimeLabel = `denso Catmull-Rom (${scaledAll.length}→${processed.length})`;
+    } else {
+      // DENSE: Ramer-Douglas-Peucker simplification. Collapse redundant
+      // collinear samples (e.g. 1 kf/frame) into the minimal set whose
+      // curve stays within ±epsilon of the original. Extremes and direction
+      // changes are always preserved.
+      const epsilon = RDP_TOLERANCES[rdpTolerance];
+      processed = simplifyKeyframesRDP(scaledAll, (m) => m.position, epsilon);
+      regimeLabel = `RDP ±${epsilon} (${scaledAll.length}→${processed.length})`;
     }
 
-    // OPTIMIZATION (Ramer-Douglas-Peucker): collapse dense tracking samples
-    // (e.g. 1 keyframe per frame) into the minimal set of keyframes whose
-    // curve stays within ±tolerance of the original. Extremes and direction
-    // changes are always preserved — only redundant collinear points drop.
-    const epsilon = RDP_TOLERANCES[rdpTolerance];
-    const simplified = simplifyKeyframesRDP(scaledAll, (m) => m.position, epsilon);
-
-    const hapticKeyframes: TimelineKeyframe[] = simplified.map((m) => ({
-      id: crypto.randomUUID ? crypto.randomUUID() : `kf_${Date.now()}_${m.kf.time}`,
-      time: m.kf.time,
+    const hapticKeyframes: TimelineKeyframe[] = processed.map((m, idx) => ({
+      id: crypto.randomUUID ? crypto.randomUUID() : `kf_${Date.now()}_${idx}_${m.time}`,
+      // Use the (possibly inserted) item time, not m.kf.time — for inserted
+      // samples, m.kf is the previous anchor and its time is wrong.
+      time: m.time,
       value: {
         type: 'haptic' as const,
         position: m.position,
@@ -1718,32 +1863,40 @@ export function SpriteTimelineEditor() {
       })));
     }
 
-    const reduction = mappedAll.length > 0
-      ? Math.round((1 - hapticKeyframes.length / mappedAll.length) * 100)
+    const change = processed.length - scaledAll.length;
+    const changePct = scaledAll.length > 0
+      ? Math.round((change / scaledAll.length) * 100)
       : 0;
+    const changeLabel = isSparse
+      ? `+${change} samples (${changePct}%) densificados`
+      : `−${scaledAll.length - processed.length} puntos (${Math.abs(changePct)}%) simplificados`;
     toast({
       title: '💜 Patrón HSP generado',
-      description: `${hapticKeyframes.length} keyframes (de ${mappedAll.length} puntos, −${reduction}%) · mapeo "${trackingMapMode === 'combined' ? 'combinado (Y + X invertido)' : trackingMapMode === 'x' ? 'horizontal invertido' : 'vertical'}" · optimizado ±${epsilon} pos · escala ${effMin}–${effMax}`,
+      description: `${hapticKeyframes.length} keyframes · ${regimeLabel} · mapeo "${trackingMapMode === 'combined' ? 'combinado (ΔV − ΔH: derecha=baja)' : trackingMapMode === 'x' ? 'horizontal invertido' : 'vertical'}" · ${changeLabel} · escala ${effMin}–${effMax}${guides.enabled ? ' · guías ON (absoluto)' : ' · auto-normalizado'}`,
     });
   };
 
-  const handleAddTrack = (type: 'sound' | 'haptic' = 'sound') => {
+  const handleAddTrack = (type: 'sound' | 'haptic' | 'tracking' = 'sound') => {
     if (!selectedSprite) return;
 
     const trackId = crypto.randomUUID ? crypto.randomUUID() : `track_${Date.now()}`;
     const hapticCount = selectedSprite.timeline.tracks.filter(t => t.type === 'haptic').length;
     const soundCount = selectedSprite.timeline.tracks.filter(t => t.type === 'sound').length;
+    const trackingCount = selectedSprite.timeline.tracks.filter(t => t.type === 'tracking').length;
     const newTrack: TimelineTrack = {
       id: trackId,
       type,
       name: type === 'haptic'
         ? `Haptic Track ${hapticCount + 1}`
+        : type === 'tracking'
+        ? `Tracking ${trackingCount + 1}`
         : `Sound Track ${soundCount + 1}`,
       keyframes: [],
       enabled: true,
       locked: false,
       muted: false,
       volume: 1,
+      color: type === 'tracking' ? '#ef4444' : type === 'haptic' ? '#d946ef' : undefined,
     };
 
     setTimelineCollections(prev => prev.map(col => ({
@@ -1754,6 +1907,115 @@ export function SpriteTimelineEditor() {
           : s
       ),
     })));
+  };
+
+  // ── TRACKING: manual keyframe add/remove ──
+  // The user can place a tracking keyframe at the current red-marker position
+  // + current playhead time — manual tracking for cases where the optical-flow
+  // tracker loses the point. The manually-placed points then feed →HSP just
+  // like the auto-tracked samples.
+  const handleAddTrackingPoint = (trackId: string) => {
+    if (!selectedSprite) return;
+    if (!trackPoint) {
+      toast({
+        title: 'Coloca el punto rojo',
+        description: 'Haz clic en el preview y arrastra el punto rojo al lugar a trackear, luego pulsa "+".',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const targetTrack = selectedSprite.timeline.tracks.find(t => t.id === trackId);
+    if (!targetTrack || targetTrack.type !== 'tracking') return;
+
+    const t = Math.max(0, Math.round(playbackTime));
+    // If a keyframe already exists at ~the same time, UPDATE it (no duplicates).
+    const MERGE_MS = 60;
+    const existingIdx = targetTrack.keyframes.findIndex(
+      kf => Math.abs(kf.time - t) <= MERGE_MS,
+    );
+
+    const newValue: TrackingKeyframeValue = {
+      type: 'tracking',
+      x: trackPoint.x,
+      y: trackPoint.y,
+      confidence: 1,
+      lost: false,
+    };
+
+    setTimelineCollections(prev => prev.map(col => ({
+      ...col,
+      sprites: col.sprites.map(s =>
+        s.id === selectedSprite.id
+          ? {
+              ...s,
+              timeline: {
+                ...s.timeline,
+                tracks: s.timeline.tracks.map(tk => {
+                  if (tk.id !== trackId) return tk;
+                  if (existingIdx >= 0) {
+                    const updated = [...tk.keyframes];
+                    updated[existingIdx] = {
+                      ...updated[existingIdx],
+                      value: newValue,
+                      // Snap the time to the exact current playhead for clarity
+                      time: t,
+                    };
+                    return { ...tk, keyframes: updated.sort((a, b) => a.time - b.time) };
+                  }
+                  const newKf: TimelineKeyframe = {
+                    id: crypto.randomUUID ? crypto.randomUUID() : `kf_${Date.now()}`,
+                    time: t,
+                    value: newValue,
+                    interpolation: 'linear',
+                  };
+                  return { ...tk, keyframes: [...tk.keyframes, newKf].sort((a, b) => a.time - b.time) };
+                }),
+              },
+            }
+          : s
+      ),
+    })));
+
+    // Select the (new or updated) keyframe so the user sees feedback
+    if (existingIdx >= 0) {
+      selectKeyframe(targetTrack.keyframes[existingIdx].id);
+    }
+  };
+
+  // Keep handleAddTrackingPointRef in sync with the latest closure so the
+  // red-point drag's onMouseUp (which is a stale closure captured at
+  // mousedown time) can call the latest version. useEffect with no deps
+  // array runs after every render — the ref always holds the freshest
+  // closure (which reads the latest trackPoint, selectedSprite, etc.).
+  useEffect(() => {
+    handleAddTrackingPointRef.current = handleAddTrackingPoint;
+  });
+
+  // Remove the SELECTED tracking keyframe, or — if none — the one closest to
+  // the current playhead. Falls back to the last keyframe.
+  const handleRemoveTrackingPoint = (trackId: string) => {
+    if (!selectedSprite) return;
+    const targetTrack = selectedSprite.timeline.tracks.find(t => t.id === trackId);
+    if (!targetTrack || targetTrack.type !== 'tracking' || targetTrack.keyframes.length === 0) return;
+
+    let targetId: string | null = null;
+    // 1) editorState.selectedKeyframeId (if it belongs to this track)
+    if (editorState.selectedKeyframeId) {
+      const sel = targetTrack.keyframes.find(kf => kf.id === editorState.selectedKeyframeId);
+      if (sel) targetId = sel.id;
+    }
+    // 2) closest to playhead
+    if (!targetId) {
+      let best = targetTrack.keyframes[0];
+      let bestDelta = Math.abs(best.time - playbackTime);
+      for (const kf of targetTrack.keyframes) {
+        const d = Math.abs(kf.time - playbackTime);
+        if (d < bestDelta) { bestDelta = d; best = kf; }
+      }
+      targetId = best.id;
+    }
+
+    handleDeleteKeyframe(trackId, targetId);
   };
 
   // Handle track update
@@ -2717,21 +2979,35 @@ export function SpriteTimelineEditor() {
                       />
                     )}
 
-                    {/* Tracking point marker (draggable red dot) */}
-                    {trackPoint && !isPlaying && (
+                    {/* Tracking point marker (draggable red dot).
+                        Visible during playback too so the user sees the
+                        tracked point move with the animation (the scrub-follow
+                        effect updates trackPoint on every playhead change).
+                        During playback we set pointer-events-none so the user
+                        can't drag while it's auto-following. */}
+                    {trackPoint && (
                       <div
-                        className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-red-500 border-2 border-white shadow-lg cursor-grab active:cursor-grabbing z-10 group"
+                        className={cn(
+                          "absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-red-500 border-2 border-white shadow-lg z-10 group",
+                          isPlaying
+                            ? "pointer-events-none opacity-90"
+                            : "cursor-grab active:cursor-grabbing",
+                        )}
                         style={{
                           left: `${trackPoint.x * 100}%`,
                           top: `${trackPoint.y * 100}%`,
                         }}
-                        title="Punto de tracking — arrastra para mover, doble clic para quitar"
+                        title={isPlaying
+                          ? 'Punto de tracking (siguiendo la pista durante la reproducción)'
+                          : 'Punto de tracking — arrastra para mover, doble clic para quitar'}
                         onDoubleClick={(e) => {
+                          if (isPlaying) return;
                           e.stopPropagation();
                           setTrackPoint(null);
                           setFollowTrackId(null); // exit scrub-follow mode
                         }}
                         onMouseDown={(e) => {
+                          if (isPlaying) return;
                           e.stopPropagation();
                           e.preventDefault();
                           setFollowTrackId(null); // manual override: user takes control
@@ -2739,14 +3015,49 @@ export function SpriteTimelineEditor() {
                           if (!container) return;
                           const rect = container.getBoundingClientRect();
 
+                          // Track whether the user actually dragged (vs a
+                          // simple click). Only real drags apply the red
+                          // point's final position to the selected tracking
+                          // keyframe — pure clicks just place the marker.
+                          let didDrag = false;
+
                           const onMove = (ev: MouseEvent) => {
                             const x = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
                             const y = Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height));
                             setTrackPoint({ x, y });
+                            didDrag = true;
                           };
                           const onUp = () => {
                             window.removeEventListener('mousemove', onMove);
                             window.removeEventListener('mouseup', onUp);
+                            // If the user dragged (not just clicked) AND a
+                            // tracking keyframe is currently selected, apply
+                            // the red point's final position to that keyframe:
+                            //   - if a keyframe exists at the current playhead
+                            //     time (±60ms) → UPDATE its coords
+                            //   - else → CREATE a new keyframe at the playhead
+                            //     time with the red point's coords
+                            // (handleAddTrackingPoint does both). The ref
+                            // holds the LATEST version so we read the up-to-
+                            // date trackPoint, not the stale closure value.
+                            if (didDrag) {
+                              const selKfId = editorState.selectedKeyframeId;
+                              if (selKfId && selectedSprite) {
+                                const tk = selectedSprite.timeline.tracks.find(
+                                  t => t.type === 'tracking' &&
+                                       t.keyframes.some(k => k.id === selKfId),
+                                );
+                                if (tk) {
+                                  handleAddTrackingPointRef.current(tk.id);
+                                  // Re-enable scrub-follow for this track so
+                                  // the marker keeps walking the (now-updated)
+                                  // trajectory on subsequent playhead moves /
+                                  // playback. The drag had set followTrackId
+                                  // to null (manual override) — restore it.
+                                  setFollowTrackId(tk.id);
+                                }
+                              }
+                            }
                           };
                           window.addEventListener('mousemove', onMove);
                           window.addEventListener('mouseup', onUp);
@@ -2755,6 +3066,157 @@ export function SpriteTimelineEditor() {
                         <div className="absolute inset-0 rounded-full bg-red-500/40 animate-ping" />
                         <Crosshair className="absolute inset-0 m-auto w-3 h-3 text-white pointer-events-none" />
                       </div>
+                    )}
+
+                    {/* Reference guides (4 draggable lines defining the
+                        active region for tracking conversion).
+                          - 2 horizontal cyan lines (topY, bottomY): handle
+                            on the LEFT edge, drag up/down
+                          - 2 vertical magenta lines (leftX, rightX): handle
+                            on the BOTTOM edge, drag left/right
+                        Each guide is pointer-events-none except its handle,
+                        so clicks on empty preview area still place the red
+                        tracking point. With guides ENABLED the curve is
+                        absolute (relative to these limits); DISABLED auto-
+                        normalizes to the trajectory's own min/max. */}
+                    {guides.enabled && (
+                      <>
+                        {/* Top horizontal guide (topY → position 100 = UP) */}
+                        <div
+                          className="absolute left-0 right-0 z-20 pointer-events-none"
+                          style={{ top: `${guides.topY * 100}%` }}
+                        >
+                          <div className="h-0 border-t-2 border-dashed border-cyan-400/80" />
+                          <div
+                            className="absolute -left-1.5 -top-2.5 w-5 h-5 rounded-full bg-cyan-500 border-2 border-white shadow-lg cursor-ns-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+                            title="Guía superior (posición 100 = arriba) — arrastra ↑/↓"
+                            onMouseDown={(e) => {
+                              if (isPlaying) return;
+                              e.stopPropagation();
+                              e.preventDefault();
+                              const container = e.currentTarget.parentElement?.parentElement as HTMLElement;
+                              if (!container) return;
+                              const rect = container.getBoundingClientRect();
+                              const onMove = (ev: MouseEvent) => {
+                                const y = Math.max(0, Math.min(guides.bottomY - 0.02, (ev.clientY - rect.top) / rect.height));
+                                setGuides(g => ({ ...g, topY: y }));
+                              };
+                              const onUp = () => {
+                                window.removeEventListener('mousemove', onMove);
+                                window.removeEventListener('mouseup', onUp);
+                              };
+                              window.addEventListener('mousemove', onMove);
+                              window.addEventListener('mouseup', onUp);
+                            }}
+                          >
+                            <span className="text-[10px] text-white font-bold leading-none">↑</span>
+                          </div>
+                          <div className="absolute left-1/2 -translate-x-1/2 -top-5 px-1.5 py-0.5 rounded bg-cyan-500/90 text-white text-[10px] font-mono pointer-events-none whitespace-nowrap shadow">
+                            Max {(guides.topY * 100).toFixed(0)}%
+                          </div>
+                        </div>
+
+                        {/* Bottom horizontal guide (bottomY → position 0 = DOWN) */}
+                        <div
+                          className="absolute left-0 right-0 z-20 pointer-events-none"
+                          style={{ top: `${guides.bottomY * 100}%` }}
+                        >
+                          <div className="h-0 border-t-2 border-dashed border-cyan-400/80" />
+                          <div
+                            className="absolute -left-1.5 -top-2.5 w-5 h-5 rounded-full bg-cyan-600 border-2 border-white shadow-lg cursor-ns-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+                            title="Guía inferior (posición 0 = abajo) — arrastra ↑/↓"
+                            onMouseDown={(e) => {
+                              if (isPlaying) return;
+                              e.stopPropagation();
+                              e.preventDefault();
+                              const container = e.currentTarget.parentElement?.parentElement as HTMLElement;
+                              if (!container) return;
+                              const rect = container.getBoundingClientRect();
+                              const onMove = (ev: MouseEvent) => {
+                                const y = Math.max(guides.topY + 0.02, Math.min(1, (ev.clientY - rect.top) / rect.height));
+                                setGuides(g => ({ ...g, bottomY: y }));
+                              };
+                              const onUp = () => {
+                                window.removeEventListener('mousemove', onMove);
+                                window.removeEventListener('mouseup', onUp);
+                              };
+                              window.addEventListener('mousemove', onMove);
+                              window.addEventListener('mouseup', onUp);
+                            }}
+                          >
+                            <span className="text-[10px] text-white font-bold leading-none">↓</span>
+                          </div>
+                          <div className="absolute left-1/2 -translate-x-1/2 top-1.5 px-1.5 py-0.5 rounded bg-cyan-600/90 text-white text-[10px] font-mono pointer-events-none whitespace-nowrap shadow">
+                            Min {(guides.bottomY * 100).toFixed(0)}%
+                          </div>
+                        </div>
+
+                        {/* Left vertical guide (leftX → 0) — handle on the BOTTOM edge */}
+                        <div
+                          className="absolute top-0 bottom-0 z-20 pointer-events-none"
+                          style={{ left: `${guides.leftX * 100}%` }}
+                        >
+                          <div className="w-0 h-full border-l-2 border-dashed border-fuchsia-400/80" />
+                          <div
+                            className="absolute -left-2.5 w-5 h-5 rounded-full bg-fuchsia-500 border-2 border-white shadow-lg cursor-ew-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+                            style={{ bottom: -10 }}
+                            title="Guía izquierda — arrastra ←/→"
+                            onMouseDown={(e) => {
+                              if (isPlaying) return;
+                              e.stopPropagation();
+                              e.preventDefault();
+                              const container = e.currentTarget.parentElement?.parentElement as HTMLElement;
+                              if (!container) return;
+                              const rect = container.getBoundingClientRect();
+                              const onMove = (ev: MouseEvent) => {
+                                const x = Math.max(0, Math.min(guides.rightX - 0.02, (ev.clientX - rect.left) / rect.width));
+                                setGuides(g => ({ ...g, leftX: x }));
+                              };
+                              const onUp = () => {
+                                window.removeEventListener('mousemove', onMove);
+                                window.removeEventListener('mouseup', onUp);
+                              };
+                              window.addEventListener('mousemove', onMove);
+                              window.addEventListener('mouseup', onUp);
+                            }}
+                          >
+                            <span className="text-[10px] text-white font-bold leading-none">←</span>
+                          </div>
+                        </div>
+
+                        {/* Right vertical guide (rightX → 100) — handle on the BOTTOM edge */}
+                        <div
+                          className="absolute top-0 bottom-0 z-20 pointer-events-none"
+                          style={{ left: `${guides.rightX * 100}%` }}
+                        >
+                          <div className="w-0 h-full border-l-2 border-dashed border-fuchsia-400/80" />
+                          <div
+                            className="absolute -left-2.5 w-5 h-5 rounded-full bg-fuchsia-600 border-2 border-white shadow-lg cursor-ew-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+                            style={{ bottom: -10 }}
+                            title="Guía derecha — arrastra ←/→"
+                            onMouseDown={(e) => {
+                              if (isPlaying) return;
+                              e.stopPropagation();
+                              e.preventDefault();
+                              const container = e.currentTarget.parentElement?.parentElement as HTMLElement;
+                              if (!container) return;
+                              const rect = container.getBoundingClientRect();
+                              const onMove = (ev: MouseEvent) => {
+                                const x = Math.max(guides.leftX + 0.02, Math.min(1, (ev.clientX - rect.left) / rect.width));
+                                setGuides(g => ({ ...g, rightX: x }));
+                              };
+                              const onUp = () => {
+                                window.removeEventListener('mousemove', onMove);
+                                window.removeEventListener('mouseup', onUp);
+                              };
+                              window.addEventListener('mousemove', onMove);
+                              window.addEventListener('mouseup', onUp);
+                            }}
+                          >
+                            <span className="text-[10px] text-white font-bold leading-none">→</span>
+                          </div>
+                        </div>
+                      </>
                     )}
 
                     {/* Format badge */}
@@ -2822,7 +3284,7 @@ export function SpriteTimelineEditor() {
                       )}
                       onClick={handleRunTracking}
                       disabled={trackingBusy || !trackPoint || isPlaying || !selectedSprite || !['webm', 'mp4', 'webp', 'gif'].includes(selectedSprite.format)}
-                      title={trackPoint ? 'Analiza el movimiento del punto rojo frame a frame (flujo óptico Lucas-Kanade)' : 'Primero haz clic en el preview para colocar el punto rojo'}
+                      title={trackPoint ? 'Analiza el movimiento del punto rojo frame a frame (NCC template matching, pirámide multi-escala)' : 'Primero haz clic en el preview para colocar el punto rojo'}
                     >
                       {trackingBusy ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2837,11 +3299,53 @@ export function SpriteTimelineEditor() {
                         size="sm"
                         className="h-8 text-xs text-muted-foreground"
                         onClick={() => setTrackPoint(null)}
-                        title="Quitar punto"
+                        title="Quitar punto rojo del preview"
                       >
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     )}
+                    {/* Reference guides toggle: enables 4 draggable guides
+                        on the sprite preview (top/bottom/left/right) that
+                        define the active region for the conversion. With
+                        guides ON, the curve is absolute (relative to the
+                        limits); with guides OFF, the curve auto-normalizes
+                        to its own min/max. */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "h-8 gap-1.5 text-xs",
+                        guides.enabled
+                          ? "bg-cyan-600/15 border-cyan-500/40 text-cyan-400 hover:bg-cyan-600/25 hover:text-cyan-300"
+                          : "text-muted-foreground",
+                      )}
+                      onClick={() => setGuides(g => ({ ...g, enabled: !g.enabled }))}
+                      title={guides.enabled
+                        ? 'Guías activadas: top/bottom (cyan) definen altura máxima/mínima, left/right (magenta) definen ancho. Arrastra los círculos en los bordes lateral e inferior. La curva se calcula relativa a estas guías (sin auto-normalizar).'
+                        : 'Activar guías de referencia en el sprite para definir los límites de altura y ancho del tracking'}
+                    >
+                      <Ruler className="w-3.5 h-3.5" />
+                      {guides.enabled ? 'Guías ON' : 'Guías'}
+                    </Button>
+                    {/* Movement range: how far the tracker looks between frames.
+                        Larger = catches big/fast motion (full strokes) but slower
+                        and more prone to false matches on similar-looking patches. */}
+                    <Select
+                      value={movementRange}
+                      onValueChange={(v) => setMovementRange(v as MovementRange)}
+                    >
+                      <SelectTrigger
+                        className="h-8 w-[170px] text-xs"
+                        title="Cuánto se desplaza el tracker entre frames: Pequeño=lento/sutil, Mediano=normal, Grande=movimiento rápido/amplio. Pirámide multi-escala (1/4, 1/2, 1): el nivel más grueso cubre los saltos grandes."
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="small" className="text-xs">Movimiento: Pequeño (~25px/f)</SelectItem>
+                        <SelectItem value="medium" className="text-xs">Movimiento: Mediano (~100px/f)</SelectItem>
+                        <SelectItem value="large" className="text-xs">Movimiento: Grande (~240px/f)</SelectItem>
+                      </SelectContent>
+                    </Select>
                     {/* Mapping mode for Tracking → HSP conversion */}
                     <Select
                       value={trackingMapMode}
@@ -2870,10 +3374,16 @@ export function SpriteTimelineEditor() {
                         <SelectItem value="smooth" className="text-xs">Optimizar: Suave (±5)</SelectItem>
                       </SelectContent>
                     </Select>
-                    {/* Haptic output scale (range remap) */}
+                    {/* Haptic output scale (range remap).
+                        ALWAYS normalizes the tracking curve to this range:
+                        - the LOWEST peak of the tracking maps to the FIRST value
+                        - the HIGHEST peak of the tracking maps to the SECOND value
+                        With 0-100 (default): min peak → 0, max peak → 100 (full range).
+                        With 30-80: min peak → 30, max peak → 80 (compressed stroke).
+                        With 80-90: min peak → 80, max peak → 90 (narrow window). */}
                     <div
                       className="flex items-center gap-1"
-                      title="Escala del dispositivo: el pico más bajo y más alto de la curva se remapean a estas posiciones (0-100). Comprime o expande el recorrido del Handy sin modificar la gráfica. Ej.: 10 y 80 convierten un barrido completo 0-100 en un recorrido 10-80."
+                      title="Escala de salida: el pico MÁS BAJO del tracking se mapea al primer valor y el pico MÁS ALTO al segundo. Con 0-100 (default) la curva se normaliza para llenar todo el rango del device. Con 30-80, los picos se comprimen a ese rango (mín→30, máx→80). Con 80-90, mín→80, máx→90."
                     >
                       <Label className="text-xs whitespace-nowrap">Escala</Label>
                       <Input
@@ -2892,7 +3402,7 @@ export function SpriteTimelineEditor() {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                         }}
-                        className="w-14 h-8 text-xs"
+                        className="w-16 h-8 text-xs"
                         aria-label="Posición mínima del rango haptic"
                       />
                       <span className="text-xs text-muted-foreground">→</span>
@@ -2901,6 +3411,10 @@ export function SpriteTimelineEditor() {
                         min={0}
                         max={100}
                         value={hapticRangeMax}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10);
+                          if (Number.isFinite(n)) setHapticRangeMax(Math.max(0, Math.min(100, n)));
+                        }}
                         onBlur={(e) => {
                           const n = parseInt(e.target.value, 10);
                           setHapticRangeMax(Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 100);
@@ -2908,7 +3422,7 @@ export function SpriteTimelineEditor() {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                         }}
-                        className="w-14 h-8 text-xs"
+                        className="w-16 h-8 text-xs"
                         aria-label="Posición máxima del rango haptic"
                       />
                     </div>
@@ -3073,6 +3587,10 @@ export function SpriteTimelineEditor() {
                       <DropdownMenuItem onClick={() => handleAddTrack('haptic')}>
                         <Vibrate className="w-3 h-3 mr-2 text-fuchsia-500" />
                         Haptic Track
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddTrack('tracking')}>
+                        <Crosshair className="w-3 h-3 mr-2 text-red-400" />
+                        Tracking Track
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -3251,6 +3769,38 @@ export function SpriteTimelineEditor() {
                                   <Download className="w-2.5 h-2.5" />
                                 </Button>
                               </>
+                            ) : track.type === 'tracking' ? (
+                              <>
+                                {/* Manual tracking: add a keyframe at the
+                                    current red-marker position + playhead time. */}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={cn(
+                                    "h-5 w-5",
+                                    trackPoint
+                                      ? "text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                                      : "text-muted-foreground opacity-60",
+                                  )}
+                                  title={trackPoint
+                                    ? `Agregar punto en ${formatTime(playbackTime)} · usa el punto rojo del preview`
+                                    : 'Coloca el punto rojo en el preview antes de agregar'}
+                                  onClick={() => handleAddTrackingPoint(track.id)}
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </Button>
+                                {/* Remove the selected / closest-to-playhead point */}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                                  title="Quitar punto (seleccionado o más cercano al playhead)"
+                                  disabled={track.keyframes.length === 0}
+                                  onClick={() => handleRemoveTrackingPoint(track.id)}
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </>
                             ) : (
                               <Button
                                 variant="ghost"
@@ -3276,7 +3826,10 @@ export function SpriteTimelineEditor() {
                           </div>
                           {(isHaptic || track.type === 'tracking') && track.keyframes.length > 0 && (
                             <div className="mt-1">
-                              {/* Mini waveform preview with gradient fill under the curve */}
+                              {/* Mini waveform preview with gradient fill under the curve.
+                                  Uses Catmull-Rom-to-Bezier conversion for a smooth
+                                  curve through the keyframes — straight `polyline`
+                                  would look angular for sparse manual tracking data. */}
                               <svg viewBox="0 0 160 20" className="w-full h-4" preserveAspectRatio="none">
                                 <defs>
                                   <linearGradient id={`wf-${track.id}`} x1="0" y1="0" x2="0" y2="1">
@@ -3285,28 +3838,58 @@ export function SpriteTimelineEditor() {
                                   </linearGradient>
                                 </defs>
                                 {(() => {
-                                  const pts = track.keyframes
+                                  const sortedKfs = track.keyframes
                                     .slice()
-                                    .sort((a, b) => a.time - b.time)
-                                    .map((kf) => {
-                                      const v = kf.value as HapticKeyframeValue | TrackingKeyframeValue;
-                                      const pos = 'position' in v ? v.position : (v as TrackingKeyframeValue).y * 100;
-                                      const x = (kf.time / selectedSprite.timeline.duration) * 160;
-                                      const y = 20 - (pos / 100) * 20;
-                                      return `${x},${y}`;
-                                    })
-                                    .join(' ');
+                                    .sort((a, b) => a.time - b.time);
+                                  const pts = sortedKfs.map((kf) => {
+                                    const v = kf.value as HapticKeyframeValue | TrackingKeyframeValue;
+                                    const pos = 'position' in v ? v.position : (v as TrackingKeyframeValue).y * 100;
+                                    const x = (kf.time / selectedSprite.timeline.duration) * 160;
+                                    const y = 20 - (pos / 100) * 20;
+                                    return { x, y };
+                                  });
+                                  const polylinePts = pts.map(p => `${p.x},${p.y}`).join(' ');
+                                  // Smooth path through the points (Catmull-Rom →
+                                  // cubic Bezier). For ≤2 points, catmullRomPathD
+                                  // falls back to a polyline-style M+L path.
+                                  const smoothD = catmullRomPathD(pts);
+                                  // Build a smooth filled area: start at left
+                                  // baseline, go up to the first curve point,
+                                  // trace the smooth curve through all points,
+                                  // then drop down to the right baseline and
+                                  // close. The "C ..." part is extracted from
+                                  // smoothD by stripping the leading "M x,y".
+                                  const curveRest = smoothD.replace(/^M [^ ]+ /, '');
+                                  const fillD = pts.length > 0
+                                    ? `M 0,20 L ${pts[0].x},${pts[0].y} ${curveRest} L ${pts[pts.length - 1].x},20 L 0,20 Z`
+                                    : '';
+                                  const useSmooth = pts.length > 2;
                                   return (
                                     <>
-                                      <polygon fill={`url(#wf-${track.id})`} points={`0,20 ${pts} 160,20`} />
-                                      <polyline
-                                        fill="none"
-                                        stroke={track.type === 'tracking' ? 'rgb(239 68 68)' : 'rgb(217 70 239)'}
-                                        strokeWidth="1.5"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        points={pts}
-                                      />
+                                      {useSmooth ? (
+                                        <path d={fillD} fill={`url(#wf-${track.id})`} stroke="none" />
+                                      ) : (
+                                        <polygon fill={`url(#wf-${track.id})`} points={`0,20 ${polylinePts} 160,20`} />
+                                      )}
+                                      {useSmooth ? (
+                                        <path
+                                          d={smoothD}
+                                          fill="none"
+                                          stroke={track.type === 'tracking' ? 'rgb(239 68 68)' : 'rgb(217 70 239)'}
+                                          strokeWidth="1.5"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        />
+                                      ) : (
+                                        <polyline
+                                          fill="none"
+                                          stroke={track.type === 'tracking' ? 'rgb(239 68 68)' : 'rgb(217 70 239)'}
+                                          strokeWidth="1.5"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          points={polylinePts}
+                                        />
+                                      )}
                                     </>
                                   );
                                 })()}

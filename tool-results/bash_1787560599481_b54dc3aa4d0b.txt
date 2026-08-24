@@ -1,0 +1,234 @@
+Caddyfile
+bun.lock
+components.json
+data
+db
+dev.log
+download
+eslint.config.mjs
+examples
+mini-services
+next-env.d.ts
+next.config.ts
+node_modules
+package.json
+postcss.config.mjs
+prisma
+public
+skills
+src
+tailwind.config.ts
+tests
+tool-results
+tsconfig.json
+tsconfig.tsbuildinfo
+upload
+worklog.md
+---
+app
+components
+hooks
+lib
+store
+types
+---worklog---
+---
+Task ID: 3-a
+Agent: Explore (personajes/skills/proactivo/tools)
+Task: Análisis profundo de personajes, acciones, skills, proactivo y tool calling
+
+Work Log:
+- Leído /home/z/newsillytavern3/worklog.md (contexto de agentes previos, 146KB) — /home/z/my-project/worklog.md no existía.
+- PERSONAJES: leído src/types/index.ts (CharacterCard L537-589, ProactiveMessagesConfig L1301-1418, SkillDefinition/SolicitudDefinition/InvitationDefinition/SolicitudInstance/CharacterStatsConfig L4357-4551), src/lib/character-card.ts (PNG tEXt "chara" + extensions), src/lib/llm/prompt-builder.ts (buildSystemPrompt, buildLorebookSectionForPrompt, buildPostHistorySection, buildAuthorNoteSection), prisma/schema.prisma (solo User/Post — no hay modelos de Character; persistencia = Zustand + JSON vía src/lib/persistence.ts).
+- SKILLS/ACCIONES: leído src/lib/stats/stats-resolver.ts (buildSkillsBlock/buildIntentionsBlock/buildInvitationsBlock/buildSolicitudesBlock/resolveStats), src/lib/triggers/handlers/skill-activation-handler.ts (detección post-LLM de keys), src/lib/tools/tools/manage-action.ts completo. Verificado activateSkillByTool en src/store/slices/sessionSlice.ts (L1889).
+- PROACTIVO: leído src/lib/proactive/case-selector.ts completo, /api/chat/proactive/route.ts (POST L290+, selección de caso L599-629, SSE case_selected/proactive_start, skip silencioso), src/hooks/use-proactive-messages.tsx (timers 5s, inactividad, allowedStates, usedCaseIndices), src/lib/stats/timer-processor.ts (tick-based), src/lib/background-triggers/storage.ts (es ambience visual, NO proactivo).
+- TOOLS: leído src/lib/tools/types.ts, tool-registry.ts (11 tools auto-registradas), executor.ts, definitions.ts, parsers.ts, parsers/native-parser.ts (OpenAI/Ollama/Anthropic), parsers/prompt-parser.ts (```tool_call, TOOL_CALL:, JSON brace-counting, cleanModelArtifacts), tools/manage-solicitud.ts completo; headers de roll-dice/set-reminder/modify-stat/check-stat/search-memory/manage-memory/get-weather/search-web/manage-quest. Flujo end-to-end en /api/chat/stream/route.ts (executeToolCallsAndContinue L101-285, tool loop L840+, selección de tools L695-745, follow-up L1734-1789). UI: chat-panel.tsx (eventos SSE tool_*/activations), tools/tools-settings-panel.tsx.
+- SOLICITUDES: leído src/lib/stats/solicitud-executor.ts (getResolvedPeticiones, detectPeticionActivations, executePeticionActivation L437+, executeSolicitudCompletion, processSolicitudes), triggers/handlers/solicitud-handler.ts, statsSlice.ts (createSolicitud/completeSolicitud/acceptUserSolicitud/expireSolicitudes).
+- PROVEEDORES: leído providers/index.ts; grep estructural de grok.ts (api.x.ai/v1, grok-3, WithTools), openai.ts, zai.ts (SDK gateway, X-Token). Verificado con grep que executor.ts/definitions.ts/parsers.ts de src/lib/tools NO se importan en ningún sitio (código muerto).
+
+Stage Summary:
+- CharacterCard: card SillyTavern V2 extendida (statsConfig, proactiveMessages, spritePacksV2, lorebookIds, questTemplateIds, voice, HUD, quickReplies...); no hay modelos Prisma de personajes — persistencia por Zustand (src/store/slices) + JSON files (lib/persistence.ts) + PNG/JSON import-export con extensions blob.
+- Prompt: buildSystemPrompt ensambla secciones (system→lorebook pos0→desc→personalidad→emoción→scenario→charNote→ejemplos numerados→lorebook pos5/outlets/pos6) y resuelve {{keys}} con 3 pases recursivos; post-history y author note van tras el historial; lorebooks por atributo generan mapas {{key}}.
+- Skills: viven en CharacterStatsConfig.skills (no hay carpeta skills/); doble vía de activación: (a) detección de keys en texto post-LLM (key:value, key=value, key_suffix, |key|) vía trigger system, (b) tool nativa manage_action que valida requisitos y devuelve actionActivation → el cliente (sessionSlice.activateSkillByTool) aplica costos y recompensas.
+- Bloques inyectados al prompt: [ACCIONES DISPONIBLES], [PETICIONES DISPONIBLES], [SOLICITUDES RECIBIDAS] con reglas que ordenan usar manage_action/manage_quest/manage_solicitud activamente.
+- Tool system: registro central (tool-registry, 11 tools: roll_dice, search_memory, get_weather, search_web, set_reminder, modify_stat, check_stat, manage_quest, manage_solicitud, manage_memory, manage_action), categorías in_character/cognitive/real_world; nativo (OpenAI-delta/Ollama/Anthropic block parsers con acumuladores streaming) + fallback prompt (```tool_call) parseado con brace-counting; loop de hasta maxToolCallsPerTurn rondas con follow-up messages por proveedor; arquitectura stateless servidor→SSE→cliente ejecuta mutaciones.
+- Eventos SSE de tools: tool_call_start/result, quest_activation, action_activation, stat_activation, solicitud_activation, memory_activation — consumidos en chat-panel.tsx.
+- Proactivo (FASE 11 v2): obligatorio proactiveAttribute (condiciones por atributo con prioridad, casos linear/random, defaultCases); el caso seleccionado se envía como user message con resolveAllKeys; si nada aplica → proactive_skipped sin llamar al LLM; overrides REPLACE de systemPrompt/postHistory; timers cliente cada 5s con allowedStates idle/user_away, intervalSeconds (300s def), minMessages (5), maxPerSession.
+- Solicitudes: sistema de peticiones inter-personaje (Invitation en A → SolicitudDefinition en B, keys peticionKey/solicitudKey, expiración por turnos/minutos, target especial __user__ con UI de aceptar/reject); instancias en SessionStats.solicitudes; eventos ultima_solicitud_*.
+- Timer processor: ticks (60s def) para atributos (num: add/sub/mul/div/set; keyword: cycle/random/set) con cap de ticks acumulados (100/10) — resistente a reinicios; impulsado por statsSlice.processTimerTicks.
+- Proveedores: z-ai (SDK gateway), openai/vllm/lm-studio/custom (compatible), anthropic, ollama, grok (api.x.ai/v1), text-generation-webui/koboldcpp (completion), test-mock; todos streaming SSE fetch-based + variantes WithTools.
+- Código muerto detectado: src/lib/tools/executor.ts, definitions.ts, parsers.ts (APIs incompatibles con el registry vivo, sin imports).
+
+---
+Task ID: 1-2-4-5 (orquestación)
+Agent: Z.ai Code (principal)
+Task: Clonar, instalar y verificar newsillytavern3; investigación online; informe de gamificación
+
+Work Log:
+- Clonado https://github.com/newsillytavern3 en /home/z/newsillytavern3 (249MB, último commit 965f9b3).
+- bun install: 833 paquetes OK. bunx prisma generate OK.
+- Arranque verificado: next dev -p 3100 → HTTP 200, API /api/persistence devuelve 11 personajes; verificación con agent-browser (título "TavernFlow - AI Character Chat Platform", nav completa, sin errores de página). Servidor detenido tras verificar.
+- Lanzados 3 agentes Explore en paralelo (3-a personajes/skills/proactivo/tools, 3-b atributos/lorebook/quests/inventario/persona/memoria, 3-c sprites/animación/haptics/triggers/HUD/sonido/voz) — informes completos recibidos.
+- Investigación online (13 búsquedas + 2 lecturas profundas): mecánicas RPG con LLM, agentes Game Master (arXiv 2502.19519 static vs agentic ReAct), function calling para GMs, extensiones RPG de SillyTavern (RPG Companion, BetterSimTracker), AI Dungeon alternativas (DungeonsDeep, Friends & Fables, RoleForge, Questsmith), Left 4 Dead AI Director (drama manager), GOAP para NPCs, dating sims/affection, idle/real-time energy mechanics, Kindroid/engagement, Grok/Groq tool-calling de baja latencia, safety tools TTRPG (Lines/Veils, X-card), investigación previa en repo/research.
+- Compilado informe final de alcance + 12 propuestas de gamificación para el usuario.
+
+Stage Summary:
+- App 100% funcional (TavernFlow): stack Next.js 16 + Zustand + JSON persistence + LanceDB RAG; 11 tools nativas; triggers unificados; sprites V2 con timeline+haptics Handy; proactive por atributos; quests con 8 tipos de recompensa; inventario V2 con slots; HUD; tienda; TTS/ASR.
+- Estado: análisis técnico completo + benchmark de mercado + investigación académica terminados. Entregado informe con recomendaciones priorizadas (Director Agent, relaciones, checks, tiempo/calendario, tono SFW/NSFW, economía, progresión, deuda técnica).
+
+---
+Task ID: 6-a
+Agent: Explore (grupos y últimos eventos)
+Task: Análisis del sistema de grupos, entrada/salida de escena y últimos eventos
+
+Work Log:
+- Leído /home/z/my-project/worklog.md (secciones 3-a y orquestación) para contexto previo.
+- GRUPOS: leído completo src/store/slices/groupSlice.ts, src/lib/mention-detector.ts, src/lib/micro-reactions.ts, data/groups.json (grupo real "Ok": 3 miembros, strategy all, narratorSettings turn_end, 3 lorebookIds, hudTemplateId) y src/app/api/chat/group-stream/route.ts completo (2017 líneas, en 6 pasadas: getResponders L145-326, executeGroupToolCalls L342-516, POST L522+, narrator L611-780, loop de responders L793-1926, done L1992).
+- Tipos: src/types/index.ts L919-996 (GroupMember, GroupActivationStrategy, NarratorSettings/Conditional, CharacterGroup, MentionDetectionResult), L815-836 (MicroReaction/Config/DEFAULT), L887-915 (ChatSession.groupId/turnCount, SessionSummary).
+- Prompt de grupo: src/lib/llm/prompt-builder.ts buildGroupSystemPrompt L1118-1336 (System Group>Char>default, "Other Characters in Group" solo nombres, emocional FASE 5, scenario group>char, ejemplos, resolveSectionsKeysWithPasses 3 pases) y buildGroupChatMessages L1350-1501 (historial con "Nombre: contenido", previousResponses, bridges '*continúa*', isForNarrator ve todo).
+- CLIENTE: chat-panel.tsx L660-769 (payload group-stream: lastResponderId/narratorLastTurn/turnCount calculados del historial), L975-1080 (SSE character_start/token/character_done + generateMicroReactions L1015-1031 + expireSolicitudes por respuesta). group-editor.tsx (tabs, toggles miembro Activo/Presente/Narrador, strategyInfo, narratorModeInfo, min/max respuestas). group-sprites.tsx L403-422 (filtra narradores si !showSprite). vr-viewer.tsx L748 (member.isPresent).
+- EVENTOS: types L4529-4551 (SessionStats.ultimo_objetivo_completado/ultima_solicitud_realizada/ultima_solicitud_completada/ultima_accion_realizada/ultima_accion_character), key-resolver.ts resolveEventKeys L240-293 + buildEventosBlock L305-337 ([ULTIMOS EVENTOS]), statsSlice.ts updateSessionEvent L1401-1449, escrituras en activateSolicitud L927, completación L993/L1207, acceptUserSolicitud L1136, sessionSlice.activateSkillByTool L1929-1935; changeLog StatChangeLogEntry types L4502-4521 + addChangeLogEntry statsSlice L241-267 (cap 100, solo debug/undo).
+- DECISIONES: buildIntentionsBlock stats-resolver L420-486 + resolveStatsInText L902-936 ({{intenciones}}/{{acciones}}/{{peticiones}}/{{solicitudes}}), emotion route L28-85 (evaluateEmotionalState). Greps: isPresent, conversationStyle (muerto), allowMentions (muerto), enterScene/exitScene (no existe), decide/autonom/initiative (solo comentarios).
+
+Stage Summary:
+- Grupos: CharacterGroup (members[] con isActive/isPresent/isNarrator/joinOrder, activationStrategy, min/maxResponsesPerTurn def 1/3, lorebookIds, questTemplateIds, embeddingNamespaces, narratorSettings, quickReplies, firstMes); UI completa en group-editor.tsx (tabs Información/Miembros/Estrategia/Prompts/Respuestas); persistencia JSON en data/groups.json vía /api/persistence.
+- Selección de responders (group-stream getResponders): all (todos, sin límite) / reactive (stop si petición pendiente al __user__ → SSE user_turn; luego personajes con solicitudes pendientes; luego mencionados; relleno hasta min, tope max) / round_robin (rotación por joinOrder con lastResponderId) / random / smart (menciones + 1 relevante por tags). Narrador excluido del flujo normal e insertado según responseMode (turn_start/turn_end/before_each/after_each) con condicionales minTurnInterval/onlyWhenNoActiveQuests.
+- Interacción entre personajes: secuencial dentro del turno (responsesThisTurn → cada responder ve lo que dijeron los anteriores en su historial); detectMentions SOLO analiza el mensaje del usuario (regex nombre/alias/pronombres extraídos de description/personality; triggers 'everyone'/'all' activan a todos); el diálogo personaje→personaje real ocurre vía peticiones/solicitudes (peticionKey → SolicitudInstance pendiente → el objetivo responde el siguiente turno viendo {{solicitante}} y [SOLICITUDES RECIBIDAS]).
+- Micro-reacciones (FASE 4, cliente, sin LLM): tras character_done, otros personajes emiten "*sonríe*/*frunce el ceño*" por pools emocionales (mention/emotional/topic, chance 0.3, max 2) — guardadas en message.metadata.microReactions.
+- ENTRADA/SALIDA DE ESCENA: NO existe mecanismo dinámico (sin enterScene/exitScene/leave). Lo más parecido: toggle manual isPresent ("Presente/Ausente" en group-editor; excluye de getResponders y de vr-viewer), isActive ("Activo/Inactivo"), narrador ghost (hiddenFromChat, mensajes isNarratorMessage invisibles a no-narradores). Sin cambios de escena dirigidos por LLM.
+- Sistema de últimos eventos: SessionStats a nivel de SESIÓN (compartido por todo el grupo) guarda 4-5 campos "última X" escritos por statsSlice (solicitudes) y sessionSlice.activateSkillByTool (acciones, con nombre de personaje); se inyectan vía {{eventos}} (key-resolver Phase 3, bloque [ULTIMOS EVENTOS], resolución recursiva de 3 pases) en el prompt de TODOS los personajes del grupo → reaccionan a la última acción/objetivo/solicitud de otros. {{solicitante}}/{{solicitado}} complementan.
+- No hay event-log narrativo: CharacterSessionStats.changeLog (100 entradas: oldValue/newValue/reason llm_detection|manual|trigger|initialization|timer) es solo para debug/undo y NO se inyecta en prompts; el histórico largo lo cubren embeddings LanceDB (namespaces memory-character-*/memory-group-*) y summary [RECUERDOS ANTERIORES].
+- Decisiones autónomas: sin router LLM de turnos ni iniciativa explícita; la autonomía emerge de IntentionDefinition (bloque "Intenciones disponibles:" bajo {{intenciones}} con requisitos y key que el LLM decide escribir), skills/manage_action, peticiones/solicitudes, proactivo por atributos y estados emocionales FASE 5 (/api/chat/emotion evalúa cada N turnos e inyecta "Estado emocional actual: X").
+- Deuda detectada: conversationStyle ('parallel') y allowMentions se guardan en tipos/UI/store pero NO se consumen en group-stream (siempre secuencial; detectMentions siempre activo en reactive/smart); prompt "Other Characters in Group" no filtra por isPresent.
+
+---
+Task ID: 7 (migración app principal)
+Agent: Z.ai Code (principal)
+Task: Analizar grupos/últimos eventos, diseccionar Pinky Vane, e instalar TavernFlow como app principal
+
+Work Log:
+- Agente 6-a completó informe de grupos (estrategias all/reactive/round_robin/random/smart, getResponders, narrador con 4 responseMode, previousResponses, micro-reacciones) y últimos eventos (SessionStats.eventos → {{eventos}} inyectado a todos los responders).
+- Diseccionado Pinky Vane desde data/characters.json + lorebooks.json: personaje-plantilla (description={{descripcion}}, personality={{personalidad}}), lorebook con 7 entradas attribute first-match sobre estupidez (≤20/40/60/80/100), 5 atributos con timers, 10 skills de ejecución, proactivo escalonado en 5 condiciones (prioridad 5→1) con 4 casos cada una, lorebook compartido "Escenario" con atributo lugar del __user__.
+- MIGRACIÓN: detenida dev server previa; copiados src/, public/ (127MB), data/ (1.7MB), prisma/, db/, next.config.ts, package.json, bun.lock, components.json a /home/z/my-project; corregido anidamiento accidental de rsync; bun install (36 paquetes); prisma generate; reiniciado `bun run dev` puerto 3000.
+- VERIFICADO con agent-browser en localhost:3000: título TavernFlow, panel Chats con 12 personajes, botón Proactivo ● Listo, sección Grupos, chat de Pinky Vane renderizado con sprite + HUD (Estupidez/Lujuria) + primer mensaje en personaje, sin errores de página.
+
+Stage Summary:
+- TavernFlow ES AHORA la app principal del sandbox en /home/z/my-project (puerto 3000, dev.log activo).
+- Pinky Vane = "personaje compilado": máquina de estados de 5 niveles por estupidez que reescribe descripción, personalidad y efectos de 5 stats; escena por atributo lugar del usuario; proactivo escalonado; todo vía lorebooks attribute + first-match.
+- Grupos: sólidos en selección de responders y solicitudes; faltan entrada/salida dinámica de escena (solo toggles manuales isPresent/isActive) y menciones sobre respuestas de personajes (solo analizan mensaje del usuario).
+- Pendiente para el usuario: informe final con sugerencias ajustadas (sin crafteo, sin vibrador móvil, escena dinámica, decisiones de personajes).
+
+---
+Task ID: 8 (implementación A+B)
+Agent: Z.ai Code (principal)
+Task: Implementar A (escena dinámica en grupos) + B (event-log inyectable)
+
+Work Log:
+- B: creado src/lib/stats/event-log.ts (appendEventLogEntry ring buffer cap 30, MAX_EVENT_LOG_IN_PROMPT=8, eventLogTypeLabel).
+- B: SessionEventLogEntry/SessionEventLogType + SessionStats.eventLog en src/types/index.ts.
+- B: statsSlice — push al log desde updateSessionEvent (mapeo por eventType; acción completa se loguea al llegar ultima_accion_character), createSolicitud (solicitud_created con from→target), completeSolicitud (solicitud_completed), activateUserPeticion (solicitud_user); nueva acción pública pushSessionEvent.
+- B: sessionSlice.completeObjective — push quest_objective.
+- B: key-resolver buildEventosBlock — renderiza bitácora (viejo→nuevo, [ETIQUETA] Autor → Target: desc (turno N)) si eventLog existe; fallback legacy si vacío.
+- A: tools/types.ts — ToolContext.groupMembers + ToolExecutionResult.sceneActivation (scene_change/scene_focus, action, character/by, present, narrative).
+- A: creada src/lib/tools/tools/manage-scene.ts (enter/leave/focus/get_info; self u target por id/nombre/alias primera palabra; no-op seguro si ya en estado; rechazo en 1-a-1 y narradores) + registro en tool-registry (12 tools).
+- A: group-stream — executeGroupToolCalls recibe group, ToolContext con groupId/groupMembers, SSE scene_activation (aplicado en los 10 call sites).
+- A: groupSlice.applySceneChange(groupId, characterId, present).
+- A: chat-panel — handler scene_activation (vía replace_all en ambos paths send/regenerate): applySceneChange + pushSessionEvent(scene_enter/leave/focus) + toast 🚪.
+- A: prompt-builder buildGroupSystemPrompt — Other Characters dividido en presentes/ausentes por group.members.isPresent (narradores excluidos, fallback presentes si no hay registro de miembro).
+- Verificado: lint limpio; tests unitarios bun (manage_scene 6/6 casos, event-log render, prompt presencia); dev server reiniciado: "[Tools] Registered 12 ... manage_scene"; navegador: app 200, grupo Ok con sprites y sin errores.
+
+Stage Summary:
+- Escena dinámica: los personajes del grupo pueden entrar/salir/focus vía tool nativa manage_scene (o prompt-based fallback); el cliente muta isPresent (persistente), los ausentes no responden (getResponders ya filtraba) y todos los prompts ven quién está dentro/fuera de la escena.
+- Event-log: ring buffer de 30 eventos (acciones, objetivos, peticiones/solicitudes, escena) con autor/target/turno, inyectado vía {{eventos}} a todos los personajes del turno — ahora reaccionan a la secuencia, no solo al último evento.
+- Sinergia: cada cambio de escena entra automáticamente al eventLog → los demás personajes lo ven en su siguiente respuesta.
+
+---
+Task ID: 9 (C + verificación + revisión Pinky)
+Agent: Z.ai Code (principal)
+Task: Implementar C (menciones personaje→personaje), verificar 1-a-1 y grupo, revisar patrón Pinky Vane
+
+Work Log:
+- GROUP_ONLY_TOOL_IDS en tool-registry + export en barrel; filtro de manage_scene en rutas 1-a-1 (stream, proactive; regenerate no usa tools).
+- C: en group-stream, tras character_done de cada personaje, detectMentions(cleanedContent) agrega mencionados elegibles (activos+presentes+no narrador+no self+no en cola) a la cola dinámica del turno, respetando maxResponsesPerTurn (excepto estrategia all); contador corregido para múltiples menciones.
+- Verificación E2E con test-mock: grupo sintético (Ana/Pinky/Olga ausente) → user menciona a Ana → Ana responde → su respuesta menciona a Pinky Vane → Pinky responde en el MISMO turno; mención a Olga (isPresent=false) ignorada correctamente.
+- Verificación E2E 1-a-1 (stream + test-mock): done+tokens sin errores; eventLog renderizado vía {{eventos}}; tools filtradas (11 en 1-a-1 vs 12 en grupo) verificado con test unitario.
+- Pinky Vane: AUDITORÍA de sus 7 entradas attribute → hallado bug pre-existente: 5ª condición era "> 100" (imposible con clamp max=100) → el nivel MÁXIMO del personaje (descripción 1855 chars, personalidad extrema) NUNCA se inyectaba. Corregido a <= 100 en las 7 entradas. Además asignadas prioridades explícitas 5..1 (robustez al reordenamiento; el editor ya soportaba priority pero los datos no lo usaban). Test de resolución: 7 valores de estupidez resuelven el nivel correcto; orden invertido del array → resultado idéntico.
+- Lint limpio. Verificación navegador (en una sola llamada por reaper de procesos del sandbox): chat 1-a-1 Pinky (HUD Estupidez/Lujuria + primer mensaje) y grupo Ok (sprites miembros) sin errores de página.
+- Nota entorno: el sandbox OOM-kill/reap del next-server (Turbopack+LanceDB, 4GB RAM); mitigado pre-compilando rutas con curl; el server puede necesitar reinicio entre sesiones (bun run dev).
+
+Stage Summary:
+- C completo: diálogo real A↔B sin pasar por el usuario (menciones en respuestas de personajes, cola dinámica, cap por turno).
+- manage_scene solo visible en grupos (filtrada de 1-a-1 en 3 rutas).
+- BUG CRÍTICO corregido en patrón Pinky: nivel máximo de stat nunca alcanzable (>100); 35 condiciones con prioridad explícita. Recomendaciones de patrón documentadas para replicar en otros personajes.
+- Ambos tipos de chat verificados E2E (API SSE + navegador).
+
+---
+Task ID: 10 (Director Agent + overhaul personajes)
+Agent: Z.ai Code (principal)
+Task: Implementar Director Agent + auditoría/corrección masiva de los 12 personajes y lorebooks
+
+Work Log:
+- AUDITORÍA: script sobre characters.json + lorebooks.json → Pinky >100 reverteido por persistencia del server (PUT sobrescribió el fix previo; corregido con server detenido), Diana con lorebook huérfano, 12 entradas con characterId muertos (pantera-diana-00→Diana real, 33bbd96a→Decemone, 9f395af9→Aitana Licuadora), 97 skills sin completedDescription, 29 attrs sin timer, 10 personajes sin proactivo.
+- CORRECCIONES DE DATOS (server detenido): Pinky >100→<=100 + prioridades; Diana lorebook linkeado; 12 characterIds remapeados; 97 completedDescription generados ("{{char}} ejecutó {nombre}"); timers filosofía Pinky (energia +2/10min, lujuria -1/15min, adicciones +1/25min, resistencia +2/10min); configs proactivos 2 niveles × 3 casos escritos a mano para 10 personajes usando su vocabulario/esencia.
+- DIRECTOR AGENT: src/lib/director/types.ts (DirectorSettings/Decision/Snapshot/Result), analyzer.ts puro (tensión 0-100 = base+heat stats+eventos-deprivación+ritmo; pacing calm/building/intense/cooldown estilo L4D; pools de world events por pacing con seededRandom; rotación de escena probabilística en grupos), ruta /api/chat/director (heurística siempre + narración LLM opcional z-ai/openai-compatible/grok con JSON parsing defensivo y fallback), hook use-director (post-turno con debounce 8s + cadencia idle 60s, respeta isGenerating y minInterval; aplica world_event→pushSessionEvent+[DIRECTOR], scene_change→applySceneChange+eventLog+toast, telemetría tensión), integración: AppSettings.director + defaults (enabled, heuristic, 3min) + montaje en chat-panel + botón manual violeta "Director".
+- TESTS: analyzer unitario (tensión 20 base / 81 caliente / intense; scene enter 13/30 turns; estructura OK); ruta E2E con curl (tensión 61, pacing cooldown, scene_change Ana entra); lint limpio; navegador: HUD Pinky + botones Director/Proactivo visibles, clic Director sin errores, server vivo.
+
+Stage Summary:
+- Director Agent v1 operativo: drama manager determinista (sin coste LLM) con modo LLM opcional; sinergia total con event-log (world events entran a {{eventos}}) y escena dinámica (rota miembros del grupo).
+- 12 personajes ahora siguen el patrón Pinky completo: stats→lorebook escalonado (5 niveles)→timers→proactivo escalonado→skills con descripción de completado→{{eventos}}.
+- Bugs de datos resueltos: nivel máximo de 7 entradas Pinky, lorebook huérfano de Diana (jugaba sin personalidad), 12 entradas muertas por ID incorrecto.
+- Lección de entorno: NUNCA editar data/*.json con el server corriendo (la persistencia lo revierte); detener next antes de migraciones.
+
+---
+Task ID: 11 (Relaciones + skill_check)
+Agent: Z.ai Code (principal)
+Task: Implementar sistema de Relaciones (P3) y skill_check (P2)
+
+Work Log:
+- src/lib/relationships.ts (nuevo, puro): SessionRelationship stages Extraños/Conocidos/Amigos/Íntimos/Pareja (0-15/16-35/36-60/61-85/86-100), pairKey simétrico, clamps, getRelationship, isUserTarget.
+- types: SessionEventLogType + 'relationship'|'skill_check'; SessionRelationship; SessionStats.relationships.
+- statsSlice.updateRelationship: bond a↔b (delta/set/reason), espejo `relacion` (número) + `relacion_etapa` (keyword) en attributeValues de AMBAS partes (funciona con lorebooks/sprites/skills/proactivo sin tocar evaluadores), event-log 'relationship' con descripción humana.
+- Tool manage_relationship (modify con delta/set+reason, get_info, targets por alias usuario/nombre/id/primera palabra, rechaza self) → relationshipActivation.
+- Tool skill_check (d20 + modificador stat −10..+10 desde valor 0-100 vs CD easy8/medium12/hard16/extreme19 o custom; critical en 20/1, partial a CD-2; target por defecto __user__) → checkActivation.
+- Registro: 14 tools. SSE relationship_activation/check_activation en stream/group-stream/proactive (script uniforme anclado al bloque stat_activation).
+- chat-panel: handlers (updateRelationship con set+reason+toast etapa ▲▼; check_activation → pushSessionEvent skill_check + toast 🎲✨/💥). key-resolver: {{relacion}}/{{relacion_etapa}} (bond char↔user con fallback al espejo/default).
+- DATA (server detenido): atributo 'Relación' (💜 progress 0-100 default 15, HUD, sin timer) añadido a 11 personajes con statsConfig.
+- Tests: etapas/clamps/pairKey; executors (modify +20 usuario 15→35 Conocidos, set=90 Ana, get_info, target inválido rechazado; statToModifier 80→+6/50→0/20→−6; check fuerza 14+6=20 vs 12 success). Lint limpio. Navegador: HUD Pinky muestra Estupidez/Lujuria/Relación sin errores; 14 tools en log.
+
+Stage Summary:
+- Relaciones: vínculo con etapas gestionable por el LLM (tool) o por reglas futuras; espejo automático → cualquier lorebook attribute entry puede gatear por `relacion`/`relacion_etapa` HOY (ej: condición relacion >= 61 para contenido íntimo); barra visible en HUD.
+- skill_check: convierte los stats de la Persona en mecánica real (d20+mod vs CD, 5 outcomes con narrativa a cargo del LLM); resultados al event-log para que todos reaccionen.
+- Ambos integrados en las 3 rutas de chat (1-a-1, grupo, proactivo).
+
+---
+Task ID: 12 (tiempo del mundo + text actions sin tool calling)
+Agent: Z.ai Code (principal)
+Task: Implementar tiempo del mundo (P5) + acciones por texto (check/rel/tiempo) independientes de tool calling
+
+Work Log:
+- src/lib/world/time.ts (nuevo, puro): WorldClock (totalMinutes, minutesPerTurn 20, realTimeSync, season), momentos madrugada/mañana/tarde/noche, advanceMinutes/setToHour/catchUpRealTime (cap 12h)/worldClockAttributes (hora numérica + momento_del_dia + dia + estacion).
+- SessionStats.worldClock; statsSlice.advanceWorldTime (turnos×minutesPerTurn + catch-up, espejo en characterStats['__user__'], event-log solo al cambiar momento) / setWorldTime (minutes/hour/season/config) / getWorldClock.
+- sessionSlice.addMessage: role user → advanceWorldTime(1) (reloj avanza por turnos en TODOS los caminos).
+- key-resolver: {{hora}}/{{momento}}/{{dia}}/{{estacion}}/{{tiempo_mundo}}.
+- prompt-builder (single + group): sección [TIEMPO DEL MUNDO] (fallback clock 20:00) + sección [ACCIONES DE TEXTO] SIEMPRE presentes.
+- src/lib/tools/text-actions.ts (nuevo): parseTextActions ([check:stat:dificultad|CD], [rel:+N|-N|=N motivo] / [rel:Nombre:...], [tiempo:+2h|+90m|HH:MM|estacion:X]) + buildTextActionsSection (~90 tokens de instrucciones).
+- chat-panel: effect que escanea el ÚLTIMO mensaje assistant (dedupe por id, cubre send/grupo/regenerar/proactivo/replay) y ejecuta check (rollD20+statToModifier vs DIFFICULTY_DC, 5 outcomes, event-log + toast), rel (updateRelationship con target por nombre), tiempo (setWorldTime). Handler SSE time_activation también.
+- Tool manage_time (advance/set_hour/set_season/get_info → timeActivation) + registro (15 tools) + SSE en 3 rutas.
+- DATA (server detenido): entrada {momento_dia} (4 condiciones por hora __user__) en lorebook Escenario compartido; Pinky scenario con {{momento_dia}} + link al lorebook Escenario.
+- Tests: world lib (20:00→+3h=23:00→+1h=Día2 00:00 madrugada; setToHour 9:30; attrs; catchUp), parser 8/8 acciones, manage_time 3 acciones, sección texto OK. Lint limpio. 15 tools en log. Navegador sin errores (server víctima del reaper al compilar proactive; mitigado pre-compilando).
+
+Stage Summary:
+- Tiempo del mundo completo: reloj por turnos (20min/turno default), momentos del día, estaciones, sincronización real opcional; espejado como stats del __user__ → lorebooks (entrada demo {momento_dia}) y sprites condicionales pueden gatear por hora numérica; tool manage_time + tokens de texto + keys de plantilla.
+- ACCIONES DE TEXTO: skill_check, relaciones y tiempo YA NO dependen de tool calling — el LLM escribe [check:fuerza:hard] / [rel:+10 motivo] / [tiempo:+2h] y el cliente los ejecuta (misma filosofía dual-path que stats/skills/quests/items); instrucciones inyectadas SIEMPRE en el prompt.
+- Doble vía completa: tool nativa (cuando está disponible) + token de texto (universal).
+
+---
+Task ID: 13 (fix Grok + panel relaciones)
+Agent: Z.ai Code (principal)
+Task: Fix error 400 Grok (schema enum en tools) + actualizar defaults + UI panel de relaciones (grafo visual)
+
+Work Log:
+- FIX CRÍTICO Grok 400 "enum is not valid": ToolParameterDef usaba type:'enum' (no es JSON Schema válido; xAI valida estricto). Creado toJSONSchemaParameters() en tool-registry (type:'enum'→'string'+enum[], strip per-property required) usado por toOpenAITools → corrige Grok, z-ai, OpenAI-compat y text-gen-webui; Ollama ahora usa toOpenAITools (antes duplicaba el bug); Anthropic input_schema también corregido.
+- Grok defaults: fallback model 'grok-3'→'grok-4-1-fast-non-reasoning' (3 sitios en grok.ts). UI settings ya tenía lista moderna (grok-4.20/4.1/etc.) + fetch dinámico /api/grok/models con API key.
+- Test serialización: 15 tools, 0 violaciones enum/required; manage_scene.action ahora {"type":"string","enum":[...]}; JSON válido.
+- NUEVO src/components/tavern/relationship-panel.tsx: Dialog con grafo radial SVG (usuario al centro con avatar/iniciales, personajes alrededor, aristas con puntos 0-100 y grosor proporcional, colores por etapa: gris/cielo/esmeralda/fucsia/rosa), lista de vínculos ordenada con barras de progreso + motivo último cambio, leyenda de etapas + default 15/100; soporta vínculos char↔char de grupos; lee SessionStats.relationships + espejos 'relacion'.

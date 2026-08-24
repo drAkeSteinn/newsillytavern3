@@ -1,0 +1,1027 @@
+     1→// ============================================
+     2→// Timeline Editor Slice - Sprite Timeline Editor State
+     3→// ============================================
+     4→//
+     5→// This slice manages the state for the Sprite Timeline Editor,
+     6→// a new system for creating animated sprites with keyframe-based
+     7→// sound triggers and multiple tracks.
+     8→//
+     9→
+    10→import type {
+    11→  SpriteTimelineCollection,
+    12→  TimelineSprite,
+    13→  TimelineTrack,
+    14→  TimelineKeyframe,
+    15→  TimelineEditorState,
+    16→  TimelinePlaybackState,
+    17→  KeyframeValue,
+    18→  SoundKeyframeValue,
+    19→  SpriteAnimationFormat,
+    20→} from '@/types';
+    21→import {
+    22→  createDefaultTimelineCollection,
+    23→  createDefaultTimelineSprite,
+    24→  createDefaultTimelineTrack,
+    25→  createDefaultTimelineEditorState,
+    26→  DEFAULT_SOUND_KEYFRAME_VALUE,
+    27→} from '@/types';
+    28→
+    29→// ============================================
+    30→// Timeline Editor Slice Interface
+    31→// ============================================
+    32→
+    33→export interface TimelineEditorSlice {
+    34→  // Collections (folders of sprites)
+    35→  collections: SpriteTimelineCollection[];
+    36→  
+    37→  // Editor UI state
+    38→  editorState: TimelineEditorState;
+    39→  
+    40→  // Sound collections (from existing sound system)
+    41→  soundCollections: { name: string; files: string[] }[];
+    42→  
+    43→  // ============================================
+    44→  // Collection Actions
+    45→  // ============================================
+    46→  
+    47→  // Create a new collection
+    48→  createCollection: (name: string, description?: string) => SpriteTimelineCollection;
+    49→  
+    50→  // Update collection
+    51→  updateCollection: (id: string, updates: Partial<SpriteTimelineCollection>) => void;
+    52→  
+    53→  // Delete collection
+    54→  deleteCollection: (id: string) => void;
+    55→  
+    56→  // Get collection by ID
+    57→  getCollectionById: (id: string) => SpriteTimelineCollection | undefined;
+    58→  
+    59→  // Select collection
+    60→  selectCollection: (id: string | null) => void;
+    61→  
+    62→  // ============================================
+    63→  // Sprite Actions
+    64→  // ============================================
+    65→  
+    66→  // Add sprite to collection
+    67→  addSpriteToCollection: (collectionId: string, sprite: Omit<TimelineSprite, 'id' | 'createdAt' | 'updatedAt'>) => void;
+    68→  
+    69→  // Update sprite
+    70→  updateSprite: (collectionId: string, spriteId: string, updates: Partial<TimelineSprite>) => void;
+    71→  
+    72→  // Delete sprite
+    73→  deleteSprite: (collectionId: string, spriteId: string) => void;
+    74→  
+    75→  // Select sprite
+    76→  selectSprite: (spriteId: string | null) => void;
+    77→  
+    78→  // Get sprite by ID
+    79→  getSpriteById: (collectionId: string, spriteId: string) => TimelineSprite | undefined;
+    80→  
+    81→  // Duplicate sprite
+    82→  duplicateSprite: (collectionId: string, spriteId: string) => void;
+    83→  
+    84→  // ============================================
+    85→  // Track Actions
+    86→  // ============================================
+    87→  
+    88→  // Add track to sprite timeline
+    89→  addTrack: (spriteId: string, type: 'sprite' | 'sound' | 'effect', name?: string) => void;
+    90→  
+    91→  // Update track
+    92→  updateTrack: (spriteId: string, trackId: string, updates: Partial<TimelineTrack>) => void;
+    93→  
+    94→  // Delete track
+    95→  deleteTrack: (spriteId: string, trackId: string) => void;
+    96→  
+    97→  // Select track
+    98→  selectTrack: (trackId: string | null) => void;
+    99→  
+   100→  // Reorder tracks
+   101→  reorderTracks: (spriteId: string, trackIds: string[]) => void;
+   102→  
+   103→  // ============================================
+   104→  // Keyframe Actions
+   105→  // ============================================
+   106→  
+   107→  // Add keyframe
+   108→  addKeyframe: (spriteId: string, trackId: string, time: number, value: KeyframeValue) => void;
+   109→  
+   110→  // Update keyframe
+   111→  updateKeyframe: (spriteId: string, trackId: string, keyframeId: string, updates: Partial<TimelineKeyframe>) => void;
+   112→  
+   113→  // Delete keyframe
+   114→  deleteKeyframe: (spriteId: string, trackId: string, keyframeId: string) => void;
+   115→  
+   116→  // Select keyframe
+   117→  selectKeyframe: (keyframeId: string | null) => void;
+   118→  
+   119→  // Select multiple keyframes (for multi-selection)
+   120→  selectKeyframes: (keyframeIds: string[]) => void;
+   121→  
+   122→  // Toggle a keyframe in the multi-selection
+   123→  toggleKeyframeSelection: (keyframeId: string) => void;
+   124→  
+   125→  // Add a keyframe to the multi-selection
+   126→  addToKeyframeSelection: (keyframeId: string) => void;
+   127→  
+   128→  // Remove a keyframe from the multi-selection
+   129→  removeFromKeyframeSelection: (keyframeId: string) => void;
+   130→  
+   131→  // Clear multi-selection
+   132→  clearKeyframeSelection: () => void;
+   133→  
+   134→  // Move keyframe (change time)
+   135→  moveKeyframe: (spriteId: string, trackId: string, keyframeId: string, newTime: number) => void;
+   136→  
+   137→  // Duplicate keyframe
+   138→  duplicateKeyframe: (spriteId: string, trackId: string, keyframeId: string) => void;
+   139→  
+   140→  // ============================================
+   141→  // Playback Actions
+   142→  // ============================================
+   143→  
+   144→  // Play timeline
+   145→  playTimeline: (spriteId: string) => void;
+   146→  
+   147→  // Pause timeline
+   148→  pauseTimeline: () => void;
+   149→  
+   150→  // Stop timeline
+   151→  stopTimeline: () => void;
+   152→  
+   153→  // Seek to time
+   154→  seekTimeline: (time: number) => void;
+   155→  
+   156→  // Set playback rate
+   157→  setPlaybackRate: (rate: number) => void;
+   158→  
+   159→  // ============================================
+   160→  // UI Actions
+   161→  // ============================================
+   162→  
+   163→  // Set zoom level
+   164→  setZoom: (zoom: number) => void;
+   165→  
+   166→  // Set scroll position
+   167→  setScroll: (x: number, y: number) => void;
+   168→  
+   169→  // Toggle snap
+   170→  toggleSnap: (enabled?: boolean) => void;
+   171→  
+   172→  // Set snap interval
+   173→  setSnapInterval: (interval: number) => void;
+   174→  
+   175→  // Toggle panels
+   176→  toggleTimelinePanel: (show?: boolean) => void;
+   177→  togglePropertiesPanel: (show?: boolean) => void;
+   178→  toggleSoundLibraryPanel: (show?: boolean) => void;
+   179→  
+   180→  // ============================================
+   181→  // Sound Actions
+   182→  // ============================================
+   183→  
+   184→  // Set sound collections (from existing sound system)
+   185→  setSoundCollections: (collections: { name: string; files: string[] }[]) => void;
+   186→  
+   187→  // Add sound keyframe at time
+   188→  addSoundKeyframe: (spriteId: string, trackId: string, time: number, soundUrl: string, volume?: number) => void;
+   189→  
+   190→  // ============================================
+   191→  // Import/Export Actions
+   192→  // ============================================
+   193→  
+   194→  // Import sprite from file
+   195→  importSprite: (collectionId: string, file: File, label?: string) => Promise<TimelineSprite>;
+   196→  
+   197→  // Export timeline data
+   198→  exportTimelineData: (spriteId: string) => string;
+   199→  
+   200→  // Load collections from data
+   201→  loadCollections: (collections: SpriteTimelineCollection[]) => void;
+   202→}
+   203→
+   204→// ============================================
+   205→// Helper Functions
+   206→// ============================================
+   207→
+   208→const generateId = () => {
+   209→  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+   210→    return crypto.randomUUID();
+   211→  }
+   212→  return `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+   213→};
+   214→
+   215→// ============================================
+   216→// Slice Creation
+   217→// ============================================
+   218→
+   219→export const createTimelineEditorSlice = (set: any, get: any): TimelineEditorSlice => ({
+   220→  // ============================================
+   221→  // Initial State
+   222→  // ============================================
+   223→  
+   224→  collections: [],
+   225→  editorState: createDefaultTimelineEditorState(),
+   226→  soundCollections: [],
+   227→  
+   228→  // ============================================
+   229→  // Collection Actions
+   230→  // ============================================
+   231→  
+   232→  createCollection: (name: string, description?: string) => {
+   233→    const collection = createDefaultTimelineCollection(name);
+   234→    if (description) {
+   235→      collection.description = description;
+   236→    }
+   237→    
+   238→    set((state: any) => ({
+   239→      collections: [...state.collections, collection],
+   240→    }));
+   241→    
+   242→    return collection;
+   243→  },
+   244→  
+   245→  updateCollection: (id: string, updates: Partial<SpriteTimelineCollection>) => {
+   246→    set((state: any) => ({
+   247→      collections: state.collections.map((c: SpriteTimelineCollection) =>
+   248→        c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
+   249→      ),
+   250→    }));
+   251→  },
+   252→  
+   253→  deleteCollection: (id: string) => {
+   254→    set((state: any) => ({
+   255→      collections: state.collections.filter((c: SpriteTimelineCollection) => c.id !== id),
+   256→      editorState: state.editorState.selectedCollectionId === id
+   257→        ? { ...state.editorState, selectedCollectionId: null, selectedSpriteId: null }
+   258→        : state.editorState,
+   259→    }));
+   260→  },
+   261→  
+   262→  getCollectionById: (id: string) => {
+   263→    return get().collections.find((c: SpriteTimelineCollection) => c.id === id);
+   264→  },
+   265→  
+   266→  selectCollection: (id: string | null) => {
+   267→    set((state: any) => ({
+   268→      editorState: {
+   269→        ...state.editorState,
+   270→        selectedCollectionId: id,
+   271→        selectedSpriteId: null,
+   272→        selectedTrackId: null,
+   273→        selectedKeyframeId: null,
+   274→        selectedKeyframeIds: [],
+   275→      },
+   276→    }));
+   277→  },
+   278→  
+   279→  // ============================================
+   280→  // Sprite Actions
+   281→  // ============================================
+   282→  
+   283→  addSpriteToCollection: (collectionId: string, sprite: Omit<TimelineSprite, 'id' | 'createdAt' | 'updatedAt'>) => {
+   284→    const now = new Date().toISOString();
+   285→    const newSprite: TimelineSprite = {
+   286→      ...sprite,
+   287→      id: generateId(),
+   288→      createdAt: now,
+   289→      updatedAt: now,
+   290→    };
+   291→    
+   292→    set((state: any) => ({
+   293→      collections: state.collections.map((c: SpriteTimelineCollection) =>
+   294→        c.id === collectionId
+   295→          ? { ...c, sprites: [...c.sprites, newSprite], updatedAt: now }
+   296→          : c
+   297→      ),
+   298→    }));
+   299→  },
+   300→  
+   301→  updateSprite: (collectionId: string, spriteId: string, updates: Partial<TimelineSprite>) => {
+   302→    const now = new Date().toISOString();
+   303→    
+   304→    set((state: any) => ({
+   305→      collections: state.collections.map((c: SpriteTimelineCollection) =>
+   306→        c.id === collectionId
+   307→          ? {
+   308→              ...c,
+   309→              sprites: c.sprites.map((s: TimelineSprite) =>
+   310→                s.id === spriteId ? { ...s, ...updates, updatedAt: now } : s
+   311→              ),
+   312→              updatedAt: now,
+   313→            }
+   314→          : c
+   315→      ),
+   316→    }));
+   317→  },
+   318→  
+   319→  deleteSprite: (collectionId: string, spriteId: string) => {
+   320→    const now = new Date().toISOString();
+   321→    
+   322→    set((state: any) => ({
+   323→      collections: state.collections.map((c: SpriteTimelineCollection) =>
+   324→        c.id === collectionId
+   325→          ? {
+   326→              ...c,
+   327→              sprites: c.sprites.filter((s: TimelineSprite) => s.id !== spriteId),
+   328→              updatedAt: now,
+   329→            }
+   330→          : c
+   331→      ),
+   332→      editorState: state.editorState.selectedSpriteId === spriteId
+   333→        ? { ...state.editorState, selectedSpriteId: null, selectedTrackId: null, selectedKeyframeId: null }
+   334→        : state.editorState,
+   335→    }));
+   336→  },
+   337→  
+   338→  selectSprite: (spriteId: string | null) => {
+   339→    set((state: any) => ({
+   340→      editorState: {
+   341→        ...state.editorState,
+   342→        selectedSpriteId: spriteId,
+   343→        selectedTrackId: null,
+   344→        selectedKeyframeId: null,
+   345→        selectedKeyframeIds: [],
+   346→      },
+   347→    }));
+   348→  },
+   349→  
+   350→  getSpriteById: (collectionId: string, spriteId: string) => {
+   351→    const collection = get().collections.find((c: SpriteTimelineCollection) => c.id === collectionId);
+   352→    return collection?.sprites.find((s: TimelineSprite) => s.id === spriteId);
+   353→  },
+   354→  
+   355→  duplicateSprite: (collectionId: string, spriteId: string) => {
+   356→    const collection = get().collections.find((c: SpriteTimelineCollection) => c.id === collectionId);
+   357→    const sprite = collection?.sprites.find((s: TimelineSprite) => s.id === spriteId);
+   358→    
+   359→    if (!sprite) return;
+   360→    
+   361→    const now = new Date().toISOString();
+   362→    const newSprite: TimelineSprite = {
+   363→      ...sprite,
+   364→      id: generateId(),
+   365→      label: `${sprite.label} (copy)`,
+   366→      createdAt: now,
+   367→      updatedAt: now,
+   368→    };
+   369→    
+   370→    set((state: any) => ({
+   371→      collections: state.collections.map((c: SpriteTimelineCollection) =>
+   372→        c.id === collectionId
+   373→          ? { ...c, sprites: [...c.sprites, newSprite], updatedAt: now }
+   374→          : c
+   375→      ),
+   376→    }));
+   377→  },
+   378→  
+   379→  // ============================================
+   380→  // Track Actions
+   381→  // ============================================
+   382→  
+   383→  addTrack: (spriteId: string, type: 'sprite' | 'sound' | 'effect', name?: string) => {
+   384→    const trackName = name || (type === 'sound' ? `Sound Track` : type === 'effect' ? 'Effect Track' : 'Sprite Track');
+   385→    const track = createDefaultTimelineTrack(type, trackName);
+   386→    
+   387→    set((state: any) => ({
+   388→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   389→        ...c,
+   390→        sprites: c.sprites.map((s: TimelineSprite) =>
+   391→          s.id === spriteId
+   392→            ? { ...s, timeline: { ...s.timeline, tracks: [...s.timeline.tracks, track] }, updatedAt: new Date().toISOString() }
+   393→            : s
+   394→        ),
+   395→      })),
+   396→    }));
+   397→  },
+   398→  
+   399→  updateTrack: (spriteId: string, trackId: string, updates: Partial<TimelineTrack>) => {
+   400→    set((state: any) => ({
+   401→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   402→        ...c,
+   403→        sprites: c.sprites.map((s: TimelineSprite) =>
+   404→          s.id === spriteId
+   405→            ? {
+   406→                ...s,
+   407→                timeline: {
+   408→                  ...s.timeline,
+   409→                  tracks: s.timeline.tracks.map((t: TimelineTrack) =>
+   410→                    t.id === trackId ? { ...t, ...updates } : t
+   411→                  ),
+   412→                },
+   413→                updatedAt: new Date().toISOString(),
+   414→              }
+   415→            : s
+   416→        ),
+   417→      })),
+   418→    }));
+   419→  },
+   420→  
+   421→  deleteTrack: (spriteId: string, trackId: string) => {
+   422→    set((state: any) => ({
+   423→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   424→        ...c,
+   425→        sprites: c.sprites.map((s: TimelineSprite) =>
+   426→          s.id === spriteId
+   427→            ? {
+   428→                ...s,
+   429→                timeline: {
+   430→                  ...s.timeline,
+   431→                  tracks: s.timeline.tracks.filter((t: TimelineTrack) => t.id !== trackId),
+   432→                },
+   433→                updatedAt: new Date().toISOString(),
+   434→              }
+   435→            : s
+   436→        ),
+   437→      })),
+   438→      editorState: state.editorState.selectedTrackId === trackId
+   439→        ? { ...state.editorState, selectedTrackId: null, selectedKeyframeId: null }
+   440→        : state.editorState,
+   441→    }));
+   442→  },
+   443→  
+   444→  selectTrack: (trackId: string | null) => {
+   445→    set((state: any) => ({
+   446→      editorState: {
+   447→        ...state.editorState,
+   448→        selectedTrackId: trackId,
+   449→        selectedKeyframeId: null,
+   450→        selectedKeyframeIds: [],
+   451→      },
+   452→    }));
+   453→  },
+   454→  
+   455→  reorderTracks: (spriteId: string, trackIds: string[]) => {
+   456→    set((state: any) => ({
+   457→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   458→        ...c,
+   459→        sprites: c.sprites.map((s: TimelineSprite) => {
+   460→          if (s.id !== spriteId) return s;
+   461→          
+   462→          const trackMap = new Map(s.timeline.tracks.map((t: TimelineTrack) => [t.id, t]));
+   463→          const reorderedTracks = trackIds
+   464→            .map(id => trackMap.get(id))
+   465→            .filter((t): t is TimelineTrack => t !== undefined);
+   466→          
+   467→          return {
+   468→            ...s,
+   469→            timeline: { ...s.timeline, tracks: reorderedTracks },
+   470→            updatedAt: new Date().toISOString(),
+   471→          };
+   472→        }),
+   473→      })),
+   474→    }));
+   475→  },
+   476→  
+   477→  // ============================================
+   478→  // Keyframe Actions
+   479→  // ============================================
+   480→  
+   481→  addKeyframe: (spriteId: string, trackId: string, time: number, value: KeyframeValue) => {
+   482→    const keyframe: TimelineKeyframe = {
+   483→      id: generateId(),
+   484→      time,
+   485→      value,
+   486→      interpolation: 'hold',
+   487→    };
+   488→    
+   489→    set((state: any) => ({
+   490→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   491→        ...c,
+   492→        sprites: c.sprites.map((s: TimelineSprite) =>
+   493→          s.id === spriteId
+   494→            ? {
+   495→                ...s,
+   496→                timeline: {
+   497→                  ...s.timeline,
+   498→                  tracks: s.timeline.tracks.map((t: TimelineTrack) =>
+   499→                    t.id === trackId
+   500→                      ? { ...t, keyframes: [...t.keyframes, keyframe].sort((a, b) => a.time - b.time) }
+   501→                      : t
+   502→                  ),
+   503→                },
+   504→                updatedAt: new Date().toISOString(),
+   505→              }
+   506→            : s
+   507→        ),
+   508→      })),
+   509→    }));
+   510→  },
+   511→  
+   512→  updateKeyframe: (spriteId: string, trackId: string, keyframeId: string, updates: Partial<TimelineKeyframe>) => {
+   513→    set((state: any) => ({
+   514→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   515→        ...c,
+   516→        sprites: c.sprites.map((s: TimelineSprite) =>
+   517→          s.id === spriteId
+   518→            ? {
+   519→                ...s,
+   520→                timeline: {
+   521→                  ...s.timeline,
+   522→                  tracks: s.timeline.tracks.map((t: TimelineTrack) =>
+   523→                    t.id === trackId
+   524→                      ? {
+   525→                          ...t,
+   526→                          keyframes: t.keyframes.map((k: TimelineKeyframe) =>
+   527→                            k.id === keyframeId ? { ...k, ...updates } : k
+   528→                          ),
+   529→                        }
+   530→                      : t
+   531→                  ),
+   532→                },
+   533→                updatedAt: new Date().toISOString(),
+   534→              }
+   535→            : s
+   536→        ),
+   537→      })),
+   538→    }));
+   539→  },
+   540→  
+   541→  deleteKeyframe: (spriteId: string, trackId: string, keyframeId: string) => {
+   542→    set((state: any) => ({
+   543→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   544→        ...c,
+   545→        sprites: c.sprites.map((s: TimelineSprite) =>
+   546→          s.id === spriteId
+   547→            ? {
+   548→                ...s,
+   549→                timeline: {
+   550→                  ...s.timeline,
+   551→                  tracks: s.timeline.tracks.map((t: TimelineTrack) =>
+   552→                    t.id === trackId
+   553→                      ? { ...t, keyframes: t.keyframes.filter((k: TimelineKeyframe) => k.id !== keyframeId) }
+   554→                      : t
+   555→                  ),
+   556→                },
+   557→                updatedAt: new Date().toISOString(),
+   558→              }
+   559→            : s
+   560→        ),
+   561→      })),
+   562→      editorState: state.editorState.selectedKeyframeId === keyframeId
+   563→        ? { ...state.editorState, selectedKeyframeId: null }
+   564→        : state.editorState,
+   565→    }));
+   566→  },
+   567→  
+   568→  selectKeyframe: (keyframeId: string | null) => {
+   569→    set((state: any) => ({
+   570→      editorState: {
+   571→        ...state.editorState,
+   572→        selectedKeyframeId: keyframeId,
+   573→        selectedKeyframeIds: keyframeId ? [keyframeId] : [],
+   574→      },
+   575→    }));
+   576→  },
+   577→  
+   578→  selectKeyframes: (keyframeIds: string[]) => {
+   579→    set((state: any) => ({
+   580→      editorState: {
+   581→        ...state.editorState,
+   582→        selectedKeyframeId: keyframeIds.length > 0 ? keyframeIds[keyframeIds.length - 1] : null,
+   583→        selectedKeyframeIds: keyframeIds,
+   584→      },
+   585→    }));
+   586→  },
+   587→  
+   588→  toggleKeyframeSelection: (keyframeId: string) => {
+   589→    set((state: any) => {
+   590→      const current = state.editorState.selectedKeyframeIds as string[];
+   591→      const isSelected = current.includes(keyframeId);
+   592→      const newIds = isSelected
+   593→        ? current.filter((id: string) => id !== keyframeId)
+   594→        : [...current, keyframeId];
+   595→      return {
+   596→        editorState: {
+   597→          ...state.editorState,
+   598→          selectedKeyframeId: newIds.length > 0 ? newIds[newIds.length - 1] : null,
+   599→          selectedKeyframeIds: newIds,
+   600→        },
+   601→      };
+   602→    });
+   603→  },
+   604→  
+   605→  addToKeyframeSelection: (keyframeId: string) => {
+   606→    set((state: any) => {
+   607→      const current = state.editorState.selectedKeyframeIds as string[];
+   608→      if (current.includes(keyframeId)) return state;
+   609→      const newIds = [...current, keyframeId];
+   610→      return {
+   611→        editorState: {
+   612→          ...state.editorState,
+   613→          selectedKeyframeId: keyframeId,
+   614→          selectedKeyframeIds: newIds,
+   615→        },
+   616→      };
+   617→    });
+   618→  },
+   619→  
+   620→  removeFromKeyframeSelection: (keyframeId: string) => {
+   621→    set((state: any) => {
+   622→      const current = state.editorState.selectedKeyframeIds as string[];
+   623→      const newIds = current.filter((id: string) => id !== keyframeId);
+   624→      return {
+   625→        editorState: {
+   626→          ...state.editorState,
+   627→          selectedKeyframeId: state.editorState.selectedKeyframeId === keyframeId
+   628→            ? (newIds.length > 0 ? newIds[newIds.length - 1] : null)
+   629→            : state.editorState.selectedKeyframeId,
+   630→          selectedKeyframeIds: newIds,
+   631→        },
+   632→      };
+   633→    });
+   634→  },
+   635→  
+   636→  clearKeyframeSelection: () => {
+   637→    set((state: any) => ({
+   638→      editorState: {
+   639→        ...state.editorState,
+   640→        selectedKeyframeId: null,
+   641→        selectedKeyframeIds: [],
+   642→      },
+   643→    }));
+   644→  },
+   645→  
+   646→  moveKeyframe: (spriteId: string, trackId: string, keyframeId: string, newTime: number) => {
+   647→    // Apply snapping if enabled
+   648→    const editorState = get().editorState;
+   649→    let time = newTime;
+   650→    
+   651→    if (editorState.snapEnabled && editorState.snapInterval > 0) {
+   652→      time = Math.round(newTime / editorState.snapInterval) * editorState.snapInterval;
+   653→    }
+   654→    
+   655→    // Ensure time is non-negative
+   656→    time = Math.max(0, time);
+   657→    
+   658→    set((state: any) => ({
+   659→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   660→        ...c,
+   661→        sprites: c.sprites.map((s: TimelineSprite) =>
+   662→          s.id === spriteId
+   663→            ? {
+   664→                ...s,
+   665→                timeline: {
+   666→                  ...s.timeline,
+   667→                  tracks: s.timeline.tracks.map((t: TimelineTrack) =>
+   668→                    t.id === trackId
+   669→                      ? {
+   670→                          ...t,
+   671→                          keyframes: t.keyframes
+   672→                            .map((k: TimelineKeyframe) =>
+   673→                              k.id === keyframeId ? { ...k, time } : k
+   674→                            )
+   675→                            .sort((a, b) => a.time - b.time),
+   676→                        }
+   677→                      : t
+   678→                  ),
+   679→                },
+   680→                updatedAt: new Date().toISOString(),
+   681→              }
+   682→            : s
+   683→        ),
+   684→      })),
+   685→    }));
+   686→  },
+   687→  
+   688→  duplicateKeyframe: (spriteId: string, trackId: string, keyframeId: string) => {
+   689→    const collection = get().collections.find((c: SpriteTimelineCollection) =>
+   690→      c.sprites.some((s: TimelineSprite) => s.id === spriteId)
+   691→    );
+   692→    const sprite = collection?.sprites.find((s: TimelineSprite) => s.id === spriteId);
+   693→    const track = sprite?.timeline.tracks.find((t: TimelineTrack) => t.id === trackId);
+   694→    const keyframe = track?.keyframes.find((k: TimelineKeyframe) => k.id === keyframeId);
+   695→    
+   696→    if (!keyframe) return;
+   697→    
+   698→    const newKeyframe: TimelineKeyframe = {
+   699→      ...keyframe,
+   700→      id: generateId(),
+   701→      time: keyframe.time + 100, // Offset by 100ms
+   702→    };
+   703→    
+   704→    set((state: any) => ({
+   705→      collections: state.collections.map((c: SpriteTimelineCollection) => ({
+   706→        ...c,
+   707→        sprites: c.sprites.map((s: TimelineSprite) =>
+   708→          s.id === spriteId
+   709→            ? {
+   710→                ...s,
+   711→                timeline: {
+   712→                  ...s.timeline,
+   713→                  tracks: s.timeline.tracks.map((t: TimelineTrack) =>
+   714→                    t.id === trackId
+   715→                      ? { ...t, keyframes: [...t.keyframes, newKeyframe].sort((a, b) => a.time - b.time) }
+   716→                      : t
+   717→                  ),
+   718→                },
+   719→                updatedAt: new Date().toISOString(),
+   720→              }
+   721→            : s
+   722→        ),
+   723→      })),
+   724→    }));
+   725→  },
+   726→  
+   727→  // ============================================
+   728→  // Playback Actions
+   729→  // ============================================
+   730→  
+   731→  playTimeline: (spriteId: string) => {
+   732→    set((state: any) => ({
+   733→      editorState: {
+   734→        ...state.editorState,
+   735→        playback: {
+   736→          ...state.editorState.playback,
+   737→          playheadState: 'playing',
+   738→          startTime: Date.now() - state.editorState.playback.currentTime,
+   739→        },
+   740→      },
+   741→    }));
+   742→  },
+   743→  
+   744→  pauseTimeline: () => {
+   745→    set((state: any) => ({
+   746→      editorState: {
+   747→        ...state.editorState,
+   748→        playback: {
+   749→          ...state.editorState.playback,
+   750→          playheadState: 'paused',
+   751→        },
+   752→      },
+   753→    }));
+   754→  },
+   755→  
+   756→  stopTimeline: () => {
+   757→    set((state: any) => ({
+   758→      editorState: {
+   759→        ...state.editorState,
+   760→        playback: {
+   761→          ...state.editorState.playback,
+   762→          playheadState: 'stopped',
+   763→          currentTime: 0,
+   764→          activeSounds: [],
+   765→        },
+   766→      },
+   767→    }));
+   768→  },
+   769→  
+   770→  seekTimeline: (time: number) => {
+   771→    set((state: any) => ({
+   772→      editorState: {
+   773→        ...state.editorState,
+   774→        playback: {
+   775→          ...state.editorState.playback,
+   776→          currentTime: time,
+   777→          startTime: Date.now() - time,
+   778→        },
+   779→      },
+   780→    }));
+   781→  },
+   782→  
+   783→  setPlaybackRate: (rate: number) => {
+   784→    const clampedRate = Math.max(0.25, Math.min(2, rate));
+   785→    set((state: any) => ({
+   786→      editorState: {
+   787→        ...state.editorState,
+   788→        playback: {
+   789→          ...state.editorState.playback,
+   790→          playbackRate: clampedRate,
+   791→        },
+   792→      },
+   793→    }));
+   794→  },
+   795→  
+   796→  // ============================================
+   797→  // UI Actions
+   798→  // ============================================
+   799→  
+   800→  setZoom: (zoom: number) => {
+   801→    const clampedZoom = Math.max(0.01, Math.min(1, zoom));
+   802→    set((state: any) => ({
+   803→      editorState: {
+   804→        ...state.editorState,
+   805→        zoom: clampedZoom,
+   806→      },
+   807→    }));
+   808→  },
+   809→  
+   810→  setScroll: (x: number, y: number) => {
+   811→    set((state: any) => ({
+   812→      editorState: {
+   813→        ...state.editorState,
+   814→        scrollX: Math.max(0, x),
+   815→        scrollY: Math.max(0, y),
+   816→      },
+   817→    }));
+   818→  },
+   819→  
+   820→  toggleSnap: (enabled?: boolean) => {
+   821→    set((state: any) => ({
+   822→      editorState: {
+   823→        ...state.editorState,
+   824→        snapEnabled: enabled !== undefined ? enabled : !state.editorState.snapEnabled,
+   825→      },
+   826→    }));
+   827→  },
+   828→  
+   829→  setSnapInterval: (interval: number) => {
+   830→    set((state: any) => ({
+   831→      editorState: {
+   832→        ...state.editorState,
+   833→        snapInterval: Math.max(10, interval),
+   834→      },
+   835→    }));
+   836→  },
+   837→  
+   838→  toggleTimelinePanel: (show?: boolean) => {
+   839→    set((state: any) => ({
+   840→      editorState: {
+   841→        ...state.editorState,
+   842→        showTimeline: show !== undefined ? show : !state.editorState.showTimeline,
+   843→      },
+   844→    }));
+   845→  },
+   846→  
+   847→  togglePropertiesPanel: (show?: boolean) => {
+   848→    set((state: any) => ({
+   849→      editorState: {
+   850→        ...state.editorState,
+   851→        showProperties: show !== undefined ? show : !state.editorState.showProperties,
+   852→      },
+   853→    }));
+   854→  },
+   855→  
+   856→  toggleSoundLibraryPanel: (show?: boolean) => {
+   857→    set((state: any) => ({
+   858→      editorState: {
+   859→        ...state.editorState,
+   860→        showSoundLibrary: show !== undefined ? show : !state.editorState.showSoundLibrary,
+   861→      },
+   862→    }));
+   863→  },
+   864→  
+   865→  // ============================================
+   866→  // Sound Actions
+   867→  // ============================================
+   868→  
+   869→  setSoundCollections: (collections: { name: string; files: string[] }[]) => {
+   870→    set({ soundCollections: collections });
+   871→  },
+   872→  
+   873→  addSoundKeyframe: (spriteId: string, trackId: string, time: number, soundUrl: string, volume: number = 1) => {
+   874→    const value: SoundKeyframeValue = {
+   875→      ...DEFAULT_SOUND_KEYFRAME_VALUE,
+   876→      soundUrl,
+   877→      volume,
+   878→    };
+   879→    get().addKeyframe(spriteId, trackId, time, value);
+   880→  },
+   881→  
+   882→  // ============================================
+   883→  // Import/Export Actions
+   884→  // ============================================
+   885→  
+   886→  importSprite: async (collectionId: string, file: File, label?: string): Promise<TimelineSprite> => {
+   887→    return new Promise((resolve, reject) => {
+   888→      // Create object URL for the file
+   889→      const url = URL.createObjectURL(file);
+   890→      
+   891→      // Determine format from file extension
+   892→      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+   893→      const format: SpriteAnimationFormat = 
+   894→        ext === 'webm' ? 'webm' :
+   895→        ext === 'mp4' ? 'mp4' :
+   896→        ext === 'gif' ? 'gif' :
+   897→        ext === 'webp' ? 'webp' :
+   898→        ext === 'jpg' || ext === 'jpeg' ? 'jpg' : 'png';
+   899→      
+   900→      // Create sprite
+   901→      const sprite = createDefaultTimelineSprite(url, label || file.name.replace(/\.[^/.]+$/, ''));
+   902→      sprite.format = format;
+   903→      
+   904→      // For video formats, try to detect duration
+   905→      if (format === 'webm' || format === 'mp4') {
+   906→        const video = document.createElement('video');
+   907→        video.preload = 'metadata';
+   908→        
+   909→        video.onloadedmetadata = () => {
+   910→          sprite.duration = Math.round(video.duration * 1000);
+   911→          sprite.width = video.videoWidth;
+   912→          sprite.height = video.videoHeight;
+   913→          
+   914→          // Add to collection
+   915→          get().addSpriteToCollection(collectionId, sprite);
+   916→          URL.revokeObjectURL(url);
+   917→          resolve(sprite);
+   918→        };
+   919→        
+   920→        video.onerror = () => {
+   921→          // Still add the sprite even if we can't get metadata
+   922→          get().addSpriteToCollection(collectionId, sprite);
+   923→          URL.revokeObjectURL(url);
+   924→          resolve(sprite);
+   925→        };
+   926→        
+   927→        video.src = url;
+   928→      } else if (format === 'gif' || format === 'webp') {
+   929→        // For animated GIF/WebP, we need to try to detect duration
+   930→        // This is more complex and may require additional libraries
+   931→        // For now, set a default duration
+   932→        sprite.duration = 3000; // 3 seconds default
+   933→        
+   934→        // Try to get dimensions
+   935→        const img = new Image();
+   936→        img.onload = () => {
+   937→          sprite.width = img.width;
+   938→          sprite.height = img.height;
+   939→          
+   940→          get().addSpriteToCollection(collectionId, sprite);
+   941→          URL.revokeObjectURL(url);
+   942→          resolve(sprite);
+   943→        };
+   944→        
+   945→        img.onerror = () => {
+   946→          get().addSpriteToCollection(collectionId, sprite);
+   947→          URL.revokeObjectURL(url);
+   948→          resolve(sprite);
+   949→        };
+   950→        
+   951→        img.src = url;
+   952→      } else {
+   953→        // Static image
+   954→        const img = new Image();
+   955→        img.onload = () => {
+   956→          sprite.width = img.width;
+   957→          sprite.height = img.height;
+   958→          
+   959→          get().addSpriteToCollection(collectionId, sprite);
+   960→          URL.revokeObjectURL(url);
+   961→          resolve(sprite);
+   962→        };
+   963→        
+   964→        img.onerror = () => {
+   965→          get().addSpriteToCollection(collectionId, sprite);
+   966→          URL.revokeObjectURL(url);
+   967→          resolve(sprite);
+   968→        };
+   969→        
+   970→        img.src = url;
+   971→      }
+   972→    });
+   973→  },
+   974→  
+   975→  exportTimelineData: (spriteId: string): string => {
+   976→    const collection = get().collections.find((c: SpriteTimelineCollection) =>
+   977→      c.sprites.some((s: TimelineSprite) => s.id === spriteId)
+   978→    );
+   979→    const sprite = collection?.sprites.find((s: TimelineSprite) => s.id === spriteId);
+   980→    
+   981→    if (!sprite) return '{}';
+   982→    
+   983→    return JSON.stringify({
+   984→      sprite: {
+   985→        id: sprite.id,
+   986→        label: sprite.label,
+   987→        url: sprite.url,
+   988→        duration: sprite.duration,
+   989→        timeline: sprite.timeline,
+   990→      },
+   991→    }, null, 2);
+   992→  },
+   993→  
+   994→  loadCollections: (collections: SpriteTimelineCollection[]) => {
+   995→    set({ collections });
+   996→  },
+   997→});
+   998→
+   999→// ============================================
+  1000→// Selector Hooks (for use in components)
+  1001→// ============================================
+  1002→
+  1003→export const useTimelineEditorCollections = () => {
+  1004→  return (state: { timelineEditor: TimelineEditorSlice }) => state.timelineEditor.collections;
+  1005→};
+  1006→
+  1007→export const useTimelineEditorState = () => {
+  1008→  return (state: { timelineEditor: TimelineEditorSlice }) => state.timelineEditor.editorState;
+  1009→};
+  1010→
+  1011→export const useSelectedCollection = () => {
+  1012→  return (state: { timelineEditor: TimelineEditorSlice }) => {
+  1013→    const id = state.timelineEditor.editorState.selectedCollectionId;
+  1014→    return id ? state.timelineEditor.collections.find(c => c.id === id) : undefined;
+  1015→  };
+  1016→};
+  1017→
+  1018→export const useSelectedSprite = () => {
+  1019→  return (state: { timelineEditor: TimelineEditorSlice }) => {
+  1020→    const collectionId = state.timelineEditor.editorState.selectedCollectionId;
+  1021→    const spriteId = state.timelineEditor.editorState.selectedSpriteId;
+  1022→    if (!collectionId || !spriteId) return undefined;
+  1023→    const collection = state.timelineEditor.collections.find(c => c.id === collectionId);
+  1024→    return collection?.sprites.find(s => s.id === spriteId);
+  1025→  };
+  1026→};
+  1027→
