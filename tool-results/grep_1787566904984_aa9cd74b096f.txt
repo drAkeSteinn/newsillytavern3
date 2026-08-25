@@ -1,0 +1,213 @@
+/home/z/my-project/src/lib/i18n.ts:23:    'common.loading': 'Cargando...',
+/home/z/my-project/src/app/page.tsx:80:            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+/home/z/my-project/src/app/page.tsx:189:          <div className="flex-1 flex items-center justify-center">
+/home/z/my-project/src/components/ui/select.tsx:115:      <span className="absolute right-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/select.tsx:146:        "flex cursor-default items-center justify-center py-1",
+/home/z/my-project/src/components/ui/select.tsx:164:        "flex cursor-default items-center justify-center py-1",
+/home/z/my-project/src/components/ui/menubar.tsx:130:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/menubar.tsx:154:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:101:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:136:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/button.tsx:8:  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+/home/z/my-project/src/components/ui/toggle.tsx:10:  "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none transition-[color,box-shadow] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive whitespace-nowrap",
+/home/z/my-project/src/components/ui/badge.tsx:8:  "inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+/home/z/my-project/src/components/ui/input-otp.tsx:54:        "data-[active=true]:border-ring data-[active=true]:ring-ring/50 data-[active=true]:aria-invalid:ring-destructive/20 dark:data-[active=true]:aria-invalid:ring-destructive/40 aria-invalid:border-destructive data-[active=true]:aria-invalid:border-destructive dark:bg-input/30 border-input relative flex h-9 w-9 items-center justify-center border-y border-r text-sm shadow-xs transition-all outline-none first:rounded-l-md first:border-l last:rounded-r-md data-[active=true]:z-10 data-[active=true]:ring-[3px]",
+/home/z/my-project/src/components/ui/input-otp.tsx:61:        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+/home/z/my-project/src/components/ui/resizable.tsx:42:        "bg-border focus-visible:ring-ring relative flex w-px items-center justify-center after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-hidden data-[panel-group-direction=vertical]:h-px data-[panel-group-direction=vertical]:w-full data-[panel-group-direction=vertical]:after:left-0 data-[panel-group-direction=vertical]:after:h-1 data-[panel-group-direction=vertical]:after:w-full data-[panel-group-direction=vertical]:after:translate-x-0 data-[panel-group-direction=vertical]:after:-translate-y-1/2 [&[data-panel-group-direction=vertical]>div]:rotate-90",
+/home/z/my-project/src/components/ui/resizable.tsx:48:        <div className="bg-border z-10 flex h-4 w-3 items-center justify-center rounded-xs border">
+/home/z/my-project/src/components/ui/radio-group.tsx:37:        className="relative flex items-center justify-center"
+/home/z/my-project/src/components/ui/chart.tsx:273:        "flex items-center justify-center gap-4",
+/home/z/my-project/src/components/ui/calendar.tsx:65:          "flex items-center justify-center h-(--cell-size) w-full px-(--cell-size)",
+/home/z/my-project/src/components/ui/calendar.tsx:162:              <div className="flex size-(--cell-size) items-center justify-center text-center">
+/home/z/my-project/src/components/ui/checkbox.tsx:24:        className="flex items-center justify-center text-current transition-none"
+/home/z/my-project/src/components/ui/navigation-menu.tsx:21:        "group/navigation-menu relative flex max-w-max flex-1 items-center justify-center",
+/home/z/my-project/src/components/ui/navigation-menu.tsx:40:        "group flex flex-1 list-none items-center justify-center gap-1",
+/home/z/my-project/src/components/ui/navigation-menu.tsx:62:  "group inline-flex h-9 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 data-[state=open]:hover:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:focus:bg-accent data-[state=open]:bg-accent/50 focus-visible:ring-ring/50 outline-none transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1"
+/home/z/my-project/src/components/ui/sidebar.tsx:429:        "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground absolute top-3.5 right-3 flex aspect-square w-5 items-center justify-center rounded-md p-0 outline-hidden transition-transform focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+/home/z/my-project/src/components/ui/sidebar.tsx:564:        "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer-hover/menu-button:text-sidebar-accent-foreground absolute top-1.5 right-1 flex aspect-square w-5 items-center justify-center rounded-md p-0 outline-hidden transition-transform focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+/home/z/my-project/src/components/ui/sidebar.tsx:589:        "text-sidebar-foreground pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-xs font-medium tabular-nums select-none",
+/home/z/my-project/src/components/memory/character-memory-editor.tsx:520:                        "w-10 h-10 rounded-full flex items-center justify-center",
+/home/z/my-project/src/components/ui/tabs.tsx:29:        "bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-[3px]",
+/home/z/my-project/src/components/ui/tabs.tsx:45:        "data-[state=active]:bg-background dark:data-[state=active]:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring dark:data-[state=active]:border-input dark:data-[state=active]:bg-input/30 text-foreground dark:text-muted-foreground inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-sm [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/memory/memory-settings-panel.tsx:1110:                'flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+/home/z/my-project/src/components/memory/memory-settings-panel.tsx:1123:                'flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+/home/z/my-project/src/components/ui/pagination.tsx:110:      className={cn("flex size-9 items-center justify-center", className)}
+/home/z/my-project/src/components/ui/avatar.tsx:45:        "bg-muted flex size-full items-center justify-center rounded-full",
+/home/z/my-project/src/components/ui/toast.tsx:65:      "inline-flex h-8 shrink-0 items-center justify-center rounded-md border bg-transparent px-3 text-sm font-medium transition-colors hover:bg-secondary focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none disabled:opacity-50 group-[.destructive]:border-muted/40 group-[.destructive]:hover:border-destructive/30 group-[.destructive]:hover:bg-destructive group-[.destructive]:hover:text-destructive-foreground group-[.destructive]:focus:ring-destructive",
+/home/z/my-project/src/components/ui/context-menu.tsx:153:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/context-menu.tsx:177:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/breadcrumb.tsx:92:      className={cn("flex size-9 items-center justify-center", className)}
+/home/z/my-project/src/components/tavern/character-trigger-editor.tsx:310:          <div className="flex items-center justify-center text-muted-foreground">→</div>
+/home/z/my-project/src/components/tavern/character-trigger-editor.tsx:342:                  <div className="w-12 h-12 rounded border overflow-hidden bg-muted/50 flex items-center justify-center flex-shrink-0">
+/home/z/my-project/src/components/tavern/character-trigger-editor.tsx:480:                    <span className="ml-1 text-muted-foreground cursor-help inline-flex items-center justify-center" title="Permite detectar variaciones de la key">
+/home/z/my-project/src/components/tavern/character-trigger-editor.tsx:577:                      <div className="flex items-center justify-center py-4">
+/home/z/my-project/src/components/tavern/character-trigger-editor.tsx:681:                          <div className="flex items-center justify-center py-2">
+/home/z/my-project/src/components/tavern/sound-triggers-settings.tsx:343:                      <p className="text-sm text-muted-foreground">Cargando...</p>
+/home/z/my-project/src/components/tavern/sound-triggers-settings.tsx:456:                      <span>Cargando...</span>
+/home/z/my-project/src/components/tavern/sound-triggers-settings.tsx:483:                <div className="flex items-center justify-center text-muted-foreground py-8">
+/home/z/my-project/src/components/tavern/sound-triggers-settings.tsx:1276:                  <div className="w-10 h-10 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sound-triggers-settings.tsx:1393:            <div className="flex items-center justify-center p-4 rounded-lg border border-dashed bg-muted/20 min-h-[200px] relative overflow-visible">
+/home/z/my-project/src/components/vr/vr-viewer.tsx:633:    <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-6">
+/home/z/my-project/src/components/vr/vr-viewer.tsx:639:        <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-2xl shadow-emerald-500/30">
+/home/z/my-project/src/components/vr/vr-viewer.tsx:655:          className="w-full max-w-xs px-8 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white font-bold text-lg rounded-2xl shadow-xl shadow-emerald-500/30 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3"
+/home/z/my-project/src/components/vr/vr-viewer.tsx:681:          <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
+/home/z/my-project/src/components/vr/vr-viewer.tsx:687:          <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
+/home/z/my-project/src/components/vr/vr-viewer.tsx:693:          <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
+/home/z/my-project/src/components/vr/vr-viewer.tsx:1048:        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-500/80 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-all hover:scale-[1.02] active:scale-95"
+/home/z/my-project/src/components/vr/vr-viewer.tsx:1058:          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+/home/z/my-project/src/components/vr/vr-viewer.tsx:1069:          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+/home/z/my-project/src/components/tavern/background-triggers-settings.tsx:307:        <div className="flex-1 flex items-center justify-center text-muted-foreground min-h-0">
+/home/z/my-project/src/components/tavern/background-triggers-settings.tsx:752:          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+/home/z/my-project/src/components/inventory/inventory-hud.tsx:107:        className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity shrink-0 w-3.5 h-3.5 rounded-full flex items-center justify-center hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
+/home/z/my-project/src/components/inventory/inventory-hud.tsx:143:              'w-6 h-6 rounded flex items-center justify-center text-sm cursor-pointer',
+/home/z/my-project/src/components/inventory/inventory-hud.tsx:560:                            className="ml-auto w-4 h-4 rounded-full flex items-center justify-center hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+/home/z/my-project/src/components/tavern/character-sprite.tsx:637:          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg">
+/home/z/my-project/src/components/tavern/character-sprite.tsx:1017:          className="sprite-controls absolute top-2 left-2 w-6 h-6 cursor-nwse-resize bg-background/80 backdrop-blur-sm rounded flex items-center justify-center hover:bg-background/90"
+/home/z/my-project/src/components/tavern/solicitudes-side-panel.tsx:246:          "flex-col items-center justify-center"
+/home/z/my-project/src/components/inventory/inventory-panel.tsx:119:      <div className={cn('w-8 h-8 rounded-md flex items-center justify-center text-base shrink-0', getRarityBgColor(item.rarity))}>
+/home/z/my-project/src/components/inventory/inventory-panel.tsx:824:                        <div className={cn('w-8 h-8 rounded-md flex items-center justify-center text-base shrink-0', getRarityBgColor(item.rarity))}>
+/home/z/my-project/src/components/inventory/inventory-panel.tsx:970:                          <div className="w-8 h-8 rounded-md flex items-center justify-center text-base shrink-0 bg-muted/50">
+/home/z/my-project/src/components/inventory/inventory-panel.tsx:1326:                        'w-7 h-7 rounded-md border text-sm flex items-center justify-center transition-colors',
+/home/z/my-project/src/components/inventory/item-card.tsx:175:            'w-9 h-9 rounded-md flex items-center justify-center text-lg shrink-0',
+/home/z/my-project/src/components/tavern/trigger-collection-editor.tsx:2577:      className="absolute inset-0 rounded flex items-center justify-center text-white font-bold text-xs"
+/home/z/my-project/src/components/tavern/trigger-collection-editor.tsx:2602:      className="absolute inset-0 rounded flex items-center justify-center text-white font-bold text-xs"
+/home/z/my-project/src/components/tavern/stats-editor.tsx:1052:            <div className="absolute inset-0 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/stats-editor.tsx:2088:                            ) : <div className="flex items-center justify-center"><span className="text-[10px] text-muted-foreground">= Set</span></div>}
+/home/z/my-project/src/components/tavern/stats-editor.tsx:3434:                                <div className="flex items-center justify-center h-6">
+/home/z/my-project/src/components/tavern/stats-editor.tsx:4661:                    className="h-4 w-4 flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10"
+/home/z/my-project/src/components/tavern/stats-editor.tsx:5116:                      className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+/home/z/my-project/src/components/tavern/stats-editor.tsx:5170:                      className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+/home/z/my-project/src/components/tavern/stats-editor.tsx:5247:                      className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+/home/z/my-project/src/components/tavern/stats-editor.tsx:5323:                      className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+/home/z/my-project/src/components/tavern/stats-editor.tsx:5397:                      className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+/home/z/my-project/src/components/tavern/stats-editor.tsx:5480:                        className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+/home/z/my-project/src/components/tavern/proactive-messages-panel.tsx:164:            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10">
+/home/z/my-project/src/components/tavern/proactive-messages-panel.tsx:188:                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/10 shrink-0 mt-0.5">
+/home/z/my-project/src/components/tavern/proactive-messages-panel.tsx:197:                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/10 shrink-0 mt-0.5">
+/home/z/my-project/src/components/tavern/proactive-messages-panel.tsx:206:                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-violet-500/10 shrink-0 mt-0.5">
+/home/z/my-project/src/components/tavern/proactive-messages-panel.tsx:215:                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-green-500/10 shrink-0 mt-0.5">
+/home/z/my-project/src/components/tavern/group-sprites.tsx:544:                    "w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300",
+/home/z/my-project/src/components/tavern/group-sprites.tsx:594:                className="sprite-controls absolute top-2 left-2 w-6 h-6 cursor-nwse-resize bg-background/80 backdrop-blur-sm rounded flex items-center justify-center hover:bg-background/90"
+/home/z/my-project/src/components/tavern/sprite-manager.tsx:66:      <div className="flex items-center justify-center py-8">
+/home/z/my-project/src/components/tavern/tts-playback-controls.tsx:288:        'flex items-center justify-center w-8 h-8 rounded-full',
+/home/z/my-project/src/components/tavern/namespace-selector.tsx:178:            <div className="px-2 py-3 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+/home/z/my-project/src/components/tavern/design-template.ts:64:          className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+/home/z/my-project/src/components/tavern/design-template.ts:366:          className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+/home/z/my-project/src/components/tavern/character-editor.tsx:340:          <div className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-500/10">
+/home/z/my-project/src/components/tavern/character-editor.tsx:354:                    "w-32 h-32 rounded-xl overflow-hidden bg-muted border-2 border-dashed border-muted-foreground/25 flex items-center justify-center transition-colors",
+/home/z/my-project/src/components/tavern/character-editor.tsx:466:          <div className="flex items-center justify-center w-6 h-6 rounded-md bg-amber-500/10">
+/home/z/my-project/src/components/tavern/background-gallery.tsx:278:                    <div className="flex items-center justify-center h-64">
+/home/z/my-project/src/components/tavern/background-gallery.tsx:282:                    <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+/home/z/my-project/src/components/tavern/background-gallery.tsx:314:                className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+/home/z/my-project/src/components/tavern/background-gallery.tsx:384:        <div className="absolute inset-0 bg-muted flex items-center justify-center">
+/home/z/my-project/src/components/tavern/background-gallery.tsx:391:        <div className="absolute inset-0 bg-muted flex flex-col items-center justify-center">
+/home/z/my-project/src/components/tavern/background-gallery.tsx:400:          <div className="w-full h-full bg-muted flex items-center justify-center">
+/home/z/my-project/src/components/tavern/background-gallery.tsx:415:            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+/home/z/my-project/src/components/tavern/background-gallery.tsx:438:        <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-primary rounded-full flex items-center justify-center shadow-md">
+/home/z/my-project/src/components/tavern/hud-effects.tsx:471:        <div className="absolute inset-0 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/chat-message.tsx:539:              'overflow-hidden flex items-center justify-center',
+/home/z/my-project/src/components/tavern/chat-message.tsx:558:                  'w-full h-full flex items-center justify-center bg-gradient-to-br',
+/home/z/my-project/src/components/tavern/state-collection-editor.tsx:442:                          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/chat-panel.tsx:2965:      <div className="flex-1 flex items-center justify-center relative">
+/home/z/my-project/src/components/tavern/chat-panel.tsx:2976:          <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/chat-panel.tsx:2985:            <div className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-300/50 text-xs backdrop-blur-sm border border-amber-500/15 mx-auto w-fit">
+/home/z/my-project/src/components/tavern/sessions-sidebar.tsx:130:                  <div className="w-8 h-8 rounded-lg overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sessions-sidebar.tsx:132:                      <div className="w-full h-full bg-gradient-to-br from-violet-400 to-purple-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sprite-general-panel.tsx:295:      <div className="h-full flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sprite-general-panel.tsx:492:                        <div className="aspect-square flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sprite-general-panel.tsx:584:          <div className="flex-1 flex items-center justify-center text-muted-foreground">
+/home/z/my-project/src/components/tavern/quest-notifications.tsx:227:        'flex items-center justify-center w-10 h-10 rounded-lg shrink-0 relative',
+/home/z/my-project/src/components/tavern/quest-notifications.tsx:235:            'flex items-center justify-center',
+/home/z/my-project/src/components/tavern/tts-settings-panel.tsx:1257:                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">1</span>
+/home/z/my-project/src/components/tavern/tts-settings-panel.tsx:1261:                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">2</span>
+/home/z/my-project/src/components/tavern/tts-settings-panel.tsx:1265:                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">3</span>
+/home/z/my-project/src/components/tavern/tts-settings-panel.tsx:1316:                    <div className="flex items-center justify-center py-8">
+/home/z/my-project/src/components/tavern/tts-settings-panel.tsx:1399:                    <div className="flex items-center justify-center py-8">
+/home/z/my-project/src/components/tavern/lorebook-panel.tsx:290:        <div className="flex-1 flex items-center justify-center text-muted-foreground border rounded-lg">
+/home/z/my-project/src/components/tavern/lorebook-panel.tsx:604:            <div className="flex-1 flex items-center justify-center border rounded-lg text-muted-foreground">
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:2676:      <div className="h-full flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:2861:                        <div className="aspect-square bg-muted/30 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:2925:                    className="relative w-full max-w-xl h-72 rounded-xl overflow-hidden flex items-center justify-center ring-1 ring-white/10 shadow-inner bg-[repeating-conic-gradient(hsl(var(--muted)/0.4)_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]"
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:3091:                            className="absolute -left-1.5 -top-2.5 w-5 h-5 rounded-full bg-cyan-500 border-2 border-white shadow-lg cursor-ns-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:3126:                            className="absolute -left-1.5 -top-2.5 w-5 h-5 rounded-full bg-cyan-600 border-2 border-white shadow-lg cursor-ns-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:3161:                            className="absolute -left-2.5 w-5 h-5 rounded-full bg-fuchsia-500 border-2 border-white shadow-lg cursor-ew-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:3194:                            className="absolute -left-2.5 w-5 h-5 rounded-full bg-fuchsia-600 border-2 border-white shadow-lg cursor-ew-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:3662:                              "flex items-center justify-center z-50",
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:3699:                              "flex items-center justify-center w-5 h-5 rounded-md flex-shrink-0",
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:4145:                                        className="absolute -top-2 -right-2 w-3 h-3 bg-destructive rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center z-40"
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:4321:                                    className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center"
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:4372:                        <div className="w-44 flex-shrink-0 p-2 border-r bg-muted/40 flex items-center justify-center sticky left-0 z-10">
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:4376:                          className="timeline-empty-gradient flex-1 flex items-center justify-center text-muted-foreground text-sm"
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:4391:            <div className="flex-1 flex items-center justify-center text-muted-foreground">
+/home/z/my-project/src/components/tavern/sprite-timeline-editor.tsx:4393:                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-muted/50 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sprite-selector.tsx:72:        <div className="w-16 h-16 rounded border overflow-hidden bg-muted flex items-center justify-center flex-shrink-0">
+/home/z/my-project/src/components/tavern/sprite-selector.tsx:175:            <div className="flex items-center justify-center h-full">
+/home/z/my-project/src/components/tavern/sprite-selector.tsx:179:            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
+/home/z/my-project/src/components/tavern/sprite-selector.tsx:212:                          <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/emoji-picker.tsx:87:                  className="w-8 h-8 flex items-center justify-center text-lg hover:bg-muted rounded transition-colors"
+/home/z/my-project/src/components/tavern/group-editor.tsx:523:          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-600">
+/home/z/my-project/src/components/tavern/group-editor.tsx:609:                  <div className="w-full h-full flex items-center justify-center">
+/home/z/my-project/src/components/tavern/group-editor.tsx:615:                  <div className="w-full h-full bg-gradient-to-br from-violet-400 to-purple-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/group-editor.tsx:620:              <div className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+/home/z/my-project/src/components/tavern/handy-control-panel.tsx:1128:                "flex items-center justify-center w-8 h-8 rounded-lg",
+/home/z/my-project/src/components/tavern/handy-control-panel.tsx:1170:              <div className="flex items-center justify-center w-7 h-7 rounded-md bg-muted/60">
+/home/z/my-project/src/components/tavern/character-panel.tsx:611:          <div className="absolute inset-0 bg-primary/10 backdrop-blur-sm z-10 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/character-panel.tsx:703:                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-600">
+/home/z/my-project/src/components/tavern/character-panel.tsx:812:                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-violet-400 to-purple-600">
+/home/z/my-project/src/components/tavern/sprite-pack-editor.tsx:592:                              <div className="w-10 h-10 rounded border overflow-hidden bg-muted flex items-center justify-center flex-shrink-0">
+/home/z/my-project/src/components/tavern/sprite-debug-panel.tsx:179:          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+/home/z/my-project/src/components/quests/quest-instance-editor.tsx:268:                            'w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0',
+/home/z/my-project/src/components/tavern/quest-hud.tsx:388:                          'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded transition-colors',
+/home/z/my-project/src/components/tavern/quest-hud.tsx:402:                          'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded transition-colors',
+/home/z/my-project/src/components/tavern/quest-hud.tsx:510:          'flex items-center justify-center rounded-lg shrink-0',
+/home/z/my-project/src/components/tavern/quest-hud.tsx:634:        'flex items-center justify-center rounded-lg w-8 h-8 shrink-0',
+/home/z/my-project/src/components/tavern/quest-hud.tsx:710:        'flex items-center justify-center rounded-full shrink-0 transition-all',
+/home/z/my-project/src/components/quests/quest-log-panel.tsx:689:                      'w-4 h-4 rounded-full border flex items-center justify-center shrink-0 cursor-pointer transition-colors',
+/home/z/my-project/src/components/tavern/sprite-pack-editor-v2.tsx:866:                                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+/home/z/my-project/src/components/tavern/sprite-pack-editor-v2.tsx:1246:                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+/home/z/my-project/src/components/tavern/sprite-collection-selector.tsx:58:          <SelectValue placeholder="Cargando..." />
+/home/z/my-project/src/components/tavern/state-collection-editor-v2.tsx:406:                                <div className="absolute inset-0 bg-amber-500/15 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/state-collection-editor-v2.tsx:407:                                  <div className="bg-amber-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+/home/z/my-project/src/components/quests/quest-settings-panel.tsx:144:              <CardContent className="flex flex-col items-center justify-center h-full py-16">
+/home/z/my-project/src/components/quests/quest-activation-dialog.tsx:417:                  "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0",
+/home/z/my-project/src/components/tavern/background-collection-manager.tsx:595:                          <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+/home/z/my-project/src/components/tavern/background-collection-manager.tsx:658:                                            className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors mr-2"
+/home/z/my-project/src/components/tavern/background-collection-manager.tsx:823:                  <div className="flex-1 flex items-center justify-center text-muted-foreground">
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:1600:                <div className="w-full h-full bg-gradient-to-br from-violet-400 to-purple-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:1610:                <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:1757:                                  <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:2111:                <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:2216:                          'overflow-hidden flex-shrink-0 flex items-center justify-center',
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:2240:                              <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:2248:                            <div className="w-full h-full bg-gradient-to-br from-violet-400 to-purple-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:2259:                          <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:2811:                                  'flex items-center justify-center rounded-lg shrink-0 w-10 h-10',
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:2898:                                            'flex items-center justify-center rounded-full shrink-0 transition-all w-5 h-5',
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:2989:                                    'flex items-center justify-center rounded-lg w-8 h-8 shrink-0',
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:3129:                                  'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded transition-colors',
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:3143:                                  'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded transition-colors',
+/home/z/my-project/src/components/tavern/novel-chat-box.tsx:3320:                      <div className="flex items-center justify-center py-6 text-muted-foreground text-xs">
+/home/z/my-project/src/components/settings/quest-template-manager.tsx:264:                <CardContent className="flex flex-col items-center justify-center py-16">
+/home/z/my-project/src/components/settings/quest-template-manager.tsx:274:                <CardContent className="flex flex-col items-center justify-center py-16">
+/home/z/my-project/src/components/settings/quest-template-manager.tsx:573:        <div className="flex items-center justify-center w-6 h-6 rounded bg-primary/10 text-primary text-xs font-medium">
+/home/z/my-project/src/components/settings/quest-template-manager.tsx:3836:                        <div className="w-4 h-4 rounded bg-primary/10 text-primary text-[10px] flex items-center justify-center">
+/home/z/my-project/src/components/tavern/appearance-settings-panel.tsx:248:                className={cn(avatarSize, getAvatarRadius(), 'flex-shrink-0 border-2 flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600')}
+/home/z/my-project/src/components/tavern/appearance-settings-panel.tsx:275:                className={cn(avatarSize, getAvatarRadius(), 'flex-shrink-0 border-2 flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-600')}
+/home/z/my-project/src/components/tavern/appearance-settings-panel.tsx:310:                className={cn(avatarSize, getAvatarRadius(), 'flex-shrink-0 border-2 flex items-center justify-center bg-gradient-to-br from-violet-400 to-violet-600')}
+/home/z/my-project/src/components/tavern/appearance-settings-panel.tsx:1284:                                  'p-2 rounded-lg border text-lg transition-all flex items-center justify-center',
+/home/z/my-project/src/components/settings/hud-manager.tsx:201:              <CardContent className="flex flex-col items-center justify-center py-16">
+/home/z/my-project/src/components/settings/hud-manager.tsx:670:                          "w-8 h-8 rounded-md flex items-center justify-center shrink-0",
+/home/z/my-project/src/components/settings/hud-manager.tsx:723:                          "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border text-sm transition-all",
+/home/z/my-project/src/components/settings/hud-manager.tsx:736:                          "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border text-sm transition-all",
+/home/z/my-project/src/components/settings/hud-manager.tsx:1069:    <span className="ml-1 text-muted-foreground cursor-help inline-flex items-center justify-center" title={text}>
+/home/z/my-project/src/components/settings/hud-manager.tsx:1484:                            "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-all",
+/home/z/my-project/src/components/settings/hud-manager.tsx:1497:                            "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-all",
+/home/z/my-project/src/components/settings/hud-manager.tsx:1572:                <div className="flex items-center justify-center min-h-[200px]">
+/home/z/my-project/src/components/settings/hud-manager.tsx:1749:            <div className="absolute inset-0 flex items-center justify-center">
+/home/z/my-project/src/components/tools/tools-settings-panel.tsx:649:                      <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">
+/home/z/my-project/src/components/tools/tools-settings-panel.tsx:691:                      <span className="w-5 h-5 rounded-full bg-violet-500/10 text-violet-500 text-[10px] font-bold flex items-center justify-center">
+/home/z/my-project/src/components/tools/tool-call-notification.tsx:109:    'w-5 h-5 shrink-0 rounded-md flex items-center justify-center';
+/home/z/my-project/src/components/embeddings/embeddings-settings-panel.tsx:1327:                      Cargando...
+/home/z/my-project/src/components/embeddings/embeddings-settings-panel.tsx:1492:                  {loadingDocuments ? 'Cargando...' : `${nsDocuments.length} documentos`}
+/home/z/my-project/src/components/embeddings/embeddings-settings-panel.tsx:1502:                <div className="flex items-center justify-center py-8">
+/home/z/my-project/src/components/embeddings/embeddings-settings-panel.tsx:1680:            <div className="flex items-center justify-center py-12">

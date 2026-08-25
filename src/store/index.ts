@@ -57,6 +57,7 @@ import type {
 // Import defaults for merge function
 import { defaultSettings, defaultPersona } from './defaults';
 import { DEFAULT_DIALOGUE_SETTINGS, DEFAULT_SUMMARY_SETTINGS, DEFAULT_QUEST_SETTINGS, DEFAULT_CHATBOX_APPEARANCE, DEFAULT_TOOLS_SETTINGS, DEFAULT_HANDY_SETTINGS } from '@/types';
+import { DEFAULT_ATMOSPHERE_PRESETS, DEFAULT_ATMOSPHERE_SETTINGS } from './slices/atmosphereSlice';
 
 // Combined store type
 export type TavernState = CharacterSlice &
@@ -365,6 +366,36 @@ export const useTavernStore = create<TavernState>()(
             : currentState.inventorySettings.equipmentSlots || [],
         };
 
+        // Re-derive activeAtmosphereLayers from the persisted preset ID.
+        // The layers themselves are not persisted (only the preset ID is), so on reload
+        // the live store starts with an empty array while the preset ID still says e.g. 'rainy-day'.
+        // This caused the AtmosphereRenderer to silently return null (no effects reproduced).
+        const persistedAtmospherePresetId = persisted.activeAtmospherePresetId as string | undefined;
+        let rederivedAtmosphereLayers: unknown[] | undefined;
+        if (
+          persistedAtmospherePresetId &&
+          persistedAtmospherePresetId !== 'clear'
+        ) {
+          const preset = DEFAULT_ATMOSPHERE_PRESETS.find(p => p.id === persistedAtmospherePresetId);
+          if (preset && preset.layers && preset.layers.length > 0) {
+            rederivedAtmosphereLayers = preset.layers
+              .map(layer => ({ ...layer, active: true }))
+              .sort((a, b) => a.priority - b.priority);
+          }
+        }
+
+        // Deep-merge atmosphereSettings: persisted state may have an old schema
+        // (e.g. only { intensity, weatherEffects, autoDetect, enabled }) missing newer
+        // fields like globalVolume / globalIntensity / performanceMode. Without this
+        // deep merge, those fields are undefined and downstream math (audio volume,
+        // particle target count) produces NaN — causing "Failed to set volume:
+        // non-finite" errors and invisible particle layers.
+        const persistedAtmosphereSettings = persisted.atmosphereSettings as Record<string, unknown> | undefined;
+        const mergedAtmosphereSettings = {
+          ...DEFAULT_ATMOSPHERE_SETTINGS,
+          ...(persistedAtmosphereSettings || {}),
+        };
+
         // Return merged state
         return {
           ...currentState,
@@ -380,6 +411,9 @@ export const useTavernStore = create<TavernState>()(
           lorebooks: mergedLorebooks,
           activeLorebookIds: finalActiveLorebookIds,
           inventorySettings: mergedInventorySettings,
+          atmosphereSettings: mergedAtmosphereSettings,
+          // Only override if we re-derived; otherwise let the live store keep its initial []
+          ...(rederivedAtmosphereLayers ? { activeAtmosphereLayers: rederivedAtmosphereLayers } : {}),
         };
       },
     }

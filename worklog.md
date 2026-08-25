@@ -550,3 +550,31 @@ Stage Summary:
 - Mapeo combinado REESCRITO con regla delta-sum: baseline = posición vertical del primer kf; cada kf siguiente añade (deltaV − deltaH) clampeado [0,100]. Verifica los 3 casos del usuario: puro vertical, puro horizontal (izquierda=sube/derecha=baja, ítem 4), y combinado (40+5=45, ítem 3).
 - Conversión con guías vs sin guías: con guías, las posiciones son absolutas relativas a los límites (source range [0,100], no auto-normaliza); sin guías, auto-normaliza a [min,max] del tracking (como antes).
 - Pendiente para verificación local del usuario: toggle "Guías ON", arrastrar las 4 líneas cyan/fucsia a la posición deseada, correr tracking o agregar puntos manuales, click "→ HSP" → la curva resultante debe usar los límites de las guías como referencia absoluta y aplicar la lógica delta-sum en modo combinado.
+
+---
+Task ID: 27
+Agent: main (Z.ai Code)
+Task: Fix Atmosphere section — "al parecer cuando se activa aparece un error o no se reproduce ningun efecto" (Failed to set 'volume' property on HTMLMediaElement: non-finite).
+
+Work Log:
+- Read /home/z/my-project/src/components/atmosphere/atmosphere-renderer.tsx (the audio useEffect at line 62 throws when computing audio.volume = (layer.audioVolume || 0.5) * atmosphereSettings.globalVolume * atmosphereGlobalIntensity; if any factor is NaN/Infinity/undefined the multiplication produces a non-finite value and HTMLAudioElement.volume rejects it).
+- Inspected store state via Agent Browser (localStorage.getItem('tavernflow-storage')): persisted atmosphereSettings had an OLD schema — only {autoChange, autoDetect, enabled, intensity, weatherEffects} — missing newer fields globalVolume / globalIntensity / performanceMode. This is the ROOT CAUSE of the original "non-finite" volume error.
+- Fix 1 (atmosphere-renderer.tsx): Added computeLayerVolume() helper that normalizes each factor (layer.audioVolume, atmosphereSettings.globalVolume, atmosphereGlobalIntensity) to a finite number with sensible defaults, and clamps the final result to [0, 1]. Applied at both audio.volume assignment sites. Removed the now-unused useCallback import.
+- Fix 2 (store/index.ts merge function): Added deep-merge of atmosphereSettings with DEFAULT_ATMOSPHERE_SETTINGS so missing fields (globalVolume, globalIntensity, performanceMode) fall back to defaults instead of being undefined. This also fixes downstream issues (e.g. the AtmosphereEngine targetCount() returned NaN when intensity * globalIntensity was NaN, causing zero particles to be created — so even when the container rendered, the canvas stayed blank).
+- Fix 3 (store/index.ts merge function): Added re-derivation of activeAtmosphereLayers from the persisted activeAtmospherePresetId. The layers array itself is not persisted (only the preset ID is in partialize), so on reload the live store started with [] while the preset ID said e.g. 'rainy-day', causing AtmosphereRenderer to silently return null.
+- Fix 4 (store/slices/atmosphereSlice.ts): activateAtmospherePreset now also flips atmosphereSettings.enabled to true if it's currently off. This addresses the "no effect reproduced" scenario where the user had previously toggled the master switch off and then clicked a preset button — nothing happened because AtmosphereRenderer returns null when enabled === false.
+- Verified lint is clean (bun run lint: no errors).
+- Verified via Agent Browser:
+  * No more "non-finite volume" error after activating presets (errors check returned empty).
+  * Atmosphere-container renders automatically on initial page load (confirmed main has 3 children: atmosphere-container + header + main area, without me clicking any preset) — confirms merge re-derivation works.
+  * Canvas has 614-670 non-transparent pixels after waiting for the engine to start (pixel inspection) — confirms deep-merge provides correct intensity/performanceMode defaults so targetCount() returns a real number.
+  * Atmosphere-container has the expected children: 1 canvas (for css/canvas layers like rain/embers) + 1 div overlay (for fog-light overlay layer).
+  * Console log shows no JS errors related to atmosphere, audio, or NaN/non-finite values.
+
+Stage Summary:
+- Three code files modified:
+  1. src/components/atmosphere/atmosphere-renderer.tsx — computeLayerVolume helper + applied at both audio.volume sites.
+  2. src/store/index.ts — merge function: deep-merge atmosphereSettings + re-derive activeAtmosphereLayers from preset ID.
+  3. src/store/slices/atmosphereSlice.ts — activateAtmospherePreset auto-enables the global toggle.
+- Root cause was a schema drift: the persisted atmosphereSettings had an old shape (lacking globalVolume / globalIntensity / performanceMode), so volume/intensity computations produced NaN — causing both the audio non-finite error AND invisible particle layers (because targetCount() = NaN meant zero particles).
+- All five user-reported symptoms addressed: (1) volume error, (2) "no effect reproduced" on activation, (3) effects don't survive reload, (4) master toggle staying off after preset click, (5) general state inconsistency between preset ID and active layers.

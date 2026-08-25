@@ -6,7 +6,7 @@
       "label": "Sonrisa",
       "filename": "1775351061599-3424g6.webp",
       "createdAt": "2026-06-07T18:48:09.906Z",
-      "updatedAt": "2026-08-24T09:40:35.685Z",
+      "updatedAt": "2026-08-24T09:24:04.771Z",
       "duration": 9673,
       "timeline": {
         "duration": 9673,
@@ -22,414 +22,1866 @@
             "volume": 1
           },
           {
-            "id": "aab29bf5-c417-4ac8-b8d8-1f69acb53a91",
+            "id": "05bbcaf9-2d1e-423e-9882-15df61664e42",
             "type": "tracking",
             "name": "Tracking 1",
             "keyframes": [
               {
-                "id": "24c992b2-f881-4140-a8f8-5e489c005323",
+                "id": "08a66210-842c-43d0-92f0-469a6b8bacc5",
                 "time": 0,
                 "value": {
                   "type": "tracking",
-                  "x": 0.546875,
-                  "y": 0.5972222222222222,
+                  "x": 0.5234375,
+                  "y": 0.2534722222222222,
                   "confidence": 1,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "fede9860-6fee-4164-82b8-091efb5ef8a8",
-                "time": 480,
+                "id": "b782ce9d-ce76-48d7-a013-cbfd8f2a2a35",
+                "time": 62,
                 "value": {
                   "type": "tracking",
-                  "x": 0.546875,
-                  "y": 0.5972222222222222,
-                  "confidence": 1,
+                  "x": 0.5166666666666667,
+                  "y": 0.29444444444444445,
+                  "confidence": 0.9714793121163121,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "f16bca4c-74cf-4e9d-91c2-3e0ab0d4f8c5",
-                "time": 740,
+                "id": "c4d3ddd6-b350-4fe4-b7df-b83afca1d80a",
+                "time": 124,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5020833333333333,
+                  "y": 0.33194444444444443,
+                  "confidence": 0.947512084074375,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "bec98841-4075-4133-bd5d-f61bcc5125ce",
+                "time": 186,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5291666666666667,
+                  "y": 0.375,
+                  "confidence": 0.2294543041242956,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "1bd69429-0cf9-4011-952f-7fab0189eb40",
+                "time": 248,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5291666666666667,
+                  "y": 0.4027777777777778,
+                  "confidence": 0.9159031001159348,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "20739385-a07f-482a-917b-721a6f1390ab",
+                "time": 310,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5041666666666667,
+                  "y": 0.4166666666666667,
+                  "confidence": 0.8842965204521308,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9df9b7c9-2598-4966-ae3e-1c9288e299ea",
+                "time": 372,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4875,
+                  "y": 0.44166666666666665,
+                  "confidence": 0.8735672937128848,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "6ec3e864-6ff0-4a75-95e4-e023b1bc5e1e",
+                "time": 434,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4708333333333333,
+                  "y": 0.4722222222222222,
+                  "confidence": 0.9148197829458725,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "d481c9e4-d321-40c5-8b53-bf9e7e1eb5b0",
+                "time": 496,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4708333333333333,
+                  "y": 0.5055555555555555,
+                  "confidence": 0.9657240080566225,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "bcbac6fe-2df3-4385-a8f6-dee65b15cc3a",
+                "time": 558,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4625,
+                  "y": 0.5555555555555556,
+                  "confidence": 0.9027580120497547,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "3702f4ef-fd15-4360-90ab-46eabdc96366",
+                "time": 620,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4479166666666667,
+                  "y": 0.6083333333333333,
+                  "confidence": 0.933800900196725,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9b5efde5-9167-4ca3-805a-fd1cb44c0939",
+                "time": 682,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4270833333333333,
+                  "y": 0.6555555555555556,
+                  "confidence": 0.9168101478950429,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2b10a6ca-71cc-4f13-9538-d6d484f8d610",
+                "time": 744,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.42916666666666664,
+                  "y": 0.6819444444444445,
+                  "confidence": 0.9737858103525219,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "741912e5-2443-4f7e-b0bb-44f831c7ba00",
+                "time": 806,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.44166666666666665,
+                  "y": 0.6708333333333333,
+                  "confidence": 0.9834394623487501,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "731a151e-d5f7-41e2-beff-c6a6ca021499",
+                "time": 868,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.45416666666666666,
+                  "y": 0.6361111111111111,
+                  "confidence": 0.978662831123068,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "fdc35fb2-9d42-40bf-a013-140d75f37715",
+                "time": 930,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.43333333333333335,
+                  "y": 0.6194444444444445,
+                  "confidence": 0.3858483230109153,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "39251e6d-8dca-4168-85a2-d54f301de2ec",
+                "time": 992,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.43333333333333335,
+                  "y": 0.5861111111111111,
+                  "confidence": 0.9776238202625673,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2ba23b48-3e8c-4cec-b617-4af7cc93ed48",
+                "time": 1054,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4583333333333333,
+                  "y": 0.5625,
+                  "confidence": 0.9853639188754557,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "99085d0e-70a7-482c-b5bf-846dca41a699",
+                "time": 1116,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4583333333333333,
+                  "y": 0.5277777777777778,
+                  "confidence": 0.9865282635145679,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "5e0e67d5-d5f0-4307-b4ed-37f8df78a83c",
+                "time": 1178,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.45416666666666666,
+                  "y": 0.49027777777777776,
+                  "confidence": 0.984707205157202,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "7ecf11ab-b584-405b-8926-56c328334667",
+                "time": 1240,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.44375,
+                  "y": 0.475,
+                  "confidence": 0.9756366818656028,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "456a7a25-7866-4436-a4a1-87ff2f2a94e2",
+                "time": 1302,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.43333333333333335,
+                  "y": 0.5097222222222222,
+                  "confidence": 0.9845653592050659,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "dec27f21-0367-48bd-8c26-028ed9ba4bd6",
+                "time": 1364,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.42083333333333334,
+                  "y": 0.5583333333333333,
+                  "confidence": 0.9589405817459055,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ce9663fc-3af0-4042-9c2a-d05a3b8dfb3b",
+                "time": 1426,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4041666666666667,
+                  "y": 0.6166666666666667,
+                  "confidence": 0.8055077695062562,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "7ae1747b-40e0-45b8-b022-6398ea476a03",
+                "time": 1488,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.40208333333333335,
+                  "y": 0.6513888888888889,
+                  "confidence": 0.9436051170172169,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "3ab42b1e-0cd3-4d80-939a-1671e8c7cbdd",
+                "time": 1550,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.42083333333333334,
+                  "y": 0.6944444444444444,
+                  "confidence": 0.9333319597445767,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "13c16a8d-98f8-485e-8a08-88b69174c568",
+                "time": 1612,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4270833333333333,
+                  "y": 0.7111111111111111,
+                  "confidence": 0.9177759442375755,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ae2d79c5-85f2-4040-87fb-9e3101e92d93",
+                "time": 1674,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4166666666666667,
+                  "y": 0.7222222222222222,
+                  "confidence": 0.94312537612721,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "83291f33-3486-4d8c-9e4e-36cb9d5a408c",
+                "time": 1736,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.42083333333333334,
+                  "y": 0.6916666666666667,
+                  "confidence": 0.9665211027385333,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "31d5aade-fdd2-4760-9dc5-8e252585b1dc",
+                "time": 1798,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4375,
+                  "y": 0.6583333333333333,
+                  "confidence": 0.9114192906695865,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "8d966768-bf20-4cae-b36c-39f917b88946",
+                "time": 1860,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.45416666666666666,
+                  "y": 0.625,
+                  "confidence": 0.8549468843542106,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "24e12547-bc41-4147-af9d-971104a8f22f",
+                "time": 1922,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.46041666666666664,
+                  "y": 0.5611111111111111,
+                  "confidence": 0.9431493247515306,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "346a0944-b5a3-4434-b95e-972a51c7c270",
+                "time": 1984,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4625,
+                  "y": 0.5361111111111111,
+                  "confidence": 0.994513232665209,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "c6904e08-7c88-4751-8c33-bde5e73ddca1",
+                "time": 2046,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.45625,
+                  "y": 0.5125,
+                  "confidence": 0.9857488686940501,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "dbc669e2-8f1f-4d97-af61-2b6ce43fe622",
+                "time": 2108,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4479166666666667,
+                  "y": 0.5541666666666667,
+                  "confidence": 0.9861518264744432,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "7a70baa1-a944-428f-bc0d-db13fd65a2ba",
+                "time": 2170,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.425,
+                  "y": 0.6166666666666667,
+                  "confidence": 0.808938666653717,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9471dc8b-d818-45f4-aeae-65a425f011bd",
+                "time": 2232,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.42083333333333334,
+                  "y": 0.6694444444444444,
+                  "confidence": 0.8630588888791327,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2c9505ef-17d6-4a4f-a0d9-767ecac6a16c",
+                "time": 2294,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4125,
+                  "y": 0.7111111111111111,
+                  "confidence": 0.936483103397613,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "320c9bc1-002b-44d8-8ad0-05065de1c61f",
+                "time": 2356,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.3958333333333333,
+                  "y": 0.7236111111111111,
+                  "confidence": 0.9508252123081462,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "f531cb84-fae0-4418-85c6-ece322aa138d",
+                "time": 2418,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.3875,
+                  "y": 0.6916666666666667,
+                  "confidence": 0.9300535876471492,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "7c56b313-bbf1-4909-af63-b61fbc6654fd",
+                "time": 2480,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.3875,
+                  "y": 0.6583333333333333,
+                  "confidence": 0.9549698921552671,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "5f7c8939-7085-4edd-8b1c-2380073cb698",
+                "time": 2542,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4125,
+                  "y": 0.6055555555555555,
+                  "confidence": 0.5848894741374183,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "04473887-c32f-4442-9d50-43a49d5b5137",
+                "time": 2604,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.43333333333333335,
+                  "y": 0.5555555555555556,
+                  "confidence": 0.9481700923932759,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "0e0d90ba-417e-4b00-b6f2-7a1af18a12c5",
+                "time": 2666,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.44375,
+                  "y": 0.5555555555555556,
+                  "confidence": 0.9603789194520945,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "172758bd-d7ba-4712-bf86-a83b1f74c31a",
+                "time": 2728,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.43333333333333335,
+                  "y": 0.5861111111111111,
+                  "confidence": 0.9541038795926555,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "fc46284f-dcfa-4625-89b8-102964e489f8",
+                "time": 2790,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.42083333333333334,
+                  "y": 0.6444444444444445,
+                  "confidence": 0.8778086722792247,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "1dd5e624-2db0-4ccb-9bfe-1ba51a22d8fe",
+                "time": 2852,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.42916666666666664,
+                  "y": 0.6944444444444444,
+                  "confidence": 0.9255063565245117,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "cbaa8ee8-c4b0-4207-a8ea-7413a41f674e",
+                "time": 2914,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4125,
+                  "y": 0.7111111111111111,
+                  "confidence": 0.9580337047304394,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "403a1946-c7cf-4146-bff2-33c2104e5255",
+                "time": 2976,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4166666666666667,
+                  "y": 0.7,
+                  "confidence": 0.9601438129670691,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "4c242298-5132-4ca9-b225-fb59dff47e11",
+                "time": 3038,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.43125,
+                  "y": 0.6555555555555556,
+                  "confidence": 0.8348886666731204,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "8c539f8f-e9ab-470a-9b7f-3593dec2ddc3",
+                "time": 3100,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4583333333333333,
+                  "y": 0.6111111111111112,
+                  "confidence": 0.9011352422137683,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "e14fe546-c30a-44fc-9925-cae6a1bd4cf0",
+                "time": 3162,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4666666666666667,
+                  "y": 0.5736111111111111,
+                  "confidence": 0.8594348113222993,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "bfedd055-8112-4de1-ad9e-1f25bd895196",
+                "time": 3224,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4375,
+                  "y": 0.5666666666666667,
+                  "confidence": 0.9598169071460932,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2117e965-571d-4025-870f-1c84cfed09a1",
+                "time": 3286,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.41875,
+                  "y": 0.625,
+                  "confidence": 0.8120547267206132,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "da13dc58-7dcf-41a7-9a6d-09c3ffe70f86",
+                "time": 3348,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.44166666666666665,
+                  "y": 0.6777777777777778,
+                  "confidence": 0.7023343260053211,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9c9e647e-be79-4466-8993-e9d6df161baa",
+                "time": 3410,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4395833333333333,
+                  "y": 0.7138888888888889,
+                  "confidence": 0.9203033254882438,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "a2f40166-6c3a-4d6e-a30c-918dd3be382c",
+                "time": 3472,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4479166666666667,
+                  "y": 0.7055555555555556,
+                  "confidence": 0.9600154967235328,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "35313969-8997-4a00-af87-19a27496127f",
+                "time": 3534,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.475,
+                  "y": 0.6611111111111111,
+                  "confidence": 0.9131918795669929,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "719c9100-578c-4eea-8330-462d09a2946d",
+                "time": 3596,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4979166666666667,
+                  "y": 0.625,
+                  "confidence": 0.9198125230470692,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "fb56609f-e5a3-4002-a80e-4ab93787b5c2",
+                "time": 3658,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.48541666666666666,
+                  "y": 0.6527777777777778,
+                  "confidence": 0.927521514176636,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "63932dd9-c8fe-442f-902b-102d088248ca",
+                "time": 3720,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4583333333333333,
+                  "y": 0.7,
+                  "confidence": 0.9271160172970291,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "adcb1bb6-fb89-481e-8955-b6f23b2dbfda",
+                "time": 3782,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4666666666666667,
+                  "y": 0.7458333333333333,
+                  "confidence": 0.825367810948872,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2f1687c2-bcef-4542-b313-2d61d91f09e3",
+                "time": 3844,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.425,
+                  "y": 0.7166666666666667,
+                  "confidence": 0.9308106754213784,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "f27e0f45-ff48-4370-8815-306c9119ab23",
+                "time": 3906,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4479166666666667,
+                  "y": 0.6583333333333333,
+                  "confidence": 0.8212609110414004,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "16f0be73-fdf5-4139-8de5-9b337df91f68",
+                "time": 3968,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4666666666666667,
+                  "y": 0.6236111111111111,
+                  "confidence": 0.9639853489267722,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "acd17790-7b90-44e9-99b3-9548b1be9568",
+                "time": 4030,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.46875,
+                  "y": 0.5861111111111111,
+                  "confidence": 0.9374665889379376,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "dcb6975f-d03b-4343-b3fd-f9fd385dabe1",
+                "time": 4092,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.44166666666666665,
+                  "y": 0.6166666666666667,
+                  "confidence": 0.9284471388668214,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "90cd2baa-44c9-4e0f-b4b8-52993655f940",
+                "time": 4154,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.45208333333333334,
+                  "y": 0.65,
+                  "confidence": 0.48082419958611833,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "995c208e-c375-43d0-a6c9-a383d1a6c300",
+                "time": 4216,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.45208333333333334,
+                  "y": 0.6694444444444444,
+                  "confidence": 0.9228326009931586,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "8bc50118-7c53-4673-8669-066b3700597b",
+                "time": 4278,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4708333333333333,
+                  "y": 0.6625,
+                  "confidence": 0.8899991531707742,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "bb9076de-c3d6-4d3c-8cd1-620062af0363",
+                "time": 4340,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.49166666666666664,
+                  "y": 0.625,
+                  "confidence": 0.9813744762926253,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "3b8e37ed-72b1-4f42-8e31-4d7d300a07e8",
+                "time": 4402,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5041666666666667,
+                  "y": 0.6013888888888889,
+                  "confidence": 0.991078607815675,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "30d91df6-7d75-4116-9c23-9b07562c816c",
+                "time": 4464,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5145833333333333,
+                  "y": 0.6319444444444444,
+                  "confidence": 0.9933988765814389,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "61b82200-9990-4c9d-af50-78623fae8198",
+                "time": 4526,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.49166666666666664,
+                  "y": 0.6986111111111111,
+                  "confidence": 0.6390054381232049,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "986226e3-d9fd-40ce-a9a6-76e683a8f898",
+                "time": 4588,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.47708333333333336,
+                  "y": 0.7152777777777778,
+                  "confidence": 0.28384299023554427,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "0d7fe288-e29e-4083-8c47-5b71fcd82f44",
+                "time": 4650,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4895833333333333,
+                  "y": 0.6777777777777778,
+                  "confidence": 0.9867460360568149,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "345b11b3-bf0e-428e-b088-8a433d242da2",
+                "time": 4712,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5145833333333333,
+                  "y": 0.6166666666666667,
+                  "confidence": 0.9153168218049317,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "cde321df-5b06-4e97-ae8c-44f64c4b0373",
+                "time": 4774,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5208333333333334,
+                  "y": 0.5597222222222222,
+                  "confidence": 0.651920761427865,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "6b182de0-4692-464c-8af6-cb1017b13c0a",
+                "time": 4836,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5208333333333334,
+                  "y": 0.5805555555555556,
+                  "confidence": 0.8809542914417344,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "c7c196b9-e12e-4eaf-9747-514fea481ad2",
+                "time": 4898,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.49583333333333335,
+                  "y": 0.6472222222222223,
+                  "confidence": 0.9598716905028628,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "38c9367b-7a4c-45f6-9cf4-3996eb882d9d",
+                "time": 4960,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.475,
+                  "y": 0.7,
+                  "confidence": 0.6162177496515487,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "64e718eb-dab1-4586-bf82-92daae3ecf27",
+                "time": 5022,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5,
+                  "y": 0.7527777777777778,
+                  "confidence": 0.11840681595799343,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "91bebc20-ed13-49a3-a4e3-f5b7aee5afe7",
+                "time": 5084,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5020833333333333,
+                  "y": 0.7611111111111111,
+                  "confidence": 0.9387084159987289,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "3ecdeff0-8736-4eab-a79d-01dd4d9b2999",
+                "time": 5146,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5541666666666667,
+                  "y": 0.7722222222222223,
+                  "confidence": 0.885310816193163,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "742c59fc-edf5-4116-a55c-8ef3450db1b6",
+                "time": 5208,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5604166666666667,
+                  "y": 0.7902777777777777,
+                  "confidence": 0.9771160688910909,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "a6e9c4e5-c822-4ba9-9867-563c7226cad1",
+                "time": 5270,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5604166666666667,
+                  "y": 0.825,
+                  "confidence": 0.8916015323392584,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "4bb186d0-2616-4a8b-8ed7-2ae2375c59d5",
+                "time": 5332,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5604166666666667,
+                  "y": 0.8416666666666667,
+                  "confidence": 0.9767291746121362,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "eaf47857-1718-4385-a040-4ea7f3eb055a",
+                "time": 5394,
                 "value": {
                   "type": "tracking",
                   "x": 0.5625,
-                  "y": 0.7708333333333334,
-                  "confidence": 1,
+                  "y": 0.8305555555555556,
+                  "confidence": 0.9656698565606661,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "00f17ee0-5c52-4fcf-9148-0467bf6b6120",
-                "time": 1160,
+                "id": "78f9b7e4-6cfc-4c9b-84b5-90080c9fd1ac",
+                "time": 5456,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5503472222222222,
-                  "y": 0.5833333333333334,
-                  "confidence": 1,
+                  "x": 0.5625,
+                  "y": 0.8180555555555555,
+                  "confidence": 0.9670783548233439,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "3ee5baca-cf01-4758-a997-4518bb1b1333",
-                "time": 1600,
+                "id": "2cfa0af6-706b-4258-aa28-6cac6f4fc1f5",
+                "time": 5518,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5572916666666666,
-                  "y": 0.7847222222222222,
-                  "confidence": 1,
+                  "x": 0.5604166666666667,
+                  "y": 0.7930555555555555,
+                  "confidence": 0.9549579751233189,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "df2a5ed5-eed6-496f-bf11-ea61dd467100",
-                "time": 2040,
+                "id": "bbdb7f52-5a30-4042-83ac-a91ef77b61bb",
+                "time": 5580,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5625,
+                  "y": 0.7722222222222223,
+                  "confidence": 0.9782013393052487,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "59c55980-b339-4d4f-9444-e2403b03ab4c",
+                "time": 5642,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5333333333333333,
+                  "y": 0.7791666666666667,
+                  "confidence": 0.9168709887813495,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "0b13c2a7-c327-4d87-a2fb-7282ebb4e231",
+                "time": 5704,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5416666666666666,
+                  "y": 0.7861111111111111,
+                  "confidence": 0.9850896265890517,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "db9ca469-bee1-4bc8-835a-ce998d1e99d0",
+                "time": 5766,
                 "value": {
                   "type": "tracking",
                   "x": 0.5520833333333334,
-                  "y": 0.5902777777777778,
-                  "confidence": 1,
+                  "y": 0.8125,
+                  "confidence": 0.9337620360010622,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "ca2ddaba-1ff3-4aff-8596-5951a63d37d5",
-                "time": 2240,
+                "id": "01e8bb68-5c63-47e5-8662-48ae50eff60b",
+                "time": 5828,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5659722222222222,
-                  "y": 0.7708333333333334,
-                  "confidence": 1,
+                  "x": 0.53125,
+                  "y": 0.8472222222222222,
+                  "confidence": 0.984338375701494,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "ebc40529-c45a-4258-b33b-3a0db00bb836",
-                "time": 2620,
+                "id": "ee320483-13e4-4c58-9b97-7b5e3d5b4d8d",
+                "time": 5890,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5590277777777778,
-                  "y": 0.5868055555555556,
-                  "confidence": 1,
+                  "x": 0.5541666666666667,
+                  "y": 0.8833333333333333,
+                  "confidence": 0.8613988793884635,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "6193b3c3-2afa-4ccf-a381-a5742bb3bd58",
-                "time": 2860,
+                "id": "03b46314-16c5-4246-bf1f-ce783d2e0497",
+                "time": 5952,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5607638888888888,
-                  "y": 0.7569444444444444,
-                  "confidence": 1,
+                  "x": 0.5541666666666667,
+                  "y": 0.9069444444444444,
+                  "confidence": 0.945922831485643,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "a91e82b2-e81c-46d3-a645-5c9b8278b2cd",
-                "time": 3120,
+                "id": "b220af50-f0fa-4da9-aaa6-300db8379de7",
+                "time": 6014,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5538194444444444,
-                  "y": 0.5972222222222222,
-                  "confidence": 1,
+                  "x": 0.5395833333333333,
+                  "y": 0.9027777777777778,
+                  "confidence": 0.961200074688339,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "8b860032-d2ea-4349-ba90-64ef6e44e237",
-                "time": 3400,
+                "id": "a84761f0-a482-4edb-b80b-1243c2db362c",
+                "time": 6076,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5555555555555556,
-                  "y": 0.7569444444444444,
-                  "confidence": 1,
+                  "x": 0.5416666666666666,
+                  "y": 0.8722222222222222,
+                  "confidence": 0.9487656637533761,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "7009ebac-c07d-404b-b17d-716f6a1f98f0",
-                "time": 3600,
+                "id": "d27abf62-baa1-4df2-972a-849ebf71ccf0",
+                "time": 6138,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5590277777777778,
-                  "y": 0.6319444444444444,
-                  "confidence": 1,
+                  "x": 0.5270833333333333,
+                  "y": 0.8361111111111111,
+                  "confidence": 0.9706098465099221,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "65c472c8-54de-4247-a2de-1682efbb3d2c",
-                "time": 3800,
+                "id": "55674947-8db5-445c-8a23-6a5b16f72df5",
+                "time": 6262,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5572916666666666,
-                  "y": 0.7569444444444444,
-                  "confidence": 1,
+                  "x": 0.5208333333333334,
+                  "y": 0.7902777777777777,
+                  "confidence": 0.9572012315888345,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "8ead888b-8043-42fe-9e89-92d5f863ff5e",
-                "time": 4000,
+                "id": "4e31cb79-5b0c-4d37-ae91-c72d04dad1a3",
+                "time": 6324,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5555555555555556,
-                  "y": 0.6215277777777778,
-                  "confidence": 1,
+                  "x": 0.49166666666666664,
+                  "y": 0.7986111111111112,
+                  "confidence": 0.967811588443349,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "99c4e68b-755b-4293-b08e-31571fd08f67",
-                "time": 4200,
+                "id": "63bfaa6a-9d81-44eb-83f1-868b7d7af373",
+                "time": 6386,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5590277777777778,
-                  "y": 0.7395833333333334,
-                  "confidence": 1,
+                  "x": 0.5104166666666666,
+                  "y": 0.825,
+                  "confidence": 0.9730184896153232,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "d03f4459-b57c-46aa-a3ea-bb6d11b3fca9",
-                "time": 4420,
+                "id": "1f4504f0-1613-404f-9211-93716e0ac33d",
+                "time": 6448,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5590277777777778,
-                  "y": 0.6388888888888888,
-                  "confidence": 1,
+                  "x": 0.5125,
+                  "y": 0.8513888888888889,
+                  "confidence": 0.9872622781307735,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "4e0cba47-b024-4804-b94d-5de0149831fe",
-                "time": 4620,
+                "id": "51fdcbc1-f01e-441f-a3ff-70638e77aab3",
+                "time": 6510,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5572916666666666,
-                  "y": 0.7465277777777778,
-                  "confidence": 1,
+                  "x": 0.5208333333333334,
+                  "y": 0.8972222222222223,
+                  "confidence": 0,
+                  "lost": true
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "77469fc8-98be-45d2-8daf-8ef0e50f0c95",
+                "time": 6572,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.45,
+                  "y": 0.9027777777777778,
+                  "confidence": 0.9755616816566783,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "87422503-4d32-4320-9e83-e0ff277463df",
-                "time": 4780,
+                "id": "a5ac3cf0-b8a8-4d28-bd44-e9323b013290",
+                "time": 6634,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5572916666666666,
-                  "y": 0.6006944444444444,
-                  "confidence": 1,
+                  "x": 0.42916666666666664,
+                  "y": 0.9125,
+                  "confidence": 0.9787619634349823,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "e79e4c4c-4027-411d-8fa1-85f59c54b760",
-                "time": 5080,
+                "id": "0afa72b2-33da-4455-ae41-b7211f0f2348",
+                "time": 6696,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5590277777777778,
-                  "y": 0.7743055555555556,
-                  "confidence": 1,
+                  "x": 0.42916666666666664,
+                  "y": 0.9027777777777778,
+                  "confidence": 0.9877693635463031,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "f4cd040c-3fae-48b9-a52a-68b717c62fb1",
-                "time": 5400,
+                "id": "9fd345ae-c202-4692-94c5-2e93c71d6180",
+                "time": 6758,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5625,
-                  "y": 0.6145833333333334,
-                  "confidence": 1,
+                  "x": 0.45416666666666666,
+                  "y": 0.8875,
+                  "confidence": 0.8022346388014493,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "53c8ed88-a503-4067-82ea-2f06fb0727c3",
-                "time": 5700,
+                "id": "d2ff52b3-b341-4270-9ce5-17af32449ad0",
+                "time": 6882,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5642361111111112,
-                  "y": 0.75,
-                  "confidence": 1,
+                  "x": 0.50625,
+                  "y": 0.8138888888888889,
+                  "confidence": 0.9617935941613845,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "56f77a58-68ea-4b81-a9a7-1b3a27b08be4",
-                "time": 5960,
+                "id": "5e532aed-7606-4d62-b78f-42e68e100902",
+                "time": 6944,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5625,
-                  "y": 0.59375,
-                  "confidence": 1,
+                  "x": 0.45416666666666666,
+                  "y": 0.8180555555555555,
+                  "confidence": 0.9829788092982699,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "a5a6980f-76e9-4473-859f-c0ec3139bd6d",
-                "time": 6380,
+                "id": "8d53757e-c148-4e42-b065-316140fc3b87",
+                "time": 7006,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5659722222222222,
-                  "y": 0.7743055555555556,
-                  "confidence": 1,
+                  "x": 0.45416666666666666,
+                  "y": 0.8388888888888889,
+                  "confidence": 0.99211106323095,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "3d6cc25e-63ce-4cf6-94f3-79fa952db2de",
-                "time": 6680,
+                "id": "70989a55-b706-4d7a-9b55-99f527b473fd",
+                "time": 7068,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5590277777777778,
-                  "y": 0.6076388888888888,
-                  "confidence": 1,
+                  "x": 0.4791666666666667,
+                  "y": 0.8555555555555555,
+                  "confidence": 0.9889719435583336,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "6a8386b3-fcab-41ec-b9dd-4381baf01f25",
-                "time": 6920,
+                "id": "3204be4b-63c7-41b5-93a1-d70371bc0940",
+                "time": 7130,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5642361111111112,
-                  "y": 0.7777777777777778,
-                  "confidence": 1,
+                  "x": 0.4666666666666667,
+                  "y": 0.8972222222222223,
+                  "confidence": 0,
+                  "lost": true
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2e7041f2-551b-46fa-af4b-f3107e494ab2",
+                "time": 7192,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.475,
+                  "y": 0.8763888888888889,
+                  "confidence": 0.9546246522708159,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "5e5af581-aab9-4565-ad94-4600d2eab0d0",
-                "time": 7360,
+                "id": "fd2ac830-94d7-4d6d-a23a-df590f72e169",
+                "time": 7254,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5625,
-                  "y": 0.5902777777777778,
-                  "confidence": 1,
+                  "x": 0.4666666666666667,
+                  "y": 0.9083333333333333,
+                  "confidence": 0.9849461209776198,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "44edf5c2-0443-43f6-9361-d6979f84120d",
-                "time": 7600,
+                "id": "62e921ad-da3d-4d49-94a9-59c6472014ab",
+                "time": 7316,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5694444444444444,
-                  "y": 0.7708333333333334,
-                  "confidence": 1,
+                  "x": 0.475,
+                  "y": 0.9083333333333333,
+                  "confidence": 0.9915332013497965,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "5a9add4e-de87-4396-9c74-efad60f33141",
-                "time": 7980,
+                "id": "a6ab6087-ef4c-49e3-b5d5-2e78ca53c43c",
+                "time": 7378,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5625,
-                  "y": 0.6145833333333334,
-                  "confidence": 1,
+                  "x": 0.48541666666666666,
+                  "y": 0.8708333333333333,
+                  "confidence": 0.9427908607210399,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "5004e3c6-67e5-4b3c-a406-41b7a6e3cee8",
-                "time": 8220,
+                "id": "110f9dda-8386-439c-bdcd-a73b5d53e423",
+                "time": 7440,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5711805555555556,
-                  "y": 0.7673611111111112,
-                  "confidence": 1,
+                  "x": 0.48125,
+                  "y": 0.8361111111111111,
+                  "confidence": 0.8841547623009989,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "efbe792a-cdbe-40cc-9090-9d56f19e1dda",
-                "time": 8540,
+                "id": "2eae97a9-c8ac-4410-b510-2df239ae85a8",
+                "time": 7502,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5607638888888888,
-                  "y": 0.5902777777777778,
-                  "confidence": 1,
+                  "x": 0.5,
+                  "y": 0.8138888888888889,
+                  "confidence": 0.7489147981701775,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "4d2c3e72-98b9-4677-9486-125df06111e3",
-                "time": 8900,
+                "id": "e2358074-7ee6-443c-abef-27207f96b611",
+                "time": 7564,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5677083333333334,
-                  "y": 0.7708333333333334,
-                  "confidence": 1,
+                  "x": 0.4166666666666667,
+                  "y": 0.8152777777777778,
+                  "confidence": 0.981956948886549,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "c1fd80e5-0582-42d6-9eb5-6facb7003a02",
-                "time": 9220,
+                "id": "743b9ac4-1423-4a6c-87ec-7476dd9761fd",
+                "time": 7626,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5642361111111112,
-                  "y": 0.5763888888888888,
-                  "confidence": 1,
+                  "x": 0.4270833333333333,
+                  "y": 0.8263888888888888,
+                  "confidence": 0.9872344918406741,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "140cbde7-86d3-4f9a-9308-671e9f5b6320",
-                "time": 9540,
+                "id": "45d1f97e-c490-4101-84f4-e445c7d4b242",
+                "time": 7688,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5572916666666666,
-                  "y": 0.7569444444444444,
-                  "confidence": 1,
+                  "x": 0.45,
+                  "y": 0.8347222222222223,
+                  "confidence": 0.9943870321401356,
                   "lost": false
                 },
                 "interpolation": "linear"
               },
               {
-                "id": "c2050dcc-f582-46c2-8864-445384c9d5eb",
-                "time": 9673,
+                "id": "84d9e518-ff0b-4fbd-8698-464f32577a88",
+                "time": 7750,
                 "value": {
                   "type": "tracking",
-                  "x": 0.5659722222222222,
-                  "y": 0.6770833333333334,
-                  "confidence": 1,
+                  "x": 0.48333333333333334,
+                  "y": 0.8694444444444445,
+                  "confidence": 0.9278172260372287,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "d1873885-0100-454c-a3ac-f28333ec09b7",
+                "time": 7812,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.48333333333333334,
+                  "y": 0.8986111111111111,
+                  "confidence": 0.971804434616549,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "6ae7992a-508f-4e7d-b370-2432c921e9f1",
+                "time": 7874,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4791666666666667,
+                  "y": 0.9222222222222223,
+                  "confidence": 0.8519690762524479,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9f9e0892-a26c-46fc-b83d-208a0717bbb5",
+                "time": 7936,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4791666666666667,
+                  "y": 0.9097222222222222,
+                  "confidence": 0.9648286222386656,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "f1043c06-8a20-4b43-a6e2-eb6e3f8e2335",
+                "time": 7998,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4708333333333333,
+                  "y": 0.8722222222222222,
+                  "confidence": 0.9726553833515988,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ab869fe1-7371-4597-bf8f-c7e9f3567293",
+                "time": 8060,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4375,
+                  "y": 0.85,
+                  "confidence": 0.9826014374301287,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9bfdb01c-1f14-4c11-94e3-868d61a59bcc",
+                "time": 8122,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.425,
+                  "y": 0.8263888888888888,
+                  "confidence": 0.972071560335851,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "809931e6-1c91-4d19-b24f-c9913462d5b7",
+                "time": 8184,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.42916666666666664,
+                  "y": 0.8180555555555555,
+                  "confidence": 0.9819400472558787,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "8477e9c5-427e-4c25-a291-e75302e91521",
+                "time": 8246,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.43125,
+                  "y": 0.8236111111111111,
+                  "confidence": 0.984707625987403,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "0cd5c7bb-24ac-4b03-bcba-51a44794a5f0",
+                "time": 8308,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4354166666666667,
+                  "y": 0.8472222222222222,
+                  "confidence": 0.9890604345694244,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "e5dcd823-db77-4662-ae6c-221949577e6f",
+                "time": 8370,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4666666666666667,
+                  "y": 0.8805555555555555,
+                  "confidence": 0.925479753221813,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "80e32b93-5dc9-4b81-8c3e-68463c64d096",
+                "time": 8432,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4791666666666667,
+                  "y": 0.8972222222222223,
+                  "confidence": 0.9739647221749543,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9d1b829d-0855-4dce-a467-edc3ab452d88",
+                "time": 8494,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5125,
+                  "y": 0.9166666666666666,
+                  "confidence": 0.8441155345225789,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "0cc10ecb-2ac0-4503-b7ad-0d996a87bcfc",
+                "time": 8556,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5145833333333333,
+                  "y": 0.8986111111111111,
+                  "confidence": 0.9627969336074644,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "17102389-0f6b-434a-b7ce-b0774b00a40b",
+                "time": 8618,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.525,
+                  "y": 0.8611111111111112,
+                  "confidence": 0.9453238659010044,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "e8d03402-f111-400e-86bf-4a80474e72fb",
+                "time": 8680,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.53125,
+                  "y": 0.8388888888888889,
+                  "confidence": 0.9715784267897991,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "6cccaa84-4c50-478e-a0b7-e72a35908b69",
+                "time": 8742,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5208333333333334,
+                  "y": 0.8083333333333333,
+                  "confidence": 0.9274755381277624,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "5a915ab2-70e0-4fcb-af18-59ef28eb58ca",
+                "time": 8804,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.49583333333333335,
+                  "y": 0.7875,
+                  "confidence": 0.9507419434812259,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ea89f0d0-c3d7-4b15-85f8-e6be7ac60edb",
+                "time": 8866,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4895833333333333,
+                  "y": 0.7847222222222222,
+                  "confidence": 0.7703459861527034,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2644b1f2-c2bd-4c28-96e8-0e36353002cd",
+                "time": 8928,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.49583333333333335,
+                  "y": 0.8,
+                  "confidence": 0.9697440720904704,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "c2d22862-dfe6-4448-a8a3-3006f5567d8c",
+                "time": 8990,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5020833333333333,
+                  "y": 0.8333333333333334,
+                  "confidence": 0.9528189494375505,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2766920d-049a-4ee2-89ab-314a07d56ace",
+                "time": 9052,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.49583333333333335,
+                  "y": 0.8541666666666666,
+                  "confidence": 0.9710150944442307,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "83355e0c-d240-43fe-8686-7aadf81436a7",
+                "time": 9114,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.48333333333333334,
+                  "y": 0.8861111111111111,
+                  "confidence": 0.9842899986225578,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "818f3f74-dc08-4216-b171-f78ee5c66578",
+                "time": 9176,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.49166666666666664,
+                  "y": 0.8972222222222223,
+                  "confidence": 0.9887876614377482,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "d18ace51-0878-4c9d-a5f5-4d47c974d737",
+                "time": 9238,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.48333333333333334,
+                  "y": 0.8972222222222223,
+                  "confidence": 0.9870474376035229,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "f875ec16-c21e-4042-b325-703b513438a6",
+                "time": 9300,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.4895833333333333,
+                  "y": 0.8694444444444445,
+                  "confidence": 0.9887547500420028,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "b8a50d06-bdf2-48d4-b74c-19387ea5615b",
+                "time": 9362,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5104166666666666,
+                  "y": 0.8361111111111111,
+                  "confidence": 0.8668539403805826,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "7695f3ca-f9c7-4685-b6bc-2ddda982360c",
+                "time": 9424,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5208333333333334,
+                  "y": 0.8055555555555556,
+                  "confidence": 0.8288987722762923,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "706837bf-8d9d-4c65-a903-e3253b742d94",
+                "time": 9486,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5145833333333333,
+                  "y": 0.7805555555555556,
+                  "confidence": 0.9084377566957081,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "b520e5ee-c8cb-404d-8297-3a7a18f47f48",
+                "time": 9548,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.50625,
+                  "y": 0.7791666666666667,
+                  "confidence": 0.7394028698635295,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "881127a1-77b1-413e-9cef-3091cc94c44f",
+                "time": 9610,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.53125,
+                  "y": 0.7944444444444444,
+                  "confidence": 0.9391527145294302,
+                  "lost": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "6f64b3bd-df52-4011-8ae1-f45cde547e0a",
+                "time": 9672,
+                "value": {
+                  "type": "tracking",
+                  "x": 0.5416666666666666,
+                  "y": 0.8111111111111111,
+                  "confidence": 0.9689239326555051,
                   "lost": false
                 },
                 "interpolation": "linear"
@@ -442,16 +1894,16 @@
             "color": "#ef4444"
           },
           {
-            "id": "753020a3-bb03-4a56-9860-50133f11bcff",
+            "id": "450e43bb-67dd-4679-b86d-d83bf77c2f20",
             "type": "haptic",
             "name": "HSP Tracking 1",
             "keyframes": [
               {
-                "id": "15d194d1-e8ae-438d-b408-2d8931507cf7",
+                "id": "93c25844-6ddf-409e-a9e5-a3c086611af0",
                 "time": 0,
                 "value": {
                   "type": "haptic",
-                  "position": 38,
+                  "position": 37,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -459,8 +1911,44 @@
                 "interpolation": "linear"
               },
               {
-                "id": "ebdfb556-a079-4941-9c4c-c2efff3f21fd",
-                "time": 500,
+                "id": "61376bce-343e-4a74-95a6-bda6aad0a1dd",
+                "time": 124,
+                "value": {
+                  "type": "haptic",
+                  "position": 41,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "feae90fc-6076-41a8-8148-45bed7d6f63c",
+                "time": 186,
+                "value": {
+                  "type": "haptic",
+                  "position": 42,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "b72a7cac-14a8-4f3c-b042-f63a4bf8649d",
+                "time": 248,
+                "value": {
+                  "type": "haptic",
+                  "position": 44,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "b4d0c385-25fa-4a66-9862-102678c5fd14",
+                "time": 310,
                 "value": {
                   "type": "haptic",
                   "position": 46,
@@ -471,11 +1959,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "f1d78467-f550-4466-bc57-5f68f1999e87",
-                "time": 740,
+                "id": "92648674-0f9a-4532-9404-af40f33894c2",
+                "time": 372,
                 "value": {
                   "type": "haptic",
-                  "position": 10,
+                  "position": 48,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -483,11 +1971,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "3331f747-5428-4fed-8fa9-2ab8417eb2f0",
-                "time": 1160,
+                "id": "47e12260-ffed-4f0f-af6a-f76c48e60b6f",
+                "time": 434,
                 "value": {
                   "type": "haptic",
-                  "position": 76,
+                  "position": 50,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -495,11 +1983,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "955b895e-2494-44ad-8f6c-9bab99a260de",
-                "time": 1600,
+                "id": "0c7145f3-3f8d-4c64-a4cc-7bc61276c0e6",
+                "time": 496,
                 "value": {
                   "type": "haptic",
-                  "position": 8,
+                  "position": 52,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -507,11 +1995,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "cd9ef5a3-4ee7-44e7-8d6f-50b3f4743902",
-                "time": 2040,
+                "id": "e526a9d5-408b-469b-891c-2b9728d6090f",
+                "time": 558,
                 "value": {
                   "type": "haptic",
-                  "position": 73,
+                  "position": 55,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -519,11 +2007,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "e09e5955-7965-484a-8e63-895c24f5b3c6",
-                "time": 2240,
+                "id": "cc3ddf44-6931-47d0-ae97-d6a0efac03fe",
+                "time": 620,
                 "value": {
                   "type": "haptic",
-                  "position": 8,
+                  "position": 58,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -531,80 +2019,8 @@
                 "interpolation": "linear"
               },
               {
-                "id": "1f46e5cc-5276-468e-8b96-749c96a3b495",
-                "time": 2620,
-                "value": {
-                  "type": "haptic",
-                  "position": 71,
-                  "velocity": 1,
-                  "velocityMode": "auto",
-                  "stopOnTarget": false
-                },
-                "interpolation": "linear"
-              },
-              {
-                "id": "e02ad690-44b4-4440-937b-300cee247e4a",
-                "time": 2860,
-                "value": {
-                  "type": "haptic",
-                  "position": 15,
-                  "velocity": 1,
-                  "velocityMode": "auto",
-                  "stopOnTarget": false
-                },
-                "interpolation": "linear"
-              },
-              {
-                "id": "e6322706-493b-4678-bf51-9ab66b96597f",
-                "time": 3120,
-                "value": {
-                  "type": "haptic",
-                  "position": 70,
-                  "velocity": 1,
-                  "velocityMode": "auto",
-                  "stopOnTarget": false
-                },
-                "interpolation": "linear"
-              },
-              {
-                "id": "846ea352-6d4e-4ce5-8584-2f047b136037",
-                "time": 3400,
-                "value": {
-                  "type": "haptic",
-                  "position": 18,
-                  "velocity": 1,
-                  "velocityMode": "auto",
-                  "stopOnTarget": false
-                },
-                "interpolation": "linear"
-              },
-              {
-                "id": "1358497d-b4c7-4430-bb76-b9f793931224",
-                "time": 3600,
-                "value": {
-                  "type": "haptic",
-                  "position": 56,
-                  "velocity": 1,
-                  "velocityMode": "auto",
-                  "stopOnTarget": false
-                },
-                "interpolation": "linear"
-              },
-              {
-                "id": "e694b03d-c859-4443-8cb6-00821821843f",
-                "time": 3800,
-                "value": {
-                  "type": "haptic",
-                  "position": 17,
-                  "velocity": 1,
-                  "velocityMode": "auto",
-                  "stopOnTarget": false
-                },
-                "interpolation": "linear"
-              },
-              {
-                "id": "23263d08-43c1-4c2f-9fb0-f4724a1e5410",
-                "time": 4000,
+                "id": "5332950c-069d-43ca-b8e0-8a2f5b075323",
+                "time": 682,
                 "value": {
                   "type": "haptic",
                   "position": 61,
@@ -615,11 +2031,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "cad18af2-aeb3-4993-94a9-860e16d1d791",
-                "time": 4200,
+                "id": "24b2840e-8ffa-417d-9708-67bb19d97d2b",
+                "time": 744,
                 "value": {
                   "type": "haptic",
-                  "position": 22,
+                  "position": 63,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -627,11 +2043,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "aeff8d24-7e46-4eec-8337-be711ca02aa7",
-                "time": 4420,
+                "id": "974e18d5-7c7f-4256-ae44-384a603efa61",
+                "time": 868,
                 "value": {
                   "type": "haptic",
-                  "position": 54,
+                  "position": 59,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -639,11 +2055,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "9e605d21-c1c9-4c88-9c14-15550cd5de17",
-                "time": 4620,
+                "id": "31ae73ae-2391-431e-b73a-8c7f70090351",
+                "time": 992,
                 "value": {
                   "type": "haptic",
-                  "position": 20,
+                  "position": 58,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -651,11 +2067,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "5ed50e4e-6c5d-484e-8417-afdad835d5d1",
-                "time": 4780,
+                "id": "8fa98b63-76c4-4b9d-b16d-e4c1132e006a",
+                "time": 1054,
                 "value": {
                   "type": "haptic",
-                  "position": 67,
+                  "position": 55,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -663,11 +2079,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "44fddc27-8730-4a15-9f7f-d3ec42e3575b",
-                "time": 5080,
+                "id": "a3eeccb6-a128-4818-928b-112e69cc9418",
+                "time": 1116,
                 "value": {
                   "type": "haptic",
-                  "position": 10,
+                  "position": 53,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -675,11 +2091,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "f81e1d18-e2e2-49f3-ab4e-645498a7dba9",
-                "time": 5400,
+                "id": "8b1b31ea-f72a-4294-a5f4-e25fbea0112b",
+                "time": 1178,
                 "value": {
                   "type": "haptic",
-                  "position": 60,
+                  "position": 52,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -687,11 +2103,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "00916b72-3f0f-4528-9f0e-8684bb3eb75e",
-                "time": 5700,
+                "id": "d509ce85-deef-4be5-8568-362d0c9c4285",
+                "time": 1364,
                 "value": {
                   "type": "haptic",
-                  "position": 16,
+                  "position": 57,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -699,11 +2115,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "9a2b1bbd-61ef-46c8-8ad5-8cb6c029f45f",
-                "time": 5960,
+                "id": "f5fdb55b-4ae1-4f09-9967-1ba8cdb98cd1",
+                "time": 1426,
                 "value": {
                   "type": "haptic",
-                  "position": 67,
+                  "position": 61,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -711,11 +2127,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "52b9a361-ce49-4175-8b44-a0afd3fc1a83",
-                "time": 6380,
+                "id": "11d2f989-bd16-4896-b301-144047e291b6",
+                "time": 1488,
                 "value": {
                   "type": "haptic",
-                  "position": 7,
+                  "position": 62,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -723,8 +2139,8 @@
                 "interpolation": "linear"
               },
               {
-                "id": "fb05c9f4-4ea2-400e-a407-acd39eab8509",
-                "time": 6680,
+                "id": "6ca12663-3546-46fc-99c4-953f6f7133ca",
+                "time": 1550,
                 "value": {
                   "type": "haptic",
                   "position": 64,
@@ -735,11 +2151,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "d23cd11e-cc3c-42d6-9f77-52a06554eb85",
-                "time": 6920,
+                "id": "c4388a42-4775-455c-84e0-78d9e6beb6c9",
+                "time": 1674,
                 "value": {
                   "type": "haptic",
-                  "position": 7,
+                  "position": 65,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -747,11 +2163,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "49928552-01c4-46de-871e-44d9abea7ab2",
-                "time": 7360,
+                "id": "3d97e0c9-689d-47cf-8500-08b2210a7d02",
+                "time": 1798,
                 "value": {
                   "type": "haptic",
-                  "position": 68,
+                  "position": 61,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -759,11 +2175,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "7856f010-1e0b-4c1a-9777-1301ebcb7db2",
-                "time": 7600,
+                "id": "10b768f6-f5e0-4147-9eb0-b400c840974b",
+                "time": 1860,
                 "value": {
                   "type": "haptic",
-                  "position": 7,
+                  "position": 59,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -771,8 +2187,44 @@
                 "interpolation": "linear"
               },
               {
-                "id": "00f79299-6192-43dc-904c-032fa6d1d622",
-                "time": 7980,
+                "id": "4b8c0f5f-9d43-45e3-9f71-f0241668a6a5",
+                "time": 1922,
+                "value": {
+                  "type": "haptic",
+                  "position": 55,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "b0357a4a-2d86-4291-9458-bbbfc29d5a07",
+                "time": 1984,
+                "value": {
+                  "type": "haptic",
+                  "position": 54,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "e6304e99-b468-46ba-bf86-2d98595b18eb",
+                "time": 2046,
+                "value": {
+                  "type": "haptic",
+                  "position": 53,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "d1d48f6b-f8ce-4103-87f5-8c8ee24ad06f",
+                "time": 2170,
                 "value": {
                   "type": "haptic",
                   "position": 60,
@@ -783,11 +2235,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "1bb7527b-838d-4045-b8d2-16d7de082287",
-                "time": 8220,
+                "id": "1e238b66-7a98-4e50-826c-8c461f7b8e51",
+                "time": 2232,
                 "value": {
                   "type": "haptic",
-                  "position": 7,
+                  "position": 62,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -795,8 +2247,596 @@
                 "interpolation": "linear"
               },
               {
-                "id": "548c7501-db0f-4749-a14b-252e034b9fd8",
-                "time": 8540,
+                "id": "19c5ef02-f132-4810-b045-e7b5f2f18e30",
+                "time": 2294,
+                "value": {
+                  "type": "haptic",
+                  "position": 65,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "6c8fd6a7-5408-4d6d-adec-b6951311665c",
+                "time": 2356,
+                "value": {
+                  "type": "haptic",
+                  "position": 66,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "747cad70-f4cd-48a4-968d-782b5740989f",
+                "time": 2542,
+                "value": {
+                  "type": "haptic",
+                  "position": 60,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ffcb79b7-c742-4e1b-bde0-8a032073d366",
+                "time": 2604,
+                "value": {
+                  "type": "haptic",
+                  "position": 56,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "cfe23d88-a88f-4691-922e-cde6de532a4b",
+                "time": 2790,
+                "value": {
+                  "type": "haptic",
+                  "position": 61,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "4f61d070-1ae5-4975-92ce-2ea72cf2bf15",
+                "time": 2852,
+                "value": {
+                  "type": "haptic",
+                  "position": 63,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "dea14df7-0bba-442a-8deb-65e43605ab5b",
+                "time": 2914,
+                "value": {
+                  "type": "haptic",
+                  "position": 65,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "3de68509-79f1-4df2-966a-357fdb60c722",
+                "time": 3038,
+                "value": {
+                  "type": "haptic",
+                  "position": 61,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "64fa67e4-482d-4d2d-a9ae-a7a0ae9ecafd",
+                "time": 3100,
+                "value": {
+                  "type": "haptic",
+                  "position": 58,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "da56ce8c-ed8a-44ed-87c6-b5073ce72ab8",
+                "time": 3162,
+                "value": {
+                  "type": "haptic",
+                  "position": 55,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "6a1007bb-cb8b-4edc-851a-6c531b7d7d68",
+                "time": 3286,
+                "value": {
+                  "type": "haptic",
+                  "position": 60,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "0f4ecd43-2e91-44a6-87fb-40d27db8284f",
+                "time": 3348,
+                "value": {
+                  "type": "haptic",
+                  "position": 62,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "76a0698e-3b3c-4a18-b6a3-ff9144c83599",
+                "time": 3410,
+                "value": {
+                  "type": "haptic",
+                  "position": 64,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "87f8c6c1-6e1c-4fc0-9d5f-fcc9768bd817",
+                "time": 3534,
+                "value": {
+                  "type": "haptic",
+                  "position": 59,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "7b61ae58-e8f4-40a9-a0e3-21df3c419fc9",
+                "time": 3596,
+                "value": {
+                  "type": "haptic",
+                  "position": 56,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "632adc8a-1361-46b3-be4d-9f49c8ca9080",
+                "time": 3720,
+                "value": {
+                  "type": "haptic",
+                  "position": 62,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "40fdb5c2-f8f4-4b69-b4e7-5e9e0377c7a6",
+                "time": 3782,
+                "value": {
+                  "type": "haptic",
+                  "position": 64,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "d2755227-416e-4778-9cd4-07787131e985",
+                "time": 3844,
+                "value": {
+                  "type": "haptic",
+                  "position": 65,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ed50d3c7-92fd-4f2b-a771-e4527ca539de",
+                "time": 3906,
+                "value": {
+                  "type": "haptic",
+                  "position": 61,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9028f040-7d93-44e0-ad5d-6368403a19be",
+                "time": 3968,
+                "value": {
+                  "type": "haptic",
+                  "position": 58,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "75197186-a676-4bd4-a185-84f3e6eb7aa0",
+                "time": 4030,
+                "value": {
+                  "type": "haptic",
+                  "position": 56,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "93c942e9-b10c-48b8-9410-d3cc294c2149",
+                "time": 4092,
+                "value": {
+                  "type": "haptic",
+                  "position": 59,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "e6da27dd-da23-4d5a-965f-480d71dc1890",
+                "time": 4154,
+                "value": {
+                  "type": "haptic",
+                  "position": 60,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2011ce57-89ba-4347-8f05-17ecf0fa2ab9",
+                "time": 4216,
+                "value": {
+                  "type": "haptic",
+                  "position": 61,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "8abf4e51-f2b0-44d6-a7c3-809bcd6dde8b",
+                "time": 4340,
+                "value": {
+                  "type": "haptic",
+                  "position": 57,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2c2a7e9d-8029-4d04-a504-8eafc6876304",
+                "time": 4402,
+                "value": {
+                  "type": "haptic",
+                  "position": 55,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "73169fab-0a00-4aa6-8231-4f8585803663",
+                "time": 4526,
+                "value": {
+                  "type": "haptic",
+                  "position": 60,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "feb18ad3-a27e-45cf-be8d-a78c803578d8",
+                "time": 4588,
+                "value": {
+                  "type": "haptic",
+                  "position": 62,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "7fa70126-6379-4a57-93ce-17326eafb976",
+                "time": 4650,
+                "value": {
+                  "type": "haptic",
+                  "position": 59,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "a252d92c-501e-4822-b36f-b30ae24365ab",
+                "time": 4712,
+                "value": {
+                  "type": "haptic",
+                  "position": 55,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "583c31de-25b7-489e-bde5-f0b0c11caade",
+                "time": 4774,
+                "value": {
+                  "type": "haptic",
+                  "position": 52,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "527d6b6a-2819-4a46-8735-ff38edce6488",
+                "time": 4898,
+                "value": {
+                  "type": "haptic",
+                  "position": 58,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "481d1031-b640-4ddb-9357-94596fa03256",
+                "time": 4960,
+                "value": {
+                  "type": "haptic",
+                  "position": 61,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "75a03bc9-9754-48b4-8bde-21fe4bd36216",
+                "time": 5022,
+                "value": {
+                  "type": "haptic",
+                  "position": 63,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "831cbbd1-ec10-40f5-a4af-8be3d26ac4af",
+                "time": 5332,
+                "value": {
+                  "type": "haptic",
+                  "position": 64,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "c9589bfa-1b5a-46c3-8ab1-d0371e397a87",
+                "time": 5580,
+                "value": {
+                  "type": "haptic",
+                  "position": 60,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "036cbdb7-326c-4db0-b305-bdecfc7d0c17",
+                "time": 5766,
+                "value": {
+                  "type": "haptic",
+                  "position": 63,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "a6d88cb9-a116-49ea-980c-7e489e9578bc",
+                "time": 5828,
+                "value": {
+                  "type": "haptic",
+                  "position": 66,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "7ce5c0d8-402a-47a7-9fbf-f7c29d39c31a",
+                "time": 5952,
+                "value": {
+                  "type": "haptic",
+                  "position": 68,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "b729ce33-2c8f-4c6c-936c-95eef5362d51",
+                "time": 6138,
+                "value": {
+                  "type": "haptic",
+                  "position": 65,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "d771c351-02ab-4bd1-9402-cd3f9852185b",
+                "time": 6200,
+                "value": {
+                  "type": "haptic",
+                  "position": 64,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "f8ea37c7-ac20-4755-a27f-d355d6eb2c7a",
+                "time": 6262,
+                "value": {
+                  "type": "haptic",
+                  "position": 63,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "be63c607-0c0c-4c09-9cb2-eb3445191435",
+                "time": 6386,
+                "value": {
+                  "type": "haptic",
+                  "position": 66,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9ef694c7-e64f-46ef-b91f-e09ad13339d1",
+                "time": 6448,
+                "value": {
+                  "type": "haptic",
+                  "position": 67,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "5bc37f55-abdd-4b43-b0e0-7c1f4b8557de",
+                "time": 6572,
+                "value": {
+                  "type": "haptic",
+                  "position": 73,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "386f46a4-ed64-4615-8beb-42d13d206608",
+                "time": 6634,
+                "value": {
+                  "type": "haptic",
+                  "position": 74,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "6ecb1f76-b267-4aba-a58b-164e0a88532e",
+                "time": 6820,
+                "value": {
+                  "type": "haptic",
+                  "position": 68,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "01cdc8c3-c6fc-4c71-944a-bdbd3ffc5ece",
+                "time": 6882,
+                "value": {
+                  "type": "haptic",
+                  "position": 65,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "1eac9d13-070a-4f50-a454-2dc328912e6e",
+                "time": 6944,
+                "value": {
+                  "type": "haptic",
+                  "position": 68,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "090b8c0f-1d66-4492-975c-4086acb81297",
+                "time": 7006,
                 "value": {
                   "type": "haptic",
                   "position": 69,
@@ -807,11 +2847,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "6bd7eb6d-60dc-43ab-8136-9611e0c407a5",
-                "time": 8900,
+                "id": "a11f13e5-8af1-43ed-ab8c-d670ea994aea",
+                "time": 7192,
                 "value": {
                   "type": "haptic",
-                  "position": 8,
+                  "position": 70,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -819,8 +2859,8 @@
                 "interpolation": "linear"
               },
               {
-                "id": "2ef43df6-596e-4bb5-a3ef-f59c8c1a7dcd",
-                "time": 9220,
+                "id": "8b76fd39-711c-41ac-9370-8c55813afd47",
+                "time": 7254,
                 "value": {
                   "type": "haptic",
                   "position": 72,
@@ -831,11 +2871,11 @@
                 "interpolation": "linear"
               },
               {
-                "id": "a0be5440-9960-462e-9cc6-53dbbce0f06e",
-                "time": 9540,
+                "id": "5efc523e-bcd3-42e6-b35e-2cd57620e2b1",
+                "time": 7378,
                 "value": {
                   "type": "haptic",
-                  "position": 17,
+                  "position": 69,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -843,11 +2883,203 @@
                 "interpolation": "linear"
               },
               {
-                "id": "c47bce4a-5904-40f9-9dfa-b955141b55dc",
-                "time": 9673,
+                "id": "b25d90c1-ef03-4443-abd3-a51f084788b2",
+                "time": 7440,
                 "value": {
                   "type": "haptic",
-                  "position": 39,
+                  "position": 68,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "f4967ec6-fcfa-4147-997a-343f06aac551",
+                "time": 7502,
+                "value": {
+                  "type": "haptic",
+                  "position": 66,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ae6999a0-a8b7-40ff-98ec-6958d671d2ad",
+                "time": 7564,
+                "value": {
+                  "type": "haptic",
+                  "position": 70,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "4b33e9ab-0c56-4046-8b23-a9523f8573ee",
+                "time": 7812,
+                "value": {
+                  "type": "haptic",
+                  "position": 71,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "88f9e40e-1109-4cf4-bf4b-d6fd5493889e",
+                "time": 7874,
+                "value": {
+                  "type": "haptic",
+                  "position": 72,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "f9e2f238-6301-4a55-90e4-7f6a5bbdf9db",
+                "time": 8184,
+                "value": {
+                  "type": "haptic",
+                  "position": 69,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "2563e6dd-8003-407f-b0f3-d355e26ffba2",
+                "time": 8618,
+                "value": {
+                  "type": "haptic",
+                  "position": 67,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "250ce683-7bb9-4e6c-afee-9703a0085ca2",
+                "time": 8680,
+                "value": {
+                  "type": "haptic",
+                  "position": 65,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "30fa7e62-98d8-4a3e-a90d-209cabfd490a",
+                "time": 8742,
+                "value": {
+                  "type": "haptic",
+                  "position": 64,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "9116c0e9-12ae-4054-b978-b3a9d28fa4c7",
+                "time": 8990,
+                "value": {
+                  "type": "haptic",
+                  "position": 67,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "0b81c445-3313-47e4-ad08-05e956c6365c",
+                "time": 9052,
+                "value": {
+                  "type": "haptic",
+                  "position": 68,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ab3b47cd-843b-4e0b-b22b-28ce3b545ab2",
+                "time": 9114,
+                "value": {
+                  "type": "haptic",
+                  "position": 70,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "902cdb9f-f01f-4e65-bc59-2a3941599d2b",
+                "time": 9238,
+                "value": {
+                  "type": "haptic",
+                  "position": 71,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "1326d40e-c346-40fe-80b0-6afaf3371ba1",
+                "time": 9362,
+                "value": {
+                  "type": "haptic",
+                  "position": 66,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "698215da-4201-49d2-8a3b-44b80b209d15",
+                "time": 9424,
+                "value": {
+                  "type": "haptic",
+                  "position": 64,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "ca5a7162-e75d-4ef1-a8b2-fc29a6731e24",
+                "time": 9486,
+                "value": {
+                  "type": "haptic",
+                  "position": 63,
+                  "velocity": 1,
+                  "velocityMode": "auto",
+                  "stopOnTarget": false
+                },
+                "interpolation": "linear"
+              },
+              {
+                "id": "940bf49f-8669-40cc-b4a4-192ed4edad40",
+                "time": 9672,
+                "value": {
+                  "type": "haptic",
+                  "position": 63,
                   "velocity": 1,
                   "velocityMode": "auto",
                   "stopOnTarget": false
@@ -859,10 +3091,54 @@
             "locked": false,
             "muted": false,
             "volume": 1
+          },
+          {
+            "id": "c9289c54-2101-4459-8923-4edc0af81170",
+            "type": "tracking",
+            "name": "Tracking 2",
+            "keyframes": [],
+            "enabled": true,
+            "locked": false,
+            "muted": false,
+            "volume": 1,
+            "color": "#ef4444"
+          },
+          {
+            "id": "e820e6d2-547d-4808-9905-d44e75a8fe82",
+            "type": "tracking",
+            "name": "Tracking 3",
+            "keyframes": [],
+            "enabled": true,
+            "locked": false,
+            "muted": false,
+            "volume": 1,
+            "color": "#ef4444"
+          },
+          {
+            "id": "315de8e7-545a-4b84-920e-5109b6c40fe7",
+            "type": "tracking",
+            "name": "Tracking 4",
+            "keyframes": [],
+            "enabled": true,
+            "locked": false,
+            "muted": false,
+            "volume": 1,
+            "color": "#ef4444"
+          },
+          {
+            "id": "f29cb758-b063-444a-85c0-037143d48d2f",
+            "type": "tracking",
+            "name": "Tracking 5",
+            "keyframes": [],
+            "enabled": true,
+            "locked": false,
+            "muted": false,
+            "volume": 1,
+            "color": "#ef4444"
           }
         ],
         "markers": [],
-        "loop": true,
+        "loop": false,
         "autoPlaySounds": true,
         "globalVolume": 1
       }
@@ -2138,5 +4414,5 @@
     }
   },
   "createdAt": "2026-04-05T00:48:03.707Z",
-  "updatedAt": "2026-08-24T09:40:35.685Z"
+  "updatedAt": "2026-08-24T09:24:04.771Z"
 }

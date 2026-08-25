@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTavernStore } from '@/store/tavern-store';
 import type { AtmosphereLayer } from '@/types';
 import { EngineAtmosphereLayer } from './engine-atmosphere-layer';
@@ -19,6 +19,23 @@ export function AtmosphereRenderer() {
   } = useTavernStore();
   
   const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+  // Compute a safe, finite audio volume in [0, 1].
+  // Any non-finite factor (NaN/Infinity/undefined) is replaced with a sane default.
+  // This prevents the "Failed to set the 'volume' property on 'HTMLMediaElement':
+  // The provided double value is non-finite." error when the store partially hydrates.
+  const computeLayerVolume = (layerVolume: number | undefined) => {
+    const num = (v: unknown, fallback: number): number => {
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const layerVol = num(layerVolume, 0.5);
+    const globalVol = num(atmosphereSettings?.globalVolume, 0.5);
+    const intensity = num(atmosphereGlobalIntensity, 1);
+    const raw = layerVol * globalVol * intensity;
+    const safe = Number.isFinite(raw) ? raw : 0;
+    return Math.max(0, Math.min(1, safe));
+  };
   
   // Filter and sort layers by priority
   const sortedLayers = activeAtmosphereLayers
@@ -59,7 +76,7 @@ export function AtmosphereRenderer() {
       if (!audioRefs.current.has(layer.id)) {
         const audio = new Audio(layer.audioLoopUrl);
         audio.loop = true;
-        audio.volume = (layer.audioVolume || 0.5) * atmosphereSettings.globalVolume * atmosphereGlobalIntensity;
+        audio.volume = computeLayerVolume(layer.audioVolume);
         audio.play().catch(() => {
           // Autoplay blocked, will play on user interaction
         });
@@ -67,7 +84,7 @@ export function AtmosphereRenderer() {
       } else {
         // Update volume
         const audio = audioRefs.current.get(layer.id)!;
-        audio.volume = (layer.audioVolume || 0.5) * atmosphereSettings.globalVolume * atmosphereGlobalIntensity;
+        audio.volume = computeLayerVolume(layer.audioVolume);
       }
     });
     

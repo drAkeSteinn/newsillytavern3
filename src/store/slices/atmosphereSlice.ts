@@ -476,11 +476,19 @@ export const createAtmosphereSlice: StateCreator<AtmosphereSlice, [], [], Atmosp
     const preset = state.atmospherePresets.find(p => p.id === presetId);
     if (!preset) return state;
     
+    // When a non-empty preset is activated, also turn on the global "enabled" toggle
+    // if it's currently off. Otherwise the user clicks a preset and sees no effect,
+    // because the AtmosphereRenderer returns null when enabled === false.
+    const needsEnable = !state.atmosphereSettings?.enabled;
+    
     return {
       activeAtmosphereLayers: preset.layers
         .map(layer => ({ ...layer, active: true }))
         .sort((a, b) => a.priority - b.priority),
-      activeAtmospherePresetId: presetId
+      activeAtmospherePresetId: presetId,
+      ...(needsEnable ? {
+        atmosphereSettings: { ...state.atmosphereSettings, enabled: true }
+      } : {}),
     };
   }),
   
