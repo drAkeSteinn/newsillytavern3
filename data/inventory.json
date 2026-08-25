@@ -2798,6 +2798,259 @@
   },
   "inventoryNotifications": [
     {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi panocha ya chorrea como loca",
+      "id": "notif-1787649105989-8qmd8s7",
+      "timestamp": "2026-08-25T09:11:45.989Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi panocha ya chorrea como lo",
+      "id": "notif-1787649105966-f9es7bs",
+      "timestamp": "2026-08-25T09:11:45.966Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi panocha ya chorrea como",
+      "id": "notif-1787649105945-kjgd5qo",
+      "timestamp": "2026-08-25T09:11:45.945Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi panocha ya chorre",
+      "id": "notif-1787649105925-uxkevhd",
+      "timestamp": "2026-08-25T09:11:45.925Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi panocha ya cho",
+      "id": "notif-1787649105907-ex2h69c",
+      "timestamp": "2026-08-25T09:11:45.907Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi panocha ya",
+      "id": "notif-1787649105883-uo070c3",
+      "timestamp": "2026-08-25T09:11:45.883Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi panocha",
+      "id": "notif-1787649105866-g5wgs79",
+      "timestamp": "2026-08-25T09:11:45.866Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi panoc",
+      "id": "notif-1787649105847-qmztl6k",
+      "timestamp": "2026-08-25T09:11:45.847Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi pa",
+      "id": "notif-1787649105825-83xjjpu",
+      "timestamp": "2026-08-25T09:11:45.825Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando, mi",
+      "id": "notif-1787649105799-jxq33uv",
+      "timestamp": "2026-08-25T09:11:45.799Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están quemando,",
+      "id": "notif-1787649105783-tqz9dp1",
+      "timestamp": "2026-08-25T09:11:45.783Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están queman",
+      "id": "notif-1787649105766-75eo97y",
+      "timestamp": "2026-08-25T09:11:45.766Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están que",
+      "id": "notif-1787649105744-odebqoa",
+      "timestamp": "2026-08-25T09:11:45.744Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me están",
+      "id": "notif-1787649105715-cl3jfmh",
+      "timestamp": "2026-08-25T09:11:45.715Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: me est",
+      "id": "notif-1787649105698-m7p5jx9",
+      "timestamp": "2026-08-25T09:11:45.698Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Plug Inflador de Semen",
+      "quantity": 1,
+      "message": "Obtained: me",
+      "id": "notif-1787649105677-830fsf1",
+      "timestamp": "2026-08-25T09:11:45.677Z",
+      "read": false
+    },
+    {
+      "type": "item_added",
+      "itemId": "cum-001",
+      "itemName": "Plug Inflador de Semen",
+      "quantity": 1,
+      "message": "Obtuviste Plug Inflador de Semen",
+      "id": "notif-1787649105652-b70e16n",
+      "timestamp": "2026-08-25T09:11:45.652Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a romper la fundita poquito a poquito",
+      "id": "notif-1787648129962-e69zdfr",
+      "timestamp": "2026-08-25T08:55:29.962Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a romper la fundita poquito a poqu",
+      "id": "notif-1787648129940-y0d07y5",
+      "timestamp": "2026-08-25T08:55:29.940Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a romper la fundita poquito",
+      "id": "notif-1787648129927-tjazqk7",
+      "timestamp": "2026-08-25T08:55:29.927Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a romper la fundita poqui",
+      "id": "notif-1787648129913-xw63rrj",
+      "timestamp": "2026-08-25T08:55:29.913Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a romper la fundita po",
+      "id": "notif-1787648129898-36ii2ou",
+      "timestamp": "2026-08-25T08:55:29.898Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a romper la fundita",
+      "id": "notif-1787648129883-9yxgflm",
+      "timestamp": "2026-08-25T08:55:29.883Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a romper la fund",
+      "id": "notif-1787648129867-j6cw5aj",
+      "timestamp": "2026-08-25T08:55:29.867Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a rompe",
+      "id": "notif-1787648129850-1xpg4c1",
+      "timestamp": "2026-08-25T08:55:29.850Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me vas a ro",
+      "id": "notif-1787648129835-bkwifsv",
+      "timestamp": "2026-08-25T08:55:29.835Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me va",
+      "id": "notif-1787648129818-psugcgl",
+      "timestamp": "2026-08-25T08:55:29.819Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: o me",
+      "id": "notif-1787648129806-06lyvlp",
+      "timestamp": "2026-08-25T08:55:29.806Z",
+      "read": false
+    },
+    {
       "type": "item_equipped",
       "itemId": "cum-001",
       "itemName": "Plug Inflador de Semen",
@@ -2999,276 +3252,6 @@
       "message": "Obtained: tu segunda corrida den",
       "id": "notif-1780542722153-34ecri4",
       "timestamp": "2026-06-04T03:12:02.153Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: tu segunda corrida",
-      "id": "notif-1780542722139-zimlhm1",
-      "timestamp": "2026-06-04T03:12:02.139Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: tu segunda corri",
-      "id": "notif-1780542722124-jyal2ue",
-      "timestamp": "2026-06-04T03:12:02.124Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: tu segunda co",
-      "id": "notif-1780542722111-0gr44g0",
-      "timestamp": "2026-06-04T03:12:02.111Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: tu segunda",
-      "id": "notif-1780542722097-sb02k3y",
-      "timestamp": "2026-06-04T03:12:02.097Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: tu segu",
-      "id": "notif-1780542722085-3ur7h8k",
-      "timestamp": "2026-06-04T03:12:02.085Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
-      "quantity": 1,
-      "message": "Desequipaste Dildo Inflable",
-      "id": "notif-1780297042910-er81pz3",
-      "timestamp": "2026-06-01T06:57:22.910Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
-      "quantity": 1,
-      "message": "{{user}} te metio un dildo inflable que se esta expandiendo dentro de tu Ano",
-      "id": "notif-1780296876308-xawcch8",
-      "timestamp": "2026-06-01T06:54:36.308Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
-      "quantity": 1,
-      "message": "Desequipaste Dildo Inflable",
-      "id": "notif-1780252387537-1u7fjw9",
-      "timestamp": "2026-05-31T18:33:07.537Z",
-      "read": false
-    },
-    {
-      "type": "item_removed",
-      "itemId": "past-002",
-      "itemName": "Pastilla Babeadora",
-      "quantity": 1,
-      "message": "El efecto de Pastilla Babeadora ha expirado",
-      "id": "notif-1780252341690-9y3cith",
-      "timestamp": "2026-05-31T18:32:21.690Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
-      "quantity": 1,
-      "message": "{{user}} te metio un dildo inflable que se esta expandiendo dentro de tu ano",
-      "id": "notif-1780252324199-2bjnrgd",
-      "timestamp": "2026-05-31T18:32:04.199Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
-      "quantity": 1,
-      "message": "Desequipaste Dildo Inflable",
-      "id": "notif-1780252229433-954jqrv",
-      "timestamp": "2026-05-31T18:30:29.433Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
-      "quantity": 1,
-      "message": "{{user}} te metio un dildo inflable que se esta expandiendo dentro de tu ano",
-      "id": "notif-1780252150698-bvd4m5o",
-      "timestamp": "2026-05-31T18:29:10.698Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
-      "quantity": 1,
-      "message": "Desequipaste Dildo Inflable",
-      "id": "notif-1780252145524-bpr1w3u",
-      "timestamp": "2026-05-31T18:29:05.524Z",
-      "read": false
-    },
-    {
-      "type": "item_used",
-      "itemId": "past-002",
-      "itemName": "Pastilla Babeadora",
-      "quantity": 1,
-      "message": "{{user}} te dio una pastilla que te hace babear como perra",
-      "id": "notif-1780245102395-plhul23",
-      "timestamp": "2026-05-31T16:31:42.395Z",
-      "read": false
-    },
-    {
-      "type": "currency_changed",
-      "itemName": "Puntos",
-      "quantity": 10,
-      "message": "Puntos: +10 (Total: 888)",
-      "id": "notif-1780245065030-usjddoq",
-      "timestamp": "2026-05-31T16:31:05.030Z",
-      "read": false
-    },
-    {
-      "type": "currency_changed",
-      "itemName": "Puntos",
-      "quantity": 10,
-      "message": "Puntos: +10 (Total: 878)",
-      "id": "notif-1780245064383-gaxgc8n",
-      "timestamp": "2026-05-31T16:31:04.383Z",
-      "read": false
-    },
-    {
-      "type": "currency_changed",
-      "itemName": "Puntos",
-      "quantity": 1,
-      "message": "Puntos: +1 (Total: 868)",
-      "id": "notif-1780245061877-rdgr1mz",
-      "timestamp": "2026-05-31T16:31:01.877Z",
-      "read": false
-    },
-    {
-      "type": "item_removed",
-      "itemId": "past-002",
-      "itemName": "Pastilla Babeadora",
-      "quantity": 1,
-      "message": "El efecto de Pastilla Babeadora ha expirado",
-      "id": "notif-1780244315371-l7twj6w",
-      "timestamp": "2026-05-31T16:18:35.371Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Plug Inflable",
-      "quantity": 1,
-      "message": "{{user}} te metio un plug inflable que se esta expandiendo dentro de tu ano",
-      "id": "notif-1780244284377-7thtu85",
-      "timestamp": "2026-05-31T16:18:04.377Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-002",
-      "itemName": "Doble dildo lechero",
-      "quantity": 1,
-      "message": "{{user}} te quito el plug lechero, tu ano sigue palpitando",
-      "id": "notif-1780244255316-l9be7s9",
-      "timestamp": "2026-05-31T16:17:35.316Z",
-      "read": false
-    },
-    {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Plug Inflable",
-      "quantity": 1,
-      "message": "Desequipaste Plug Inflable",
-      "id": "notif-1780244254485-oqrtjgd",
-      "timestamp": "2026-05-31T16:17:34.485Z",
-      "read": false
-    },
-    {
-      "type": "item_used",
-      "itemId": "past-002",
-      "itemName": "Pastilla Babeadora",
-      "quantity": 1,
-      "message": "{{user}} te dio una pastilla que te hace babear como perra",
-      "id": "notif-1780244157686-1pqckcp",
-      "timestamp": "2026-05-31T16:15:57.686Z",
-      "read": false
-    },
-    {
-      "type": "item_added",
-      "itemId": "past-002",
-      "itemName": "Pastilla Babeadora",
-      "quantity": 1,
-      "message": "Compraste Pastilla Babeadora por 40 divisas",
-      "id": "notif-1780244152122-2ah3wmr",
-      "timestamp": "2026-05-31T16:15:52.122Z",
-      "read": false
-    },
-    {
-      "type": "item_added",
-      "itemId": "past-002",
-      "itemName": "Pastilla Babeadora",
-      "quantity": 1,
-      "message": "Obtuviste Pastilla Babeadora",
-      "id": "notif-1780244152105-qa1goev",
-      "timestamp": "2026-05-31T16:15:52.105Z",
-      "read": false
-    },
-    {
-      "type": "currency_changed",
-      "itemName": "Puntos",
-      "quantity": -40,
-      "message": "Puntos: -40 (Total: 867)",
-      "id": "notif-1780244152072-f5fdzfh",
-      "timestamp": "2026-05-31T16:15:52.072Z",
-      "read": false
-    },
-    {
-      "type": "item_added",
-      "itemId": "past-002",
-      "itemName": "Pastilla Babeadora",
-      "quantity": 1,
-      "message": "Compraste Pastilla Babeadora por 40 divisas",
-      "id": "notif-1780244149183-kjk8bgx",
-      "timestamp": "2026-05-31T16:15:49.183Z",
-      "read": false
-    },
-    {
-      "type": "item_added",
-      "itemId": "past-002",
-      "itemName": "Pastilla Babeadora",
-      "quantity": 1,
-      "message": "Obtuviste Pastilla Babeadora",
-      "id": "notif-1780244149167-690w9c3",
-      "timestamp": "2026-05-31T16:15:49.167Z",
-      "read": false
-    },
-    {
-      "type": "currency_changed",
-      "itemName": "Puntos",
-      "quantity": -40,
-      "message": "Puntos: -40 (Total: 907)",
-      "id": "notif-1780244149133-7bun1b3",
-      "timestamp": "2026-05-31T16:15:49.133Z",
       "read": false
     }
   ]

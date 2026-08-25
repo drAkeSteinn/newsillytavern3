@@ -17,7 +17,7 @@
       "stopStrings": [],
       "stream": true
     },
-    "isActive": true,
+    "isActive": false,
     "id": "960e8af8-9196-4108-8eb7-221fb69010a8"
   },
   {
@@ -83,5 +83,26 @@
     },
     "isActive": false,
     "id": "14105a9e-cebd-4a80-b717-c4ed015edb67"
+  },
+  {
+    "name": "Grok",
+    "provider": "grok",
+    "endpoint": "https://api.x.ai/v1",
+    "apiKey": "",
+    "model": "grok-4.20-non-reasoning",
+    "parameters": {
+      "temperature": 0.7,
+      "topP": 0.9,
+      "topK": 40,
+      "maxTokens": 512,
+      "contextSize": 4096,
+      "repetitionPenalty": 1.1,
+      "frequencyPenalty": 0,
+      "presencePenalty": 0,
+      "stopStrings": [],
+      "stream": true
+    },
+    "isActive": true,
+    "id": "f137d1ac-b36b-40db-95f6-d8a9c17e0eef"
   }
 ]
