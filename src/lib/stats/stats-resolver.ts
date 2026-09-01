@@ -796,6 +796,7 @@ export function resolveStats(
     intentionsBlock: '',
     invitationsBlock: '',
     solicitudesBlock: '',
+    mainAttribute: null,
   };
 
   const keyFullContext = {
@@ -862,6 +863,23 @@ export function resolveStats(
   const availableIntentions = filterIntentionsByRequirements(intentions, attributeValues, sessionStats);
   const availableInvitations = filterInvitationsByRequirements(invitations, attributeValues, sessionStats);
 
+  // Find the main attribute (if any isMain=true is set)
+  // Used by proactive messages default, Director tension, modify_stat tool hint, etc.
+  const mainAttrDef = (statsConfig.attributes || []).find(a => a.isMain === true);
+  let mainAttribute: ResolvedStats['mainAttribute'] = null;
+  if (mainAttrDef) {
+    const mainResolved = attributes.find(a => a.key === mainAttrDef.key);
+    if (mainResolved) {
+      mainAttribute = {
+        key: mainResolved.key,
+        name: mainResolved.name,
+        value: mainResolved.value,
+        formatted: mainResolved.formatted,
+        definition: mainAttrDef,
+      };
+    }
+  }
+
   return {
     attributes: attributesMap,
     availableSkills,
@@ -872,6 +890,7 @@ export function resolveStats(
     intentionsBlock,
     invitationsBlock,
     solicitudesBlock,
+    mainAttribute,
   };
 }
 

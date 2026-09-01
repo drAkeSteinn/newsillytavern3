@@ -1,0 +1,894 @@
+     1→'use client';
+     2→
+     3→import { cn } from '@/lib/utils';
+     4→import type { ChatMessage as ChatMessageType, PromptSection, ChatboxAppearanceSettings, ToolUsedInfo } from '@/types';
+     5→import { DEFAULT_CHATBOX_APPEARANCE } from '@/types';
+     6→import { Copy, Check, Trash2, RefreshCw, ChevronLeft, ChevronRight, Volume2, Eye, Edit2, Play, X, Check as CheckIcon, Ghost, Wrench, Zap, Dices, Globe, CloudSun, Bell, Sparkles, Pause, Flame, Heart, Pencil, Crown } from 'lucide-react';
+     7→import { useState, memo, Fragment, useMemo, useCallback } from 'react';
+     8→import * as React from 'react';
+     9→import { Button } from '@/components/ui/button';
+    10→import { Textarea } from '@/components/ui/textarea';
+    11→import { Badge } from '@/components/ui/badge';
+    12→import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+    13→import { formatDistanceToNow } from 'date-fns';
+    14→import { TextFormatter } from './text-formatter';
+    15→import { PromptViewerDialog } from './prompt-viewer-dialog';
+    16→import { t } from '@/lib/i18n';
+    17→import { useTavernStore } from '@/store/tavern-store';
+    18→
+    19→type MessageDisplayMode = 'bubble' | 'compact' | 'full';
+    20→
+    21→interface ChatMessageProps {
+    22→  message: ChatMessageType;
+    23→  characterName?: string;
+    24→  characterAvatar?: string;
+    25→  userName?: string;
+    26→  userAvatar?: string;
+    27→  showTimestamp?: boolean;
+    28→  showTokens?: boolean;
+    29→  onSwipe?: (direction: 'left' | 'right') => void;
+    30→  onDelete?: () => void;
+    31→  onRegenerate?: () => void;
+    32→  onSpeak?: () => void;
+    33→  onEdit?: (messageId: string, newContent: string) => void;
+    34→  onReplay?: (messageId: string, content: string, characterId?: string) => void;
+    35→  hasAlternatives?: boolean;
+    36→  currentIndex?: number;
+    37→  totalAlternatives?: number;
+    38→  displayMode?: MessageDisplayMode;
+    39→  isNarrator?: boolean;
+    40→  appearance?: ChatboxAppearanceSettings;
+    41→  emotionalState?: string;  // FASE 5: Current emotional state for this character
+    42→}
+    43→
+    44→// ============================================
+    45→// Tool Badge with rich tooltip
+    46→// ============================================
+    47→// Shows the tool icon + label, and on hover displays a meaningful tooltip
+    48→// explaining WHAT changed (e.g., "Lujuria: 55 → 70 (+15)") instead of just
+    49→// the tool name.
+    50→
+    51→const TOOL_ICON_MAP: Record<string, typeof Wrench> = {
+    52→  Dices,
+    53→  Brain: Zap,
+    54→  Globe,
+    55→  CloudSun,
+    56→  Bell,
+    57→  Search: Globe,
+    58→  WebSearch: Globe,
+    59→  Calculator: Zap,
+    60→  Weather: CloudSun,
+    61→  Timer: Bell,
+    62→  Pencil,
+    63→  Crown,
+    64→  Heart,
+    65→  Flame,
+    66→  Sparkles,
+    67→  Wrench,
+    68→};
+    69→
+    70→function getToolBadgeIcon(iconName?: string): typeof Wrench {
+    71→  if (!iconName) return Wrench;
+    72→  return TOOL_ICON_MAP[iconName] ?? Wrench;
+    73→}
+    74→
+    75→/** Build a rich tooltip content for a tool usage */
+    76→function ToolBadgeWithTooltip({ tool, index }: { tool: ToolUsedInfo; index: number }) {
+    77→  const ToolIcon = getToolBadgeIcon(tool.icon);
+    78→  const isSuccess = tool.success !== false;
+    79→  const hasDetails = !!tool.details;
+    80→  const hasDisplayMessage = !!tool.displayMessage;
+    81→
+    82→  // Build the tooltip content: title + details + display message
+    83→  const tooltipContent = (
+    84→    <div className="max-w-xs space-y-1.5 text-left">
+    85→      {/* Title row */}
+    86→      <div className="flex items-center gap-1.5 font-semibold">
+    87→        {React.createElement(ToolIcon, { className: 'w-3 h-3 shrink-0' })}
+    88→        <span>{tool.label}</span>
+    89→        {isSuccess ? (
+    90→          <span className="text-emerald-400 text-[10px]">✓</span>
+    91→        ) : (
+    92→          <span className="text-red-400 text-[10px]">✗</span>
+    93→        )}
+    94→      </div>
+    95→
+    96→      {/* Meaningful details: what changed */}
+    97→      {hasDetails && (
+    98→        <div className="border-t border-border/50 pt-1">
+    99→          {tool.details!.split('\n').map((line, i) => (
+   100→            <p key={i} className="text-[11px] leading-snug text-muted-foreground whitespace-pre-wrap break-words">
+   101→              {line}
+   102→            </p>
+   103→          ))}
+   104→        </div>
+   105→      )}
+   106→
+   107→      {/* Full display message (collapsible, only if different from details) */}
+   108→      {hasDisplayMessage && tool.displayMessage !== tool.details && (
+   109→        <details className="border-t border-border/50 pt-1">
+   110→          <summary className="text-[10px] text-muted-foreground/70 cursor-pointer hover:text-muted-foreground">
+   111→            Ver mensaje completo
+   112→          </summary>
+   113→          <pre className="mt-1 text-[10px] leading-tight text-muted-foreground/80 whitespace-pre-wrap break-words font-mono">
+   114→            {tool.displayMessage}
+   115→          </pre>
+   116→        </details>
+   117→      )}
+   118→
+   119→      {!hasDetails && !hasDisplayMessage && (
+   120→        <p className="text-[11px] text-muted-foreground/70 italic">
+   121→          {isSuccess ? 'Herramienta ejecutada' : 'La herramienta falló'}
+   122→        </p>
+   123→      )}
+   124→    </div>
+   125→  );
+   126→
+   127→  return (
+   128→    <Tooltip key={`${tool.name}-${index}`}>
+   129→      <TooltipTrigger asChild>
+   130→        <Badge
+   131→          variant="outline"
+   132→          className={cn(
+   133→            'text-[10px] py-0 h-4 px-1 gap-0.5 cursor-help',
+   134→            isSuccess
+   135→              ? 'border-green-500/30 text-green-400/70 hover:border-green-500/50 hover:text-green-400'
+   136→              : 'border-red-500/30 text-red-400/70 hover:border-red-500/50 hover:text-red-400',
+   137→          )}
+   138→        >
+   139→          {React.createElement(ToolIcon, { className: 'w-2.5 h-2.5' })}
+   140→          <span className="truncate max-w-[60px]">{tool.label}</span>
+   141→        </Badge>
+   142→      </TooltipTrigger>
+   143→      <TooltipContent side="top" className="max-w-xs p-2">
+   144→        {tooltipContent}
+   145→      </TooltipContent>
+   146→    </Tooltip>
+   147→  );
+   148→}
+   149→
+   150→export const ChatMessageBubble = memo(function ChatMessageBubble({
+   151→  message,
+   152→  characterName = t('message.assistant'),
+   153→  characterAvatar,
+   154→  userName = t('message.you'),
+   155→  userAvatar,
+   156→  showTimestamp = true,
+   157→  showTokens = false,
+   158→  onSwipe,
+   159→  onDelete,
+   160→  onRegenerate,
+   161→  onSpeak,
+   162→  onEdit,
+   163→  onReplay,
+   164→  hasAlternatives = false,
+   165→  currentIndex = 0,
+   166→  totalAlternatives = 1,
+   167→  displayMode = 'bubble',
+   168→  isNarrator = false,
+   169→  appearance: appearanceProp,
+   170→  emotionalState,
+   171→}: ChatMessageProps) {
+   172→  const [copied, setCopied] = useState(false);
+   173→  const [showPromptDialog, setShowPromptDialog] = useState(false);
+   174→  const [isEditing, setIsEditing] = useState(false);
+   175→  const [editContent, setEditContent] = useState(message.content);
+   176→  const isUser = message.role === 'user';
+   177→  const isSystem = message.role === 'system';
+   178→
+   179→  // Get appearance settings from store if not provided via props
+   180→  const storeAppearance = useTavernStore((state) => state.settings.chatboxAppearance);
+   181→  const appearance = appearanceProp || storeAppearance || DEFAULT_CHATBOX_APPEARANCE;
+   182→  
+   183→  // Ensure all nested objects exist with defaults
+   184→  const safeAppearance = useMemo(() => ({
+   185→    ...DEFAULT_CHATBOX_APPEARANCE,
+   186→    ...appearance,
+   187→    background: { ...DEFAULT_CHATBOX_APPEARANCE.background, ...appearance?.background },
+   188→    font: { ...DEFAULT_CHATBOX_APPEARANCE.font, ...appearance?.font },
+   189→    textFormatting: { ...DEFAULT_CHATBOX_APPEARANCE.textFormatting, ...appearance?.textFormatting },
+   190→    textColors: { ...DEFAULT_CHATBOX_APPEARANCE.textColors, ...appearance?.textColors },
+   191→    bubbles: { ...DEFAULT_CHATBOX_APPEARANCE.bubbles, ...appearance?.bubbles },
+   192→    avatars: { ...DEFAULT_CHATBOX_APPEARANCE.avatars, ...appearance?.avatars },
+   193→    streaming: { ...DEFAULT_CHATBOX_APPEARANCE.streaming, ...appearance?.streaming },
+   194→    input: { ...DEFAULT_CHATBOX_APPEARANCE.input, ...appearance?.input },
+   195→  }), [appearance]);
+   196→
+   197→  // Helper function to convert hex color to rgba with transparency
+   198→  // Defined early to use in system message handling
+   199→  const hexToRgba = useCallback((hex: string, alpha: number): string => {
+   200→    const cleanHex = hex.replace('#', '');
+   201→    const r = parseInt(cleanHex.substring(0, 2), 16);
+   202→    const g = parseInt(cleanHex.substring(2, 4), 16);
+   203→    const b = parseInt(cleanHex.substring(4, 6), 16);
+   204→    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+   205→  }, []);
+   206→
+   207→  const isCompact = displayMode === 'compact';
+   208→  const isFull = displayMode === 'full';
+   209→
+   210→  const handleCopy = async () => {
+   211→    await navigator.clipboard.writeText(message.content);
+   212→    setCopied(true);
+   213→    setTimeout(() => setCopied(false), 2000);
+   214→  };
+   215→
+   216→  const handleStartEdit = () => {
+   217→    setEditContent(message.content);
+   218→    setIsEditing(true);
+   219→  };
+   220→
+   221→  const handleCancelEdit = () => {
+   222→    setEditContent(message.content);
+   223→    setIsEditing(false);
+   224→  };
+   225→
+   226→  const handleSaveEdit = () => {
+   227→    if (editContent.trim()) {
+   228→      onEdit?.(message.id, editContent.trim());
+   229→    }
+   230→    setIsEditing(false);
+   231→  };
+   232→
+   233→  const handleReplay = () => {
+   234→    onReplay?.(message.id, message.content, message.characterId);
+   235→  };
+   236→
+   237→  // Always allow viewing prompt for assistant messages
+   238→  const hasPromptData = message.metadata?.promptData && message.metadata.promptData.length > 0;
+   239→
+   240→  // Tools used for this message — deduplicate by name, prefer success over failure
+   241→  const rawToolsUsed = message.metadata?.toolsUsed || [];
+   242→  const toolsUsed = rawToolsUsed.reduce((acc: typeof rawToolsUsed, tool) => {
+   243→    const existingIdx = acc.findIndex(t => t.name === tool.name);
+   244→    if (existingIdx >= 0) {
+   245→      // Keep the entry that is successful (or keep existing if both have same status)
+   246→      if (tool.success !== false && acc[existingIdx].success === false) {
+   247→        acc[existingIdx] = tool;
+   248→      }
+   249→    } else {
+   250→      acc.push(tool);
+   251→    }
+   252→    return acc;
+   253→  }, []);
+   254→
+   255→  // Helper to get icon for tool
+   256→  const getToolIcon = (iconName?: string) => {
+   257→    switch (iconName) {
+   258→      case 'Dices': return Dices;
+   259→      case 'Brain': return Zap;
+   260→      case 'Globe': return Globe;
+   261→      case 'CloudSun': return CloudSun;
+   262→      case 'Bell': return Bell;
+   263→      case 'Search': return Globe;
+   264→      case 'WebSearch': return Globe;
+   265→      case 'Weather': return CloudSun;
+   266→      case 'Timer': return Bell;
+   267→      default: return Wrench;
+   268→    }
+   269→  };
+   270→
+   271→  if (message.isDeleted) return null;
+   272→
+   273→  if (isSystem) {
+   274→    return (
+   275→      <div className="flex justify-center my-2">
+   276→        <div 
+   277→          className="px-3 py-1.5 rounded-lg text-xs max-w-md text-center"
+   278→          style={{
+   279→            backgroundColor: hexToRgba(safeAppearance.bubbles.systemBubbleColor, safeAppearance.bubbles.transparency),
+   280→            color: safeAppearance.bubbles.systemBubbleTextColor,
+   281→            borderRadius: safeAppearance.bubbles.borderRadius,
+   282→          }}
+   283→        >
+   284→          {message.content}
+   285→        </div>
+   286→      </div>
+   287→    );
+   288→  }
+   289→
+   290→  // Determine display name and avatar
+   291→  const displayName = isUser ? userName : characterName;
+   292→  const displayAvatar = isUser ? userAvatar : characterAvatar;
+   293→
+   294→  // ============================================
+   295→  // AVATAR STYLES FROM APPEARANCE SETTINGS
+   296→  // ============================================
+   297→  const avatarSizeMap = { sm: 'w-8 h-8', md: 'w-10 h-10', lg: 'w-12 h-12', xl: 'w-14 h-14' };
+   298→  const avatarSize = avatarSizeMap[safeAppearance.avatars.size];
+   299→  
+   300→  const getAvatarRadius = () => {
+   301→    if (!safeAppearance.avatars.show) return 'rounded-none';
+   302→    switch (safeAppearance.avatars.shape) {
+   303→      case 'circle': return 'rounded-full';
+   304→      case 'square': return 'rounded-none';
+   305→      case 'rounded': return 'rounded-lg';
+   306→      case 'rectangular': return 'rounded-sm';
+   307→      default: return 'rounded-full';
+   308→    }
+   309→  };
+   310→
+   311→  // ============================================
+   312→  // BUBBLE STYLES FROM APPEARANCE SETTINGS
+   313→  // ============================================
+   314→  
+   315→  const getBubbleStyle = () => {
+   316→    const base = 'relative';
+   317→    const radius = safeAppearance.bubbles.borderRadius;
+   318→    const maxWidth = safeAppearance.bubbles.maxWidth;
+   319→    const transparency = safeAppearance.bubbles.transparency;
+   320→    
+   321→    let style: React.CSSProperties = {
+   322→      borderRadius: radius,
+   323→      maxWidth: `${maxWidth}%`,
+   324→    };
+   325→
+   326→    // Shadow
+   327→    if (safeAppearance.bubbles.shadowEnabled) {
+   328→      const shadowIntensity = {
+   329→        none: 'none',
+   330→        soft: '0 1px 3px rgba(0,0,0,0.1)',
+   331→        medium: '0 4px 6px rgba(0,0,0,0.15)',
+   332→        strong: '0 10px 15px rgba(0,0,0,0.2)',
+   333→      };
+   334→      style.boxShadow = shadowIntensity[safeAppearance.bubbles.shadowIntensity];
+   335→    }
+   336→
+   337→    // Bubble style type
+   338→    switch (safeAppearance.bubbles.style) {
+   339→      case 'modern':
+   340→        style.boxShadow = style.boxShadow || '0 1px 2px rgba(0,0,0,0.05)';
+   341→        break;
+   342→      case 'classic':
+   343→        style.border = '2px solid currentColor';
+   344→        break;
+   345→      case 'minimal':
+   346→        style.border = '1px solid rgba(255,255,255,0.1)';
+   347→        break;
+   348→      case 'neon':
+   349→        style.boxShadow = '0 0 10px rgba(255,255,255,0.3), 0 0 20px rgba(255,255,255,0.1)';
+   350→        break;
+   351→      case 'elegant':
+   352→        style.border = '1px solid rgba(255,255,255,0.2)';
+   353→        style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+   354→        break;
+   355→      case 'dark':
+   356→        // For dark style, slightly reduce background opacity
+   357→        break;
+   358→    }
+   359→
+   360→    // Colors based on message type - apply transparency ONLY to background
+   361→    if (isNarrator) {
+   362→      style.backgroundColor = hexToRgba(safeAppearance.bubbles.narratorBubbleColor, transparency);
+   363→      style.color = safeAppearance.bubbles.narratorBubbleTextColor;
+   364→    } else if (isUser) {
+   365→      style.backgroundColor = hexToRgba(safeAppearance.bubbles.userBubbleColor, transparency);
+   366→      style.color = safeAppearance.bubbles.userBubbleTextColor;
+   367→    } else {
+   368→      style.backgroundColor = hexToRgba(safeAppearance.bubbles.characterBubbleColor, transparency);
+   369→      style.color = safeAppearance.bubbles.characterBubbleTextColor;
+   370→    }
+   371→
+   372→    return { className: base, style };
+   373→  };
+   374→
+   375→  // ============================================
+   376→  // FONT STYLES FROM APPEARANCE SETTINGS
+   377→  // ============================================
+   378→  const fontSizeMap = { xs: 'text-xs', sm: 'text-sm', base: 'text-base', lg: 'text-lg', xl: 'text-xl' };
+   379→  const fontWeightMap = { normal: 'font-normal', medium: 'font-medium', semibold: 'font-semibold', bold: 'font-bold' };
+   380→  const lineHeightMap = { tight: 'leading-tight', normal: 'leading-normal', relaxed: 'leading-relaxed', loose: 'leading-loose' };
+   381→  const letterSpacingMap = { tighter: 'tracking-tighter', tight: 'tracking-tight', normal: 'tracking-normal', wide: 'tracking-wide', wider: 'tracking-wider' };
+   382→  
+   383→  const getFontFamily = () => {
+   384→    switch (safeAppearance.font.fontFamily) {
+   385→      case 'system': return 'font-sans';
+   386→      case 'serif': return 'font-serif';
+   387→      case 'sans': return 'font-sans';
+   388→      case 'mono': return 'font-mono';
+   389→      case 'custom': return safeAppearance.font.customFontFamily || 'font-sans';
+   390→      default: return 'font-sans';
+   391→    }
+   392→  };
+   393→
+   394→  const fontClasses = cn(
+   395→    getFontFamily(),
+   396→    fontSizeMap[safeAppearance.font.fontSize],
+   397→    fontWeightMap[safeAppearance.font.fontWeight],
+   398→    lineHeightMap[safeAppearance.font.lineHeight],
+   399→    letterSpacingMap[safeAppearance.font.letterSpacing]
+   400→  );
+   401→
+   402→  // Avatar border and gradient colors
+   403→  const avatarBorder = isNarrator
+   404→    ? safeAppearance.avatars.borderColor || 'border-violet-400/50'
+   405→    : isUser
+   406→      ? safeAppearance.avatars.borderColor || 'border-blue-500'
+   407→      : safeAppearance.avatars.borderColor || 'border-amber-500';
+   408→  const avatarGradient = isNarrator
+   409→    ? 'from-violet-300 to-violet-500'
+   410→    : isUser
+   411→      ? 'from-blue-400 to-blue-600'
+   412→      : 'from-amber-400 to-orange-600';
+   413→
+   414→  // Message spacing
+   415→  const spacingClasses = {
+   416→    compact: 'py-1 px-1',
+   417→    normal: 'py-3 px-4',
+   418→    spacious: 'py-4 px-6'
+   419→  };
+   420→
+   421→  // Entry animation
+   422→  const getEntryAnimation = () => {
+   423→    if (!safeAppearance.animateEntry) return '';
+   424→    switch (safeAppearance.entryAnimation) {
+   425→      case 'fade': return 'animate-in fade-in-0 duration-200';
+   426→      case 'slide': return 'animate-in fade-in-0 slide-in-from-bottom-2 duration-200';
+   427→      case 'scale': return 'animate-in fade-in-0 zoom-in-95 duration-200';
+   428→      default: return 'animate-in fade-in-0 slide-in-from-bottom-2 duration-200';
+   429→    }
+   430→  };
+   431→
+   432→  // Full mode: simpler layout, no bubbles
+   433→  if (isFull) {
+   434→    return (
+   435→      <Fragment>
+   436→        <div className={cn(
+   437→          'group py-2 px-4',
+   438→          getEntryAnimation(),
+   439→          isUser && 'bg-primary/5',
+   440→          isNarrator && 'bg-violet-500/5'
+   441→        )}
+   442→        style={{ animationDuration: `${safeAppearance.animationDurationMs}ms` }}
+   443→        >
+   444→          <div className="flex items-center gap-2 mb-1 flex-wrap">
+   445→            {isNarrator && <Ghost className="w-3.5 h-3.5 text-violet-400" />}
+   446→            <span className={cn(
+   447→              'font-medium text-sm',
+   448→              isNarrator && 'text-violet-400/80'
+   449→            )}>{displayName}</span>
+   450→            {showTimestamp && (
+   451→              <span className="text-xs text-muted-foreground">
+   452→                {formatDistanceToNow(new Date(message.timestamp), { addSuffix: true })}
+   453→              </span>
+   454→            )}
+   455→            {/* Proactive message indicator */}
+   456→            {message.metadata?.proactiveInfo?.isProactive && (
+   457→              <Badge 
+   458→                variant="outline"
+   459→                className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-amber-500/30 text-amber-400/70 bg-amber-500/5"
+   460→              >
+   461→                <Sparkles className="w-2.5 h-2.5" />
+   462→                Proactivo
+   463→              </Badge>
+   464→            )}
+   465→            {/* FASE 4: Interrupted message indicator */}
+   466→            {message.metadata?.isPartial && message.metadata?.interruptInfo && !message.metadata.interruptInfo.reactionGenerated && (
+   467→              <Badge 
+   468→                variant="outline"
+   469→                className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-orange-500/30 text-orange-400/70 bg-orange-500/5"
+   470→              >
+   471→                <Pause className="w-2.5 h-2.5" />
+   472→                Interrumpido
+   473→              </Badge>
+   474→            )}
+   475→            {/* FASE 4: Interrupt reaction indicator */}
+   476→            {message.metadata?.interruptInfo?.reactionGenerated && (
+   477→              <Badge 
+   478→                variant="outline"
+   479→                className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-rose-500/30 text-rose-400/70 bg-rose-500/5"
+   480→              >
+   481→                <Flame className="w-2.5 h-2.5" />
+   482→                Reacción
+   483→              </Badge>
+   484→            )}
+   485→            {/* FASE 4: Micro-reactions */}
+   486→            {message.metadata?.microReactions && message.metadata.microReactions.length > 0 && (
+   487→              <div className="flex items-center gap-1 flex-wrap">
+   488→                {message.metadata.microReactions.map((reaction, idx) => (
+   489→                  <Badge
+   490→                    key={`${reaction.characterId}-${idx}`}
+   491→                    variant="outline"
+   492→                    className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-violet-500/30 text-violet-400/70 bg-violet-500/5"
+   493→                  >
+   494→                    {reaction.reaction}
+   495→                  </Badge>
+   496→                ))}
+   497→              </div>
+   498→            )}
+   499→            {/* FASE 5: Emotional state indicator */}
+   500→            {emotionalState && !isUser && (
+   501→              <Badge
+   502→                variant="outline"
+   503→                className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-rose-500/30 text-rose-400/70 bg-rose-500/5"
+   504→              >
+   505→                <Heart className="w-2.5 h-2.5" />
+   506→                {emotionalState}
+   507→              </Badge>
+   508→            )}
+   509→            {showTokens && message.metadata?.tokens && (
+   510→              <span className="text-xs text-muted-foreground/70">
+   511→                • {message.metadata.tokens} tokens
+   512→              </span>
+   513→            )}
+   514→            {/* Tool badges */}
+   515→            {toolsUsed.length > 0 && (
+   516→              <div className="flex items-center gap-1 flex-wrap">
+   517→                {toolsUsed.map((tool, idx) => (
+   518→                  <ToolBadgeWithTooltip key={`${tool.name}-${idx}`} tool={tool} index={idx} />
+   519→                ))}
+   520→              </div>
+   521→            )}
+   522→          </div>
+   523→          
+   524→          {isEditing ? (
+   525→            <div className="space-y-2">
+   526→              <Textarea
+   527→                value={editContent}
+   528→                onChange={(e) => setEditContent(e.target.value)}
+   529→                className="min-h-[80px] text-sm"
+   530→                autoFocus
+   531→              />
+   532→              <div className="flex gap-1">
+   533→                <Button size="sm" type="button" onClick={handleSaveEdit}>
+   534→                  <CheckIcon className="h-3 w-3 mr-1" />
+   535→                  {t('common.save')}
+   536→                </Button>
+   537→                <Button size="sm" type="button" variant="ghost" onClick={handleCancelEdit}>
+   538→                  <X className="h-3 w-3 mr-1" />
+   539→                  {t('common.cancel')}
+   540→                </Button>
+   541→              </div>
+   542→            </div>
+   543→          ) : (
+   544→            <TextFormatter 
+   545→              content={message.content} 
+   546→              isUser={isUser}
+   547→              className={cn('text-sm leading-relaxed', fontClasses)}
+   548→              appearance={safeAppearance}
+   549→            />
+   550→          )}
+   551→          
+   552→          <div className={cn(
+   553→            'flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity'
+   554→          )}>
+   555→            <Button
+   556→              variant="ghost"
+   557→              size="icon"
+   558→              className="h-6 w-6"
+   559→              onClick={handleCopy}
+   560→            >
+   561→              {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+   562→            </Button>
+   563→            {!isUser && (
+   564→              <>
+   565→                <Button 
+   566→                  variant="ghost" 
+   567→                  size="icon" 
+   568→                  className="h-6 w-6"
+   569→                  onClick={() => setShowPromptDialog(true)}
+   570→                  title={t('message.viewPrompt')}
+   571→                >
+   572→                  <Eye className="h-3 w-3" />
+   573→                </Button>
+   574→                <Button 
+   575→                  variant="ghost" 
+   576→                  size="icon" 
+   577→                  className="h-6 w-6"
+   578→                  onClick={handleStartEdit}
+   579→                  title={t('message.edit')}
+   580→                >
+   581→                  <Edit2 className="h-3 w-3" />
+   582→                </Button>
+   583→                <Button 
+   584→                  variant="ghost" 
+   585→                  size="icon" 
+   586→                  className="h-6 w-6"
+   587→                  onClick={handleReplay}
+   588→                  title={t('message.replay')}
+   589→                >
+   590→                  <Play className="h-3 w-3" />
+   591→                </Button>
+   592→                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onSpeak}>
+   593→                  <Volume2 className="h-3 w-3" />
+   594→                </Button>
+   595→                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRegenerate}>
+   596→                  <RefreshCw className="h-3 w-3" />
+   597→                </Button>
+   598→              </>
+   599→            )}
+   600→            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onDelete}>
+   601→              <Trash2 className="h-3 w-3" />
+   602→            </Button>
+   603→          </div>
+   604→        </div>
+   605→        {/* Prompt Viewer Dialog for full mode */}
+   606→        <PromptViewerDialog
+   607→          open={showPromptDialog}
+   608→          onOpenChange={setShowPromptDialog}
+   609→          sections={message.metadata?.promptData || []}
+   610→        />
+   611→      </Fragment>
+   612→    );
+   613→  }
+   614→
+   615→  // Get bubble styles
+   616→  const bubbleStyle = getBubbleStyle();
+   617→
+   618→  return (
+   619→    <div
+   620→      className={cn(
+   621→        'group flex gap-3',
+   622→        getEntryAnimation(),
+   623→        spacingClasses[safeAppearance.messageSpacing],
+   624→        isUser ? 'flex-row-reverse' : 'flex-row'
+   625→      )}
+   626→      style={{ animationDuration: `${safeAppearance.animationDurationMs}ms` }}
+   627→    >
+   628→      {/* Avatar */}
+   629→      {safeAppearance.avatars.show && (
+   630→        <div className="flex-shrink-0 self-start">
+   631→          <div 
+   632→            className={cn(
+   633→              'overflow-hidden flex items-center justify-center',
+   634→              isCompact ? 'w-8 h-8' : avatarSize,
+   635→              getAvatarRadius()
+   636→            )}
+   637→            style={{
+   638→              borderWidth: safeAppearance.avatars.showBorder ? safeAppearance.avatars.borderWidth : 0,
+   639→              borderColor: safeAppearance.avatars.borderColor,
+   640→              borderStyle: 'solid',
+   641→            }}
+   642→          >
+   643→            {displayAvatar ? (
+   644→              <img 
+   645→                src={displayAvatar} 
+   646→                alt={displayName} 
+   647→                className="w-full h-full object-cover" 
+   648→              />
+   649→            ) : (
+   650→              <div 
+   651→                className={cn(
+   652→                  'w-full h-full flex items-center justify-center bg-gradient-to-br',
+   653→                  avatarGradient
+   654→                )}
+   655→              >
+   656→                <span className="text-white font-bold text-sm">
+   657→                  {displayName?.[0]?.toUpperCase() || '?'}
+   658→                </span>
+   659→              </div>
+   660→            )}
+   661→          </div>
+   662→        </div>
+   663→      )}
+   664→
+   665→      {/* Message Content */}
+   666→      <div className={cn(
+   667→        'flex-1',
+   668→        isUser ? 'items-end' : 'items-start',
+   669→        'flex flex-col'
+   670→      )}
+   671→      style={{ maxWidth: `${safeAppearance.bubbles.maxWidth}%` }}
+   672→      >
+   673→        {/* Name and Timestamp - Above the bubble */}
+   674→        <div className={cn(
+   675→          'flex items-center gap-2 mb-1 flex-wrap',
+   676→          isUser ? 'flex-row-reverse' : 'flex-row'
+   677→        )}>
+   678→          {isNarrator && !isUser && <Ghost className="w-3.5 h-3.5 text-violet-400" />}
+   679→          <span 
+   680→            className={cn(
+   681→              'font-medium',
+   682→              isCompact ? 'text-xs' : 'text-sm',
+   683→              isNarrator && 'text-violet-400/80'
+   684→            )}
+   685→            style={{ 
+   686→              color: isNarrator 
+   687→                ? safeAppearance.textColors.narratorMessage 
+   688→                : isUser 
+   689→                  ? safeAppearance.textColors.userMessage 
+   690→                  : safeAppearance.textColors.characterMessage 
+   691→            }}
+   692→          >
+   693→            {displayName}
+   694→          </span>
+   695→          {showTimestamp && !isCompact && (
+   696→            <span className="text-xs text-muted-foreground">
+   697→              {formatDistanceToNow(new Date(message.timestamp), { addSuffix: true })}
+   698→            </span>
+   699→          )}
+   700→          {showTokens && !isCompact && message.metadata?.tokens && (
+   701→            <span className="text-xs text-muted-foreground/70">
+   702→              • {message.metadata.tokens} tokens
+   703→            </span>
+   704→          )}
+   705→          {/* Tool badges - show on right side for user, left for characters */}
+   706→          {toolsUsed.length > 0 && !isCompact && (
+   707→            <div className={cn(
+   708→              'flex items-center gap-1 flex-wrap',
+   709→              isUser && 'flex-row-reverse'
+   710→            )}>
+   711→              {toolsUsed.map((tool, idx) => (
+   712→                <ToolBadgeWithTooltip key={`${tool.name}-${idx}`} tool={tool} index={idx} />
+   713→              ))}
+   714→            </div>
+   715→          )}
+   716→        </div>
+   717→
+   718→        {/* Message Bubble */}
+   719→        <div 
+   720→          className={cn(
+   721→            bubbleStyle.className,
+   722→            isCompact ? 'px-3 py-2' : 'px-4 py-3',
+   723→            isNarrator && 'italic'
+   724→          )}
+   725→          style={{
+   726→            ...bubbleStyle.style,
+   727→            borderTopLeftRadius: isUser ? bubbleStyle.style.borderRadius : 4,
+   728→            borderTopRightRadius: isUser ? 4 : bubbleStyle.style.borderRadius,
+   729→          }}
+   730→        >
+   731→          {isEditing ? (
+   732→            <div className="space-y-2 min-w-[200px]">
+   733→              <Textarea
+   734→                value={editContent}
+   735→                onChange={(e) => setEditContent(e.target.value)}
+   736→                className="min-h-[80px] text-sm bg-background/50"
+   737→                autoFocus
+   738→              />
+   739→              <div className="flex gap-1">
+   740→                <Button size="sm" type="button" className="h-6 text-xs" onClick={handleSaveEdit}>
+   741→                  <CheckIcon className="h-3 w-3 mr-1" />
+   742→                  {t('common.save')}
+   743→                </Button>
+   744→                <Button size="sm" type="button" variant="ghost" className="h-6 text-xs" onClick={handleCancelEdit}>
+   745→                  <X className="h-3 w-3 mr-1" />
+   746→                  {t('common.cancel')}
+   747→                </Button>
+   748→              </div>
+   749→            </div>
+   750→          ) : (
+   751→            <TextFormatter 
+   752→              content={message.content} 
+   753→              isUser={isUser}
+   754→              className={cn(
+   755→                'text-sm leading-relaxed',
+   756→                isCompact && 'text-xs',
+   757→                fontClasses
+   758→              )}
+   759→              appearance={safeAppearance}
+   760→            />
+   761→          )}
+   762→
+   763→          {/* Swipe Indicators */}
+   764→          {!isUser && !isCompact && !isEditing && (
+   765→            <div className="absolute -left-8 top-1/2 -translate-y-1/2 flex flex-col gap-1">
+   766→              <Button
+   767→                variant="ghost"
+   768→                size="icon"
+   769→                className={cn(
+   770→                  "h-6 w-6 transition-opacity",
+   771→                  hasAlternatives && currentIndex > 0 
+   772→                    ? "opacity-0 group-hover:opacity-100" 
+   773→                    : "opacity-0 cursor-default"
+   774→                )}
+   775→                onClick={() => onSwipe?.('left')}
+   776→                disabled={currentIndex === 0}
+   777→              >
+   778→                <ChevronLeft className="h-4 w-4" />
+   779→              </Button>
+   780→              <span className={cn(
+   781→                "text-xs text-center transition-opacity",
+   782→                hasAlternatives ? "text-muted-foreground" : "opacity-0"
+   783→              )}>
+   784→                {currentIndex + 1}/{totalAlternatives}
+   785→              </span>
+   786→              <Button
+   787→                variant="ghost"
+   788→                size="icon"
+   789→                className={cn(
+   790→                  "h-6 w-6 transition-opacity",
+   791→                  "opacity-0 group-hover:opacity-100"
+   792→                )}
+   793→                onClick={() => {
+   794→                  // If at last swipe, generate new alternative
+   795→                  if (currentIndex === totalAlternatives - 1) {
+   796→                    onRegenerate?.();
+   797→                  } else {
+   798→                    onSwipe?.('right');
+   799→                  }
+   800→                }}
+   801→                title={currentIndex === totalAlternatives - 1 ? t('message.swipe.generate') : t('message.swipe.next')}
+   802→              >
+   803→                {currentIndex === totalAlternatives - 1 ? (
+   804→                  <RefreshCw className="h-3.5 w-3.5" />
+   805→                ) : (
+   806→                  <ChevronRight className="h-4 w-4" />
+   807→                )}
+   808→              </Button>
+   809→            </div>
+   810→          )}
+   811→        </div>
+   812→
+   813→        {/* Action Buttons */}
+   814→        {!isCompact && !isEditing && (
+   815→          <div className={cn(
+   816→            'flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity',
+   817→            isUser ? 'justify-end' : 'justify-start'
+   818→          )}>
+   819→            <Button
+   820→              variant="ghost"
+   821→              size="icon"
+   822→              className="h-7 w-7"
+   823→              onClick={handleCopy}
+   824→            >
+   825→              {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+   826→            </Button>
+   827→            {!isUser && (
+   828→              <>
+   829→                <Button 
+   830→                  variant="ghost" 
+   831→                  size="icon" 
+   832→                  className="h-7 w-7"
+   833→                  onClick={() => setShowPromptDialog(true)}
+   834→                  title={t('message.viewPrompt')}
+   835→                >
+   836→                  <Eye className="h-3.5 w-3.5" />
+   837→                </Button>
+   838→                <Button
+   839→                  variant="ghost"
+   840→                  size="icon"
+   841→                  className="h-7 w-7"
+   842→                  onClick={handleStartEdit}
+   843→                  title={t('message.edit')}
+   844→                >
+   845→                  <Edit2 className="h-3.5 w-3.5" />
+   846→                </Button>
+   847→                <Button
+   848→                  variant="ghost"
+   849→                  size="icon"
+   850→                  className="h-7 w-7"
+   851→                  onClick={handleReplay}
+   852→                  title={t('message.replay')}
+   853→                >
+   854→                  <Play className="h-3.5 w-3.5" />
+   855→                </Button>
+   856→                <Button
+   857→                  variant="ghost"
+   858→                  size="icon"
+   859→                  className="h-7 w-7"
+   860→                  onClick={onSpeak}
+   861→                >
+   862→                  <Volume2 className="h-3.5 w-3.5" />
+   863→                </Button>
+   864→                <Button
+   865→                  variant="ghost"
+   866→                  size="icon"
+   867→                  className="h-7 w-7"
+   868→                  onClick={onRegenerate}
+   869→                >
+   870→                  <RefreshCw className="h-3.5 w-3.5" />
+   871→                </Button>
+   872→              </>
+   873→            )}
+   874→            <Button
+   875→              variant="ghost"
+   876→              size="icon"
+   877→              className="h-7 w-7"
+   878→              onClick={onDelete}
+   879→            >
+   880→              <Trash2 className="h-3.5 w-3.5" />
+   881→            </Button>
+   882→          </div>
+   883→        )}
+   884→      </div>
+   885→      {/* Prompt Viewer Dialog for bubble mode */}
+   886→      <PromptViewerDialog
+   887→        open={showPromptDialog}
+   888→        onOpenChange={setShowPromptDialog}
+   889→        sections={message.metadata?.promptData || []}
+   890→      />
+   891→    </div>
+   892→  );
+   893→});
+   894→

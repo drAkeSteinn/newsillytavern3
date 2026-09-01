@@ -17,6 +17,7 @@
 import type { CharacterCard, Persona, SessionStats, SoundTrigger, AppSettings, QuestTemplate, SessionQuestInstance, QuestSettings, Item, PersonaInventoryEntry, ActiveConsumableEffect, InventoryV2Settings, SessionEquipmentEntry } from '@/types';
 import type { ResolvedStats } from '@/types';
 import { resolveStatsInText } from '@/lib/stats/stats-resolver';
+import { resolveWardrobeKey } from '@/lib/wardrobe';
 import { MAX_EVENT_LOG_IN_PROMPT, eventLogTypeLabel } from '@/lib/stats/event-log';
 import { getRelationship, computeRelationshipStage, DEFAULT_RELATIONSHIP_POINTS } from '@/lib/relationships';
 import {
@@ -808,6 +809,28 @@ export function resolveLorebookEntryKeys(
  * These keys can be placed in ANY character section (description, scenario,
  * systemPrompt, characterNote, authorNote, postHistoryInstructions, etc.)
  */
+
+/**
+ * Resolve the {{wardrobe}} key to the current wardrobe content.
+ * The wardrobe level is determined by the character's main attribute value
+ * plus a session-state offset (set by the manage_wardrobe tool).
+ */
+export function resolveWardrobeKeyInText(
+  text: string,
+  context: KeyResolutionContext
+): string {
+  if (!text) return text;
+  if (!/\{\{wardrobe\}\}/gi.test(text)) return text;
+
+  const wardrobeContent = resolveWardrobeKey(
+    context.character,
+    context.sessionStats,
+    context.characterId
+  );
+
+  return text.replace(/\{\{wardrobe\}\}/gi, wardrobeContent);
+}
+
 export function resolveInventoryKeys(
   text: string,
   context: KeyResolutionContext
@@ -1021,6 +1044,9 @@ export function resolveAllKeys(
 
   // Phase 6.1: Resolve lorebook entry keys ({{key}} from traditional lorebook entries)
   result = resolveLorebookEntryKeys(result, context);
+
+  // Phase 6.2: Resolve wardrobe key ({{wardrobe}})
+  result = resolveWardrobeKeyInText(result, context);
 
   // Phase 6.5: Resolve inventory keys ({{slots}}, {{currency}})
   result = resolveInventoryKeys(result, context);

@@ -12,6 +12,7 @@
 // applySceneChange, toasts).
 
 import type { SessionStats } from '@/types';
+import type { ToolExecutionResult } from '@/lib/tools/types';
 
 /** Settings persisted in AppSettings.director */
 export interface DirectorSettings {
@@ -87,4 +88,7 @@ export interface DirectorResult {
   pacing: DirectorPacing;
   decisions: DirectorDecision[];
   source: 'heuristic' | 'hybrid';
+  /** Tool execution results from the Director's LLM call (modify_stat, manage_scene, etc.)
+   *  The client applies these through existing store primitives. */
+  toolResults?: ToolExecutionResult[];
 }

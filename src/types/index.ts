@@ -573,10 +573,21 @@ export interface CharacterCard {
   embeddingNamespaces?: string[];   // Embedding namespaces to search during chat (overrides strategy)
   statsConfig?: CharacterStatsConfig;  // Stats system configuration (attributes, skills, etc.)
   proactiveMessages?: ProactiveMessagesConfig;  // Proactive message configuration
+  /** FASE 12: Wardrobe system — clothing that changes based on the main attribute.
+   *  When enabled and levels exist, the {{wardrobe}} key resolves to the current
+   *  level's content, and the manage_wardrobe tool becomes available. */
+  wardrobeConfig?: WardrobeConfig;
   microReactionConfig?: MicroReactionConfig;     // FASE 4: Micro-reaction configuration for group chats
   emotionalConfig?: EmotionalStateConfig;        // FASE 5: Autonomous emotional state system
   quickReplies?: CharacterQuickReply[];          // Character-specific quick replies with optional attribute modifiers
   defaultTransition?: SpriteTransitionConfig;    // FASE 7: Default transition for state-based sprite changes
+  /** FASE 19: Per-character equipment slots. When defined, these slots override the global
+   *  InventoryV2Settings.equipmentSlots for this character. Each character can have its own
+   *  equipment layout (e.g., a character with wings might have a "wings" slot). */
+  equipmentSlots?: EquipmentSlotDefinition[];
+  /** FASE 19: Per-character slot effects — defines what items can be equipped in each slot
+   *  and what effects they have (attribute modifications per turn, etc.). */
+  slotDefinitions?: CharacterSlotDefinition[];
   // Import/Export extended fields (preserved through character-card.ts parse/serialize)
   spriteLibraries?: unknown;       // Sprite library collections (legacy import support)
   chatStats?: unknown;             // Character-level chat stats (legacy import support)
@@ -798,6 +809,11 @@ export interface ToolUsedInfo {
   label: string;
   icon?: string;
   success?: boolean;
+  /** Human-readable summary of what the tool changed (e.g., "Lujuria: 55 → 70 (+15)", "Relación X↔Y: 30 → 35").
+   *  Shown in the message bubble tooltip so the user understands what happened. */
+  details?: string;
+  /** The tool's own display message (multi-line, includes old/new values, reason, etc.) */
+  displayMessage?: string;
 }
 
 // ============================================
@@ -1527,6 +1543,12 @@ export interface Persona {
   currencyName: string;          // Currency display name (default: 'Divisa')
   currencyIcon: string;          // Currency icon emoji (default: '💰')
   inventoryItems: PersonaInventoryEntry[]; // Items this persona owns
+  /** FASE 19: Per-persona equipment slots. When defined, these override the global
+   *  InventoryV2Settings.equipmentSlots for this persona. */
+  equipmentSlots?: EquipmentSlotDefinition[];
+  /** FASE 19: Per-persona slot effects — defines what items can be equipped in each slot
+   *  and what effects they have (attribute modifications per turn, etc.). */
+  slotDefinitions?: CharacterSlotDefinition[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1951,7 +1973,8 @@ export interface ChatboxTextColors {
 // Message bubble settings
 export interface MessageBubbleSettings {
   style: BubbleStyleType;
-  transparency: number;        // 0-1
+  transparency: number;        // 0-1, background opacity
+  textOpacity: number;         // 0-1, text opacity (separate from background)
   borderRadius: number;        // 0-32, border radius in pixels
   shadowEnabled: boolean;
   shadowIntensity: 'none' | 'soft' | 'medium' | 'strong';
@@ -2120,6 +2143,7 @@ export const DEFAULT_CHATBOX_APPEARANCE: ChatboxAppearanceSettings = {
   bubbles: {
     style: 'modern',
     transparency: 1,
+    textOpacity: 1,
     borderRadius: 16,
     shadowEnabled: true,
     shadowIntensity: 'soft',
@@ -2237,6 +2261,13 @@ export interface CharacterQuickReply {
   requirements?: StatRequirement[];
   /** Logic operator for requirements: AND = all must be met, OR = at least one must be met */
   requirementOperator?: 'AND' | 'OR';
+  /**
+   * FASE 18: Threshold effects evaluated when the quick reply is clicked.
+   * Similar to attribute threshold effects — supports conditions, priorities, and full rewards.
+   * Rewards can: modify attributes, trigger sprites, execute triggers, etc.
+   * Evaluated in priority order; all matching effects' rewards are executed.
+   */
+  thresholdEffects?: ThresholdEffect[];
 }
 
 /** Group-specific quick reply with conditions based on member character attributes */
@@ -2255,6 +2286,8 @@ export interface GroupQuickReply {
   requirements?: StatRequirement[];
   /** Logic operator for requirements */
   requirementOperator?: 'AND' | 'OR';
+  /** FASE 18: Threshold effects evaluated when the quick reply is clicked. */
+  thresholdEffects?: ThresholdEffect[];
 }
 
 export interface HandySettings {
@@ -2308,8 +2341,17 @@ export interface AppSettings {
 // ============ Embeddings Chat Integration Settings ============
 
 export interface EmbeddingsChatSettings {
-  /** Enable automatic embeddings context retrieval during chat */
+  /** Enable automatic embeddings context retrieval during chat (includes both memory + knowledge) */
   enabled: boolean;
+  /**
+   * FASE 16: Enable knowledge search independently from memory.
+   * When enabled, the system searches character-{charId} namespace for uploaded
+   * knowledge/backhistory files, even if `enabled` is false.
+   * This lets users upload knowledge and have it work without enabling the full
+   * memory extraction pipeline.
+   * Default: true
+   */
+  knowledgeSearchEnabled?: boolean;
   /** Maximum token budget for embeddings context (approximate, in chars) */
   maxTokenBudget: number;
   /** Strategy for selecting which namespaces to search */
@@ -2358,6 +2400,17 @@ export interface EmbeddingsChatSettings {
   extractionModelApiKey?: string;
   /** Model name for the separate extraction model (e.g., 'llama3.1:8b') */
   extractionModelName?: string;
+
+  // FASE 14: Cross-session memory — when enabled, memories persist across sessions
+  // (character remembers interactions with user/other characters between sessions).
+  crossSessionMemory?: boolean;
+
+  // FASE 14: Temporal decay — memories older than decayDays get deleted by cleanup script.
+  memoryDecayEnabled?: boolean;
+  memoryDecayDays?: number;
+
+  // FASE 14: Memory heat — boost recently-retrieved memories in scoring.
+  memoryHeatEnabled?: boolean;
 }
 
 // ============ Tools / Actions Settings ============
@@ -3930,6 +3983,28 @@ export interface EquipmentSlotDefinition {
   description?: string;     // Optional description
 }
 
+// FASE 19: Per-character slot definition — what items can equip in this slot
+// and what effects they have. Lives in CharacterCard.slotDefinitions.
+export interface CharacterSlotDefinition {
+  /** Reference to EquipmentSlotDefinition.id — which slot this definition applies to */
+  slotId: string;
+  /** Display name (denormalized for convenience) */
+  slotName?: string;
+  /** Restrict which items can be equipped in this slot.
+   *  Empty = any item can be equipped. */
+  allowedItemCategories?: string[];
+  /** Restrict to specific item IDs (whitelist). Empty = no restriction. */
+  allowedItemIds?: string[];
+  /** Effects applied when an item is equipped in this slot.
+   *  These effects modify attributes — can be static (once) or dynamic (per turn). */
+  effects?: ItemAttributeEffect[];
+  /** Free-text effect description shown in the prompt when this slot is occupied.
+   *  Supports {{key}} template variables. */
+  effectText?: string;
+  /** Whether to apply effects every turn (dynamic) or just once on equip (static). */
+  effectMode?: 'static' | 'dynamic';
+}
+
 // Item slot effect - how an item affects a specific equipment slot
 export interface ItemSlotEffect {
   slotId: string;           // Reference to EquipmentSlotDefinition.id
@@ -4287,11 +4362,17 @@ export interface AttributeDefinition {
   name: string;              // Display name: "Vida", "Maná", "Resistencia"
   key: string;               // Template key: "vida" → {{vida}} - Also used as primary detection key
   type: AttributeType;
-  
+
   // Para tipo number
   defaultValue: number | string;
   min?: number;
   max?: number;
+
+  // Main attribute — marks this as the character's primary attribute.
+  // Used by the system for: proactive messages default, Director tension calculation,
+  // modify_stat tool hint, HUD highlighting, and other "primary stat" behaviors.
+  // Only one attribute per character should have isMain=true (enforced by UI).
+  isMain?: boolean;
   
   // Threshold Effects V2 - Flexible thresholds with conditions, priority, and full reward support
   // Evaluated whenever the attribute value changes
@@ -4500,6 +4581,41 @@ export interface CharacterStatsConfig {
   timerMaxAccumulatedTicks?: number;     // Max accumulated ticks to prevent overflow (default: 100 for number, 10 for cycle)
 }
 
+// ============================================
+// WARDROBE SYSTEM (FASE 12)
+// ============================================
+// Character clothing/outfit that changes based on the main attribute level.
+// Similar to attribute-based lorebooks, but with session-state offset that
+// can be shifted by ±1 via the manage_wardrobe tool.
+//
+// Flow:
+// 1. Base level = highest threshold <= main attribute value
+// 2. Effective level = clamp(base + offset, 0, levels.length - 1)
+// 3. {{wardrobe}} resolves to effective level's content
+// 4. manage_wardrobe tool can escalate (+1) or regress (-1) the offset
+// 5. The offset persists across turns (no downgrade unless tool regress)
+
+export interface WardrobeLevel {
+  id: string;
+  /** Display name for this level (e.g., "Ropa casual", "Ropa interior", "Desnuda") */
+  name: string;
+  /** The main attribute value at which this level becomes active.
+   *  Levels are sorted by threshold ascending. The base level is the highest
+   *  threshold that is <= the current main attribute value. */
+  threshold: number;
+  /** The content to inject via {{wardrobe}} when this level is active.
+   *  Free-form text describing the character's current clothing state. */
+  content: string;
+}
+
+export interface WardrobeConfig {
+  enabled: boolean;
+  /** Ordered list of wardrobe levels (will be sorted by threshold at runtime). */
+  levels: WardrobeLevel[];
+  /** Optional header for the wardrobe block in the prompt (default: [VESTUARIO]). */
+  blockHeader?: string;
+}
+
 // Stat change log entry (for history/debug)
 export interface StatChangeLogEntry {
   attributeId: string;
@@ -4526,6 +4642,11 @@ export interface CharacterSessionStats {
   emotionalState?: string;                // Current emotional state label (e.g., 'feliz', 'triste')
   emotionalStateLastEval?: number;        // Timestamp of last emotional evaluation
   emotionalStateTurnCount?: number;       // Turn counter for evaluation interval
+
+  // FASE 12: Wardrobe offset — shifts the effective wardrobe level from the
+  // attribute-determined base. +1 = one level above base, -1 = one below.
+  // Persists across turns; reset to 0 by the manage_wardrobe tool's "reset" action.
+  wardrobeOffset?: number;
 }
 
 // ============================================
@@ -4640,6 +4761,16 @@ export interface ResolvedStats {
   intentionsBlock: string;
   invitationsBlock: string;  // Peticiones block (PETICIONES POSIBLES)
   solicitudesBlock: string;  // Solicitudes block (SOLICITUDES RECIBIDAS)
+
+  // The character's main/primary attribute (if any isMain=true is set).
+  // Used by proactive messages default, Director tension, modify_stat tool hint, etc.
+  mainAttribute?: {
+    key: string;
+    name: string;
+    value: number | string;
+    formatted: string;
+    definition: AttributeDefinition;
+  } | null;
 }
 
 // Default stats block headers

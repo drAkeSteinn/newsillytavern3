@@ -138,11 +138,18 @@ export async function modifyStatExecutor(
     // Build helpful error with available stats
     const availableStats = (statsConfig.attributes || []).map(a => {
       const keys = [a.key, ...(a.keys || [])].filter(Boolean);
-      return `  - "${a.name}" (key: ${a.key}${keys.length > 1 ? ', alias: ' + keys.slice(1).join(', ') : ''})`;
+      const mainTag = a.isMain ? ' 👑 PRINCIPAL' : '';
+      return `  - "${a.name}" (key: ${a.key}${keys.length > 1 ? ', alias: ' + keys.slice(1).join(', ') : ''})${mainTag}`;
     });
 
+    // Highlight the main attribute if one exists
+    const mainAttr = (statsConfig.attributes || []).find(a => a.isMain === true);
+    const mainHint = mainAttr
+      ? `\n\n💡 El atributo principal de este personaje es "${mainAttr.name}" (key: ${mainAttr.key}). Prioriza cambios en este atributo cuando sea relevante.`
+      : '';
+
     const hint = availableStats.length > 0
-      ? '\nStats disponibles:\n' + availableStats.join('\n')
+      ? '\nStats disponibles:\n' + availableStats.join('\n') + mainHint
       : '\nNo hay stats definidos para este personaje.';
 
     return {
@@ -238,15 +245,36 @@ export async function modifyStatExecutor(
     lines.push(`  Razón: ${reason}`);
   }
 
-  // Check if value was clamped
-  const unclampedRaw = rawValue.startsWith('+') || rawValue.startsWith('-') || rawValue.startsWith('=')
-    ? parseFloat(rawValue.slice(1))
-    : parseFloat(rawValue);
-  const wasClamped = matchedAttr.type === 'number' && !isNaN(unclampedRaw) && newValue !== unclampedRaw;
+  // FIX: Clamping warning — check for ALL operation types (set, add, subtract).
+  // Previously the warning was only shown for set operations, hiding the fact that
+  // add/subtract were silently clamped. Now we compute the expected unclamped value
+  // for each operation and compare it to the actual result.
+  if (matchedAttr.type === 'number' || typeof oldValue === 'number') {
+    const baseValue = typeof oldValue === 'number' ? oldValue : parseFloat(String(oldValue)) || 0;
+    let expectedValue: number | null = null;
 
-  // Note: for add/subtract, clamping is already applied above. We just need to inform.
-  if (wasClamped && !rawValue.startsWith('+') && !rawValue.startsWith('-')) {
-    lines.push(`  ⚠️ Valor limitado (min: ${matchedAttr.min ?? '-∞'}, max: ${matchedAttr.max ?? '∞'})`);
+    if (rawValue.startsWith('+')) {
+      const delta = parseFloat(rawValue.slice(1));
+      if (!isNaN(delta)) expectedValue = baseValue + delta;
+    } else if (rawValue.startsWith('-')) {
+      const delta = parseFloat(rawValue.slice(1));
+      if (!isNaN(delta)) expectedValue = baseValue - delta;
+    } else if (rawValue.startsWith('=')) {
+      const parsed = parseFloat(rawValue.slice(1));
+      if (!isNaN(parsed)) expectedValue = parsed;
+    } else {
+      const parsed = parseFloat(rawValue);
+      if (!isNaN(parsed)) expectedValue = parsed;
+    }
+
+    if (expectedValue !== null && typeof newValue === 'number' && newValue !== expectedValue) {
+      lines.push(`  ⚠️ Valor limitado: ${expectedValue} → ${newValue} (min: ${matchedAttr.min ?? '-∞'}, max: ${matchedAttr.max ?? '∞'})`);
+    }
+  }
+
+  // Add a hint if this is the main attribute
+  if (matchedAttr.isMain) {
+    lines.push(`  👑 Atributo principal del personaje`);
   }
 
   return {

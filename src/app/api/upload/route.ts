@@ -1,262 +1,148 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir, readFile } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
+// ============================================
+// Upload API Route
+// ============================================
+// POST /api/upload
+//
+// Handles multipart file uploads for avatars, group avatars, sprites, and backgrounds.
+// Files are saved to public/uploads/{type}/ with a unique timestamped name.
+//
+// Form data:
+//   - file: File (required) — the image file
+//   - type: string — 'avatar' | 'group-avatar' | 'sprite' | 'background' (default: 'avatar')
+//   - collection?: string — subfolder name (for sprites/backgrounds, e.g. character name)
+//
+// Returns:
+//   { success: true, url: "/uploads/{type}/{filename}" }
+//   { success: false, error: string }
 
-// Supported image and video types
-const ALLOWED_TYPES = [
-  'image/jpeg', 
-  'image/png', 
-  'image/gif', 
-  'image/webp', 
+import { NextRequest, NextResponse } from 'next/server';
+import { writeFile, mkdir } from 'fs/promises';
+import path from 'path';
+import { existsSync } from 'fs';
+
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
+const ALLOWED_TYPES = new Set([
+  'avatar',
+  'group-avatar',
+  'sprite',
+  'background',
+  'overlay',
+]);
+
+const ALLOWED_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+  'image/svg+xml',
   'video/webm',
   'video/mp4',
-  'video/quicktime' // .mov
-];
-const MAX_SIZE = 50 * 1024 * 1024; // 50MB for videos
+  'audio/mpeg',
+  'audio/wav',
+  'audio/ogg',
+]);
 
-/**
- * Generate unique ID for collection entries
- */
-function generateEntryId(): string {
-  return `bg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-}
-
-/**
- * Read and update collection.json when uploading backgrounds
- */
-async function updateCollectionJson(collectionPath: string, filename: string, publicUrl: string): Promise<void> {
-  const metadataPath = path.join(collectionPath, 'collection.json');
-  
-  try {
-    let metadata: Record<string, unknown> = {
-      name: path.basename(collectionPath),
-      version: '1.0',
-      transitionDuration: 500,
-      entries: []
-    };
-
-    // Read existing metadata if exists
-    if (existsSync(metadataPath)) {
-      const content = await readFile(metadataPath, 'utf-8');
-      metadata = JSON.parse(content);
-    }
-
-    // Check if entry already exists
-    const entries = (metadata.entries as Array<Record<string, unknown>>) || [];
-    const existingIndex = entries.findIndex(e => e.url === publicUrl);
-    
-    const isVideo = /\.(mp4|webm|mov|avi|mkv|ogv)$/i.test(filename);
-    const name = filename.replace(/\.[^.]+$/, '');
-    
-    const newEntry = {
-      id: generateEntryId(),
-      name,
-      url: publicUrl,
-      triggerKeys: [],
-      contextKeys: [],
-      tags: isVideo ? ['video'] : []
-    };
-
-    if (existingIndex >= 0) {
-      // Update existing entry (preserve triggerKeys, contextKeys, tags)
-      entries[existingIndex] = {
-        ...entries[existingIndex],
-        name,
-        url: publicUrl
-      };
-    } else {
-      // Add new entry
-      entries.push(newEntry);
-    }
-
-    metadata.entries = entries;
-    
-    // Save metadata
-    await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
-    console.log(`[Upload] Updated collection.json for ${path.basename(collectionPath)}`);
-  } catch (error) {
-    console.error('[Upload] Error updating collection.json:', error);
-  }
-}
-
-/**
- * Update metadata.json when uploading sprites to a collection.
- * This ensures the sprite appears with proper label and metadata in the collection.
- */
-async function updateSpriteMetadata(collectionPath: string, filename: string, publicUrl: string): Promise<void> {
-  const metadataPath = path.join(collectionPath, 'metadata.json');
-  
-  try {
-    let metadata: Record<string, unknown> = {
-      version: 1,
-      collectionName: path.basename(collectionPath),
-      sprites: {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Read existing metadata if exists
-    if (existsSync(metadataPath)) {
-      const content = await readFile(metadataPath, 'utf-8');
-      metadata = JSON.parse(content);
-    }
-
-    // Ensure sprites object exists
-    if (!metadata.sprites || typeof metadata.sprites !== 'object') {
-      metadata.sprites = {};
-    }
-
-    const sprites = metadata.sprites as Record<string, Record<string, unknown>>;
-    
-    // Only add if not already present (don't overwrite existing metadata like timelines)
-    if (!sprites[filename]) {
-      const isVideo = /\.(mp4|webm|mov|avi|mkv|ogv)$/i.test(filename);
-      const label = filename.replace(/\.[^.]+$/, '');
-      
-      sprites[filename] = {
-        label,
-        filename,
-        duration: isVideo ? 5000 : 3000, // Default duration: 5s for video, 3s for image
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-    } else {
-      // Update only the timestamp for existing entries
-      sprites[filename] = {
-        ...sprites[filename],
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    metadata.updatedAt = new Date().toISOString();
-    
-    // Save metadata
-    await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
-    console.log(`[Upload] Updated metadata.json for sprite collection ${path.basename(collectionPath)}`);
-  } catch (error) {
-    console.error('[Upload] Error updating sprite metadata.json:', error);
-  }
-}
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const type = formData.get('type') as string || 'avatar'; // avatar, background, sprite, etc.
-    const collection = formData.get('collection') as string | null; // For sprites/backgrounds: collection name
+    const file = formData.get('file');
+    const type = (formData.get('type') as string) || 'avatar';
+    const collection = formData.get('collection') as string | null;
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    if (!file || !(file instanceof File)) {
+      return NextResponse.json(
+        { success: false, error: 'No file provided' },
+        { status: 400 }
+      );
     }
 
-    // Validate file type
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    if (!ALLOWED_TYPES.has(type)) {
       return NextResponse.json(
-        { error: 'Invalid file type. Allowed: JPEG, PNG, GIF, WebP, WebM, MP4, MOV' },
+        { success: false, error: `Invalid type: ${type}. Allowed: ${Array.from(ALLOWED_TYPES).join(', ')}` },
         { status: 400 }
       );
     }
 
     // Validate file size
-    if (file.size > MAX_SIZE) {
+    if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: 'File too large. Maximum size is 50MB' },
+        { success: false, error: `File too large. Max size is ${MAX_FILE_SIZE / 1024 / 1024}MB` },
         { status: 400 }
       );
     }
 
-    // Generate unique filename
+    // Validate MIME type (allow unknown types for flexibility, but log)
+    if (!ALLOWED_MIME.has(file.type)) {
+      console.warn(`[Upload] Unrecognized MIME type: ${file.type} for file ${file.name}`);
+      // Still allow — some browsers report differently for webm/mp4
+    }
+
+    // Build the target directory: public/uploads/{type}/[{collection}/]
+    const uploadsBase = path.join(process.cwd(), 'public', 'uploads', type);
+    const targetDir = collection
+      ? path.join(uploadsBase, collection)
+      : uploadsBase;
+
+    // Ensure directory exists
+    if (!existsSync(targetDir)) {
+      await mkdir(targetDir, { recursive: true });
+    }
+
+    // Generate a unique filename with timestamp + random suffix
+    const ext = path.extname(file.name) || guessExtension(file.type);
     const timestamp = Date.now();
-    const randomString = Math.random().toString(36).substring(2, 8);
-    const ext = file.name.split('.').pop() || 'png';
-    const filename = `${timestamp}-${randomString}.${ext}`;
+    const randomSuffix = Math.random().toString(36).slice(2, 8);
+    const safeBaseName = path.basename(file.name, ext)
+      .replace(/[^a-zA-Z0-9-_]/g, '')
+      .slice(0, 20) || 'upload';
+    const filename = `${timestamp}-${randomSuffix}${ext}`;
 
-    // Determine upload directory based on type
-    let uploadDir: string;
-    let publicUrl: string;
-
-    if (type === 'background' && collection) {
-      // Upload to backgrounds collection
-      uploadDir = path.join(process.cwd(), 'public', 'backgrounds', collection);
-      publicUrl = `/backgrounds/${collection}/${filename}`;
-    } else if (type === 'sprite' && collection) {
-      // Upload to sprites collection
-      uploadDir = path.join(process.cwd(), 'public', 'sprites', collection);
-      publicUrl = `/sprites/${collection}/${filename}`;
-    } else {
-      // Default upload location
-      uploadDir = path.join(process.cwd(), 'public', 'uploads', type);
-      publicUrl = `/uploads/${type}/${filename}`;
-    }
-
-    // Create upload directory if it doesn't exist
-    if (!existsSync(uploadDir)) {
-      await mkdir(uploadDir, { recursive: true });
-    }
-
-    // Write file
-    const filePath = path.join(uploadDir, filename);
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    const filePath = path.join(targetDir, filename);
+    const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(filePath, buffer);
 
-    // Update collection.json if uploading background
-    if (type === 'background' && collection) {
-      await updateCollectionJson(uploadDir, filename, publicUrl);
-    }
+    // Build the public URL
+    const urlPath = collection
+      ? `/uploads/${type}/${collection}/${filename}`
+      : `/uploads/${type}/${filename}`;
 
-    // Update metadata.json if uploading sprite to a collection
-    if (type === 'sprite' && collection) {
-      await updateSpriteMetadata(uploadDir, filename, publicUrl);
-    }
-
-    // Determine if it's an animation
-    const isAnimation = /\.(gif|webm|mp4|mov|apng)$/i.test(filename);
-    const isVideo = /\.(webm|mp4|mov|avi|mkv)$/i.test(filename);
+    console.log(`[Upload] Saved ${file.name} (${file.size} bytes) → ${urlPath}`);
 
     return NextResponse.json({
       success: true,
-      url: publicUrl,
+      url: urlPath,
       filename,
-      originalName: file.name,
       size: file.size,
-      type: file.type,
-      isAnimation,
-      isVideo
+      type,
     });
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('[Upload] Error:', error);
     return NextResponse.json(
-      { error: 'Failed to upload file' },
+      { success: false, error: error instanceof Error ? error.message : 'Upload failed' },
       { status: 500 }
     );
   }
 }
 
-export async function DELETE(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const url = searchParams.get('url');
-
-    if (!url || !url.startsWith('/')) {
-      return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
-    }
-
-    const filePath = path.join(process.cwd(), 'public', url);
-    
-    // Check if file exists and delete
-    if (existsSync(filePath)) {
-      const { unlink } = await import('fs/promises');
-      await unlink(filePath);
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Delete error:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete file' },
-      { status: 500 }
-    );
-  }
+/** Guess file extension from MIME type */
+function guessExtension(mime: string): string {
+  const map: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/bmp': '.bmp',
+    'image/svg+xml': '.svg',
+    'video/webm': '.webm',
+    'video/mp4': '.mp4',
+    'audio/mpeg': '.mp3',
+    'audio/wav': '.wav',
+    'audio/ogg': '.ogg',
+  };
+  return map[mime] || '.bin';
 }

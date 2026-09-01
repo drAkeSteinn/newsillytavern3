@@ -285,6 +285,147 @@ export async function executeTool(
 }
 
 // ============================================
+// Tool Result Summarizer — builds a human-readable tooltip
+// ============================================
+
+/**
+ * Build a concise, human-readable summary of what a tool changed.
+ * This is shown in the message bubble tooltip so the user understands
+ * what happened (e.g., "Lujuria: 55 → 70 (+15)" instead of just "Modificar Stat").
+ */
+export function summarizeToolResult(result: ToolExecutionResult, params?: Record<string, unknown>): string {
+  if (!result.success) {
+    return `❌ ${result.displayMessage || result.error || 'Error'}`;
+  }
+
+  const parts: string[] = [];
+
+  // Stat modification
+  if (result.statActivation) {
+    const sa = result.statActivation;
+    const oldVal = sa.oldValue ?? '?';
+    const newVal = sa.newValue;
+    const arrow = oldVal !== newVal ? ` → ${newVal}` : ` = ${newVal}`;
+    let delta = '';
+    if (typeof oldVal === 'number' && typeof newVal === 'number') {
+      const diff = newVal - oldVal;
+      if (diff > 0) delta = ` (+${diff})`;
+      else if (diff < 0) delta = ` (${diff})`;
+    }
+    parts.push(`${sa.attributeName}: ${oldVal}${arrow}${delta}`);
+    if (sa.reason) parts.push(`Razón: ${sa.reason}`);
+  }
+
+  // Relationship modification
+  if (result.relationshipActivation) {
+    const ra = result.relationshipActivation;
+    const diff = ra.newPoints - ra.prevPoints;
+    const delta = diff > 0 ? ` (+${diff})` : diff < 0 ? ` (${diff})` : '';
+    parts.push(`Relación ${ra.aName} ↔ ${ra.bName}: ${ra.prevPoints} → ${ra.newPoints}${delta}`);
+    if (ra.reason) parts.push(`Razón: ${ra.reason}`);
+  }
+
+  // Scene change
+  if (result.sceneActivation) {
+    const sc = result.sceneActivation;
+    if (sc.type === 'scene_change') {
+      const action = sc.action === 'enter' ? 'entró a' : sc.action === 'leave' ? 'salió de' : 'enfocó';
+      parts.push(`${sc.characterName} ${action} la escena`);
+      if (sc.narrative) parts.push(sc.narrative);
+    } else if (sc.type === 'scene_focus') {
+      parts.push(`Enfoque en ${sc.characterName}`);
+    }
+  }
+
+  // Quest activation
+  if (result.questActivation) {
+    const qa = result.questActivation;
+    const action = qa.type === 'activate_quest' ? 'Quest activado' : qa.type === 'complete_objective' ? 'Objetivo completado' : 'Objetivo progresado';
+    parts.push(`${action}: ${qa.key}`);
+  }
+
+  // Solicitud/peticion activation
+  if (result.solicitudActivation) {
+    const sol = result.solicitudActivation;
+    if (sol.type === 'create_solicitud') {
+      parts.push(`Solicitud creada: ${sol.fromCharacterName} → ${sol.targetCharacterName || 'usuario'}`);
+    } else {
+      parts.push(`Solicitud completada: ${sol.solicitudKey}`);
+    }
+    if (sol.description) parts.push(sol.description);
+  }
+
+  // Action/skill activation
+  if (result.actionActivation) {
+    const aa = result.actionActivation;
+    parts.push(`Acción: ${aa.skillName}`);
+    if (aa.skillCompletedDescription) parts.push(aa.skillCompletedDescription);
+  }
+
+  // Skill check
+  if (result.checkActivation) {
+    const ca = result.checkActivation;
+    parts.push(`Check ${ca.statName} (d20=${ca.roll}${ca.modifier ? (ca.modifier >= 0 ? `+${ca.modifier}` : `${ca.modifier}`) : ''} vs DC ${ca.dc}) = ${ca.total} → ${ca.outcomeLabel}`);
+    if (ca.narrative) parts.push(ca.narrative);
+  }
+
+  // Time activation
+  if (result.timeActivation) {
+    const ta = result.timeActivation;
+    if (ta.type === 'advance' && ta.minutes) {
+      parts.push(`Tiempo avanzado: +${ta.minutes} min`);
+    } else if (ta.type === 'set_hour') {
+      parts.push(`Hora: ${ta.hour}:${String(ta.minute || 0).padStart(2, '0')}`);
+    } else if (ta.type === 'set_season') {
+      parts.push(`Estación: ${ta.season}`);
+    }
+  }
+
+  // Memory activation
+  if (result.memoryActivation) {
+    const ma = result.memoryActivation;
+    if (ma.type === 'save_memory' && ma.eventData) {
+      parts.push(`Recuerdo guardado: ${ma.eventData.content.slice(0, 60)}`);
+    } else if (ma.type === 'update_relationship' && ma.relationshipData) {
+      parts.push(`Relación actualizada: ${ma.relationshipData.targetName} (${ma.relationshipData.relationship})`);
+    } else if (ma.type === 'save_note' && ma.noteContent) {
+      parts.push(`Nota: ${ma.noteContent.slice(0, 60)}`);
+    } else if (ma.type === 'delete_memory') {
+      parts.push(`Recuerdo eliminado`);
+    }
+  }
+
+  // Wardrobe activation
+  if (result.wardrobeActivation) {
+    const wa = result.wardrobeActivation;
+    if (wa.action === 'get_info') {
+      parts.push(`Vestuario actual: ${wa.newLevelName} (offset ${wa.newOffset >= 0 ? '+' : ''}${wa.newOffset})`);
+    } else if (wa.changed) {
+      const actionLabel = wa.action === 'escalate' ? 'Escalado' : wa.action === 'regress' ? 'Regresado' : 'Reseteado';
+      parts.push(`Vestuario ${actionLabel}: → ${wa.newLevelName}`);
+      if (wa.reason) parts.push(`Razón: ${wa.reason}`);
+    } else {
+      parts.push(`Vestuario: ${wa.newLevelName} (sin cambio)`);
+    }
+  }
+
+  // Fallback: if no specific activation was detected, show the displayMessage (first 2 lines)
+  if (parts.length === 0) {
+    // For tools like roll_dice, search_web, search_memory, get_weather, set_reminder, etc.
+    // Use the displayMessage which already has a human-readable summary
+    const msg = result.displayMessage?.trim();
+    if (msg) {
+      // Take first 2 non-empty lines to keep the tooltip compact
+      const lines = msg.split('\n').filter(l => l.trim()).slice(0, 3);
+      return lines.join('\n');
+    }
+    return 'Herramienta ejecutada';
+  }
+
+  return parts.join('\n');
+}
+
+// ============================================
 // Auto-register all built-in tools
 // ============================================
 
@@ -303,6 +444,7 @@ import { manageSceneTool, manageSceneExecutor } from './tools/manage-scene';
 import { manageRelationshipTool, manageRelationshipExecutor } from './tools/manage-relationship';
 import { skillCheckTool, skillCheckExecutor } from './tools/skill-check';
 import { manageTimeTool, manageTimeExecutor } from './tools/manage-time';
+import { manageWardrobeTool, manageWardrobeExecutor } from './tools/manage-wardrobe';
 
 // Register built-in tools
 registerTool(rollDiceTool, rollDiceExecutor);
@@ -320,5 +462,6 @@ registerTool(manageSceneTool, manageSceneExecutor);
 registerTool(manageRelationshipTool, manageRelationshipExecutor);
 registerTool(skillCheckTool, skillCheckExecutor);
 registerTool(manageTimeTool, manageTimeExecutor);
+registerTool(manageWardrobeTool, manageWardrobeExecutor);
 
 console.log(`[Tools] Registered ${toolRegistry.size} built-in tools: ${Array.from(toolRegistry.keys()).join(', ')}`);

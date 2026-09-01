@@ -1,102 +1,112 @@
+// ============================================
+// Embeddings File Upload API Route
+// ============================================
+// POST /api/embeddings/upload
+//
+// Handles multipart file uploads for the Knowledge/Conocimiento system.
+// Reads the file content as text and returns it for chunking + embedding.
+//
+// This is DIFFERENT from /api/upload (which saves image/avatar files to disk).
+// This route reads text content from documents (.txt, .md, .json, .csv, etc.)
+// and returns the content so the client can preview chunks and then call
+// /api/embeddings/create-from-file to embed them into LanceDB.
+//
+// Form data:
+//   - file: File (required) — the text document to read
+//
+// Returns:
+//   { success: true, data: { fileName, fileSize, content, characterCount } }
+//   { success: false, error: string }
+
 import { NextRequest, NextResponse } from 'next/server';
 
-/**
- * POST /api/embeddings/upload - Upload file and extract text
- * Returns the text content for preview before chunking
- */
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+const ALLOWED_EXTENSIONS = new Set([
+  '.txt', '.md', '.markdown', '.json', '.csv', '.tsv', '.log', '.xml', '.yaml', '.yml',
+  '.html', '.htm', '.rtf', '.text',
+]);
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get('file') as File;
+    const file = formData.get('file');
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    if (!file || !(file instanceof File)) {
+      return NextResponse.json(
+        { success: false, error: 'No file provided' },
+        { status: 400 }
+      );
     }
 
-    // Validate file type
-    const allowedTypes = [
-      'text/plain',
-      'text/markdown',
-      'text/html',
-      'application/json',
-      'text/csv',
-      'application/pdf',
-      'text/x-python',
-      'text/x-javascript',
-      'text/x-typescript',
-      'text/x-java',
-      'text/x-c',
-      'text/x-c++',
-      'text/x-ruby',
-      'text/x-go',
-      'text/x-rust',
-      'text/xml',
-      'application/xml',
-    ];
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { success: false, error: `File too large. Max size is ${MAX_FILE_SIZE / 1024 / 1024}MB` },
+        { status: 400 }
+      );
+    }
 
+    // Check file extension
     const fileName = file.name.toLowerCase();
-    const isAllowedExtension = /\.(txt|md|json|csv|py|js|ts|jsx|tsx|java|c|cpp|rb|go|rs|xml|html|htm|log|yaml|yml|toml|ini|cfg)$/i.test(fileName);
-
-    if (!isAllowedExtension && !allowedTypes.includes(file.type)) {
-      return NextResponse.json({
-        error: 'Unsupported file type. Use .txt, .md, .json, .csv, code files, etc.',
-      }, { status: 400 });
+    const ext = fileName.substring(fileName.lastIndexOf('.'));
+    if (ext && !ALLOWED_EXTENSIONS.has(ext)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Unsupported file type: ${ext}. Allowed: ${Array.from(ALLOWED_EXTENSIONS).join(', ')}`,
+        },
+        { status: 400 }
+      );
     }
 
-    // Check file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large. Maximum 10MB.' }, { status: 400 });
+    // Read file content as text
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Try to decode as UTF-8 text
+    let content: string;
+    try {
+      content = buffer.toString('utf-8');
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Failed to decode file as UTF-8 text. Ensure the file is a text document.' },
+        { status: 400 }
+      );
     }
 
-    const text = await file.text();
-
-    // Basic HTML stripping for HTML files
-    let content = text;
-    if (fileName.endsWith('.html') || fileName.endsWith('.htm')) {
-      content = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    // Validate content is not empty
+    if (!content.trim()) {
+      return NextResponse.json(
+        { success: false, error: 'File is empty or contains no readable text.' },
+        { status: 400 }
+      );
     }
+
+    const characterCount = content.length;
+
+    console.log(`[Embeddings Upload] File "${file.name}" loaded: ${file.size} bytes, ${characterCount} chars`);
 
     return NextResponse.json({
       success: true,
       data: {
         fileName: file.name,
         fileSize: file.size,
-        fileType: file.type || detectFileType(fileName),
         content,
-        characterCount: content.length,
+        characterCount,
       },
     });
-  } catch (error: any) {
-    return NextResponse.json({
-      success: false,
-      error: error.message || 'Error processing file',
-    }, { status: 500 });
+  } catch (error) {
+    console.error('[Embeddings Upload] Error:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Upload failed',
+      },
+      { status: 500 }
+    );
   }
-}
-
-function detectFileType(fileName: string): string {
-  const ext = fileName.split('.').pop()?.toLowerCase();
-  const typeMap: Record<string, string> = {
-    txt: 'text/plain',
-    md: 'text/markdown',
-    json: 'application/json',
-    csv: 'text/csv',
-    html: 'text/html',
-    htm: 'text/html',
-    py: 'text/x-python',
-    js: 'text/x-javascript',
-    ts: 'text/x-typescript',
-    jsx: 'text/x-javascript',
-    tsx: 'text/x-typescript',
-    java: 'text/x-java',
-    c: 'text/x-c',
-    cpp: 'text/x-c++',
-    rb: 'text/x-ruby',
-    go: 'text/x-go',
-    rs: 'text/x-rust',
-    xml: 'text/xml',
-    yaml: 'text/yaml',
-    yml: 'text/yaml',
-  };
-  return typeMap[ext || ''] || 'text/plain';
 }

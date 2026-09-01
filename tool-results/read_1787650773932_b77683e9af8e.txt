@@ -1,0 +1,873 @@
+     1→'use client';
+     2→
+     3→import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+     4→import { useTavernStore } from '@/store/tavern-store';
+     5→import { toast } from 'sonner';
+     6→import { Sparkles } from 'lucide-react';
+     7→import type { ProactiveMessagesConfig, ProactiveMessageInfo } from '@/types';
+     8→
+     9→interface ProactiveMessageMetadata {
+    10→  proactiveInfo: ProactiveMessageInfo;
+    11→  promptData?: { type: string; label: string; content: string; color: string }[];
+    12→  toolsUsed?: { name: string; label: string; icon: string; success: boolean }[];
+    13→}
+    14→
+    15→interface UseProactiveMessagesOptions {
+    16→  /** Whether the chat panel is currently generating (block proactive during generation) */
+    17→  isGenerating: boolean;
+    18→  /** Called to add a proactive message to the chat */
+    19→  onProactiveMessage?: (message: {
+    20→    characterId: string;
+    21→    content: string;
+    22→    metadata: ProactiveMessageMetadata;
+    23→  }) => void;
+    24→  /** Called when a proactive message starts streaming (for real-time display) */
+    25→  onProactiveStreamStart?: (characterId: string, characterName: string) => void;
+    26→  /** Called with streaming token content for real-time display */
+    27→  onProactiveStreamToken?: (token: string) => void;
+    28→  /** Called when proactive streaming ends (success or error) */
+    29→  onProactiveStreamEnd?: () => void;
+    30→}
+    31→
+    32→/** Why proactive is not active (for UI feedback) */
+    33→export type ProactiveInactiveReason = 
+    34→  | 'no_character'      // No character selected
+    35→  | 'not_configured'    // Character doesn't have proactive messages enabled
+    36→  | 'group_chat'        // Active chat is a group chat (not supported)
+    37→  | 'no_session'        // No active chat session
+    38→  | 'no_llm'            // No LLM provider configured
+    39→  | null;               // Active and running
+    40→
+    41→interface UseProactiveMessagesReturn {
+    42→  /** Whether proactive messages are currently active for the active character */
+    43→  isActive: boolean;
+    44→  /** Whether the active character has proactive messages configured (enabled in settings) */
+    45→  isConfigured: boolean;
+    46→  /** Reason proactive is not active (null when active) */
+    47→  inactiveReason: ProactiveInactiveReason;
+    48→  /** Seconds until next proactive message */
+    49→  nextIn: number | null;
+    50→  /** Total proactive messages sent this session */
+    51→  sessionCount: number;
+    52→  /** Whether a proactive message is currently being generated */
+    53→  isGeneratingProactive: boolean;
+    54→  /** Manually trigger a proactive message (for testing) */
+    55→  triggerNow: () => Promise<void>;
+    56→}
+    57→
+    58→/**
+    59→ * Extract a brief topic from a proactive message for thematic cooldown tracking.
+    60→ * Takes the first meaningful phrase/sentence (up to 60 chars).
+    61→ */
+    62→function extractTopic(message: string): string {
+    63→  // Remove common action markers like *...*
+    64→  const cleaned = message.replace(/\*[^*]+\*/g, '').trim();
+    65→  // Take first sentence or phrase up to 60 chars
+    66→  const firstSentence = cleaned.match(/^(.{5,60}?)[.!?]/)?.[1] || cleaned.slice(0, 60);
+    67→  return firstSentence.trim().replace(/\s+/g, ' ');
+    68→}
+    69→
+    70→/**
+    71→ * Hook that manages proactive message timers for the active character.
+    72→ * 
+    73→ * Timer Logic:
+    74→ * ─────────────
+    75→ * 1. When a chat session is active, the timer measures inactivity (time since last message)
+    76→ * 2. If inactivity >= configured intervalSeconds → trigger proactive message
+    77→ * 3. Any new message (user or character) resets the inactivity timer
+    78→ * 4. Proactive messages are NOT sent during LLM generation
+    79→ * 5. Session count tracks how many proactive messages have been sent
+    80→ * 6. allowedStates determines WHEN to trigger: 'idle' (user present but quiet) or 'user_away' (tab hidden)
+    81→ */
+    82→export function useProactiveMessages({
+    83→  isGenerating,
+    84→  onProactiveMessage,
+    85→  onProactiveStreamStart,
+    86→  onProactiveStreamToken,
+    87→  onProactiveStreamEnd,
+    88→}: UseProactiveMessagesOptions): UseProactiveMessagesReturn {
+    89→  const [nextIn, setNextIn] = useState<number | null>(null);
+    90→  const [sessionCount, setSessionCount] = useState(0);
+    91→  const [isGeneratingProactive, setIsGeneratingProactive] = useState(false);
+    92→
+    93→  const timerRef = useRef<NodeJS.Timeout | null>(null);
+    94→  const countdownRef = useRef<NodeJS.Timeout | null>(null);
+    95→  const lastActivityTimeRef = useRef<number>(Date.now());
+    96→  const sessionCountRef = useRef(0);
+    97→  const isGeneratingRef = useRef(false);
+    98→  const lastMessageIdRef = useRef<string>('');
+    99→  const isActiveRef = useRef(false);
+   100→  // FASE 11 v2: Track used case indices per condition (and '__default__' for defaultCases).
+   101→  // Mapa: { [trackingKey: string]: number[] }
+   102→  // (El sistema de nudge pool y thematic cooldown fue eliminado en FASE 11 v2 —
+   103→  //  ahora el caso seleccionado por atributo ES el mensaje del usuario, no hay nudge separado.)
+   104→  const usedCaseIndicesRef = useRef<Record<string, number[]>>({});
+   105→  // FASE 11: Info del caso seleccionado (llega vía SSE proactive_start) para
+   106→  // registrarla en ProactiveMessageInfo cuando se complete el stream.
+   107→  const pendingCaseInfoRef = useRef<{ conditionId: string | null; caseIndex: number } | null>(null);
+   108→
+   109→  // Keep refs in sync with props
+   110→  isGeneratingRef.current = isGenerating;
+   111→
+   112→  // Get store state
+   113→  const activeSessionId = useTavernStore((state) => state.activeSessionId);
+   114→  const activeCharacterId = useTavernStore((state) => state.activeCharacterId);
+   115→  const activeGroupId = useTavernStore((state) => state.activeGroupId);
+   116→  const characters = useTavernStore((state) => state.characters);
+   117→  const sessions = useTavernStore((state) => state.sessions);
+   118→  const llmConfigs = useTavernStore((state) => state.llmConfigs);
+   119→  const personas = useTavernStore((state) => state.personas);
+   120→  const activePersonaId = useTavernStore((state) => state.activePersonaId);
+   121→  const addMessage = useTavernStore((state) => state.addMessage);
+   122→  const lorebooks = useTavernStore((state) => state.lorebooks);
+   123→  const activeLorebookIds = useTavernStore((state) => state.activeLorebookIds);
+   124→  const settings = useTavernStore((state) => state.settings);
+   125→  const questTemplates = useTavernStore((state) => state.questTemplates);
+   126→  const questSettings = useTavernStore((state) => state.questSettings);
+   127→  const soundTriggers = useTavernStore((state) => state.soundTriggers);
+   128→  const hudTemplates = useTavernStore((state) => state.hudTemplates);
+   129→  const hudSessionState = useTavernStore((state) => state.hudSessionState);
+   130→
+   131→  const activeCharacter = characters.find((c) => c.id === activeCharacterId);
+   132→  const activeSession = sessions.find((s) => s.id === activeSessionId);
+   133→  const llmConfig = llmConfigs.find((c) => c.isActive);
+   134→  const activePersona = personas.find((p) => p.id === activePersonaId);
+   135→
+   136→  const config: ProactiveMessagesConfig | undefined = activeCharacter?.proactiveMessages;
+   137→
+   138→  // Determine inactive reason for UI feedback
+   139→  const inactiveReason: ProactiveInactiveReason = useMemo(() => {
+   140→    if (!activeCharacter) return 'no_character';
+   141→    if (!config?.enabled) return 'not_configured';
+   142→    // FASE 3: Allow group chat if groupChatEnabled is true
+   143→    if (activeGroupId && !config?.groupChatEnabled) return 'group_chat';
+   144→    if (!activeSession) return 'no_session';
+   145→    if (!llmConfig) return 'no_llm';
+   146→    return null; // Active!
+   147→  }, [activeCharacter, config?.enabled, activeGroupId, config?.groupChatEnabled, activeSession, llmConfig]);
+   148→
+   149→  const isConfigured = !!(config?.enabled && activeCharacter);
+   150→  const isActive = inactiveReason === null;
+   151→  isActiveRef.current = isActive;
+   152→
+   153→  // ─── Initialize from session data ───
+   154→  useEffect(() => {
+   155→    if (!activeSession) {
+   156→      lastActivityTimeRef.current = Date.now();
+   157→      sessionCountRef.current = 0;
+   158→      setSessionCount(0);
+   159→      return;
+   160→    }
+   161→
+   162→    const messages = activeSession.messages.filter((m) => !m.isDeleted);
+   163→
+   164→    // Count existing proactive messages in session for accurate session count
+   165→    const existingProactiveCount = messages.filter(
+   166→      (m) => m.metadata?.proactiveInfo?.isProactive
+   167→    ).length;
+   168→    sessionCountRef.current = existingProactiveCount;
+   169→    setSessionCount(existingProactiveCount);
+   170→
+   171→    // Set last activity time from the last message's timestamp
+   172→    if (messages.length > 0) {
+   173→      const lastMsg = messages[messages.length - 1];
+   174→      const lastMsgTime = new Date(lastMsg.timestamp).getTime();
+   175→      if (!isNaN(lastMsgTime) && lastMsgTime <= Date.now()) {
+   176→        lastActivityTimeRef.current = lastMsgTime;
+   177→      } else {
+   178→        lastActivityTimeRef.current = Date.now();
+   179→      }
+   180→      lastMessageIdRef.current = lastMsg.id || lastMsg.timestamp;
+   181→    } else {
+   182→      lastActivityTimeRef.current = Date.now();
+   183→      lastMessageIdRef.current = '';
+   184→    }
+   185→  }, [activeSessionId, activeCharacterId]);
+   186→
+   187→  // ─── Track new messages to reset inactivity timer ───
+   188→  useEffect(() => {
+   189→    if (!activeSession) return;
+   190→    const messages = activeSession.messages.filter((m) => !m.isDeleted);
+   191→    if (messages.length === 0) return;
+   192→
+   193→    const lastMsg = messages[messages.length - 1];
+   194→    const msgKey = lastMsg.id || lastMsg.timestamp;
+   195→
+   196→    if (msgKey !== lastMessageIdRef.current && lastMessageIdRef.current !== '') {
+   197→      lastMessageIdRef.current = msgKey;
+   198→      lastActivityTimeRef.current = Date.now();
+   199→    }
+   200→  }, [activeSession?.messages?.length]);
+   201→
+   202→  // ─── Generate a proactive message ───
+   203→  const generateProactiveMessage = useCallback(async (reason: 'timer_idle' | 'timer_away' | 'manual' = 'timer_idle') => {
+   204→    if (!activeCharacter || !activeSession || !llmConfig || !config) return;
+   205→    if (isGeneratingRef.current || isGeneratingProactive) return;
+   206→
+   207→    // FASE 3: Group chat strategy enforcement
+   208→    if (activeGroupId && config.groupChatEnabled) {
+   209→      const strategy = config.groupChatStrategy || 'any_speaker';
+   210→      const recentMessages = activeSession.messages
+   211→        .filter((m: any) => !m.isDeleted && m.content?.trim())
+   212→        .slice(-6);
+   213→      const lastSpeakerMessages = recentMessages.filter((m: any) => m.role === 'assistant' && m.characterId !== activeCharacter.id);
+   214→      const lastContent = lastSpeakerMessages.map((m: any) => m.content?.toLowerCase() || '').join(' ');
+   215→      const charName = activeCharacter.name.toLowerCase();
+   216→      const charFirstName = charName.split(' ')[0];
+   217→
+   218→      if (strategy === 'mentioned_only') {
+   219→        // Only proceed if the character was explicitly mentioned in recent messages
+   220→        const isMentioned = lastContent.includes(charName) || lastContent.includes(charFirstName);
+   221→        if (!isMentioned) {
+   222→          console.log(`[Proactive] Skipping: ${activeCharacter.name} not mentioned (strategy: mentioned_only)`);
+   223→          return;
+   224→        }
+   225→      } else if (strategy === 'emotional_reaction') {
+   226→        // Only proceed if there's emotional significance in recent messages
+   227→        const emotionalKeywords = ['enojado', 'furioso', 'triste', 'llorar', 'feliz', 'alegría', 'asustado', 'miedo', 'sorprendente', 'shock', 'odio', 'amor', 'beso', 'abrazo', 'gritar', 'llorar', 'morir', 'herida', 'sangre', 'traición', 'perdón'];
+   228→        const hasEmotionalContent = emotionalKeywords.some(kw => lastContent.includes(kw));
+   229→        const charEmotionalState = useTavernStore.getState().sessions
+   230→          ?.find((s: any) => s.id === useTavernStore.getState().activeSessionId)
+   231→          ?.sessionStats?.characterStats?.[activeCharacter.id]?.emotionalState;
+   232→        const hasStrongEmotion = charEmotionalState && charEmotionalState !== 'neutral';
+   233→        if (!hasEmotionalContent && !hasStrongEmotion) {
+   234→          console.log(`[Proactive] Skipping: no emotional trigger (strategy: emotional_reaction)`);
+   235→          return;
+   236→        }
+   237→      }
+   238→    }
+   239→
+   240→    // Check minimum messages requirement
+   241→    const messageCount = activeSession.messages.filter((m) => !m.isDeleted).length;
+   242→    if (messageCount < (config.minMessagesBeforeStart ?? 5)) {
+   243→      toast('Mensajes proactivos', {
+   244→        description: `Se necesitan al menos ${config.minMessagesBeforeStart ?? 5} mensajes en el chat antes de activar los mensajes proactivos.`,
+   245→        duration: 3000,
+   246→      });
+   247→      return;
+   248→    }
+   249→
+   250→    // Check max per session
+   251→    if (config.maxPerSession > 0 && sessionCountRef.current >= config.maxPerSession) {
+   252→      toast('Mensajes proactivos', {
+   253→        description: `Se alcanzó el límite de ${config.maxPerSession} mensajes proactivos por sesión.`,
+   254→        duration: 3000,
+   255→      });
+   256→      return;
+   257→    }
+   258→
+   259→    setIsGeneratingProactive(true);
+   260→
+   261→    try {
+   262→      // Re-read latest state from store inside the callback
+   263→      const { questTemplates, questSettings, settings, soundTriggers, characters, hudTemplates, hudSessionState } = useTavernStore.getState();
+   264→      const latestSession = useTavernStore.getState().sessions.find((s: any) => s.id === useTavernStore.getState().activeSessionId);
+   265→
+   266→      const allMessages = latestSession?.messages
+   267→        .filter((m: any) => !m.isDeleted)
+   268→        .map((m: any) => ({
+   269→          id: m.id,
+   270→          characterId: m.characterId,
+   271→          role: m.role,
+   272→          content: m.content,
+   273→          isDeleted: m.isDeleted,
+   274→          timestamp: m.timestamp,
+   275→        })) || [];
+   276→
+   277→      const characterLorebookIds = activeCharacter.lorebookIds || [];
+   278→      const effectiveIds = characterLorebookIds.filter(id => activeLorebookIds.includes(id));
+   279→      const activeLorebooks = lorebooks.filter(lb => effectiveIds.includes(lb.id));
+   280→
+   281→      // Build allCharacters including persona as pseudo-character for peticiones/solicitudes
+   282→      const allCharactersWithPersona = [
+   283→        ...characters,
+   284→        ...(activePersona?.statsConfig?.enabled ? [{
+   285→          id: '__user__',
+   286→          name: activePersona.name || 'User',
+   287→          statsConfig: activePersona.statsConfig,
+   288→        }] as any[] : []),
+   289→      ];
+   290→
+   291→      // Build HUD context from active template
+   292→      const activeHUDTemplate = hudTemplates.find((t: any) => t.id === hudSessionState.activeTemplateId);
+   293→      const hudContext = activeHUDTemplate?.context?.enabled && activeHUDTemplate.context.content.trim()
+   294→        ? activeHUDTemplate.context
+   295→        : undefined;
+   296→
+   297→      // Get session quests and summary
+   298→      const sessionQuests = latestSession?.sessionQuests || [];
+   299→      const summary = latestSession?.summary;
+   300→
+   301→      const response = await fetch('/api/chat/proactive', {
+   302→        method: 'POST',
+   303→        headers: { 'Content-Type': 'application/json' },
+   304→        body: JSON.stringify({
+   305→          character: activeCharacter,
+   306→          messages: allMessages,
+   307→          llmConfig,
+   308→          userName: activePersona?.name || 'User',
+   309→          persona: activePersona || undefined,
+   310→          lorebooks: activeLorebooks,
+   311→          sessionStats: latestSession?.sessionStats,
+   312→          proactiveConfig: config,
+   313→          reason: reason === 'manual' ? 'timer_idle' : reason,
+   314→          lastActivityAt: lastActivityTimeRef.current,
+   315→          // NEW: All additional data fields matching stream route
+   316→          allCharacters: allCharactersWithPersona,
+   317→          questTemplates,
+   318→          sessionQuests,
+   319→          questSettings,
+   320→          hudContext,
+   321→          embeddingsChat: {
+   322→            ...settings.embeddingsChat,
+   323→            customNamespaces: activeCharacter?.embeddingNamespaces,
+   324→          },
+   325→          toolsSettings: settings.tools,
+   326→          summary,
+   327→          contextConfig: settings.context,
+   328→          sessionId: useTavernStore.getState().activeSessionId,
+   329→          characterId: activeCharacter.id,
+   330→          soundTriggers,
+   331→          settings,
+   332→          characterMemory: activeCharacter ? useTavernStore.getState().getCharacterMemory(activeCharacter.id) : undefined,
+   333→          // Inventory data for {{inventory}}, {{currency}}, {{slots}} key resolution
+   334→          inventoryData: (() => {
+   335→            const invState = useTavernStore.getState();
+   336→            const invSettings = invState.inventorySettings;
+   337→            if (!invSettings.enabled) return undefined;
+   338→            const personaId = activePersona?.id || 'default';
+   339→            const freshSession = invState.sessions.find((s: any) => s.id === invState.activeSessionId);
+   340→            return {
+   341→              personaItems: invState.getPersonaItems(personaId),
+   342→              sessionEquipment: freshSession?.sessionEquipment || [],
+   343→              activeEffects: freshSession?.activeConsumableEffects || invState.activeConsumableEffects.filter((e: any) => e.personaId === personaId),
+   344→              currency: activePersona?.currency ?? 0,
+   345→              currencyName: activePersona?.currencyName || invSettings.currencyName,
+   346→              currencyIcon: activePersona?.currencyIcon || invSettings.currencyIcon,
+   347→              inventorySettings: invSettings,
+   348→            };
+   349→          })(),
+   350→          // FASE 3: Proactividad Inteligente
+   351→          isGroupChat: !!activeGroupId,
+   352→          // FASE 11 v2: tracking de índices usados para la rotación linear/random de casos.
+   353→          usedCaseIndices: usedCaseIndicesRef.current,
+   354→        }),
+   355→      });
+   356→
+   357→      if (!response.ok) {
+   358→        const errorData = await response.json().catch(() => ({ error: 'Error en mensaje proactivo' }));
+   359→        throw new Error(errorData.error || 'Error en mensaje proactivo');
+   360→      }
+   361→
+   362→      // ─── SSE Streaming Response Handling ───
+   363→      const reader = response.body?.getReader();
+   364→      if (!reader) throw new Error('No response body');
+   365→
+   366→      const decoder = new TextDecoder();
+   367→      let buffer = '';
+   368→      let accumulatedContent = '';
+   369→      let promptSections: { type: string; label: string; content: string; color: string }[] = [];
+   370→      let toolsUsed: { name: string; label: string; icon: string; success: boolean }[] = [];
+   371→
+   372→      try {
+   373→        while (true) {
+   374→          const { done, value } = await reader.read();
+   375→          if (done) break;
+   376→
+   377→          buffer += decoder.decode(value, { stream: true });
+   378→          const sseMessages = buffer.split('\n\n');
+   379→          buffer = sseMessages.pop() || '';
+   380→
+   381→          for (const sseMessage of sseMessages) {
+   382→            const dataMatch = sseMessage.match(/^data: (.+)$/s);
+   383→            if (!dataMatch) continue;
+   384→
+   385→            try {
+   386→              const parsed = JSON.parse(dataMatch[1]);
+   387→
+   388→              switch (parsed.type) {
+   389→                case 'prompt_data':
+   390→                  // Capture prompt sections for metadata (same as regular chat)
+   391→                  if (parsed.promptSections) {
+   392→                    promptSections = parsed.promptSections;
+   393→                  }
+   394→                  break;
+   395→
+   396→                case 'case_selected': {
+   397→                  // FASE 11: El servidor seleccionó un caso (mensaje) según el atributo.
+   398→                  // Actualizamos el tracking de índices usados para que la próxima
+   399→                  // vez la rotación (linear/random) continúe correctamente.
+   400→                  const trackingKey: string = parsed.trackingKey;
+   401→                  const nextUsed: number[] = Array.isArray(parsed.nextUsed) ? parsed.nextUsed : [];
+   402→                  if (trackingKey) {
+   403→                    usedCaseIndicesRef.current = {
+   404→                      ...usedCaseIndicesRef.current,
+   405→                      [trackingKey]: nextUsed,
+   406→                    };
+   407→                  }
+   408→                  break;
+   409→                }
+   410→
+   411→                case 'proactive_skipped': {
+   412→                  // FASE 11 v2: el servidor no generó mensaje proactivo.
+   413→                  // Dos razones posibles:
+   414→                  //   - 'proactive_attribute_disabled': proactiveAttribute no está habilitado
+   415→                  //   - 'no_matching_case': ninguna condición aplicó y no hay defaultCases
+   416→                  // Reiniciamos el timer y mostramos feedback al usuario (especialmente
+   417→                  // útil cuando forzó el proactivo manualmente).
+   418→                  lastActivityTimeRef.current = Date.now();
+   419→                  const skipReason: string = parsed.reason || 'no_matching_case';
+   420→                  if (skipReason === 'proactive_attribute_disabled') {
+   421→                    toast('Proactivo omitido', {
+   422→                      description: 'Configura "Proactivo Condicional por Atributo" en el editor del personaje para que funcione.',
+   423→                      duration: 4000,
+   424→                    });
+   425→                  } else if (skipReason === 'no_matching_case') {
+   426→                    toast('Proactivo omitido', {
+   427→                      description: 'Ninguna condición aplicó para el valor actual del atributo y no hay casos por defecto configurados.',
+   428→                      duration: 4000,
+   429→                    });
+   430→                  }
+   431→                  return;
+   432→                }
+   433→
+   434→                case 'proactive_start': {
+   435→                  // Stream initialized - notify UI for real-time display
+   436→                  console.log(`[Proactive] Stream started for ${parsed.characterName} (reason: ${parsed.reason})`);
+   437→                  // FASE 11 v2: capturamos el caso seleccionado para registrarlo en
+   438→                  // ProactiveMessageInfo al final del stream.
+   439→                  if (parsed.conditionId !== undefined) {
+   440→                    pendingCaseInfoRef.current = {
+   441→                      conditionId: parsed.conditionId,
+   442→                      caseIndex: parsed.caseIndex,
+   443→                    };
+   444→                  }
+   445→                  onProactiveStreamStart?.(parsed.characterId, parsed.characterName);
+   446→                  break;
+   447→                }
+   448→
+   449→                case 'token':
+   450→                  if (parsed.content) {
+   451→                    accumulatedContent += parsed.content;
+   452→                    onProactiveStreamToken?.(parsed.content);
+   453→                  }
+   454→                  break;
+   455→
+   456→                case 'tool_call_start':
+   457→                  console.log('[Proactive] Tool call started:', parsed.toolName);
+   458→                  break;
+   459→
+   460→                case 'tool_call_result':
+   461→                  console.log('[Proactive] Tool call result:', parsed.toolName, parsed.success);
+   462→                  // Accumulate tool results for metadata
+   463→                  toolsUsed.push({
+   464→                    name: parsed.toolName || 'unknown',
+   465→                    label: parsed.toolLabel || parsed.toolName || 'unknown',
+   466→                    icon: parsed.toolIcon || 'Wrench',
+   467→                    success: parsed.success !== false,
+   468→                  });
+   469→                  break;
+   470→
+   471→                case 'quest_activation':
+   472→                  console.log('[Proactive] Quest activation:', parsed.toolName, parsed.activationType, parsed.key);
+   473→                  // Execute the objective completion on the client store
+   474→                  if (parsed.activationType === 'complete_objective' && parsed.metadata && !parsed.metadata.alreadyCompleted) {
+   475→                    const store = useTavernStore.getState();
+   476→                    store.completeObjective?.(
+   477→                      useTavernStore.getState().activeSessionId,
+   478→                      parsed.metadata.questTemplateId,
+   479→                      parsed.metadata.objectiveId,
+   480→                      parsed.metadata.characterId,
+   481→                    );
+   482→                  }
+   483→                  if (!parsed.metadata?.alreadyCompleted && parsed.metadata?.objectiveName) {
+   484→                    toast.success(`Objetivo completado: ${parsed.metadata.objectiveName}`);
+   485→                  }
+   486→                  break;
+   487→
+   488→                case 'action_activation':
+   489→                  console.log('[Proactive] Action activation:', parsed.toolName, parsed.skillName);
+   490→                  {
+   491→                    const store = useTavernStore.getState();
+   492→                    store.activateSkillByTool?.(
+   493→                      useTavernStore.getState().activeSessionId,
+   494→                      parsed.characterId,
+   495→                      parsed.skillName,
+   496→                      parsed.skillDescription || '',
+   497→                      parsed.activationCosts || [],
+   498→                      parsed.activationRewards || [],
+   499→                      parsed.skillCompletedDescription || '',
+   500→                    );
+   501→                    toast.success(`⚔️ Acción: ${parsed.skillName}`);
+   502→                  }
+   503→                  break;
+   504→
+   505→                case 'stat_activation':
+   506→                  console.log('[Proactive] Stat activation:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue);
+   507→                  {
+   508→                    const store = useTavernStore.getState();
+   509→                    const sid = useTavernStore.getState().activeSessionId;
+   510→                    store.updateCharacterStat?.(
+   511→                      sid,
+   512→                      parsed.characterId,
+   513→                      parsed.attributeKey,
+   514→                      parsed.newValue,
+   515→                      'llm_detection'
+   516→                    );
+   517→                    toast.success(`📊 ${parsed.attributeName || parsed.attributeKey}: ${parsed.oldValue} → ${parsed.newValue}`);
+   518→                  }
+   519→                  break;
+   520→
+   521→                case 'solicitud_activation':
+   522→                  console.log('[Proactive] Solicitud activation:', parsed.toolName, parsed.activationType, parsed.solicitudKey);
+   523→                  {
+   524→                    const store = useTavernStore.getState();
+   525→                    const sid = useTavernStore.getState().activeSessionId;
+   526→                    if (parsed.activationType === 'create_solicitud' && parsed.targetCharacterId) {
+   527→                      store.createSolicitud?.(
+   528→                        sid,
+   529→                        parsed.targetCharacterId,
+   530→                        {
+   531→                          key: parsed.solicitudKey,
+   532→                          peticionKey: parsed.peticionKey,
+   533→                          fromCharacterId: parsed.fromCharacterId,
+   534→                          fromCharacterName: parsed.fromCharacterName,
+   535→                          description: parsed.description || '',
+   536→                          completionDescription: parsed.completionDescription,
+   537→                        }
+   538→                      );
+   539→                      toast.success(`📬 Petición: ${parsed.peticionKey || parsed.solicitudKey} → ${parsed.targetCharacterName || ''}`);
+   540→                    } else if (parsed.activationType === 'complete_solicitud') {
+   541→                      store.completeSolicitud?.(
+   542→                        sid,
+   543→                        parsed.fromCharacterId,
+   544→                        parsed.solicitudKey
+   545→                      );
+   546→                      toast.success(`✅ Solicitud completada: ${parsed.solicitudKey}`);
+   547→                    }
+   548→                  }
+   549→                  break;
+   550→
+   551→                case 'memory_activation':
+   552→                  // Memory tool activation - sync to client-side Character Memory (Zustand)
+   553→                  console.log('[Proactive] Memory activation from tool:', parsed.toolName, parsed.activationType);
+   554→                  {
+   555→                    const store = useTavernStore.getState();
+   556→                    if (parsed.activationType === 'save_memory' && parsed.eventData) {
+   557→                      store.addMemoryEvent(parsed.characterId, {
+   558→                        id: parsed.eventData.id,
+   559→                        type: parsed.eventData.type as any,
+   560→                        content: parsed.eventData.content,
+   561→                        importance: parsed.eventData.importance,
+   562→                        timestamp: new Date().toISOString(),
+   563→                        embeddingId: parsed.eventData.embeddingId,
+   564→                        sessionId: parsed.eventData.sessionId,
+   565→                      });
+   566→                      toast.success(`🧠 Memoria guardada: ${parsed.eventData.content.slice(0, 50)}...`);
+   567→                    } else if (parsed.activationType === 'update_relationship' && parsed.relationshipData) {
+   568→                      store.updateRelationship(parsed.characterId, {
+   569→                        targetId: parsed.relationshipData.targetId,
+   570→                        targetName: parsed.relationshipData.targetName,
+   571→                        relationship: parsed.relationshipData.relationship,
+   572→                        sentiment: parsed.relationshipData.sentiment,
+   573→                        notes: parsed.relationshipData.notes,
+   574→                        lastUpdated: new Date().toISOString(),
+   575→                      });
+   576→                      toast.success(`💜 Relación actualizada: ${parsed.relationshipData.targetName}`);
+   577→                    } else if (parsed.activationType === 'save_note' && parsed.noteContent) {
+   578→                      const existingMemory = store.getCharacterMemory(parsed.characterId);
+   579→                      store.setCharacterNotes(parsed.characterId, 
+   580→                        existingMemory?.notes ? `${existingMemory.notes}\n${parsed.noteContent}` : parsed.noteContent);
+   581→                    }
+   582→                  }
+   583→                  break;
+   584→
+   585→                case 'embeddings_context':
+   586→                  // Embeddings context metadata - logged for debugging
+   587→                  console.log('[Proactive] Embeddings context retrieved');
+   588→                  break;
+   589→
+   590→                case 'memory_extracting':
+   591→                  // Memory extraction running in background
+   592→                  console.log('[Proactive] Memory extraction in progress');
+   593→                  break;
+   594→
+   595→                case 'done':
+   596→                  // Final event - message is complete, add to store
+   597→                  onProactiveStreamEnd?.();
+   598→                  if (accumulatedContent.trim()) {
+   599→                    // Clean up character name prefix if present
+   600→                    let cleanedMessage = accumulatedContent.trim();
+   601→                    const namePrefix = `${activeCharacter.name}:`;
+   602→                    if (cleanedMessage.startsWith(namePrefix)) {
+   603→                      cleanedMessage = cleanedMessage.slice(namePrefix.length).trim();
+   604→                    }
+   605→
+   606→                    if (cleanedMessage) {
+   607→                      sessionCountRef.current += 1;
+   608→                      setSessionCount(sessionCountRef.current);
+   609→
+   610→                      const proactiveReason = reason === 'manual' ? 'timer_idle' : reason;
+   611→                      const proactiveInfo: ProactiveMessageInfo = {
+   612→                        isProactive: true,
+   613→                        triggeredAt: new Date().toISOString(),
+   614→                        reason: proactiveReason,
+   615→                        characterName: parsed.characterName || activeCharacter.name,
+   616→                        topic: extractTopic(cleanedMessage),
+   617→                        // FASE 11 v2: caso seleccionado por atributo.
+   618→                        // conditionId y caseIndex siempre están (el servidor siempre los envía
+   619→                        // porque proactiveAttribute es requerido para que funcione el proactivo).
+   620→                        conditionId: pendingCaseInfoRef.current?.conditionId ?? null,
+   621→                        caseIndex: pendingCaseInfoRef.current?.caseIndex,
+   622→                      };
+   623→                      // Limpiamos la info pendiente del caso para el próximo trigger.
+   624→                      pendingCaseInfoRef.current = null;
+   625→
+   626→                      // Prefer toolsUsed from the done event (authoritative server list)
+   627→                      // Fall back to locally accumulated tools from tool_call_result events
+   628→                      const finalToolsUsed = (parsed.toolsUsed && parsed.toolsUsed.length > 0)
+   629→                        ? parsed.toolsUsed
+   630→                        : (toolsUsed.length > 0 ? toolsUsed : undefined);
+   631→
+   632→                      const messageMetadata: ProactiveMessageMetadata = {
+   633→                        proactiveInfo,
+   634→                        promptData: promptSections.length > 0 ? promptSections : undefined,
+   635→                        toolsUsed: finalToolsUsed,
+   636→                      };
+   637→
+   638→                      if (onProactiveMessage) {
+   639→                        onProactiveMessage({
+   640→                          characterId: activeCharacter.id,
+   641→                          content: cleanedMessage,
+   642→                          metadata: messageMetadata,
+   643→                        });
+   644→                      } else {
+   645→                        addMessage(activeSession.id, {
+   646→                          characterId: activeCharacter.id,
+   647→                          role: 'assistant',
+   648→                          content: cleanedMessage,
+   649→                          isDeleted: false,
+   650→                          swipeId: `proactive_${Date.now()}`,
+   651→                          swipeIndex: 0,
+   652→                          metadata: messageMetadata,
+   653→                        });
+   654→                      }
+   655→
+   656→                      lastActivityTimeRef.current = Date.now();
+   657→
+   658→                      toast(`${activeCharacter.name} te envió un mensaje`, {
+   659→                        description: cleanedMessage.slice(0, 80) + (cleanedMessage.length > 80 ? '...' : ''),
+   660→                        icon: <Sparkles className="h-4 w-4 text-amber-400" />,
+   661→                        duration: 4000,
+   662→                      });
+   663→
+   664→                      // Client-side memory extraction for proactive messages
+   665→                      // Triggered after the stream is fully processed, if server flagged shouldExtract
+   666→                      if (parsed.shouldExtract && cleanedMessage) {
+   667→                        const extractionMessage = cleanedMessage;
+   668→                        const extractionCharacterId = activeCharacter.id;
+   669→                        const extractionCharacterName = activeCharacter.name;
+   670→                        (async () => {
+   671→                          try {
+   672→                            const state = useTavernStore.getState();
+   673→                            const currentLLMConfig = state.llmConfigs.find(c => c.isActive);
+   674→                            const embeddingsChat = state.settings.embeddingsChat;
+   675→                            const currentSession = state.sessions.find(s => s.id === activeSessionId);
+   676→                            const sessionMsgs = currentSession?.messages || [];
+   677→                            const personaName = activePersona?.name || 'User';
+   678→
+   679→                            if (!currentLLMConfig) return;
+   680→
+   681→                            // Build chat context for context-aware extraction
+   682→                            const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth || 0;
+   683→                            let chatContextForExtraction: string | undefined;
+   684→                            if (extractionContextDepth > 0) {
+   685→                              const contextMessages = sessionMsgs
+   686→                                .filter(m => !m.isDeleted && m.content?.trim())
+   687→                                .slice(-(extractionContextDepth * 2 + 1));
+   688→                              if (contextMessages.length > 0) {
+   689→                                chatContextForExtraction = contextMessages
+   690→                                  .map(m => {
+   691→                                    const role = m.role === 'user' ? 'Jugador' : extractionCharacterName;
+   692→                                    const content = m.content.trim().slice(0, 300);
+   693→                                    return `${role}: ${content}`;
+   694→                                  })
+   695→                                  .join('\n  ');
+   696→                              }
+   697→                            }
+   698→
+   699→                            const extractionResponse = await fetch('/api/embeddings/extract-memory', {
+   700→                              method: 'POST',
+   701→                              headers: { 'Content-Type': 'application/json' },
+   702→                              body: JSON.stringify({
+   703→                                lastMessage: extractionMessage,
+   704→                                characterName: extractionCharacterName,
+   705→                                characterId: extractionCharacterId,
+   706→                                sessionId: activeSessionId || '',
+   707→                                userName: personaName,
+   708→                                llmConfig: {
+   709→                                  provider: currentLLMConfig.provider,
+   710→                                  endpoint: currentLLMConfig.endpoint,
+   711→                                  apiKey: currentLLMConfig.apiKey,
+   712→                                  model: currentLLMConfig.model,
+   713→                                  parameters: currentLLMConfig.parameters,
+   714→                                },
+   715→                                minImportance: embeddingsChat.memoryExtractionMinImportance || 2,
+   716→                                customPrompt: embeddingsChat.memoryExtractionPrompt,
+   717→                                chatContext: chatContextForExtraction,
+   718→                                consolidationSettings: embeddingsChat.memoryConsolidationEnabled ? {
+   719→                                  enabled: true,
+   720→                                  threshold: embeddingsChat.memoryConsolidationThreshold || 50,
+   721→                                  keepRecent: embeddingsChat.memoryConsolidationKeepRecent || 10,
+   722→                                  keepHighImportance: embeddingsChat.memoryConsolidationKeepHighImportance || 4,
+   723→                                } : undefined,
+   724→                                extractionModelConfig: embeddingsChat.extractionModelEnabled ? {
+   725→                                  extractionModelEnabled: true,
+   726→                                  extractionModelProvider: embeddingsChat.extractionModelProvider,
+   727→                                  extractionModelEndpoint: embeddingsChat.extractionModelEndpoint,
+   728→                                  extractionModelApiKey: embeddingsChat.extractionModelApiKey,
+   729→                                  extractionModelName: embeddingsChat.extractionModelName,
+   730→                                } : undefined,
+   731→                              }),
+   732→                            });
+   733→
+   734→                            if (extractionResponse.ok) {
+   735→                              const result = await extractionResponse.json();
+   736→                              if (result.success) {
+   737→                                console.log(`[Memory] Proactive extraction result for ${extractionCharacterName}: extracted=${result.count}, saved=${result.saved}`);
+   738→
+   739→                                // Sync memoryActivations to Character Memory
+   740→                                if (result.memoryActivations && result.memoryActivations.length > 0) {
+   741→                                  const store = useTavernStore.getState();
+   742→                                  for (const activation of result.memoryActivations) {
+   743→                                    store.addMemoryEvent(activation.characterId, {
+   744→                                      id: activation.eventData.id,
+   745→                                      type: activation.eventData.type as any,
+   746→                                      content: activation.eventData.content,
+   747→                                      importance: activation.eventData.importance,
+   748→                                      timestamp: new Date().toISOString(),
+   749→                                      embeddingId: activation.eventData.embeddingId,
+   750→                                      sessionId: activation.eventData.sessionId,
+   751→                                    });
+   752→                                  }
+   753→                                }
+   754→
+   755→                                if (result.saved > 0) {
+   756→                                  toast.success(`🧠 ${result.saved} memorias extraídas automáticamente`);
+   757→                                }
+   758→                              }
+   759→                            }
+   760→                          } catch (err) {
+   761→                            console.warn('[Memory] Proactive client-side extraction failed:', err);
+   762→                          }
+   763→                        })();
+   764→                      }
+   765→                    }
+   766→                  }
+   767→                  break;
+   768→
+   769→                case 'error':
+   770→                  onProactiveStreamEnd?.();
+   771→                  throw new Error(parsed.error || 'Error en la generación del mensaje proactivo');
+   772→
+   773→                default:
+   774→                  // Unknown event type - ignore
+   775→                  break;
+   776→              }
+   777→            } catch (parseError) {
+   778→              // Re-throw errors from 'error' SSE events; skip invalid JSON
+   779→              if (parseError instanceof Error && parseError.message.includes('Error en')) {
+   780→                throw parseError;
+   781→              }
+   782→              // Otherwise skip (invalid JSON, etc.)
+   783→            }
+   784→          }
+   785→        }
+   786→      } finally {
+   787→        reader.releaseLock();
+   788→      }
+   789→    } catch (error: any) {
+   790→      onProactiveStreamEnd?.();
+   791→      console.warn('[Proactive] Failed to generate message:', error?.message);
+   792→      toast('Error en mensaje proactivo', {
+   793→        description: error?.message || 'Error de conexión',
+   794→        duration: 3000,
+   795→      });
+   796→    } finally {
+   797→      setIsGeneratingProactive(false);
+   798→    }
+   799→  }, [activeCharacter, activeSession, llmConfig, config, activePersona, onProactiveMessage, onProactiveStreamStart, onProactiveStreamToken, onProactiveStreamEnd, addMessage, lorebooks, activeLorebookIds, isGeneratingProactive]);
+   800→
+   801→  // ─── Main timer logic ───
+   802→  useEffect(() => {
+   803→    if (timerRef.current) {
+   804→      clearInterval(timerRef.current);
+   805→      timerRef.current = null;
+   806→    }
+   807→    if (countdownRef.current) {
+   808→      clearInterval(countdownRef.current);
+   809→      countdownRef.current = null;
+   810→    }
+   811→
+   812→    if (!isActive) {
+   813→      setNextIn(null);
+   814→      return;
+   815→    }
+   816→
+   817→    const intervalMs = (config?.intervalSeconds ?? 300) * 1000;
+   818→
+   819→    // Update countdown every second
+   820→    countdownRef.current = setInterval(() => {
+   821→      const elapsed = Date.now() - lastActivityTimeRef.current;
+   822→      const remaining = Math.max(0, Math.floor((intervalMs - elapsed) / 1000));
+   823→      setNextIn(remaining);
+   824→    }, 1000);
+   825→
+   826→    // Check every 5 seconds if it's time to send
+   827→    timerRef.current = setInterval(() => {
+   828→      if (isGeneratingRef.current || isGeneratingProactive) return;
+   829→      if (!isActiveRef.current) return;
+   830→
+   831→      const elapsed = Date.now() - lastActivityTimeRef.current;
+   832→
+   833→      if (elapsed >= intervalMs) {
+   834→        const isHidden = document.hidden;
+   835→        const allowedStates = config?.allowedStates ?? ['idle'];
+   836→
+   837→        if (isHidden && !allowedStates.includes('user_away')) return;
+   838→        if (!isHidden && !allowedStates.includes('idle')) return;
+   839→
+   840→        const reason: 'timer_idle' | 'timer_away' = isHidden ? 'timer_away' : 'timer_idle';
+   841→        generateProactiveMessage(reason);
+   842→      }
+   843→    }, 5000);
+   844→
+   845→    return () => {
+   846→      if (timerRef.current) clearInterval(timerRef.current);
+   847→      if (countdownRef.current) clearInterval(countdownRef.current);
+   848→    };
+   849→  }, [isActive, config?.intervalSeconds, generateProactiveMessage, isGeneratingProactive]);
+   850→
+   851→  // Manual trigger (for testing)
+   852→  const triggerNow = useCallback(async () => {
+   853→    if (!activeCharacter || !activeSession || !llmConfig || !config) {
+   854→      toast('Mensajes proactivos', {
+   855→        description: 'Se requiere un personaje con proactive activado, una sesión de chat y un proveedor LLM configurado.',
+   856→        duration: 3000,
+   857→      });
+   858→      return;
+   859→    }
+   860→    await generateProactiveMessage('manual');
+   861→  }, [generateProactiveMessage, activeCharacter, activeSession, llmConfig, config]);
+   862→
+   863→  return {
+   864→    isActive,
+   865→    isConfigured,
+   866→    inactiveReason,
+   867→    nextIn: isActive ? nextIn : null,
+   868→    sessionCount,
+   869→    isGeneratingProactive,
+   870→    triggerNow,
+   871→  };
+   872→}
+   873→

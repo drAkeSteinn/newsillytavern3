@@ -51,6 +51,7 @@ import {
 } from '@/lib/context-manager';
 import { retrieveEmbeddingsContext, formatEmbeddingsForSSE } from '@/lib/embeddings/chat-context';
 import { processResponseAndReinforceMemories, isReinforcementEnabled } from '@/lib/embeddings/memory-reinforcement';
+import { isWardrobeAvailable } from '@/lib/wardrobe';
 import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
 
 import {
@@ -58,9 +59,9 @@ import {
   getToolDefinitionsByIds,
   resolveToolDefinitionsKeys,
   executeTool,
+  summarizeToolResult,
   getSessionReminders,
   createToolCallAccumulator,
-  finalizeToolCalls,
   hasToolCalls,
   buildToolMessagesForOpenAI,
   buildToolMessagesForOllama,
@@ -158,6 +159,7 @@ async function executeToolCallsAndContinue(
         allCharacters,
         characterMemory,
         lorebooks,
+        character,  // FASE 12: needed by manage_wardrobe tool
       },
     );
 
@@ -317,6 +319,25 @@ async function executeToolCallsAndContinue(
       }));
     }
 
+    // Check for wardrobe activation and send SSE event
+    if (toolResult.wardrobeActivation) {
+      const wa = toolResult.wardrobeActivation;
+      console.log(`[Tools] Wardrobe activation from ${tc.name}:`, wa.action, 'offset:', wa.previousOffset, '→', wa.newOffset);
+
+      controller.enqueue(createSSEJSON({
+        type: 'wardrobe_activation',
+        toolName: tc.name,
+        characterId: wa.characterId,
+        action: wa.action,
+        newOffset: wa.newOffset,
+        previousOffset: wa.previousOffset,
+        newLevelName: wa.newLevelName,
+        newLevelContent: wa.newLevelContent,
+        changed: wa.changed,
+        reason: wa.reason,
+      }));
+    }
+
     console.log(`[Tools] Tool ${tc.name}: success=${toolResult.success} duration=${toolResult.duration}ms`, toolResult.displayMessage);
 
     toolResults.push({ success: toolResult.success, displayMessage: toolResult.displayMessage });
@@ -325,6 +346,9 @@ async function executeToolCallsAndContinue(
       label: toolDef?.label || tc.name,
       icon: toolDef?.icon || 'Wrench',
       success: toolResult.success,
+      // Build a meaningful tooltip summary so the user understands what changed
+      details: summarizeToolResult(toolResult, tc.arguments),
+      displayMessage: toolResult.displayMessage,
     });
     if (toolResult.displayMessage) {
       allDisplayMessages += (allDisplayMessages ? '\n' : '') + toolResult.displayMessage;
@@ -564,6 +588,8 @@ export async function POST(request: NextRequest) {
       undefined, // groupId
       existingMemoryEvents, // for deduplication
       lastAssistantMsg, // bidirectional search with last assistant message
+      // FASE 14: pass main attribute key for importance boost in reranking
+      effectiveCharacter.statsConfig?.attributes?.find(a => a.isMain === true)?.key,
     );
     
     if (embeddingsResult.found) {
@@ -744,6 +770,12 @@ export async function POST(request: NextRequest) {
     if (embeddingsResult.memoryContextString?.trim()) {
       contextParts.push(embeddingsResult.memoryContextString);
     }
+    // FASE 14: Abstention directive — when memories are low-relevance, inject a hint
+    // telling the LLM to admit it doesn't remember rather than confabulating.
+    if (embeddingsResult.abstentionDirective) {
+      contextParts.push(embeddingsResult.abstentionDirective);
+      console.log('[Stream Route] Abstention directive injected (low memory relevance)');
+    }
     const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
 
     // Build the final system prompt (tools only, quest content resolved via {{activeQuests}} key)
@@ -768,6 +800,15 @@ export async function POST(request: NextRequest) {
     // Filter out group-only tools (this is a 1-on-1 chat route — no scene management here)
     if (availableTools.length > 0) {
       availableTools = availableTools.filter(t => !GROUP_ONLY_TOOL_IDS.includes(t.id));
+    }
+
+    // FASE 12: Filter out the manage_wardrobe tool if the character doesn't have
+    // a wardrobeConfig with levels + a main attribute. This auto-enables the tool
+    // only for characters that actually use the wardrobe system.
+    if (availableTools.length > 0) {
+      if (!isWardrobeAvailable(effectiveCharacter)) {
+        availableTools = availableTools.filter(t => t.id !== 'manage_wardrobe');
+      }
     }
     
     const toolsEnabled = toolsSettings.enabled && availableTools.length > 0;
@@ -868,6 +909,11 @@ export async function POST(request: NextRequest) {
     // Create a TransformStream for SSE
     const stream = new ReadableStream({
       async start(controller) {
+        // FIX: Declare these OUTSIDE the try block so the catch block can access them
+        // for graceful error recovery (sending partial content as 'done' instead of 'error').
+        let accumulatedContent = '';
+        let allToolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+        let allQuestActivations: import('@/types').QuestActivation[] = [];
         try {
           // Send prompt data at the start
           controller.enqueue(createSSEJSON({
@@ -897,12 +943,9 @@ export async function POST(request: NextRequest) {
           // If tools are enabled and provider supports native tool calling,
           // use the tool-aware streaming functions.
           // FIX EXPLORE-3: resolvedPostHistoryInstructions ya está resuelto arriba (nivel handler).
-          let accumulatedContent = '';
           const maxToolRounds = toolsSettings.maxToolCallsPerTurn || 2;
           let toolRound = 0;
           let toolContextMessages: Array<Record<string, unknown>> = []; // for tool result messages
-          let allToolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
-          let allQuestActivations: import('@/types').QuestActivation[] = [];
 
           // Build the initial chat messages once (shared across tool rounds for OpenAI/Anthropic)
           let baseChatMessages: import('@/lib/llm/types').ChatApiMessage[] | null = null;
@@ -1067,8 +1110,9 @@ Y cambiar mi expresión:
                       accumulatedContent += chunk;
                     }
 
-                    const toolCalls = finalizeToolCalls(accumulator);
-                    if (toolCalls.length > 0 && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                    // FIX: finalizeToolCalls returns void (mutates accumulator in place).
+                    // Use hasToolCalls(accumulator) + accumulator.toolCalls instead.
+                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
                       // Another tool call detected - stream buffered content and execute
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {
@@ -1076,15 +1120,30 @@ Y cambiar mi expresión:
                         }
                       }
                       const toolResult = await executeToolCallsAndContinue(
-                        toolCalls, availableTools, toolRound, maxToolRounds,
+                        accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                        lorebooks
                       );
-                      toolContextMessages = buildToolMessagesForOpenAI(toolContextMessages, toolCalls, toolResult);
-                      toolRound++;
-                      isToolRound = true;
-                      continue;
+                      allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
+                      allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
+                      if (toolResult.shouldContinue) {
+                        const toolResultPairs = toolResult.toolResults.length > 0
+                          ? toolResult.toolResults
+                          : accumulator.toolCalls.map(tc => ({
+                              success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
+                            }));
+                        // FIX: buildToolMessagesForOpenAI takes (toolCalls, toolResults), not (messages, toolCalls, toolResult)
+                        toolContextMessages = [
+                          ...toolContextMessages,
+                          ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ];
+                        accumulatedContent = '';
+                        toolRound++;
+                        isToolRound = true;
+                        continue;
+                      }
                     } else {
                       // No more tool calls - stream the response
                       const cleanedContent = cleanModelArtifacts(roundContent);
@@ -1252,7 +1311,8 @@ Y cambiar mi expresión:
                   if (canUseMoreTools) {
                     console.log(`[OpenAI+Tools] Tool round ${toolRound}: sending tool results with tools (character can chain actions)`);
                     const accumulator = createToolCallAccumulator(availableTools);
-                    generator = streamOpenAIWithTools(toolContextMessages as any, llmConfig, availableTools, accumulator);
+                    // FIX: streamOpenAIWithTools signature is (messages, config, provider, tools, accumulator) — was missing provider arg
+                    generator = streamOpenAIWithTools(toolContextMessages as any, llmConfig, llmConfig.provider, availableTools, accumulator);
 
                     let roundContent = '';
                     for await (const chunk of generator) {
@@ -1260,23 +1320,38 @@ Y cambiar mi expresión:
                       accumulatedContent += chunk;
                     }
 
-                    const toolCalls = finalizeToolCalls(accumulator);
-                    if (toolCalls.length > 0 && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                    // FIX: finalizeToolCalls returns void — use hasToolCalls(accumulator) + accumulator.toolCalls
+                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {
                           controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
                         }
                       }
                       const toolResult = await executeToolCallsAndContinue(
-                        toolCalls, availableTools, toolRound, maxToolRounds,
+                        accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                        lorebooks
                       );
-                      toolContextMessages = buildToolMessagesForOpenAI(toolContextMessages, toolCalls, toolResult);
-                      toolRound++;
-                      isToolRound = true;
-                      continue;
+                      allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
+                      allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
+                      if (toolResult.shouldContinue) {
+                        const toolResultPairs = toolResult.toolResults.length > 0
+                          ? toolResult.toolResults
+                          : accumulator.toolCalls.map(tc => ({
+                              success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
+                            }));
+                        // FIX: buildToolMessagesForOpenAI takes (toolCalls, toolResults), append to existing messages
+                        toolContextMessages = [
+                          ...toolContextMessages,
+                          ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ];
+                        accumulatedContent = '';
+                        toolRound++;
+                        isToolRound = true;
+                        continue;
+                      }
                     } else {
                       const cleanedContent = cleanModelArtifacts(roundContent);
                       for (const chunk of splitIntoChunks(cleanedContent)) {
@@ -1427,12 +1502,28 @@ Y cambiar mi expresión:
                         toolCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                        lorebooks
                       );
-                      toolContextMessages = buildToolMessagesForAnthropic(toolContextMessages, toolCalls, toolResult);
-                      toolRound++;
-                      isToolRound = true;
-                      continue;
+                      allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
+                      allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
+                      if (toolResult.shouldContinue) {
+                        const toolResultPairs = toolResult.toolResults.length > 0
+                          ? toolResult.toolResults
+                          : toolCalls.map(tc => ({
+                              success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
+                            }));
+                        // FIX: buildToolMessagesForAnthropic takes (toolCalls, toolResults), append to existing messages
+                        const toolMessages = buildToolMessagesForAnthropic(toolCalls, toolResultPairs);
+                        toolContextMessages = [
+                          ...toolContextMessages,
+                          ...toolMessages.flatMap(m => m),
+                        ];
+                        accumulatedContent = '';
+                        toolRound++;
+                        isToolRound = true;
+                        continue;
+                      }
                     } else {
                       const cleanedContent = cleanModelArtifacts(roundContent);
                       for (const chunk of splitIntoChunks(cleanedContent)) {
@@ -1561,6 +1652,51 @@ Y cambiar mi expresión:
                   const ollamaFollowUpTools = canUseMoreTools ? availableTools : [];
                   const toolFollowAccumulator = createToolCallAccumulator(availableTools);
                   generator = streamOllamaWithTools(toolContextMessages as any, llmConfig, ollamaFollowUpTools, toolFollowAccumulator);
+
+                  // FIX: The generator was created but never consumed. Now buffer and process properly.
+                  let roundContent = '';
+                  for await (const chunk of generator) {
+                    roundContent += chunk;
+                    accumulatedContent += chunk;
+                  }
+
+                  if (canUseMoreTools && hasToolCalls(toolFollowAccumulator)) {
+                    // Another tool call detected - stream content and execute
+                    if (roundContent.trim()) {
+                      for (const chunk of splitIntoChunks(roundContent)) {
+                        controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                      }
+                    }
+                    const toolResult = await executeToolCallsAndContinue(
+                      toolFollowAccumulator.toolCalls, availableTools, toolRound, maxToolRounds,
+                      effectiveCharacter, sessionId || '', effectiveUserName, controller,
+                      sessionQuests, questTemplates,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      lorebooks
+                    );
+                    allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
+                    allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
+                    if (toolResult.shouldContinue) {
+                      const toolResultPairs = toolResult.toolResults.length > 0
+                        ? toolResult.toolResults
+                        : toolFollowAccumulator.toolCalls.map(tc => ({
+                            success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
+                          }));
+                      const toolResultMessages = buildToolMessagesForOllama(toolFollowAccumulator.toolCalls, toolResultPairs);
+                      toolContextMessages = [...toolContextMessages, ...toolResultMessages] as any;
+                      accumulatedContent = '';
+                      toolRound++;
+                      isToolRound = true;
+                      continue;
+                    }
+                  } else {
+                    // No more tool calls - stream the response
+                    const cleanedContent = cleanModelArtifacts(roundContent);
+                    for (const chunk of splitIntoChunks(cleanedContent)) {
+                      controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                    }
+                    accumulatedContent = cleanModelArtifacts(accumulatedContent);
+                  }
                 } else {
                   // No tools - use standard completion endpoint
                   const prompt = buildCompletionPrompt({
@@ -1642,7 +1778,7 @@ Y cambiar mi expresión:
                       console.log(`[Grok+Tools] Text-based tool call(s) detected: ${textToolCalls.map(tc => tc.name).join(', ')}`);
                       const cleanContent = stripToolCallFromText(roundContent);
                       if (cleanContent.trim()) {
-                        for (const chunk of splitIntoChunks(cleanedContent)) {
+                        for (const chunk of splitIntoChunks(cleanContent)) {
                           controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
                         }
                       }
@@ -1680,7 +1816,55 @@ Y cambiar mi expresión:
                   // Follow-up with tool results - include tools so character can chain actions
                   const canUseMoreTools = toolRound < maxToolRounds;
                   const grokFollowUpTools = canUseMoreTools ? availableTools : [];
-                  generator = streamGrokWithTools(toolContextMessages as any, llmConfig, grokFollowUpTools, createToolCallAccumulator(availableTools));
+                  const toolFollowAccumulator = createToolCallAccumulator(availableTools);
+                  generator = streamGrokWithTools(toolContextMessages as any, llmConfig, grokFollowUpTools, toolFollowAccumulator);
+
+                  // FIX: The generator was created but never consumed. Now buffer and process properly.
+                  let roundContent = '';
+                  for await (const chunk of generator) {
+                    roundContent += chunk;
+                    accumulatedContent += chunk;
+                  }
+
+                  if (canUseMoreTools && hasToolCalls(toolFollowAccumulator) && (toolFollowAccumulator.finishReason === 'tool_calls' || toolFollowAccumulator.finishReason === 'stop')) {
+                    // Another tool call detected - stream content and execute
+                    if (roundContent.trim()) {
+                      for (const chunk of splitIntoChunks(roundContent)) {
+                        controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                      }
+                    }
+                    const toolResult = await executeToolCallsAndContinue(
+                      toolFollowAccumulator.toolCalls, availableTools, toolRound, maxToolRounds,
+                      effectiveCharacter, sessionId || '', effectiveUserName, controller,
+                      sessionQuests, questTemplates,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      lorebooks
+                    );
+                    allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
+                    allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
+                    if (toolResult.shouldContinue) {
+                      const toolResultPairs = toolResult.toolResults.length > 0
+                        ? toolResult.toolResults
+                        : toolFollowAccumulator.toolCalls.map(tc => ({
+                            success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
+                          }));
+                      toolContextMessages = [
+                        ...toolContextMessages,
+                        ...buildToolMessagesForOpenAI(toolFollowAccumulator.toolCalls, toolResultPairs),
+                      ];
+                      accumulatedContent = '';
+                      toolRound++;
+                      isToolRound = true;
+                      continue;
+                    }
+                  } else {
+                    // No more tool calls - stream the response
+                    const cleanedContent = cleanModelArtifacts(roundContent);
+                    for (const chunk of splitIntoChunks(cleanedContent)) {
+                      controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                    }
+                    accumulatedContent = cleanModelArtifacts(accumulatedContent);
+                  }
                 } else {
                   generator = streamGrok(chatMessages, llmConfig);
                 }
@@ -1689,7 +1873,7 @@ Y cambiar mi expresión:
 
               case 'text-generation-webui':
               case 'koboldcpp': {
-                if (shouldUseTools) {
+                if (shouldUseTools && !isToolRound) {
                   console.log(`[Stream] TextGenerationWebUI case: shouldUseTools=${shouldUseTools}`);
                   let chatMessages = buildChatMessages(
                     baseSystemPrompt || finalSystemPrompt,
@@ -1735,18 +1919,16 @@ Y cambiar mi expresión:
                       const toolResultPairs = accumulator.toolCalls.map(tc => ({
                         success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
                       }));
-                      const toolContextMessages = [
+                      // FIX: was `const toolContextMessages` (shadowing outer var) + `toolContext.push(...)` (undefined var).
+                      // Assign to outer toolContextMessages and set isToolRound for follow-up handling.
+                      baseChatMessages = chatMessages;
+                      toolContextMessages = [
                         ...chatMessages,
                         ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
                       ];
                       accumulatedContent = '';
                       toolRound++;
-                      toolContext.push(...toolContextMessages.map(m => ({
-                        role: m.role,
-                        content: m.content || '',
-                        toolCallId: (m as any).toolCallId,
-                        name: (m as any).name,
-                      })));
+                      isToolRound = true;
                       continue;
                     }
                   }
@@ -1761,6 +1943,56 @@ Y cambiar mi expresión:
                   accumulatedContent = cleanModelArtifacts(accumulatedContent);
                   toolRound = maxToolRounds + 1;
                   continue;
+                } else if (shouldUseTools && isToolRound) {
+                  // FIX: Follow-up call with tool results - was missing entirely
+                  const canUseMoreTools = toolRound < maxToolRounds;
+                  const tgwFollowUpTools = canUseMoreTools ? availableTools : [];
+                  const toolFollowAccumulator = createToolCallAccumulator(availableTools);
+                  generator = streamTextGenerationWebUIWithTools(toolContextMessages as any, llmConfig, tgwFollowUpTools, toolFollowAccumulator);
+
+                  let roundContent = '';
+                  for await (const chunk of generator) {
+                    roundContent += chunk;
+                    accumulatedContent += chunk;
+                  }
+
+                  if (canUseMoreTools && hasToolCalls(toolFollowAccumulator) && (toolFollowAccumulator.finishReason === 'tool_calls' || toolFollowAccumulator.finishReason === 'stop')) {
+                    if (roundContent.trim()) {
+                      for (const chunk of splitIntoChunks(roundContent)) {
+                        controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                      }
+                    }
+                    const toolResult = await executeToolCallsAndContinue(
+                      toolFollowAccumulator.toolCalls, availableTools, toolRound, maxToolRounds,
+                      effectiveCharacter, sessionId || '', effectiveUserName, controller,
+                      sessionQuests, questTemplates,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      lorebooks
+                    );
+                    allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
+                    allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
+                    if (toolResult.shouldContinue) {
+                      const toolResultPairs = toolResult.toolResults.length > 0
+                        ? toolResult.toolResults
+                        : toolFollowAccumulator.toolCalls.map(tc => ({
+                            success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
+                          }));
+                      toolContextMessages = [
+                        ...toolContextMessages,
+                        ...buildToolMessagesForOpenAI(toolFollowAccumulator.toolCalls, toolResultPairs),
+                      ];
+                      accumulatedContent = '';
+                      toolRound++;
+                      isToolRound = true;
+                      continue;
+                    }
+                  } else {
+                    const cleanedContent = cleanModelArtifacts(roundContent);
+                    for (const chunk of splitIntoChunks(cleanedContent)) {
+                      controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                    }
+                    accumulatedContent = cleanModelArtifacts(accumulatedContent);
+                  }
                 } else {
                   const prompt = buildCompletionPrompt({
                     systemPrompt: baseSystemPrompt || finalSystemPrompt,
@@ -1933,7 +2165,24 @@ Y cambiar mi expresión:
           controller.close();
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          controller.enqueue(createSSEJSON({ type: 'error', error: errorMessage }));
+          console.error(`[Stream] Error during streaming: ${errorMessage}`);
+          // FIX: Graceful degradation — if we already streamed some content, send a 'done'
+          // event instead of an 'error' so the client keeps the partial response instead of
+          // showing a scary error after a successful tool execution.
+          if (accumulatedContent && accumulatedContent.trim().length > 0) {
+            console.log(`[Stream] Recovering gracefully — ${accumulatedContent.length} chars already streamed, sending done event`);
+            controller.enqueue(createSSEJSON({
+              type: 'done',
+              toolsUsed: allToolsUsed,
+              questActivations: allQuestActivations,
+              shouldExtract: false,
+              shouldEvaluateEmotion: false,
+              partialRecovery: true,
+              recoveryNote: errorMessage,
+            }));
+          } else {
+            controller.enqueue(createSSEJSON({ type: 'error', error: errorMessage }));
+          }
           controller.close();
         }
       }

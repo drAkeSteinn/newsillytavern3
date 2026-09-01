@@ -63,6 +63,13 @@ export interface EmbeddingsContextResult {
   section: PromptSection | null;
   /** Combined type groups */
   typeGroups?: Record<string, number>;
+
+  // FASE 14: Abstention directive
+  /** When memories are low-relevance, this directive tells the LLM to admit it doesn't remember.
+   *  Null when memories are relevant enough (top score >= threshold). */
+  abstentionDirective?: string | null;
+  /** Whether reranking was applied (for debugging/UI) */
+  rerankingApplied?: boolean;
 }
 
 /** Create an empty result */
@@ -111,10 +118,22 @@ export async function retrieveEmbeddingsContext(
   groupId?: string,
   existingMemoryEvents?: Array<{ content: string; importance: number }>,
   lastAssistantMessage?: string,  // NEW parameter for bidirectional search
+  mainAttributeKey?: string,  // FASE 14: for importance boost on main attribute memories
 ): Promise<EmbeddingsContextResult> {
-  if (!settings?.enabled) {
+  // FASE 16: Knowledge search can be enabled independently from full memory pipeline.
+  // - `enabled` controls the full memory system (extraction + retrieval + reinforcement)
+  // - `knowledgeSearchEnabled` controls ONLY the knowledge/backhistory search (character namespace)
+  // If neither is enabled, return empty.
+  const fullEnabled = settings?.enabled === true;
+  const knowledgeEnabled = settings?.knowledgeSearchEnabled !== false; // default true
+
+  if (!fullEnabled && !knowledgeEnabled) {
     return emptyResult();
   }
+
+  // If only knowledge search is enabled (not full), we still search but
+  // we filter to only return non-memory results (knowledge/lore/file type)
+  const knowledgeOnly = !fullEnabled && knowledgeEnabled;
 
   if (!userMessage.trim()) {
     return emptyResult();
@@ -133,9 +152,21 @@ export async function retrieveEmbeddingsContext(
       characterId,
       sessionId,
       groupId,
+      settings.crossSessionMemory,
     );
+
+    // FASE 16: When only knowledge search is enabled (not full memory),
+    // filter out memory-* namespaces — we only want knowledge/lore/file content.
+    let filteredNamespaces = strategyNamespaces;
+    if (knowledgeOnly) {
+      filteredNamespaces = strategyNamespaces.filter(ns =>
+        !ns.startsWith('memory-')
+      );
+      console.log(`[Embeddings] Knowledge-only mode: searching ${filteredNamespaces.length} namespaces (excluded memory)`);
+    }
+
     const customNamespaces = settings.customNamespaces;
-    const namespaceSet = new Set(strategyNamespaces);
+    const namespaceSet = new Set(filteredNamespaces);
     if (customNamespaces && customNamespaces.length > 0) {
       for (const ns of customNamespaces) {
         namespaceSet.add(ns);
@@ -250,23 +281,25 @@ export async function retrieveEmbeddingsContext(
       return emptyResult();
     }
 
-    // Sort by similarity (highest first)
-    allResults.sort((a, b) => b.similarity - a.similarity);
-
-    // Apply composite scoring: combine similarity with importance
-    // This ensures highly important memories get a boost even if they're slightly less similar
-    allResults.forEach(r => {
-      const importance = (r.metadata as Record<string, any>)?.importance || 3;
-      // Importance boost: +0.02 per importance level above 3, -0.02 per level below
-      // This is subtle enough not to override semantic relevance but gives important memories an edge
-      const importanceBoost = (importance - 3) * 0.02;
-      // Only boost memory-type embeddings (lore/world content uses flat importance)
-      if (r.source_type === 'memory') {
-        r.similarity = Math.min(1.0, r.similarity + importanceBoost);
-      }
+    // FASE 14: Advanced Reranking
+    // Apply temporal decay (exponential), memory heat, importance boost, and diversity.
+    // This replaces the basic importance boost with a more sophisticated scoring
+    // inspired by VoiceMem's rescue bonuses + temporal decay.
+    const rerankedResults = applyAdvancedReranking(allResults, {
+      temporalBoost: settings.memoryHeatEnabled !== false,
+      diversityBoost: true,
+      importanceBoost: true,
+      decayDays: settings.memoryDecayDays || 14,
+      decayEnabled: settings.memoryDecayEnabled !== false,
+      mainAttributeKey,  // FASE 14: boost memories mentioning the main attribute
+      queryText: searchQuery,  // FASE 14: for episodic vs semantic boost detection
     });
 
-    // Re-sort after composite scoring
+    // Replace allResults with reranked version
+    allResults.length = 0;
+    allResults.push(...rerankedResults);
+
+    // Sort by final similarity score (highest first)
     allResults.sort((a, b) => b.similarity - a.similarity);
 
     // Filter out the LATEST summary embedding — it's injected separately as [RECUERDOS ANTERIORES]
@@ -337,13 +370,37 @@ export async function retrieveEmbeddingsContext(
     // Load namespace info to get types for grouping
     const namespaceTypes = await getNamespaceTypesMap(trimmed);
 
+    // FASE 14: Memory Heat Tracking — increment heat for retrieved memories.
+    // This is fire-and-forget (non-blocking) so it doesn't slow down the chat.
+    // Only memory-type embeddings get heat (not lore/world content).
+    if (settings.memoryHeatEnabled !== false) {
+      const memoryIds = trimmed
+        .filter(r => r.source_type === 'memory')
+        .map(r => r.id);
+      if (memoryIds.length > 0) {
+        // Fire-and-forget — don't await, don't block the chat
+        client.incrementMemoryHeatBatch(memoryIds, 1).catch(err => {
+          console.warn('[Embeddings] Memory heat tracking failed (non-blocking):', err);
+        });
+      }
+    }
+
     // SPLIT results: memory (source_type='memory') vs non-memory (everything else)
-    const nonMemoryResults = trimmed.filter(r => r.source_type !== 'memory');
-    const memoryResults = trimmed.filter(r => r.source_type === 'memory');
+    // FASE 16: In knowledge-only mode, all results are non-memory (we filtered memory namespaces)
+    let nonMemoryResults = trimmed.filter(r => r.source_type !== 'memory');
+    let memoryResults = trimmed.filter(r => r.source_type === 'memory');
+
+    // In knowledge-only mode, there should be no memory results (we excluded memory namespaces)
+    // but filter defensively in case some ended up here
+    if (knowledgeOnly) {
+      memoryResults = [];
+      nonMemoryResults = trimmed; // all results are knowledge
+    }
 
     // Give each category half the token budget (memory gets slightly more as it's more actionable)
-    const nonMemoryBudget = Math.floor(maxBudget * 0.45);
-    const memoryBudget = Math.floor(maxBudget * 0.55);
+    // FASE 16: In knowledge-only mode, give all budget to non-memory (knowledge)
+    const nonMemoryBudget = knowledgeOnly ? maxBudget : Math.floor(maxBudget * 0.45);
+    const memoryBudget = knowledgeOnly ? 0 : Math.floor(maxBudget * 0.55);
 
     // Build grouped context strings for non-memory
     const nonMemory = buildGroupedContextString(nonMemoryResults, namespaceTypes, nonMemoryBudget, 'CONTEXTO RELEVANTE');
@@ -442,6 +499,10 @@ export async function retrieveEmbeddingsContext(
       contextString: combinedContextString,
       section: showInViewer ? combinedSection : null,
       typeGroups: { ...nonMemory.typeGroups, ...memoryTypeGroups },
+
+      // FASE 14: Abstention directive + reranking flag
+      abstentionDirective: getAbstentionDirective(trimmed, 0.35),
+      rerankingApplied: true,
     };
   } catch (error) {
     console.error('[Embeddings] Context retrieval failed:', error);
@@ -481,12 +542,13 @@ async function getNamespaceTypesMap(results: SearchResult[]): Promise<Record<str
 /**
  * Determine which namespaces to search based on the configured strategy.
  *
- * IMPORTANT: Only searches namespaces explicitly configured. No hardcoded
- * 'default', 'world', or 'world-building' namespaces are included unless
- * the character/group card explicitly lists them in embeddingNamespaces.
+ * FASE 14: When crossSessionMemory is enabled (default), memories are stored
+ * WITHOUT sessionId in the namespace — so characters remember across sessions.
+ * When disabled, falls back to per-session namespaces (legacy).
  *
  * Always includes:
- *   - memory-character-{characterId}-{sessionId} (session-scoped memories)
+ *   - memory-character-{characterId} (cross-session, when enabled)
+ *   - OR memory-character-{characterId}-{sessionId} (per-session, when disabled)
  *   - character-{characterId} (character lore/knowledge)
  *
  * Plus any namespaces configured in the character/group card's embeddingNamespaces.
@@ -497,7 +559,10 @@ function getNamespacesForStrategy(
   characterId?: string,
   sessionId?: string,
   groupId?: string,
+  crossSessionMemory?: boolean,
 ): string[] {
+  const useCrossSession = crossSessionMemory !== false; // default true
+
   switch (strategy) {
     case 'global':
       return ['*'];
@@ -505,9 +570,12 @@ function getNamespacesForStrategy(
     case 'character':
     case 'session': {
       const ns: string[] = [];
-      // ALWAYS include: session-specific MEMORY namespace (memories extracted from chat)
-      if (characterId && sessionId) ns.push(`memory-character-${characterId}-${sessionId}`);
-      if (groupId && sessionId) ns.push(`memory-group-${groupId}-${sessionId}`);
+      const sessionSuffix = (!useCrossSession && sessionId) ? `-${sessionId}` : '';
+
+      // Cross-session MEMORY namespace (memories extracted from chat)
+      if (characterId) ns.push(`memory-character-${characterId}${sessionSuffix}`);
+      if (groupId) ns.push(`memory-group-${groupId}${sessionSuffix}`);
+
       // ALWAYS include: character/group lore namespace (manually created content)
       if (characterId) ns.push(`character-${characterId}`);
       if (groupId) ns.push(`group-${groupId}`);
@@ -534,7 +602,9 @@ function buildGroupedContextString(
   maxTokenBudget: number,
   header: string
 ): { contextString: string; typeGroups: Record<string, number> } {
-  const maxChars = maxTokenBudget * 4;
+  // FASE 16 FIX: Use CHARS_PER_TOKEN (3.5) instead of hardcoded 4.
+  // This was causing ~14% more content than the budget represented.
+  const maxChars = Math.floor(maxTokenBudget * CHARS_PER_TOKEN);
 
   // Group results by type
   const groups = new Map<string, SearchResult[]>();
@@ -616,6 +686,190 @@ function buildGroupedContextString(
     contextString: parts.join('\n\n'),
     typeGroups,
   };
+}
+
+// ============================================
+// FASE 14: Advanced Reranking (VoiceMem-inspired)
+// ============================================
+
+interface RerankingOptions {
+  /** Boost recent memories with exponential decay */
+  temporalBoost: boolean;
+  /** Penalize similar/duplicate content */
+  diversityBoost: boolean;
+  /** Boost high-importance memories */
+  importanceBoost: boolean;
+  /** Decay period in days (for temporal boost) */
+  decayDays: number;
+  /** Whether decay is enabled */
+  decayEnabled: boolean;
+  /** FASE 14: Main attribute key — memories mentioning it get boosted */
+  mainAttributeKey?: string;
+  /** FASE 14: Original query text — for episodic vs semantic boost detection */
+  queryText?: string;
+}
+
+/**
+ * Apply advanced reranking to search results.
+ *
+ * Inspired by VoiceMem's approach:
+ * - Temporal decay: exponential decay based on age (half-life = decayDays/2)
+ * - Importance boost: +0.05 per importance level above 3
+ * - Memory type bonus: hechos get +0.02, eventos get +0.01
+ * - Diversity: penalize results with >40% word overlap with already-selected results
+ * - Main attribute boost: +0.05 for memories mentioning the character's main attribute
+ *
+ * This runs AFTER the initial cosine search, re-scoring and re-sorting results.
+ */
+function applyAdvancedReranking(results: SearchResult[], options: RerankingOptions): SearchResult[] {
+  if (results.length === 0) return results;
+
+  const now = Date.now();
+  const dayMs = 1000 * 60 * 60 * 24;
+  const halfLifeDays = Math.max(1, options.decayDays / 2);
+
+  // Score each result with a composite score
+  const scored = results.map(r => {
+    let compositeScore = r.similarity;
+    const contentLower = r.content.toLowerCase();
+
+    // 1. Temporal decay (exponential) — recent memories get boosted, old ones decayed
+    if (options.temporalBoost && options.decayEnabled) {
+      const createdAt = new Date((r.metadata as Record<string, any>)?.created_at || r.metadata?.extracted_at || 0).getTime();
+      if (createdAt > 0) {
+        const daysOld = (now - createdAt) / dayMs;
+        // Exponential decay: memory value halves every `halfLifeDays` days
+        // temporalFactor = 1.0 (today) → 0.5 (halfLife) → 0.25 (2x halfLife) → ...
+        const temporalFactor = Math.pow(0.5, daysOld / halfLifeDays);
+        // Apply: 70% original similarity + 30% temporal factor
+        compositeScore = r.similarity * 0.7 + (r.similarity * temporalFactor) * 0.3;
+      }
+    }
+
+    // 2. Importance boost
+    if (options.importanceBoost && r.source_type === 'memory') {
+      const importance = (r.metadata as Record<string, any>)?.importance || 3;
+      // +0.05 per importance level above 3, -0.03 per level below
+      const importanceBoost = (importance - 3) * 0.05;
+      compositeScore += importanceBoost;
+    }
+
+    // 3. Memory type bonus
+    const memoryType = (r.metadata as Record<string, any>)?.memory_type;
+    if (memoryType === 'hecho') compositeScore += 0.02;
+    else if (memoryType === 'evento') compositeScore += 0.01;
+    else if (memoryType === 'secreto') compositeScore += 0.03; // secrets are more impactful
+
+    // 4. Memory heat boost (if metadata has heat/retrieval_count)
+    const heat = (r.metadata as Record<string, any>)?.heat || 0;
+    if (heat > 0) {
+      // Each retrieval boosts score slightly (max +0.05)
+      compositeScore += Math.min(0.05, heat * 0.01);
+    }
+
+    // 5. Recency boost (subtle — memories from today get +0.05)
+    const createdAt = new Date((r.metadata as Record<string, any>)?.created_at || 0).getTime();
+    if (createdAt > 0) {
+      const daysOld = (now - createdAt) / dayMs;
+      if (daysOld < 1) compositeScore += 0.05; // today
+      else if (daysOld < 3) compositeScore += 0.03; // this week
+    }
+
+    // 6. FASE 14: Main attribute boost — memories mentioning the character's main attribute
+    // (e.g., "adiccion" for Ximena) are more central to the character's identity.
+    if (options.mainAttributeKey && contentLower.includes(options.mainAttributeKey.toLowerCase())) {
+      compositeScore += 0.05;
+    }
+
+    // 7. FASE 14: Episodic vs Semantic boost
+    // - Episodic memories (specific events) get boosted when the query asks "what happened" / "cuando" / "ayer"
+    // - Semantic memories (general facts) get boosted when the query asks "what is" / "le gusta" / "es"
+    const isEpisodic = (r.metadata as Record<string, any>)?.episodica === true;
+    const queryLower = (options.queryText || '').toLowerCase();
+    if (isEpisodic) {
+      // Boost episodic memories for temporal/event queries
+      if (/\b(cuando|ayer|anoche|la semana pasada|hoy|el otro dia|pasado|ocurrio|paso|sucedio|que hizo|que dij|que pas)\b/.test(queryLower)) {
+        compositeScore += 0.05;
+      }
+    } else {
+      // Boost semantic memories for general-knowledge queries
+      if (/\b(le gusta|le interesa|es|tiene|sabe|conoce|prefiere|quiere|odia|leer|disfruta)\b/.test(queryLower)) {
+        compositeScore += 0.03;
+      }
+    }
+
+    return { result: r, score: Math.max(0, Math.min(1.0, compositeScore)) };
+  });
+
+  // Sort by composite score
+  scored.sort((a, b) => b.score - a.score);
+
+  // Apply diversity boost: penalize similar content
+  if (options.diversityBoost) {
+    const selected: Array<{ result: SearchResult; score: number }> = [];
+    const selectedWordSets: Array<Set<string>> = [];
+
+    for (const item of scored) {
+      // Create content signature (words > 3 chars)
+      const words = item.result.content
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(w => w.length > 3);
+      const wordSet = new Set(words);
+
+      // Calculate diversity penalty based on overlap with already-selected results
+      let diversityPenalty = 0;
+      for (const selectedWords of selectedWordSets) {
+        const overlap = Array.from(wordSet).filter(w => selectedWords.has(w)).length;
+        const overlapRatio = overlap / Math.max(wordSet.size, selectedWords.size);
+        if (overlapRatio > 0.4) {
+          // Heavy penalty for >40% overlap
+          diversityPenalty += overlapRatio * 0.15;
+        }
+      }
+
+      const finalScore = item.score - diversityPenalty;
+
+      selected.push({ result: { ...item.result, similarity: finalScore }, score: finalScore });
+      selectedWordSets.push(wordSet);
+    }
+
+    return selected.map(s => s.result).sort((a, b) => b.similarity - a.similarity);
+  }
+
+  // No diversity boost: just return sorted by score
+  return scored.map(s => ({ ...s.result, similarity: s.score }));
+}
+
+/**
+ * FASE 14: Abstention Directive
+ *
+ * When the top search result has a very low similarity score (below threshold),
+ * inject an abstention hint telling the LLM to admit it doesn't remember,
+ * rather than confabulating.
+ *
+ * This is inspired by VoiceMem's "say you don't know" abstention directive.
+ *
+ * @param topResults - The top search results after reranking
+ * @param threshold - Below this similarity, trigger abstention (default: 0.35)
+ * @returns An abstention hint string, or null if memories are relevant enough
+ */
+export function getAbstentionDirective(
+  topResults: SearchResult[],
+  threshold: number = 0.35
+): string | null {
+  if (topResults.length === 0) {
+    // No memories found at all — strong abstention
+    return `[DIRECTIVA DE ABSTENCIÓN]\nNo tienes memorias específicas sobre este tema. Si el usuario pregunta algo concreto que no recuerdas, di honestamente que no lo recuerdas o no lo sabes, en lugar de inventar información. Es mejor admitir que no sabes que confabular.`;
+  }
+
+  // Check if the TOP result is below threshold
+  const topScore = topResults[0]?.similarity || 0;
+  if (topScore < threshold) {
+    return `[DIRECTIVA DE ABSTENCIÓN]\nLas memorias recuperadas sobre este tema son poco relevantes (similitud baja). Si el usuario pregunta algo específico que no recuerdas claramente, di que no lo recuerdas en lugar de inventar detalles.`;
+  }
+
+  return null;
 }
 
 /**

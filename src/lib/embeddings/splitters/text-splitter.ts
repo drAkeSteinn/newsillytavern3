@@ -161,7 +161,10 @@ function mergeSplits(
 }
 
 // ============ Markdown Text Splitter ============
-// Splits by markdown headings first, then recursively
+// Splits by markdown headings first, then recursively.
+// FASE 16: Preserves heading hierarchy context in each chunk —
+// each chunk starts with its section heading so the embedding
+// captures what the section is about.
 
 export function markdownTextSplit(
   text: string,
@@ -173,36 +176,100 @@ export function markdownTextSplit(
   }
 
   // Split by headings (# ## ### etc.)
+  // Match: # Heading, ## Heading, ### Heading, etc.
   const headingRegex = /^(#{1,6})\s+.+$/gm;
-  const sections: string[] = [];
+  const sections: Array<{ heading: string; content: string; level: number }> = [];
   let lastIndex = 0;
   let match;
 
+  // Track heading hierarchy for context
+  const headingStack: string[] = [];
+
   while ((match = headingRegex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      sections.push(text.slice(lastIndex, match.index));
+      // Content before this heading (preamble)
+      const preamble = text.slice(lastIndex, match.index).trim();
+      if (preamble) {
+        sections.push({
+          heading: headingStack.length > 0 ? headingStack[headingStack.length - 1] : '',
+          content: preamble,
+          level: 0,
+        });
+      }
     }
+
+    // Parse the heading
+    const fullHeading = match[0]; // e.g., "## Escuela Secundaria: la fama se le adelanta"
+    const level = match[1].length; // number of # (1-6)
+
+    // Update heading stack
+    while (headingStack.length >= level) {
+      headingStack.pop();
+    }
+    headingStack.push(fullHeading);
+
+    // Find the end of this heading's content (start of next heading or end of text)
     lastIndex = match.index;
+    headingRegex.lastIndex = match.index + match[0].length;
+    const nextMatch = headingRegex.exec(text);
+    const sectionEnd = nextMatch ? nextMatch.index : text.length;
+    // Reset lastIndex to continue from current position
+    headingRegex.lastIndex = match.index + match[0].length;
+
+    const sectionContent = text.slice(lastIndex, sectionEnd).trim();
+
+    sections.push({
+      heading: fullHeading,
+      content: sectionContent,
+      level,
+    });
+
+    lastIndex = sectionEnd;
   }
 
+  // Handle remaining content after last heading
   if (lastIndex < text.length) {
-    sections.push(text.slice(lastIndex));
+    const remaining = text.slice(lastIndex).trim();
+    if (remaining) {
+      sections.push({
+        heading: headingStack.length > 0 ? headingStack[headingStack.length - 1] : '',
+        content: remaining,
+        level: 0,
+      });
+    }
   }
 
+  // If no sections found (no headings), treat entire text as one section
   if (sections.length === 0) {
-    sections.push(text);
+    sections.push({ heading: '', content: text.trim(), level: 0 });
   }
 
   // Process each section: if too big, split recursively
   const chunks: string[] = [];
   for (const section of sections) {
-    const trimmed = section.trim();
-    if (trimmed.length <= chunkSize) {
-      chunks.push(trimmed);
+    let sectionText = section.content;
+    if (!sectionText.trim()) continue;
+
+    // If the section is small enough, keep it as one chunk (with heading as context)
+    if (sectionText.length <= chunkSize) {
+      chunks.push(sectionText.trim());
     } else {
-      // Split large sections recursively
-      const subChunks = splitTextWithOverlap(trimmed, chunkSize, chunkOverlap);
-      chunks.push(...subChunks);
+      // Split large sections recursively, but preserve the heading context
+      // by prepending the heading to each sub-chunk
+      const subChunks = splitTextWithOverlap(sectionText, chunkSize, chunkOverlap);
+      for (const subChunk of subChunks) {
+        // If the sub-chunk doesn't already start with the heading, and there's room, prepend it
+        if (section.heading && !subChunk.startsWith(section.heading)) {
+          const headingPrefix = section.heading + '\n';
+          if (subChunk.length + headingPrefix.length <= chunkSize) {
+            chunks.push((headingPrefix + subChunk).trim());
+          } else {
+            chunks.push(subChunk.trim());
+          }
+        } else {
+          chunks.push(subChunk.trim());
+        }
+      }
     }
   }
 

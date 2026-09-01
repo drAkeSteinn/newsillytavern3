@@ -23,6 +23,7 @@ import {
   type PersonaInventoryEntry,
   type InventoryV2Settings,
   type EquipmentSlotDefinition,
+  type CharacterSlotDefinition,
   type InventoryNotification,
   type CostOperator,
   type SessionStats,
@@ -478,6 +479,25 @@ export interface InventorySlice {
   deleteEquipmentSlot: (id: string) => void;
   getEquipmentSlotById: (id: string) => EquipmentSlotDefinition | undefined;
   getEquipmentSlots: () => EquipmentSlotDefinition[];
+  /**
+   * FASE 19: Get equipment slots for a specific character.
+   * Returns character.equipmentSlots if defined, otherwise falls back to global inventorySettings.equipmentSlots.
+   */
+  getEquipmentSlotsForCharacter: (characterId?: string) => EquipmentSlotDefinition[];
+  /**
+   * FASE 19: Get equipment slots for the active persona.
+   * Returns persona.equipmentSlots if defined, otherwise falls back to global.
+   */
+  getEquipmentSlotsForPersona: () => EquipmentSlotDefinition[];
+  /**
+   * FASE 19: Get slot definitions (effects, restrictions) for a character.
+   * Returns character.slotDefinitions if defined, otherwise empty array.
+   */
+  getSlotDefinitionsForCharacter: (characterId?: string) => CharacterSlotDefinition[];
+  /**
+   * FASE 19: Get slot definitions for the active persona.
+   */
+  getSlotDefinitionsForPersona: () => CharacterSlotDefinition[];
 
   // ===== Utility =====
   exportInventory: () => { items: Item[]; activeEffects: ActiveConsumableEffect[]; settings: InventoryV2Settings; dynamicEquipmentState: Record<string, DynamicEquipmentState> };
@@ -1521,6 +1541,44 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
 
   getEquipmentSlots: () => {
     return get().inventorySettings.equipmentSlots || [];
+  },
+
+  // FASE 19: Per-character equipment slots with fallback to global
+  getEquipmentSlotsForCharacter: (characterId?: string) => {
+    if (characterId) {
+      const characters = (get() as any).characters || [];
+      const character = characters.find((c: any) => c.id === characterId);
+      if (character?.equipmentSlots && character.equipmentSlots.length > 0) {
+        return character.equipmentSlots;
+      }
+    }
+    // Fallback to global
+    return get().inventorySettings.equipmentSlots || [];
+  },
+
+  getEquipmentSlotsForPersona: () => {
+    const personas = (get() as any).personas || [];
+    const activePersonaId = (get() as any).activePersonaId;
+    const persona = personas.find((p: any) => p.id === activePersonaId);
+    if (persona?.equipmentSlots && persona.equipmentSlots.length > 0) {
+      return persona.equipmentSlots;
+    }
+    // Fallback to global
+    return get().inventorySettings.equipmentSlots || [];
+  },
+
+  getSlotDefinitionsForCharacter: (characterId?: string) => {
+    if (!characterId) return [];
+    const characters = (get() as any).characters || [];
+    const character = characters.find((c: any) => c.id === characterId);
+    return character?.slotDefinitions || [];
+  },
+
+  getSlotDefinitionsForPersona: () => {
+    const personas = (get() as any).personas || [];
+    const activePersonaId = (get() as any).activePersonaId;
+    const persona = personas.find((p: any) => p.id === activePersonaId);
+    return persona?.slotDefinitions || [];
   },
 
   exportInventory: () => {

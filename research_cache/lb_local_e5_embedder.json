@@ -1,0 +1,20 @@
+{
+  "code": 200,
+  "data": {
+    "description": "",
+    "html": "<html><head><meta name=\"color-scheme\" content=\"light dark\"></head><body><pre style=\"word-wrap: break-word; white-space: pre-wrap;\">\"\"\"本地 E5 embedder（离线 memory embedding，不碰网络）。\n\n和远程 ``OpenAILocalEmbedder``（``local_memory_store.py``，走 OpenAI Embeddings API）\n对称：这里用本地 ``intfloat/multilingual-e5-small`` 出向量，整条 Rank/存取都在\n0-300ms 投机预算内不碰网络。\n\n    from voicemem import VoiceMem\n    from voicemem.leftbrain.local_e5_embedder import LocalE5Embedder\n    vm = VoiceMem(embedding=lambda: LocalE5Embedder())   # 记忆向量走本地 E5，0 网络\n\n``shared_e5()`` 缓存单份 SentenceTransformer，供 embedding 与本地 slot 分类\n（``LocalQueryClassifier(model=shared_e5())``）共享，省一份内存。\n\nE5 的 ``\"query: \"`` / ``\"passage: \"`` 前缀是必须的（不是装饰）。模型首次用自动下载。\n\"\"\"\nfrom __future__ import annotations\n\nfrom functools import lru_cache\n\nimport numpy as np\n\n# 有离线包（models/embedding/）就用本地，否则用 HF id 首次运行自动下\ndef _e5_name() -> str:\n    from voicemem.utils.common.paths import hf_model\n    return hf_model(\"embedding\", \"intfloat/multilingual-e5-small\", \"VOICEMEM_E5_MODEL\")\n\n\n_E5_NAME = _e5_name()\n\n\n@lru_cache(maxsize=1)\ndef shared_e5():\n    \"\"\"缓存单份本地 E5（memory embedding + slot 分类共享同一实例，省一份内存）。\"\"\"\n    import os as _os\n    # 每次启动都刷一条 \"Loading weights: 100%|███| 199/199\"（transformers 用 tqdm\n    # 打的）。模型在本地、一瞬间就加载完，这条除了吓人没有信息量。\n    # 想看加载细节就设 VOICEMEM_VERBOSE=1。\n    if _os.environ.get(\"VOICEMEM_VERBOSE\", \"0\") == \"0\":\n        try:\n            from transformers.utils import logging as _hf_logging\n            _hf_logging.disable_progress_bar()\n        except Exception:\n            pass\n    from sentence_transformers import SentenceTransformer\n    return SentenceTransformer(_E5_NAME)\n\n\nclass LocalE5Embedder:\n    \"\"\"注入 VoiceMem(embedding=...)：Rank/存取的向量走本地 E5，0-300ms 预算内不碰网络。\"\"\"\n\n    @property\n    def model_name(self):\n        return f\"{_E5_NAME} (local)\"\n\n    @property\n    def dimensions(self):\n        # 新版 sentence-transformers 把它改名成 get_embedding_dimension，旧名还在\n        # 但会打 FutureWarning。两个名字都试，跨版本都不吵。\n        m = shared_e5()\n        fn = getattr(m, \"get_embedding_dimension\", None) or m.get_sentence_embedding_dimension\n        return fn()\n\n    def embed_texts(self, texts):\n        if not texts:\n            return []\n        return np.asarray(shared_e5().encode([f\"passage: {t}\" for t in texts],\n                                             normalize_embeddings=True)).tolist()\n\n    def embed_query_text(self, text):\n        return np.asarray(shared_e5().encode([f\"query: {text}\"], normalize_embeddings=True)[0]).tolist()\n</pre></body></html>",
+    "httpStatus": 200,
+    "httpStatusText": "",
+    "title": "",
+    "url": "https://raw.githubusercontent.com/xzf-thu/VoiceMem/main/voicemem/leftbrain/local_e5_embedder.py",
+    "usage": {
+      "tokens": 848
+    }
+  },
+  "meta": {
+    "usage": {
+      "tokens": 848
+    }
+  },
+  "status": 20000
+}

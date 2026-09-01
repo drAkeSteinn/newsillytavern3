@@ -1,0 +1,74 @@
+[
+  {
+    "url": "https://arxiv.org/html/2608.26005v1",
+    "name": "VoiceMem: Streaming Dual-Brain Memory for Real-Time",
+    "snippet": "We introduce VoiceMem, a simple memory architecture with a parallel informational left brain, an emotional right brain, and streaming memory I/O ...",
+    "host_name": "arxiv.org",
+    "rank": 0,
+    "date": "5 hari lalu",
+    "favicon": ""
+  },
+  {
+    "url": "https://huggingface.co/papers/2608.26005",
+    "name": "Streaming Dual-Brain Memory for Real-Time Interaction",
+    "snippet": "Abstract. VoiceMem introduces a dual-brain streaming memory architecture for speech language models that improves retrieval accuracy, emotional ...",
+    "host_name": "huggingface.co",
+    "rank": 1,
+    "date": "4 hari lalu",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.opentrain.ai/papers/voicemem-streaming-dual-brain-memory-for-real-time-interaction--arxiv-2608.26005",
+    "name": "VoiceMem: Streaming Dual-Brain Memory for Real-Time",
+    "snippet": "These results show that VoiceMem provides a practical memory foundation for real-time, personalized, and emotionally aware speech interaction.",
+    "host_name": "www.opentrain.ai",
+    "rank": 2,
+    "date": "5 hari lalu",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedin.com/posts/pascalbiese_134ms-retrieval-latency-thats-faster-than-activity-7499036351917473793-lNaD",
+    "name": "Pascal Biese's Post",
+    "snippet": "VoiceMem's dual-brain architecture is a genuine step forward—134ms retrieval with emotional awareness addresses the \"memory gap\" that's made ...",
+    "host_name": "www.linkedin.com",
+    "rank": 3,
+    "date": "2 hari lalu",
+    "favicon": ""
+  },
+  {
+    "url": "https://papers.cool/arxiv/2608.26005",
+    "name": "VoiceMem: Streaming Dual-Brain Memory for Real-Time",
+    "snippet": "We introduce VoiceMem, a simple memory architecture with a parallel informational left brain, an emotional right brain, and streaming memory I/O ...",
+    "host_name": "papers.cool",
+    "rank": 4,
+    "date": "4 hari lalu",
+    "favicon": ""
+  },
+  {
+    "url": "https://hyper.ai/en/papers/2608.26005",
+    "name": "VOICEMEM: STREAMING DUAL-BRAIN MEMORY FOR",
+    "snippet": "We introduce VOICEMEM, a simple memory architecture with a parallel informational left brain, an emotional right brain, and streaming memory I/O ...",
+    "host_name": "hyper.ai",
+    "rank": 5,
+    "date": "3 hari lalu",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.aimodels.fyi/papers/arxiv/voicemem-streaming-dual-brain-memory-real-time",
+    "name": "VoiceMem: Streaming Dual-Brain Memory for Real-Time",
+    "snippet": "The paper reports a concrete latency result: dense dual-brain retrieval takes 134 ms, within the timing of standard voice activity detection.",
+    "host_name": "www.aimodels.fyi",
+    "rank": 6,
+    "date": "5 hari lalu",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.themoonlight.io/review/voicemem-streaming-dual-brain-memory-for-real-time-interaction",
+    "name": "Streaming Dual-Brain Memory for Real-Time Interaction",
+    "snippet": "VOICEMEM is a specialized, dual-brain memory architecture designed to integrate informational and emotional intelligence into real-time, duplex speech language ...",
+    "host_name": "www.themoonlight.io",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  }
+]

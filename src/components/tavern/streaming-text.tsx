@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo } from 'react';
+import { memo, useMemo, CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
 
 interface StreamingTextProps {
@@ -8,11 +8,12 @@ interface StreamingTextProps {
   isStreaming: boolean;
   className?: string;
   isUser?: boolean;
+  style?: CSSProperties;
 }
 
 /**
  * StreamingText - Real-time formatting during streaming
- * 
+ *
  * Features:
  * - Formatting is applied in real-time as tokens arrive
  * - Incomplete patterns (like **) are shown as plain text until completed
@@ -23,9 +24,10 @@ export const StreamingText = memo(function StreamingText({
   isStreaming,
   className,
   isUser = false,
+  style,
 }: StreamingTextProps) {
   return (
-    <div className={cn('whitespace-pre-wrap break-words', className)}>
+    <div className={cn('whitespace-pre-wrap break-words', className)} style={style}>
       <FormattedContent content={content} isUser={isUser} isStreaming={isStreaming} />
       {isStreaming && <StreamingCursor />}
     </div>

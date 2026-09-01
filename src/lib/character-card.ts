@@ -156,10 +156,15 @@ function parseCharacterData(data: unknown): Partial<CharacterCard> {
       // Quick Replies & Proactive Messages
       quickReplies: extensions?.quickReplies as CharacterCard['quickReplies'],
       proactiveMessages: extensions?.proactiveMessages as CharacterCard['proactiveMessages'],
+      // FASE 12: Wardrobe system
+      wardrobeConfig: extensions?.wardrobeConfig as CharacterCard['wardrobeConfig'],
       // Micro Reactions, Emotional Config, Default Transition
       microReactionConfig: extensions?.microReactionConfig as CharacterCard['microReactionConfig'],
       emotionalConfig: extensions?.emotionalConfig as CharacterCard['emotionalConfig'],
       defaultTransition: extensions?.defaultTransition as CharacterCard['defaultTransition'],
+      // FASE 19: Per-character equipment slots + slot definitions
+      equipmentSlots: extensions?.equipmentSlots as CharacterCard['equipmentSlots'],
+      slotDefinitions: extensions?.slotDefinitions as CharacterCard['slotDefinitions'],
     };
   }
   
@@ -209,10 +214,15 @@ function parseCharacterData(data: unknown): Partial<CharacterCard> {
       // Quick Replies & Proactive Messages
       quickReplies: v1Data.quickReplies as CharacterCard['quickReplies'],
       proactiveMessages: v1Data.proactiveMessages as CharacterCard['proactiveMessages'],
+      // FASE 12: Wardrobe system
+      wardrobeConfig: v1Data.wardrobeConfig as CharacterCard['wardrobeConfig'],
       // Micro Reactions, Emotional Config, Default Transition
       microReactionConfig: v1Data.microReactionConfig as CharacterCard['microReactionConfig'],
       emotionalConfig: v1Data.emotionalConfig as CharacterCard['emotionalConfig'],
       defaultTransition: v1Data.defaultTransition as CharacterCard['defaultTransition'],
+      // FASE 19: Per-character equipment slots + slot definitions
+      equipmentSlots: v1Data.equipmentSlots as CharacterCard['equipmentSlots'],
+      slotDefinitions: v1Data.slotDefinitions as CharacterCard['slotDefinitions'],
     };
   }
   
@@ -443,10 +453,15 @@ export async function exportCharacterCardAsPng(
         // Quick Replies & Proactive Messages
         quickReplies: character.quickReplies,
         proactiveMessages: character.proactiveMessages,
+        // FASE 12: Wardrobe system
+        wardrobeConfig: character.wardrobeConfig,
         // Micro Reactions, Emotional Config, Default Transition
         microReactionConfig: character.microReactionConfig,
         emotionalConfig: character.emotionalConfig,
         defaultTransition: character.defaultTransition,
+        // FASE 19: Per-character equipment slots + slot definitions
+        equipmentSlots: character.equipmentSlots,
+        slotDefinitions: character.slotDefinitions,
         // Character-level memory & stats
         memory: character.memory,
         chatStats: character.chatStats,
@@ -722,10 +737,15 @@ export function exportCharacterCardAsJson(character: CharacterCard): string {
         // Quick Replies & Proactive Messages
         quickReplies: character.quickReplies,
         proactiveMessages: character.proactiveMessages,
+        // FASE 12: Wardrobe system
+        wardrobeConfig: character.wardrobeConfig,
         // Micro Reactions, Emotional Config, Default Transition
         microReactionConfig: character.microReactionConfig,
         emotionalConfig: character.emotionalConfig,
         defaultTransition: character.defaultTransition,
+        // FASE 19: Per-character equipment slots + slot definitions
+        equipmentSlots: character.equipmentSlots,
+        slotDefinitions: character.slotDefinitions,
         // Character-level memory & stats
         memory: character.memory,
         chatStats: character.chatStats,

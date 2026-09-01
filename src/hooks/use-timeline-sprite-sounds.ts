@@ -75,16 +75,50 @@ interface ActiveTimeline {
 // ============================================
 // Audio Cache
 // ============================================
+// PERF FIX: Added LRU eviction to prevent unbounded memory growth.
+// Previously, every unique sound URL created a new HTMLAudioElement that was
+// cached forever (~1-5MB per decoded buffer). Now we keep at most MAX_CACHE_SIZE
+// entries and evict the oldest when the cache is full.
 
+const MAX_AUDIO_CACHE_SIZE = 20;
 const audioCache = new Map<string, HTMLAudioElement>();
 
 function getAudio(url: string): HTMLAudioElement {
-  if (!audioCache.has(url)) {
-    const audio = new Audio(url);
-    audio.load();
+  if (audioCache.has(url)) {
+    // Move to end (most recently used) by re-inserting
+    const audio = audioCache.get(url)!;
+    audioCache.delete(url);
     audioCache.set(url, audio);
+    return audio;
   }
+
+  // Evict oldest entry if cache is full (Map preserves insertion order, so first = oldest)
+  if (audioCache.size >= MAX_AUDIO_CACHE_SIZE) {
+    const oldestKey = audioCache.keys().next().value;
+    if (oldestKey) {
+      const oldAudio = audioCache.get(oldestKey);
+      // Release the audio resource
+      if (oldAudio) {
+        oldAudio.pause();
+        oldAudio.src = '';
+      }
+      audioCache.delete(oldestKey);
+    }
+  }
+
+  const audio = new Audio(url);
+  audio.load();
+  audioCache.set(url, audio);
   return audioCache.get(url)!;
+}
+
+/** Clear the entire audio cache — call on session change to free memory */
+export function clearAudioCache() {
+  for (const [, audio] of audioCache) {
+    audio.pause();
+    audio.src = '';
+  }
+  audioCache.clear();
 }
 
 // ============================================

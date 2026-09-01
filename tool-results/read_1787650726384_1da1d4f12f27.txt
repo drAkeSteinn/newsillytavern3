@@ -1,0 +1,2002 @@
+     1→// ============================================
+     2→// Group Stream Route - Simplified with unified key resolution
+     3→// ============================================
+     4→//
+     5→// Key resolution happens in buildGroupSystemPrompt():
+     6→// - Template variables: {{user}}, {{char}}, {{userpersona}}
+     7→// - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+     8→// - All sections are processed consistently
+     9→
+    10→import { NextRequest } from 'next/server';
+    11→import type { ChatMessage, CharacterCard, CharacterGroup, PromptSection, Lorebook, SessionStats, HUDContextConfig, QuestTemplate, SessionQuestInstance, SessionSummary, SolicitudInstance, CharacterStatsConfig, CharacterMemory, InventoryV2Settings, SessionEquipmentEntry, SoundTrigger } from '@/types';
+    12→
+    13→import type { LorebookInjectionPlan, LorebookChatInjection } from '@/lib/lorebook';
+    14→import { DEFAULT_QUEST_SETTINGS } from '@/types';
+    15→import {
+    16→  createSSEJSON,
+    17→  createErrorResponse,
+    18→  createSSEStreamResponse,
+    19→  cleanResponseContent,
+    20→  buildGroupSystemPrompt,
+    21→  buildGroupChatMessages,
+    22→  buildPostHistorySection,
+    23→  buildCompletionPrompt,
+    24→  getEffectiveUserName,
+    25→  createUserMessage,
+    26→  streamZAI,
+    27→  streamOpenAICompatible,
+    28→  streamAnthropic,
+    29→  streamOllama,
+    30→  streamTextGenerationWebUI,
+    31→  buildLorebookSectionForPrompt,
+    32→  buildHUDContextSection,
+    33→  buildInventorySection,
+    34→  buildMemorySection,
+    35→  injectHUDContextIntoMessages,
+    36→  injectHUDContextIntoSections,
+    37→  resolveAllKeys,
+    38→  buildKeyResolutionContext,
+    39→  resolveStats,
+    40→  type InventoryPromptData,
+    41→} from '@/lib/llm';
+    42→import {
+    43→  validateRequest,
+    44→  sanitizeInput
+    45→} from '@/lib/validations';
+    46→import {
+    47→  selectContextMessages,
+    48→  estimateContentTokens,
+    49→  type ContextConfig
+    50→} from '@/lib/context-manager';
+    51→import { detectMentions } from '@/lib/mention-detector';
+    52→import { retrieveEmbeddingsContext, formatEmbeddingsForSSE } from '@/lib/embeddings/chat-context';
+    53→import { processResponseAndReinforceMemories, isReinforcementEnabled } from '@/lib/embeddings/memory-reinforcement';
+    54→import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
+    55→import {
+    56→  getAllToolDefinitions,
+    57→  getToolDefinitionsByIds,
+    58→  resolveToolDefinitionsKeys,
+    59→  executeTool,
+    60→  createToolCallAccumulator,
+    61→  hasToolCalls,
+    62→  buildToolMessagesForOpenAI,
+    63→  buildToolMessagesForOllama,
+    64→  buildToolMessagesForAnthropic,
+    65→  createAnthropicToolState,
+    66→  anthropicStateToToolCalls,
+    67→  parseAllToolCallsFromText,
+    68→  mightContainToolCall,
+    69→  stripToolCallFromText,
+    70→  splitIntoChunks,
+    71→  cleanModelArtifacts,
+    72→  buildPromptBasedToolsSection,
+    73→  type NativeToolCall,
+    74→} from '@/lib/tools';
+    75→import {
+    76→  streamOpenAIWithTools,
+    77→  streamOllamaWithTools,
+    78→  streamAnthropicWithTools,
+    79→  streamGrok,
+    80→  streamGrokWithTools,
+    81→  streamZAIWithTools,
+    82→  streamTextGenerationWebUIWithTools,
+    83→} from '@/lib/llm/providers';
+    84→
+    85→// ============================================
+    86→// Responder Selection Logic
+    87→// ============================================
+    88→
+    89→/**
+    90→ * Result of responder selection including metadata about why certain characters were selected
+    91→ */
+    92→interface ResponderSelectionResult {
+    93→  responders: CharacterCard[];
+    94→  stopForUser: boolean;        // True if a peticion targets the user
+    95→  reasons: Map<string, string>; // characterId -> reason for selection
+    96→}
+    97→
+    98→/**
+    99→ * Get characters that have pending solicitudes (requests they need to respond to)
+   100→ */
+   101→function getCharactersWithPendingSolicitudes(
+   102→  sessionStats: SessionStats | undefined,
+   103→  eligibleCharacterIds: string[]
+   104→): { characterId: string; fromCharacterName: string }[] {
+   105→  if (!sessionStats?.solicitudes?.characterSolicitudes) {
+   106→    return [];
+   107→  }
+   108→
+   109→  const result: { characterId: string; fromCharacterName: string }[] = [];
+   110→
+   111→  for (const characterId of eligibleCharacterIds) {
+   112→    const solicitudes = sessionStats.solicitudes.characterSolicitudes[characterId];
+   113→    if (solicitudes) {
+   114→      const pendingSolicitudes = solicitudes.filter(s => s.status === 'pending');
+   115→      if (pendingSolicitudes.length > 0) {
+   116→        result.push({
+   117→          characterId,
+   118→          fromCharacterName: pendingSolicitudes[0].fromCharacterName
+   119→        });
+   120→      }
+   121→    }
+   122→  }
+   123→
+   124→  return result;
+   125→}
+   126→
+   127→/**
+   128→ * Check if there are pending solicitudes targeting the user
+   129→ */
+   130→function hasPendingSolicitudesForUser(
+   131→  sessionStats: SessionStats | undefined
+   132→): boolean {
+   133→  if (!sessionStats?.solicitudes?.characterSolicitudes) {
+   134→    return false;
+   135→  }
+   136→
+   137→  const userSolicitudes = sessionStats.solicitudes.characterSolicitudes['__user__'];
+   138→  return userSolicitudes?.some(s => s.status === 'pending') ?? false;
+   139→}
+   140→
+   141→/**
+   142→ * Determine responders based on strategy
+   143→ * Note: Narrators are excluded from normal response flow and handled separately
+   144→ */
+   145→function getResponders(
+   146→  message: string,
+   147→  characters: CharacterCard[],
+   148→  group: CharacterGroup,
+   149→  lastResponderId?: string,
+   150→  sessionStats?: SessionStats
+   151→): ResponderSelectionResult {
+   152→  const strategy = group.activationStrategy;
+   153→  const minResponses = group.minResponsesPerTurn ?? 1;
+   154→  const maxResponses = group.maxResponsesPerTurn ?? 3;
+   155→
+   156→  // Get active members, EXCLUDING narrators (they have their own response logic)
+   157→  const activeMemberIds = (group.members || [])
+   158→    .filter(m => m.isActive && m.isPresent !== false && !m.isNarrator)
+   159→    .map(m => m.characterId);
+   160→
+   161→  // If no members defined, use characterIds (excluding narrators)
+   162→  const eligibleIds = activeMemberIds.length > 0
+   163→    ? activeMemberIds
+   164→    : (group.characterIds || []).filter(id => {
+   165→        const member = (group.members || []).find(m => m.characterId === id);
+   166→        return !member?.isNarrator;
+   167→      });
+   168→
+   169→  // Filter to only characters that exist and are eligible
+   170→  const eligibleCharacters = characters.filter(c => eligibleIds.includes(c.id));
+   171→
+   172→  if (eligibleCharacters.length === 0) {
+   173→    return { responders: [], stopForUser: false, reasons: new Map() };
+   174→  }
+   175→
+   176→  // Get ordered member IDs (excluding narrators)
+   177→  const orderedIds = (group.members || [])
+   178→    .filter(m => !m.isNarrator)
+   179→    .sort((a, b) => a.joinOrder - b.joinOrder)
+   180→    .map(m => m.characterId);
+   181→
+   182→  const reasons = new Map<string, string>();
+   183→
+   184→  switch (strategy) {
+   185→    case 'all': {
+   186→      // All active members respond (no limit for 'all' strategy)
+   187→      eligibleCharacters.forEach(c => reasons.set(c.id, 'Todos responden'));
+   188→      return { responders: eligibleCharacters, stopForUser: false, reasons };
+   189→    }
+   190→
+   191→    case 'reactive': {
+   192→      // ========================================
+   193→      // REACTIVE STRATEGY with Solicitud Support
+   194→      // ========================================
+   195→      // Priority:
+   196→      // 1. If peticion targets user -> STOP, let user respond
+   197→      // 2. Characters with pending solicitudes respond
+   198→      // 3. Mentioned characters respond
+   199→      // 4. Fill to minResponses if needed
+   200→
+   201→      // Check if user has pending solicitudes
+   202→      const stopForUser = hasPendingSolicitudesForUser(sessionStats);
+   203→      if (stopForUser) {
+   204→        console.log('[getResponders] Peticion targets user, stopping turn for user response');
+   205→        return { responders: [], stopForUser: true, reasons: new Map() };
+   206→      }
+   207→
+   208→      // Detect mentions
+   209→      const mentions = detectMentions(message, characters, group);
+   210→      const mentionedIds = mentions.map(m => m.characterId);
+   211→      const mentionedCharacters = eligibleCharacters.filter(c => mentionedIds.includes(c.id));
+   212→      mentionedCharacters.forEach(c => reasons.set(c.id, 'Mencionado en el mensaje'));
+   213→
+   214→      // Get characters with pending solicitudes
+   215→      const charactersWithSolicitudes = getCharactersWithPendingSolicitudes(sessionStats, eligibleIds);
+   216→      const solicitudCharacterIds = charactersWithSolicitudes.map(s => s.characterId);
+   217→      const solicitudCharacters = eligibleCharacters.filter(c => solicitudCharacterIds.includes(c.id));
+   218→
+   219→      // Add solicitud reasons (don't overwrite mention reasons)
+   220→      solicitudCharacters.forEach(c => {
+   221→        if (!reasons.has(c.id)) {
+   222→          const solicitudInfo = charactersWithSolicitudes.find(s => s.characterId === c.id);
+   223→          reasons.set(c.id, `Tiene solicitud pendiente de ${solicitudInfo?.fromCharacterName || 'otro personaje'}`);
+   224→        }
+   225→      });
+   226→
+   227→      // Combine: unique characters from mentions and solicitudes
+   228→      const combinedIds = new Set([...mentionedIds, ...solicitudCharacterIds]);
+   229→      let selectedCharacters = eligibleCharacters.filter(c => combinedIds.has(c.id));
+   230→
+   231→      // If no mentions or solicitudes, fill to minResponses
+   232→      if (selectedCharacters.length === 0) {
+   233→        // Select first eligible character as default
+   234→        selectedCharacters = [eligibleCharacters[0]];
+   235→        reasons.set(eligibleCharacters[0].id, 'Personaje por defecto (sin menciones ni solicitudes)');
+   236→      }
+   237→
+   238→      // Ensure we have at least minResponses (but respect maxResponses)
+   239→      if (selectedCharacters.length < minResponses) {
+   240→        const remaining = eligibleCharacters
+   241→          .filter(c => !combinedIds.has(c.id))
+   242→          .slice(0, minResponses - selectedCharacters.length);
+   243→        remaining.forEach(c => reasons.set(c.id, 'Para alcanzar mínimo de respuestas'));
+   244→        selectedCharacters = [...selectedCharacters, ...remaining];
+   245→      }
+   246→
+   247→      // Limit to maxResponses
+   248→      const limitedResponders = selectedCharacters.slice(0, maxResponses);
+   249→
+   250→      console.log('[getResponders] Reactive selection:', {
+   251→        mentionedIds,
+   252→        solicitudCharacterIds,
+   253→        selectedCount: limitedResponders.length,
+   254→        minResponses,
+   255→        maxResponses,
+   256→        stopForUser
+   257→      });
+   258→
+   259→      return { responders: limitedResponders, stopForUser, reasons };
+   260→    }
+   261→
+   262→    case 'round_robin': {
+   263→      // Take turns in order
+   264→      const sortedIds = orderedIds.length > 0 ? orderedIds : eligibleIds;
+   265→
+   266→      let nextIndex = 0;
+   267→      if (lastResponderId) {
+   268→        const lastIndex = sortedIds.indexOf(lastResponderId);
+   269→        if (lastIndex !== -1) {
+   270→          nextIndex = (lastIndex + 1) % sortedIds.length;
+   271→        }
+   272→      }
+   273→
+   274→      const roundRobinChar = characters.find(c => c.id === sortedIds[nextIndex]);
+   275→      if (roundRobinChar) {
+   276→        reasons.set(roundRobinChar.id, 'Turno rotativo');
+   277→      }
+   278→      return { responders: roundRobinChar ? [roundRobinChar] : [], stopForUser: false, reasons };
+   279→    }
+   280→
+   281→    case 'random': {
+   282→      // Random selection
+   283→      const shuffled = [...eligibleCharacters].sort(() => Math.random() - 0.5);
+   284→      const selected = shuffled.slice(0, Math.min(maxResponses, shuffled.length));
+   285→      selected.forEach(c => reasons.set(c.id, 'Selección aleatoria'));
+   286→      return { responders: selected, stopForUser: false, reasons };
+   287→    }
+   288→
+   289→    case 'smart': {
+   290→      // AI-like decision: mentioned characters + contextually relevant
+   291→      const mentions = detectMentions(message, characters, group);
+   292→      const mentionedIds = mentions.map(m => m.characterId);
+   293→      const mentionedChars = eligibleCharacters.filter(c => mentionedIds.includes(c.id));
+   294→      mentionedChars.forEach(c => reasons.set(c.id, 'Mencionado en el mensaje'));
+   295→
+   296→      // Add contextually relevant characters
+   297→      const remainingChars = eligibleCharacters.filter(c => !mentionedIds.includes(c.id));
+   298→      const additionalCount = Math.max(0, Math.min(maxResponses - mentionedChars.length, 1));
+   299→
+   300→      // Check if character name or tags appear in message
+   301→      const relevantChars = remainingChars.filter(c => {
+   302→        const keywords = [...c.tags, c.name.toLowerCase()];
+   303→        return keywords.some(kw => message.toLowerCase().includes(kw.toLowerCase()));
+   304→      }).slice(0, additionalCount);
+   305→      relevantChars.forEach(c => reasons.set(c.id, 'Contextualmente relevante'));
+   306→
+   307→      const result = [...mentionedChars, ...relevantChars].slice(0, maxResponses);
+   308→
+   309→      // If no one selected, default to first
+   310→      if (result.length === 0 && eligibleCharacters.length > 0) {
+   311→        result.push(eligibleCharacters[0]);
+   312→        reasons.set(eligibleCharacters[0].id, 'Personaje por defecto');
+   313→      }
+   314→
+   315→      return { responders: result, stopForUser: false, reasons };
+   316→    }
+   317→
+   318→    default: {
+   319→      // Default to first active character
+   320→      if (eligibleCharacters.length > 0) {
+   321→        reasons.set(eligibleCharacters[0].id, 'Personaje por defecto');
+   322→      }
+   323→      return { responders: eligibleCharacters.slice(0, 1), stopForUser: false, reasons };
+   324→    }
+   325→  }
+   326→}
+   327→
+   328→// ============================================
+   329→// Group Tool Execution Helper
+   330→// ============================================
+   331→
+   332→interface QuestActivation {
+   333→  type: 'activate_quest' | 'complete_objective' | 'progress_objective';
+   334→  key: string;
+   335→  metadata?: Record<string, unknown>;
+   336→}
+   337→
+   338→/**
+   339→ * Execute detected tool calls for group chat and send SSE events.
+   340→ * Returns { results: display messages, shouldContinue: true, questActivations: quest activations }
+   341→ */
+   342→async function executeGroupToolCalls(
+   343→  toolCalls: NativeToolCall[],
+   344→  availableTools: Array<{ id: string; name: string; label: string; icon: string }>,
+   345→  character: CharacterCard,
+   346→  sessionId: string,
+   347→  userName: string,
+   348→  controller: { enqueue: (chunk: string) => void },
+   349→  sessionQuests?: SessionQuestInstance[],
+   350→  questTemplates?: QuestTemplate[],
+   351→  statsConfig?: CharacterStatsConfig,
+   352→  sessionStats?: SessionStats,
+   353→  allCharacters?: CharacterCard[],
+   354→  characterMemory?: CharacterMemory,
+   355→  lorebooks?: Lorebook[],
+   356→  group?: CharacterGroup,
+   357→): Promise<{ results: string; shouldContinue: boolean; questActivations: QuestActivation[]; toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> }> {
+   358→  if (toolCalls.length === 0) {
+   359→    return { results: '', shouldContinue: false, questActivations: [], toolsUsed: [] };
+   360→  }
+   361→
+   362→  let allDisplayMessages = '';
+   363→  const questActivations: QuestActivation[] = [];
+   364→  const toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+   365→
+   366→  for (let i = 0; i < toolCalls.length; i++) {
+   367→    const tc = toolCalls[i];
+   368→    const toolDef = availableTools.find(t => t.name === tc.name);
+   369→    const callId = `${Date.now()}_${i}`;
+   370→
+   371→    // Send tool_call_start event
+   372→    controller.enqueue(createSSEJSON({
+   373→      type: 'tool_call_start',
+   374→      toolName: tc.name,
+   375→      toolLabel: toolDef?.label || tc.name,
+   376→      toolIcon: toolDef?.icon || 'Wrench',
+   377→      params: tc.arguments,
+   378→      callId,
+   379→    }));
+   380→
+   381→    console.log(`[GroupStream-Tools] Executing: ${tc.name}`, tc.arguments);
+   382→
+   383→    // Execute the tool
+   384→    const toolResult = await executeTool(
+   385→      tc.name,
+   386→      tc.arguments,
+   387→      {
+   388→        characterId: character.id,
+   389→        characterName: character.name,
+   390→        sessionId,
+   391→        userName,
+   392→        sessionQuests,
+   393→        questTemplates,
+   394→        statsConfig: character.statsConfig,
+   395→        sessionStats,
+   396→        allCharacters,
+   397→        characterMemory,
+   398→        lorebooks,
+   399→        groupId: group?.id,
+   400→        groupMembers: group?.members,
+   401→      },
+   402→    );
+   403→
+   404→    // Check for quest activation and send SSE event
+   405→    if (toolResult.questActivation) {
+   406→      const activation = toolResult.questActivation;
+   407→      console.log(`[GroupStream-Tools] Quest activation from ${tc.name}:`, activation);
+   408→      
+   409→      controller.enqueue(createSSEJSON({
+   410→        type: 'quest_activation',
+   411→        toolName: tc.name,
+   412→        activationType: activation.type,
+   413→        key: activation.key,
+   414→        metadata: activation.metadata,
+   415→      }));
+   416→      
+   417→      questActivations.push(activation);
+   418→    }
+   419→
+   420→    // Check for action/skill activation and send SSE event
+   421→    if (toolResult.actionActivation) {
+   422→      const action = toolResult.actionActivation;
+   423→      console.log(`[GroupStream-Tools] Action activation from ${tc.name}:`, action.skillName);
+   424→      
+   425→      controller.enqueue(createSSEJSON({
+   426→        type: 'action_activation',
+   427→        toolName: tc.name,
+   428→        skillId: action.skillId,
+   429→        skillName: action.skillName,
+   430→        skillDescription: action.skillDescription,
+   431→        skillCompletedDescription: action.skillCompletedDescription,
+   432→        activationCosts: action.activationCosts,
+   433→        activationRewards: action.activationRewards,
+   434→        characterId: action.characterId,
+   435→      }));
+   436→    }
+   437→
+   438→    // Check for scene activation (enter/leave/focus) and send SSE event
+   439→    if (toolResult.sceneActivation) {
+   440→      const scene = toolResult.sceneActivation;
+   441→      console.log(`[GroupStream-Tools] Scene activation from ${tc.name}:`, scene.action, scene.characterName, 'present:', scene.present);
+   442→
+   443→      controller.enqueue(createSSEJSON({
+   444→        type: 'scene_activation',
+   445→        toolName: tc.name,
+   446→        activationType: scene.type,
+   447→        action: scene.action,
+   448→        characterId: scene.characterId,
+   449→        characterName: scene.characterName,
+   450→        byCharacterId: scene.byCharacterId,
+   451→        byCharacterName: scene.byCharacterName,
+   452→        present: scene.present,
+   453→        narrative: scene.narrative,
+   454→      }));
+   455→    }
+   456→
+   457→    // Check for relationship activation and send SSE event
+   458→    if (toolResult.relationshipActivation) {
+   459→      const rel = toolResult.relationshipActivation;
+   460→      console.log(`[GroupStream-Tools] Relationship activation from ${tc.name}:`, rel.aName, '↔', rel.bName, rel.prevPoints, '→', rel.newPoints);
+   461→
+   462→      controller.enqueue(createSSEJSON({
+   463→        type: 'relationship_activation',
+   464→        toolName: tc.name,
+   465→        aId: rel.aId,
+   466→        aName: rel.aName,
+   467→        bId: rel.bId,
+   468→        bName: rel.bName,
+   469→        prevPoints: rel.prevPoints,
+   470→        newPoints: rel.newPoints,
+   471→        reason: rel.reason,
+   472→      }));
+   473→    }
+   474→
+   475→    // Check for world-time activation and send SSE event
+   476→    if (toolResult.timeActivation) {
+   477→      const timeAct = toolResult.timeActivation;
+   478→      console.log(`[GroupStream-Tools] Time activation from ${tc.name}:`, timeAct.type, timeAct.minutes || timeAct.hour || timeAct.season);
+   479→
+   480→      controller.enqueue(createSSEJSON({
+   481→        type: 'time_activation',
+   482→        toolName: tc.name,
+   483→        activationType: timeAct.type,
+   484→        minutes: timeAct.minutes,
+   485→        hour: timeAct.hour,
+   486→        minute: timeAct.minute,
+   487→        season: timeAct.season,
+   488→      }));
+   489→    }
+   490→
+   491→    // Check for skill check activation and send SSE event
+   492→    if (toolResult.checkActivation) {
+   493→      const check = toolResult.checkActivation;
+   494→      console.log(`[GroupStream-Tools] Skill check from ${tc.name}:`, check.statName, `${check.roll}${check.modifier >= 0 ? '+' : ''}${check.modifier}=${check.total} vs CD ${check.dc} → ${check.outcome}`);
+   495→
+   496→      controller.enqueue(createSSEJSON({
+   497→        type: 'check_activation',
+   498→        toolName: tc.name,
+   499→        characterId: check.characterId,
+   500→        characterName: check.characterName,
+   501→        statName: check.statName,
+   502→        statValue: check.statValue,
+   503→        roll: check.roll,
+   504→        modifier: check.modifier,
+   505→        dc: check.dc,
+   506→        total: check.total,
+   507→        outcome: check.outcome,
+   508→        outcomeLabel: check.outcomeLabel,
+   509→        narrative: check.narrative,
+   510→      }));
+   511→    }
+   512→
+   513→    // Check for stat modification from modify_stat tool and send SSE event
+   514→    if (toolResult.statActivation) {
+   515→      const stat = toolResult.statActivation;
+   516→      console.log(`[GroupStream-Tools] Stat activation from ${tc.name}:`, stat.attributeKey, stat.oldValue, '→', stat.newValue);
+   517→      
+   518→      controller.enqueue(createSSEJSON({
+   519→        type: 'stat_activation',
+   520→        toolName: tc.name,
+   521→        characterId: stat.characterId,
+   522→        attributeKey: stat.attributeKey,
+   523→        attributeName: stat.attributeName,
+   524→        attributeType: stat.attributeType,
+   525→        oldValue: stat.oldValue,
+   526→        newValue: stat.newValue,
+   527→        reason: stat.reason,
+   528→      }));
+   529→    }
+   530→
+   531→    // Check for solicitud activation/completion and send SSE event
+   532→    if (toolResult.solicitudActivation) {
+   533→      const sol = toolResult.solicitudActivation;
+   534→      console.log(`[GroupStream-Tools] Solicitud activation from ${tc.name}:`, sol.type, sol.solicitudKey);
+   535→      
+   536→      controller.enqueue(createSSEJSON({
+   537→        type: 'solicitud_activation',
+   538→        toolName: tc.name,
+   539→        activationType: sol.type,
+   540→        solicitudKey: sol.solicitudKey,
+   541→        targetCharacterId: sol.targetCharacterId,
+   542→        targetCharacterName: sol.targetCharacterName,
+   543→        fromCharacterId: sol.fromCharacterId,
+   544→        fromCharacterName: sol.fromCharacterName,
+   545→        description: sol.description,
+   546→        completionDescription: sol.completionDescription,
+   547→        peticionKey: sol.peticionKey,
+   548→      }));
+   549→    }
+   550→
+   551→    // Check for memory activation (sync to client-side Character Memory)
+   552→    if (toolResult.memoryActivation) {
+   553→      const mem = toolResult.memoryActivation;
+   554→      console.log(`[GroupStream-Tools] Memory activation from ${tc.name}:`, mem.type);
+   555→      
+   556→      controller.enqueue(createSSEJSON({
+   557→        type: 'memory_activation',
+   558→        toolName: tc.name,
+   559→        activationType: mem.type,
+   560→        characterId: mem.characterId,
+   561→        eventData: mem.eventData,
+   562→        relationshipData: mem.relationshipData,
+   563→        noteContent: mem.noteContent,
+   564→        deleteEventId: mem.deleteEventId,
+   565→        deleteEmbeddingId: mem.deleteEmbeddingId,
+   566→      }));
+   567→    }
+   568→
+   569→    // Send tool_call_result event
+   570→    controller.enqueue(createSSEJSON({
+   571→      type: 'tool_call_result',
+   572→      toolName: tc.name,
+   573→      success: toolResult.success,
+   574→      displayMessage: toolResult.displayMessage,
+   575→      duration: toolResult.duration || 0,
+   576→      callId,
+   577→    }));
+   578→
+   579→    console.log(`[GroupStream-Tools] ${tc.name}: success=${toolResult.success}`);
+   580→
+   581→    toolsUsed.push({
+   582→      name: tc.name,
+   583→      label: toolDef?.label || tc.name,
+   584→      icon: toolDef?.icon || 'Wrench',
+   585→      success: toolResult.success,
+   586→    });
+   587→
+   588→    if (toolResult.displayMessage) {
+   589→      allDisplayMessages += (allDisplayMessages ? '\n' : '') + toolResult.displayMessage;
+   590→    }
+   591→  }
+   592→
+   593→  return { results: allDisplayMessages, shouldContinue: true, questActivations, toolsUsed };
+   594→}
+   595→
+   596→// ============================================
+   597→// Main Route Handler
+   598→// ============================================
+   599→
+   600→export async function POST(request: NextRequest) {
+   601→  try {
+   602→    // Capture auth headers from Z.ai gateway for token resolution
+   603→    // Only use actual JWT tokens - session IDs are NOT valid X-Tokens
+   604→    const incomingXToken = request.headers.get('X-Token');
+   605→    const fcSecurityToken = request.headers.get('x-fc-security-token');
+   606→
+   607→    const body = await request.json();
+   608→
+   609→    // Validate request (automatically detects group request)
+   610→    const validation = validateRequest(null, body);
+   611→    if (!validation.success) {
+   612→      return createErrorResponse(validation.error, 400);
+   613→    }
+   614→
+   615→    const {
+   616→      message,
+   617→      group,
+   618→      characters,
+   619→      messages = [],
+   620→      llmConfig,
+   621→      userName = 'User',
+   622→      persona,
+   623→      lastResponderId,
+   624→      sessionStats,
+   625→      hudContext
+   626→    } = validation.data;
+   627→
+   628→    // Extract lorebooks from body (not validated by validation.ts)
+   629→    const lorebooks: Lorebook[] = body.lorebooks || [];
+   630→
+   631→    // Build allCharacters including persona for cross-character lookups (target requirements, peticiones)
+   632→    const allCharacters: CharacterCard[] = [...(characters || [])];
+   633→    if (persona?.statsConfig?.enabled) {
+   634→      allCharacters.push({
+   635→        id: '__user__',
+   636→        name: persona.name || 'User',
+   637→        statsConfig: persona.statsConfig,
+   638→      } as CharacterCard);
+   639→    }
+   640→
+   641→    // Quest data still needed for buildGroupSystemPrompt {{activeQuests}} key resolution
+   642→    const questTemplates: QuestTemplate[] = body.questTemplates || [];
+   643→    const sessionQuests: SessionQuestInstance[] = body.sessionQuests || [];
+   644→    const questSettings = { ...DEFAULT_QUEST_SETTINGS, ...(body.questSettings || {}) };
+   645→
+   646→    // Extract summaries for memory/context compression
+   647→    const summary: SessionSummary | undefined = body.summary;
+   648→
+   649→    // Extract embeddings chat settings
+   650→    const embeddingsChat: Partial<EmbeddingsChatSettings> = body.embeddingsChat || {};
+   651→    const sessionId: string | undefined = body.sessionId;
+   652→    const characterMemory: CharacterMemory | undefined = body.characterMemory;
+   653→
+   654→    // Extract tools settings for tool/action system (native tool calling only)
+   655→    const toolsSettings: ToolsSettings = {
+   656→      enabled: body.toolsSettings?.enabled ?? true,
+   657→      maxToolCallsPerTurn: body.toolsSettings?.maxToolCallsPerTurn ?? 2,
+   658→      characterConfigs: body.toolsSettings?.characterConfigs || [],
+   659→      usePromptBasedFallback: body.toolsSettings?.usePromptBasedFallback ?? false,
+   660→      disabledTools: body.toolsSettings?.disabledTools || [],
+   661→    };
+   662→
+   663→    // Extract inventory data for Inventory V2 system
+   664→    const inventoryData: InventoryPromptData | undefined = body.inventoryData;
+   665→
+   666→    // Extract Sound data for {{sonidos}} key resolution
+   667→    const soundTriggers: SoundTrigger[] = body.soundTriggers || [];
+   668→    const soundSettings = body.settings?.sound;
+   669→
+   670→    // Cast sessionStats to proper type
+   671→    const typedSessionStats = sessionStats as SessionStats | undefined;
+   672→
+   673→    // Cast hudContext to proper type
+   674→    const typedHUDContext = hudContext as HUDContextConfig | undefined;
+   675→
+   676→    // Extract per-character lorebook map for when group has no lorebooks
+   677→    const characterLorebooksMap: Record<string, string[]> = body.characterLorebooksMap || {};
+   678→
+   679→    // Extract per-character memory map for deduplication (characterId → CharacterMemory)
+   680→    const characterMemoryMap: Record<string, CharacterMemory> = body.characterMemoryMap || {};
+   681→
+   682→    // Determine if we should use per-character lorebooks
+   683→    // When characterLorebooksMap is present (group has no lorebooks), each character
+   684→    // should only see their own lorebooks — NOT a merged plan from all characters.
+   685→    // When characterLorebooksMap is null/empty, the group has its own lorebooks
+   686→    // that are shared across all characters.
+   687→    const useGroupLorebooks = !characterLorebooksMap || Object.keys(characterLorebooksMap).length === 0;
+   688→
+   689→    // Extract narrator-related data
+   690→    const turnCount: number = body.turnCount || 0;
+   691→    const activeQuestsCount: number = sessionQuests.filter(q => q.status === 'active').length;
+   692→    const narratorLastTurn: number = body.narratorLastTurn || -999; // Turn when narrator last spoke
+   693→
+   694→    // Get narrator settings from group
+   695→    const narratorSettings = group.narratorSettings;
+   696→
+   697→    // Find narrator character (if any)
+   698→    const narratorMember = (group.members || []).find(m => m.isNarrator);
+   699→    const narratorCharacter = narratorMember
+   700→      ? characters.find(c => c.id === narratorMember.characterId)
+   701→      : null;
+   702→
+   703→    // Determine if narrator should intervene based on conditions
+   704→    const shouldNarratorIntervene = (): boolean => {
+   705→      if (!narratorCharacter || !narratorSettings) return false;
+   706→
+   707→      const { conditional } = narratorSettings;
+   708→
+   709→      // Check turn interval
+   710→      if (conditional.minTurnInterval > 0) {
+   711→        const turnsSinceLastNarration = turnCount - narratorLastTurn;
+   712→        if (turnsSinceLastNarration < conditional.minTurnInterval) {
+   713→          return false;
+   714→        }
+   715→      }
+   716→
+   717→      // Check if only when no active quests
+   718→      if (conditional.onlyWhenNoActiveQuests && activeQuestsCount > 0) {
+   719→        return false;
+   720→      }
+   721→
+   722→      return true;
+   723→    };
+   724→
+   725→    const narratorCanIntervene = shouldNarratorIntervene();
+   726→
+   727→    if (!llmConfig) {
+   728→      return createErrorResponse('No LLM configuration provided', 400);
+   729→    }
+   730→
+   731→    // Validate API key for providers that require one
+   732→    const providersRequiringApiKey = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'grok'];
+   733→    if (providersRequiringApiKey.includes(llmConfig.provider) && !llmConfig.apiKey) {
+   734→      return createErrorResponse(
+   735→        `API Key is required for ${llmConfig.provider} provider. Please configure it in Settings.`,
+   736→        400
+   737→      );
+   738→    }
+   739→
+   740→    // Validate endpoint for providers that require one
+   741→    const providersRequiringEndpoint = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'ollama', 'text-generation-webui', 'koboldcpp'];
+   742→    if (providersRequiringEndpoint.includes(llmConfig.provider) && !llmConfig.endpoint) {
+   743→      return createErrorResponse(
+   744→        `Endpoint URL is required for ${llmConfig.provider} provider. Please configure it in Settings.`,
+   745→        400
+   746→      );
+   747→    }
+   748→
+   749→    // Resolve Z.ai runtime token from gateway headers
+   750→    let zaiRuntimeToken: string | undefined;
+   751→    if (llmConfig.provider === 'z-ai') {
+   752→      const gatewayToken = incomingXToken || fcSecurityToken || undefined;
+   753→      if (gatewayToken) {
+   754→        zaiRuntimeToken = gatewayToken;
+   755→        console.log(`[Group Stream Route] Z.ai runtime token available (${gatewayToken.length} chars, source: ${incomingXToken ? 'X-Token' : 'fc-security-token'})`);
+   756→      }
+   757→    }
+   758→
+   759→    // Sanitize user message
+   760→    const sanitizedMessage = sanitizeInput(message);
+   761→
+   762→    // Determine which characters should respond
+   763→    const selectionResult = getResponders(sanitizedMessage, characters, group, lastResponderId, typedSessionStats);
+   764→    const { responders, stopForUser, reasons } = selectionResult;
+   765→
+   766→    // If stopForUser is true, return a special response indicating user should respond
+   767→    if (stopForUser) {
+   768→      // Create a stream that immediately returns a "user_turn" event
+   769→      const stream = new ReadableStream({
+   770→        start(controller) {
+   771→          controller.enqueue(createSSEJSON({
+   772→            type: 'user_turn',
+   773→            reason: 'Hay una petición pendiente dirigida a ti. Espera tu respuesta.'
+   774→          }));
+   775→          controller.close();
+   776→        }
+   777→      });
+   778→      return createSSEStreamResponse(stream);
+   779→    }
+   780→
+   781→    if (responders.length === 0) {
+   782→      return createErrorResponse('No active characters to respond', 400);
+   783→    }
+   784→
+   785→    // Log responder selection reasons
+   786→    console.log('[Group Stream Route] Selected responders:', responders.map(r => ({
+   787→      name: r.name,
+   788→      reason: reasons.get(r.id)
+   789→    })));
+   790→
+   791→    // Get effective user name
+   792→    const effectiveUserName = getEffectiveUserName(persona, userName);
+   793→
+   794→    // Build context configuration from request or use defaults
+   795→    const contextConfig: Partial<ContextConfig> = body.contextConfig || {};
+   796→
+   797→    // Apply sliding window to messages
+   798→    const contextWindow = selectContextMessages(messages, llmConfig, contextConfig);
+   799→
+   800→    // Build group-level lorebook injection plan if group has lorebooks
+   801→    let groupLorebookPlan: LorebookInjectionPlan | null = null;
+   802→    let groupLorebookAttributeKeys: Record<string, string> = {};
+   803→    let groupLorebookEntryKeyMap: Record<string, string> = {};
+   804→    if (useGroupLorebooks && lorebooks.length > 0) {
+   805→      const { plan, lorebookAttributeKeys: _groupAttrKeys, lorebookEntryKeyMap: _groupEntryKeyMap } = buildLorebookSectionForPrompt(
+   806→        messages,
+   807→        lorebooks,
+   808→        {
+   809→          scanDepth: contextConfig.scanDepth,
+   810→          // tokenBudget: let the injector use the lorebook's own setting
+   811→          userName: effectiveUserName,
+   812→          charName: undefined, // group-level lorebook has no specific character
+   813→        },
+   814→        { sessionStats: typedSessionStats, characters: allCharacters }
+   815→      );
+   816→      groupLorebookPlan = plan;
+   817→      groupLorebookAttributeKeys = _groupAttrKeys || {};
+   818→      groupLorebookEntryKeyMap = _groupEntryKeyMap || {};
+   819→    }
+   820→
+   821→    // Note: HUD context section is built inside the character loop
+   822→    // so it can resolve keys for each specific character
+   823→
+   824→    // ========================================
+   825→    // Narrator Integration
+   826→    // ========================================
+   827→    // Build the final responders list with narrator inserted in the correct positions
+   828→    let narratorAddedToResponders = false;
+   829→    if (narratorCharacter && narratorCanIntervene && narratorSettings) {
+   830→      const mode = narratorSettings.responseMode;
+   831→      if (mode === 'turn_start') {
+   832→        responders.unshift(narratorCharacter);
+   833→        narratorAddedToResponders = true;
+   834→      } else if (mode === 'turn_end') {
+   835→        responders.push(narratorCharacter);
+   836→        narratorAddedToResponders = true;
+   837→      } else if (mode === 'before_each') {
+   838→        // Insert narrator before each non-narrator responder
+   839→        const expandedResponders: typeof responders = [];
+   840→        for (const r of responders) {
+   841→          expandedResponders.push(narratorCharacter);
+   842→          expandedResponders.push(r);
+   843→        }
+   844→        responders.length = 0;
+   845→        responders.push(...expandedResponders);
+   846→        narratorAddedToResponders = true;
+   847→      } else if (mode === 'after_each') {
+   848→        // Insert narrator after each non-narrator responder
+   849→        const expandedResponders: typeof responders = [];
+   850→        for (const r of responders) {
+   851→          expandedResponders.push(r);
+   852→          expandedResponders.push(narratorCharacter);
+   853→        }
+   854→        responders.length = 0;
+   855→        responders.push(...expandedResponders);
+   856→        narratorAddedToResponders = true;
+   857→      }
+   858→    }
+   859→
+   860→    // Create a TransformStream for SSE
+   861→    const stream = new ReadableStream({
+   862→      async start(controller) {
+   863→        const responsesThisTurn: Array<{ characterId: string; characterName: string; content: string }> = [];
+   864→        let allQuestActivations: QuestActivation[] = [];
+   865→        let allToolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+   866→        // Track effectiveEmbeddingsChat outside loop for memory reinforcement after all responses
+   867→        let effectiveEmbeddingsChatForReinforcement: typeof embeddingsChat = embeddingsChat;
+   868→
+   869→        try {
+   870→          // Generate responses sequentially
+   871→          for (let i = 0; i < responders.length; i++) {
+   872→            const responder = responders[i];
+   873→
+   874→            // Send character_start event
+   875→            controller.enqueue(createSSEJSON({
+   876→              type: 'character_start',
+   877→              characterId: responder.id,
+   878→              characterName: responder.name,
+   879→              responseIndex: i + 1,
+   880→              totalResponses: responders.length
+   881→            }));
+   882→
+   883→            // Determine lorebook plan for this character
+   884→            // When using group lorebooks (shared), start with the group plan.
+   885→            // When using per-character lorebooks, start with null and let the
+   886→            // per-character override below build the correct plan.
+   887→            let lorebookSectionForCharacter: LorebookInjectionPlan | null = useGroupLorebooks ? groupLorebookPlan : null;
+   888→            let lorebookAttributeKeys: Record<string, string> = useGroupLorebooks ? groupLorebookAttributeKeys : {};
+   889→            let lorebookEntryKeyMap: Record<string, string> = useGroupLorebooks ? groupLorebookEntryKeyMap : {};
+   890→
+   891→            // ========================================
+   892→            // Embeddings Context Retrieval (per-character)
+   893→            // ========================================
+   894→            // If group has custom namespaces, use those; otherwise fall back to character's own namespaces
+   895→            const groupNamespaces = group.embeddingNamespaces;
+   896→            const characterNamespaces = responder.embeddingNamespaces;
+   897→            const effectiveEmbeddingsChat = (groupNamespaces && groupNamespaces.length > 0)
+   898→              ? { ...embeddingsChat, customNamespaces: groupNamespaces }
+   899→              : (characterNamespaces && characterNamespaces.length > 0)
+   900→                ? { ...embeddingsChat, customNamespaces: characterNamespaces }
+   901→                : embeddingsChat;
+   902→            // Update outer scope for memory reinforcement after all responses
+   903→            effectiveEmbeddingsChatForReinforcement = effectiveEmbeddingsChat;
+   904→
+   905→            // Enrich search query with recent context for better semantic matching
+   906→            const searchCtxDepth = effectiveEmbeddingsChat.searchContextDepth || 0;
+   907→            let groupEnrichedQuery = sanitizedMessage;
+   908→            if (searchCtxDepth > 0) {
+   909→              const recentHist = messages
+   910→                .filter(m => !m.isDeleted)
+   911→                .slice(-(searchCtxDepth * 2 + 1))
+   912→                .map(m => m.content?.trim())
+   913→                .filter(Boolean)
+   914→                .slice(0, -1);
+   915→              if (recentHist.length > 0) {
+   916→                groupEnrichedQuery = recentHist.join(' ') + ' ' + sanitizedMessage;
+   917→              }
+   918→            }
+   919→
+   920→            // Safety: smart truncation based on embedding model's context window.
+   921→            try {
+   922→              const { MODEL_CONTEXT_LENGTHS, DEFAULT_CONTEXT_LENGTH, CHARS_PER_TOKEN } = await import('@/lib/embeddings/types');
+   923→              const { loadConfig } = await import('@/lib/embeddings/config-persistence');
+   924→              const embConfig = loadConfig();
+   925→              const modelKey = embConfig.model || 'bge-m3:567m';
+   926→              const modelCtx = MODEL_CONTEXT_LENGTHS[modelKey]
+   927→                || MODEL_CONTEXT_LENGTHS[modelKey.split(':')[0]]
+   928→                || DEFAULT_CONTEXT_LENGTH;
+   929→              const maxQueryChars = Math.floor(modelCtx * 0.75 * CHARS_PER_TOKEN);
+   930→
+   931→              if (groupEnrichedQuery.length > maxQueryChars) {
+   932→                // Keep the most recent part (current message at end)
+   933→                groupEnrichedQuery = groupEnrichedQuery.slice(-maxQueryChars);
+   934→                console.warn(
+   935→                  `[Group Stream] Search query trimmed to ${groupEnrichedQuery.length} chars ` +
+   936→                  `(model: ${modelKey}, context: ${modelCtx} tokens)`
+   937→                );
+   938→              }
+   939→            } catch { /* fallback: Ollama client handles truncation */ }
+   940→
+   941→            // Extract last assistant message for bidirectional search
+   942→            const lastAssistantMsg = messages
+   943→              .filter(m => !m.isDeleted && m.role === 'assistant')
+   944→              .pop()?.content;
+   945→
+   946→            const embeddingsResult = await retrieveEmbeddingsContext(
+   947→              groupEnrichedQuery,
+   948→              responder.id,
+   949→              sessionId,
+   950→              effectiveEmbeddingsChat,
+   951→              group.id,
+   952→              characterMemoryMap[responder.id]?.events?.map(e => ({
+   953→                content: e.content,
+   954→                importance: e.importance,
+   955→              })), // for deduplication with Character Memory
+   956→              lastAssistantMsg, // bidirectional search with last assistant message
+   957→            );
+   958→            
+   959→            if (embeddingsResult.found) {
+   960→              console.log(`[Group Stream] Retrieved ${embeddingsResult.count} embeddings for ${responder.name}`);
+   961→            }
+   962→
+   963→            // If group has no lorebooks, use character's own lorebooks
+   964→            if (!useGroupLorebooks) {
+   965→              const characterLorebookIds = characterLorebooksMap[responder.id] || [];
+   966→              if (characterLorebookIds.length > 0) {
+   967→                const characterLorebooksFiltered = lorebooks.filter(lb =>
+   968→                  characterLorebookIds.includes(lb.id) && lb.active
+   969→                );
+   970→
+   971→                if (characterLorebooksFiltered.length > 0) {
+   972→                  const { plan, lorebookAttributeKeys: charAttrKeys, lorebookEntryKeyMap: charEntryKeyMap } = buildLorebookSectionForPrompt(
+   973→                    messages,
+   974→                    characterLorebooksFiltered,
+   975→                    {
+   976→                      scanDepth: contextConfig.scanDepth,
+   977→                      // tokenBudget: let the injector use the lorebook's own setting
+   978→                      userName: effectiveUserName,
+   979→                      charName: responder.name,
+   980→                    },
+   981→                    { sessionStats: typedSessionStats, characterId: responder.id, characters: allCharacters }
+   982→                  );
+   983→                  lorebookSectionForCharacter = plan;
+   984→                  if (charAttrKeys) lorebookAttributeKeys = charAttrKeys;
+   985→                  if (charEntryKeyMap) lorebookEntryKeyMap = charEntryKeyMap;
+   986→                }
+   987→              } else {
+   988→                lorebookSectionForCharacter = null;
+   989→              }
+   990→            }
+   991→
+   992→            // ========================================
+   993→            // Build system prompt with unified key resolution
+   994→            // ========================================
+   995→            // This handles ALL key resolution internally:
+   996→            // - Template variables: {{user}}, {{char}}, {{userpersona}}
+   997→            // - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+   998→            // - All sections including post-history instructions
+   999→            const { prompt: systemPrompt, sections: promptSections, lorebookChatInjections, exampleMessages } = buildGroupSystemPrompt(
+  1000→              responder,
+  1001→              group,
+  1002→              effectiveUserName,
+  1003→              persona,
+  1004→              lorebookSectionForCharacter,
+  1005→              typedSessionStats,
+  1006→              undefined, // postHistoryInstructions
+  1007→              allCharacters, // allCharacters - needed for peticiones/solicitudes resolution (includes persona)
+  1008→              questTemplates, // Pass quest templates for {{activeQuests}} key resolution
+  1009→              sessionQuests,  // Pass session quests for {{activeQuests}} key resolution
+  1010→              questSettings,   // Pass quest settings for {{activeQuests}} key resolution
+  1011→              lorebookAttributeKeys,
+  1012→              inventoryData,     // Pass inventory data for Inventory V2 section
+  1013→              lorebookEntryKeyMap // Pass lorebook entry key map for {{entryKey}} resolution
+  1014→            );
+  1015→
+  1016→            // Build key resolution context for this character
+  1017→            // Session stats now already include item effects (applied directly to SessionStats
+  1018→            // when items are activated/equipped in the store). No need for virtual overlay.
+  1019→            const effectiveGroupSessionStats = typedSessionStats;
+  1020→
+  1021→            let groupPersonaResolvedStats: import('@/types').ResolvedStats | null = null;
+  1022→            if (persona?.statsConfig?.enabled && effectiveGroupSessionStats) {
+  1023→              groupPersonaResolvedStats = resolveStats({
+  1024→                characterId: '__user__',
+  1025→                statsConfig: persona.statsConfig,
+  1026→                sessionStats: effectiveGroupSessionStats,
+  1027→              });
+  1028→            }
+  1029→            const resolvedStats = resolveStats({
+  1030→              characterId: responder.id,
+  1031→              statsConfig: responder.statsConfig,
+  1032→              sessionStats: effectiveGroupSessionStats,
+  1033→              allCharacters: allCharacters,
+  1034→              userName: effectiveUserName,
+  1035→              characterName: responder.name,
+  1036→              questTemplates,
+  1037→              personaDescription: persona?.description,
+  1038→              personaResolvedStats: groupPersonaResolvedStats,
+  1039→            });
+  1040→
+  1041→            // Build outlet sections map from lorebook plan for {{outlet::name}} macro resolution
+  1042→            const outletSections: Record<string, string> = {};
+  1043→            if (lorebookSectionForCharacter?.outletSections.length) {
+  1044→              for (const outletSection of lorebookSectionForCharacter.outletSections) {
+  1045→                const match = outletSection.label.match(/^World Info \((.+)\)$/);
+  1046→                const outletName = match ? match[1] : outletSection.label;
+  1047→                outletSections[outletName] = outletSection.content;
+  1048→              }
+  1049→            }
+  1050→
+  1051→            const keyContext = buildKeyResolutionContext(
+  1052→              responder,
+  1053→              effectiveUserName,
+  1054→              persona,
+  1055→              resolvedStats,
+  1056→              effectiveGroupSessionStats,  // sessionStats (with inventory effects) for {{eventos}} key resolution
+  1057→              soundTriggers,       // sound triggers for {{sonidos}} key resolution
+  1058→              soundSettings,       // sound settings for {{sonidos}} template
+  1059→              groupPersonaResolvedStats,  // persona resolved stats
+  1060→              questTemplates,     // quest templates for {{activeQuests}}
+  1061→              sessionQuests,      // session quests for {{activeQuests}}
+  1062→              questSettings,      // quest settings
+  1063→              outletSections,     // outlet sections for {{outlet::name}}
+  1064→              lorebookAttributeKeys,  // lorebook attribute keys for {{injectionKey}}
+  1065→              inventoryData       // inventory data for {{inventory}} and {{currency}} key resolution
+  1066→            );
+  1067→
+  1068→            // Build HUD context section for this character (resolves keys!)
+  1069→            const hudContextSection = typedHUDContext ? buildHUDContextSection(typedHUDContext, keyContext) : null;
+  1070→
+  1071→            // Send embeddings context metadata to the client for UI display
+  1072→            if (embeddingsResult.found) {
+  1073→              controller.enqueue(createSSEJSON({
+  1074→                type: 'embeddings_context',
+  1075→                data: formatEmbeddingsForSSE(embeddingsResult),
+  1076→                characterId: responder.id,
+  1077→                characterName: responder.name,
+  1078→              }));
+  1079→            }
+  1080→
+  1081→            // Check if this responder is a narrator in the group
+  1082→            const responderMember = group.members?.find(m => m.characterId === responder.id);
+  1083→            const isResponderNarrator = responderMember?.isNarrator || false;
+  1084→
+  1085→            // Build character memory section for this responder (from Zustand store)
+  1086→            const responderMemory = characterMemoryMap[responder.id];
+  1087→            const characterMemorySection = responderMemory
+  1088→              ? buildMemorySection(responderMemory, responder.name || 'Character')
+  1089→              : null;
+  1090→
+  1091→            // Build combined embeddings context: [CONTEXTO RELEVANTE] then [MEMORIA RELEVANTE]
+  1092→            // Both injected before chat history (not in system prompt)
+  1093→            const contextParts: string[] = [];
+  1094→            if (embeddingsResult.nonMemoryContextString?.trim()) {
+  1095→              contextParts.push(embeddingsResult.nonMemoryContextString);
+  1096→            }
+  1097→            // Add character memory section BEFORE embeddings memory (with deduplication)
+  1098→            // If embeddings already found memory results, skip the character memory to avoid duplication
+  1099→            const embeddingsFoundMemory = embeddingsResult.memoryContextString?.trim()?.length > 0;
+  1100→            if (characterMemorySection && !embeddingsFoundMemory) {
+  1101→              contextParts.push(characterMemorySection.content);
+  1102→            }
+  1103→            if (embeddingsResult.memoryContextString?.trim()) {
+  1104→              contextParts.push(embeddingsResult.memoryContextString);
+  1105→            }
+  1106→            const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
+  1107→
+  1108→            // Re-evaluate context window with reserved tokens for summary + embeddings
+  1109→            // This reduces chat history when summary/embeddings use significant budget
+  1110→            const gSummaryTokens = summary?.content ? estimateContentTokens(`[RECUERDOS ANTERIORES]\n${summary.content}`) : 0;
+  1111→            const gEmbeddingsTokens = embeddingsContext ? estimateContentTokens(embeddingsContext) : 0;
+  1112→            const gReservedTokens = gSummaryTokens + gEmbeddingsTokens;
+  1113→            
+  1114→            let groupContextWindow = contextWindow;
+  1115→            if (gReservedTokens > 200) {
+  1116→              const adjustedGroupConfig: Partial<ContextConfig> = {
+  1117→                ...contextConfig,
+  1118→                reservedTokens: gReservedTokens,
+  1119→              };
+  1120→              groupContextWindow = selectContextMessages(messages, llmConfig, adjustedGroupConfig);
+  1121→              console.log(`[Group Context Budget] Reserved ${gReservedTokens} tokens (summary: ${gSummaryTokens}, embeddings: ${gEmbeddingsTokens}). Chat messages: ${contextWindow.messages.length} → ${groupContextWindow.messages.length}`);
+  1122→            }
+  1123→
+  1124→            // Build the final system prompt (quest content resolved via {{activeQuests}} key)
+  1125→            let finalSystemPrompt = systemPrompt;
+  1126→
+  1127→            // ===== TOOL/ACTION SYSTEM (Native + Prompt-Based Tool Calling) =====
+  1128→            const charToolConfig = toolsSettings.characterConfigs.find(
+  1129→              c => c.characterId === responder.id
+  1130→            );
+  1131→            const charEnabledToolIds = charToolConfig?.enabledTools || [];
+  1132→            let charAvailableTools = charEnabledToolIds.length > 0
+  1133→              ? getToolDefinitionsByIds(charEnabledToolIds)
+  1134→              : getAllToolDefinitions();
+  1135→            // Filter out globally disabled tools
+  1136→            const charGlobalDisabled = toolsSettings.disabledTools || [];
+  1137→            if (charGlobalDisabled.length > 0) {
+  1138→              charAvailableTools = charAvailableTools.filter(t => !charGlobalDisabled.includes(t.id));
+  1139→            }
+  1140→            const charToolsEnabled = toolsSettings.enabled && charAvailableTools.length > 0;
+  1141→
+  1142→            // Resolve {{keys}} in tool descriptions and parameter descriptions
+  1143→            // This ensures {{user}}, {{char}}, {{userpersona}}, stats keys, etc.
+  1144→            // are properly replaced before tools are sent to the LLM
+  1145→            if (charToolsEnabled && charAvailableTools.length > 0) {
+  1146→              charAvailableTools = resolveToolDefinitionsKeys(charAvailableTools, keyContext);
+  1147→            }
+  1148→
+  1149→            const charSupportsTools = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'ollama', 'z-ai', 'grok', 'text-generation-webui', 'koboldcpp'].includes(llmConfig.provider);
+  1150→            // If usePromptBasedFallback is true, disable native tools so prompt-based injection is used instead
+  1151→            const charShouldUseTools = charToolsEnabled && charSupportsTools && !toolsSettings.usePromptBasedFallback;
+  1152→
+  1153→            // Only inject text-based tool instructions when native tool calling is NOT available.
+  1154→            // Injecting text instructions alongside native tools confuses the model.
+  1155→            if (charToolsEnabled && charAvailableTools.length > 0 && !charShouldUseTools) {
+  1156→              const toolPromptSection = buildPromptBasedToolsSection(charAvailableTools, responder.name);
+  1157→              if (toolPromptSection) {
+  1158→                finalSystemPrompt += `\n\n${toolPromptSection}`;
+  1159→              }
+  1160→            }
+  1161→
+  1162→            // Build chat messages with previous responses from this turn
+  1163→            const previousResponses = responsesThisTurn.map(r => ({
+  1164→              characterName: r.characterName,
+  1165→              content: r.content
+  1166→            }));
+  1167→
+  1168→            // Check if the last message is already the user's current message
+  1169→            const lastMessage = groupContextWindow.messages[groupContextWindow.messages.length - 1];
+  1170→            const isLastMessageCurrentUser = lastMessage?.role === 'user' &&
+  1171→              lastMessage?.content === sanitizedMessage;
+  1172→
+  1173→            // Create summary message if summary exists (inject at start of chat history)
+  1174→            const summaryMessage = summary ? {
+  1175→              id: 'summary-' + Date.now(),
+  1176→              role: 'assistant' as const,
+  1177→              content: `[RECUERDOS ANTERIORES]\n${summary.content}`,
+  1178→              characterId: responder.id,
+  1179→              isDeleted: false,
+  1180→              timestamp: summary.createdAt,
+  1181→              swipeId: 'summary',
+  1182→              swipeIndex: 0
+  1183→            } : null;
+  1184→
+  1185→            // Build messages: summary (if exists) + context window messages + user message
+  1186→            let baseMessages = isLastMessageCurrentUser
+  1187→              ? groupContextWindow.messages
+  1188→              : [...groupContextWindow.messages, createUserMessage(sanitizedMessage)];
+  1189→            
+  1190→            // Inject summary at the START of chat history
+  1191→            const messagesForPrompt = summaryMessage 
+  1192→              ? [summaryMessage, ...baseMessages] 
+  1193→              : baseMessages;
+  1194→
+  1195→            // Resolve keys in post-history instructions BEFORE passing to buildGroupChatMessages
+  1196→            // This ensures {{user}}, {{char}}, {{stats}}, etc. are replaced
+  1197→            const rawPostHistoryInstructions = responder.postHistoryInstructions?.trim();
+  1198→            const resolvedPostHistoryInstructions = rawPostHistoryInstructions
+  1199→              ? resolveAllKeys(rawPostHistoryInstructions, keyContext)
+  1200→              : undefined;
+  1201→
+  1202→            // Build post-history section for prompt viewer (pass raw instructions, function will resolve keys)
+  1203→            const postHistorySection = buildPostHistorySection(
+  1204→              responder.postHistoryInstructions,
+  1205→              keyContext
+  1206→            );
+  1207→
+  1208→            // Note: isResponderNarrator is already defined above
+  1209→
+  1210→            const { chatMessages, chatHistorySection } = buildGroupChatMessages(
+  1211→              finalSystemPrompt,
+  1212→              messagesForPrompt,
+  1213→              responder,
+  1214→              characters,
+  1215→              effectiveUserName,
+  1216→              previousResponses,
+  1217→              resolvedPostHistoryInstructions,  // Post-history instructions AFTER chat (with keys resolved)
+  1218→              undefined,  // authorNote
+  1219→              isResponderNarrator,  // If responder is narrator, they see all messages
+  1220→              embeddingsContext,  // Memory embeddings before chat history
+  1221→              lorebookChatInjections,  // Lorebook chat-level injections (positions 1-4)
+  1222→              exampleMessages  // SillyTavern-style example dialogue as chat messages
+  1223→            );
+  1224→
+  1225→            // Combine prompt sections with chat history for the viewer
+  1226→            // Order: System -> [CONTEXTO] non-memory -> [MEMORIA] memory -> Chat History -> Post-History
+  1227→            const personaIndex = promptSections.findIndex(s => s.type === 'persona');
+  1228→            const prePersonaSections = personaIndex >= 0 ? promptSections.slice(0, personaIndex + 1) : promptSections;
+  1229→            const postPersonaSections = personaIndex >= 0 ? promptSections.slice(personaIndex + 1) : [];
+  1230→
+  1231→            let allPromptSections: PromptSection[] = chatHistorySection
+  1232→              ? [...prePersonaSections, ...postPersonaSections, ...(characterMemorySection && !embeddingsFoundMemory ? [characterMemorySection] : []), ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []), ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []), chatHistorySection, ...(postHistorySection ? [postHistorySection] : [])]
+  1233→              : [...prePersonaSections, ...postPersonaSections, ...(characterMemorySection && !embeddingsFoundMemory ? [characterMemorySection] : []), ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []), ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []), ...(postHistorySection ? [postHistorySection] : [])];
+  1234→
+  1235→            // Inject HUD context into sections if enabled
+  1236→            if (hudContextSection && typedHUDContext) {
+  1237→              allPromptSections = injectHUDContextIntoSections(allPromptSections, hudContextSection, typedHUDContext.position);
+  1238→            }
+  1239→
+  1240→            // Generate response
+  1241→            let fullContent = '';
+  1242→
+  1243→            try {
+  1244→              // Get the appropriate streaming generator based on provider
+  1245→              // For tool-aware providers (openai, anthropic, ollama), the stream is consumed inline
+  1246→              // and generator is NOT assigned. The `if (generator)` check after the switch handles this.
+  1247→              let generator: AsyncGenerator<string> | undefined;
+  1248→
+  1249→              // Inject HUD context into chat messages if enabled
+  1250→              const finalChatMessages = hudContextSection && typedHUDContext
+  1251→                ? injectHUDContextIntoMessages(chatMessages, hudContextSection, typedHUDContext.position)
+  1252→                : chatMessages;
+  1253→
+  1254→              switch (llmConfig.provider) {
+  1255→                case 'test-mock': {
+  1256→                  // Test mode: Simulate LLM response with peticion keys for testing
+  1257→                  console.log('[Group Stream Route] Using TEST-MOCK provider for peticiones testing');
+  1258→                  
+  1259→                  // Use custom mock response from config, or default response
+  1260→                  const mockResponse = llmConfig.mockResponse || `*El personaje te mira con interés*
+  1261→
+  1262→¡Hola! Me alegra verte por aquí. Tenía algo que pedirte...
+  1263→
+  1264→[peticion_test]
+  1265→
+  1266→¿Podrías ayudarme con algo?`;
+  1267→                  
+  1268→                  console.log('[Group Stream Route] Mock response for', responder.name, ':', mockResponse.slice(0, 100) + '...');
+  1269→                  
+  1270→                  generator = async function* mockGenerator() {
+  1271→                    // Stream character by character to simulate real streaming
+  1272→                    for (const char of mockResponse) {
+  1273→                      yield char;
+  1274→                      // Small delay to simulate network latency
+  1275→                      await new Promise(resolve => setTimeout(resolve, 15));
+  1276→                    }
+  1277→                  }();
+  1278→                  break;
+  1279→                }
+  1280→
+  1281→                case 'z-ai': {
+  1282→                  if (charShouldUseTools) {
+  1283→                    const zaiAccumulator = createToolCallAccumulator(charAvailableTools);
+  1284→                    let zaiRoundContent = '';
+  1285→                    
+  1286→                    for await (const chunk of streamZAIWithTools(finalChatMessages, charAvailableTools, zaiAccumulator, zaiRuntimeToken || llmConfig.apiKey || undefined)) {
+  1287→                      zaiRoundContent += chunk;
+  1288→                      fullContent += chunk;
+  1289→                    }
+  1290→
+  1291→                    if (hasToolCalls(zaiAccumulator) && (zaiAccumulator.finishReason === 'tool_calls' || zaiAccumulator.finishReason === 'stop')) {
+  1292→                      if (zaiRoundContent.trim()) {
+  1293→                        for (const chunk of splitIntoChunks(zaiRoundContent)) {
+  1294→                          controller.enqueue(createSSEJSON({
+  1295→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1296→                          }));
+  1297→                        }
+  1298→                      }
+  1299→                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1300→                        zaiAccumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1301→                        sessionQuests, questTemplates,
+  1302→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1303→                        lorebooks,
+  1304→                        group
+  1305→                      );
+  1306→                      allQuestActivations = [...allQuestActivations, ...questActivations];
+  1307→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1308→                      if (shouldContinue) {
+  1309→                        const toolResultPairs = zaiAccumulator.toolCalls.map(tc => ({
+  1310→                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+  1311→                        }));
+  1312→                        const toolMessages = buildToolMessagesForOpenAI(zaiAccumulator.toolCalls, toolResultPairs);
+  1313→                        const followUpMessages = [...finalChatMessages, ...toolMessages];
+  1314→                        
+  1315→                        fullContent = '';
+  1316→                        let zaiFollowUpContent = '';
+  1317→                        for await (const chunk of streamZAI(followUpMessages as any, zaiRuntimeToken || llmConfig.apiKey || undefined)) {
+  1318→                          zaiFollowUpContent += chunk;
+  1319→                        }
+  1320→                        const cleanedZaiFollowUp = cleanModelArtifacts(zaiFollowUpContent);
+  1321→                        fullContent = cleanedZaiFollowUp;
+  1322→                        for (const chunk of splitIntoChunks(cleanedZaiFollowUp)) {
+  1323→                          controller.enqueue(createSSEJSON({
+  1324→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1325→                          }));
+  1326→                        }
+  1327→                      }
+  1328→                    } else {
+  1329→                      const cleanedContent = cleanModelArtifacts(zaiRoundContent);
+  1330→                      for (const chunk of splitIntoChunks(cleanedContent)) {
+  1331→                        controller.enqueue(createSSEJSON({
+  1332→                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1333→                        }));
+  1334→                      }
+  1335→                    }
+  1336→                  } else {
+  1337→                    generator = streamZAI(finalChatMessages, zaiRuntimeToken || llmConfig.apiKey || undefined);
+  1338→                  }
+  1339→                  break;
+  1340→                }
+  1341→
+  1342→                case 'openai':
+  1343→                case 'vllm':
+  1344→                case 'lm-studio':
+  1345→                case 'custom': {
+  1346→                  if (!llmConfig.endpoint) {
+  1347→                    throw new Error(`${llmConfig.provider} requires an endpoint URL`);
+  1348→                  }
+  1349→                  if (charShouldUseTools) {
+  1350→                    // Use tool-aware streaming
+  1351→                    const openaiMessages = finalChatMessages.map((m, idx) => ({
+  1352→                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+  1353→                      content: m.content
+  1354→                    }));
+  1355→                    const accumulator = createToolCallAccumulator(charAvailableTools);
+  1356→                    let roundContent = '';
+  1357→                    
+  1358→                    // BUFFER content for tool call detection
+  1359→                    for await (const chunk of streamOpenAIWithTools(openaiMessages as any, llmConfig, llmConfig.provider, charAvailableTools, accumulator)) {
+  1360→                      roundContent += chunk;
+  1361→                      fullContent += chunk;
+  1362→                    }
+  1363→
+  1364→                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+  1365→                      // Native tool calls detected! Execute them
+  1366→                      if (roundContent.trim()) {
+  1367→                        for (const chunk of splitIntoChunks(roundContent)) {
+  1368→                          controller.enqueue(createSSEJSON({
+  1369→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1370→                          }));
+  1371→                        }
+  1372→                      }
+  1373→                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1374→                        accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1375→                        sessionQuests, questTemplates,
+  1376→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1377→                        lorebooks,
+  1378→                        group
+  1379→                      );
+  1380→                      allQuestActivations = [...allQuestActivations, ...questActivations];
+  1381→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1382→                      if (shouldContinue) {
+  1383→                        const toolResultPairs = accumulator.toolCalls.map(tc => ({
+  1384→                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+  1385→                        }));
+  1386→                        const toolMessages = buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs);
+  1387→                        const followUpMessages = [...openaiMessages, ...toolMessages];
+  1388→
+  1389→                        // Buffer follow-up to clean model artifacts before streaming
+  1390→                        fullContent = '';
+  1391→                        let nativeFollowUpContent = '';
+  1392→                        for await (const chunk of streamOpenAICompatible(followUpMessages as any, llmConfig, llmConfig.provider)) {
+  1393→                          nativeFollowUpContent += chunk;
+  1394→                        }
+  1395→                        const cleanedNativeFollowUp = cleanModelArtifacts(nativeFollowUpContent);
+  1396→                        fullContent = cleanedNativeFollowUp;
+  1397→                        for (const chunk of splitIntoChunks(cleanedNativeFollowUp)) {
+  1398→                          controller.enqueue(createSSEJSON({
+  1399→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1400→                          }));
+  1401→                        }
+  1402→                      }
+  1403→                    } else if (mightContainToolCall(roundContent)) {
+  1404→                      // Check for text-based tool call (model outputting JSON as content)
+  1405→                      const textToolCalls = parseAllToolCallsFromText(roundContent);
+  1406→                      if (textToolCalls.length > 0) {
+  1407→                        console.log(`[GroupStream-Tools] ✓ Text-based tool call(s) detected: ${textToolCalls.map(tc => tc.name).join(', ')}`);
+  1408→
+  1409→                        const cleanContent = stripToolCallFromText(roundContent);
+  1410→                        if (cleanContent.trim()) {
+  1411→                          for (const chunk of splitIntoChunks(cleanContent)) {
+  1412→                            controller.enqueue(createSSEJSON({
+  1413→                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1414→                            }));
+  1415→                          }
+  1416→                        }
+  1417→
+  1418→                        const nativeCalls: NativeToolCall[] = textToolCalls.map((tc, idx) => ({
+  1419→                          id: `text_call_${Date.now()}_${idx}`,
+  1420→                          name: tc.name,
+  1421→                          arguments: tc.arguments,
+  1422→                          rawArguments: JSON.stringify(tc.arguments),
+  1423→                        }));
+  1424→
+  1425→                        const { results: displayMessages, shouldContinue, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1426→                          nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1427→                        sessionQuests, questTemplates,
+  1428→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1429→                        lorebooks,
+  1430→                        group
+  1431→                      );
+  1432→                        if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1433→                        if (shouldContinue) {
+  1434→                          fullContent = '';
+  1435→                          const toolNames = textToolCalls.map(tc => tc.name).join(', ');
+  1436→                          const followUpMessages = [
+  1437→                            ...openaiMessages,
+  1438→                            { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${displayMessages}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
+  1439→                          ] as any;
+  1440→                          // Buffer follow-up to clean model artifacts before streaming
+  1441→                          let textFollowUpContent = '';
+  1442→                          for await (const chunk of streamOpenAICompatible(followUpMessages, llmConfig, llmConfig.provider)) {
+  1443→                            textFollowUpContent += chunk;
+  1444→                          }
+  1445→                          const cleanedTextFollowUp = cleanModelArtifacts(textFollowUpContent);
+  1446→                          fullContent = cleanedTextFollowUp;
+  1447→                          for (const chunk of splitIntoChunks(cleanedTextFollowUp)) {
+  1448→                            controller.enqueue(createSSEJSON({
+  1449→                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1450→                            }));
+  1451→                          }
+  1452→                        }
+  1453→                      } else {
+  1454→                        // Content looked like tool call but couldn't parse - clean and stream as regular text
+  1455→                        const cleanedContent = cleanModelArtifacts(roundContent);
+  1456→                        for (const chunk of splitIntoChunks(cleanedContent)) {
+  1457→                          controller.enqueue(createSSEJSON({
+  1458→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1459→                          }));
+  1460→                        }
+  1461→                      }
+  1462→                    } else {
+  1463→                      // Regular text response - stream buffered content (clean artifacts)
+  1464→                      const cleanedContent = cleanModelArtifacts(roundContent);
+  1465→                      for (const chunk of splitIntoChunks(cleanedContent)) {
+  1466→                        controller.enqueue(createSSEJSON({
+  1467→                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1468→                        }));
+  1469→                      }
+  1470→                    }
+  1471→                  } else {
+  1472→                    // Standard streaming without tools
+  1473→                    const openaiMessages = finalChatMessages.map((m, idx) => ({
+  1474→                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+  1475→                      content: m.content
+  1476→                    }));
+  1477→                    generator = streamOpenAICompatible(openaiMessages, llmConfig, llmConfig.provider);
+  1478→                  }
+  1479→                  break;
+  1480→                }
+  1481→
+  1482→                case 'anthropic': {
+  1483→                  if (!llmConfig.apiKey) {
+  1484→                    throw new Error('Anthropic requires an API key');
+  1485→                  }
+  1486→                  if (charShouldUseTools) {
+  1487→                    const anthropicMessages = finalChatMessages.map((m, idx) => ({
+  1488→                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+  1489→                      content: m.content
+  1490→                    }));
+  1491→                    const toolState = createAnthropicToolState();
+  1492→                    let roundContent = '';
+  1493→                    
+  1494→                    // BUFFER content for tool call detection
+  1495→                    for await (const chunk of streamAnthropicWithTools(anthropicMessages as any, llmConfig, charAvailableTools, toolState)) {
+  1496→                      roundContent += chunk;
+  1497→                      fullContent += chunk;
+  1498→                    }
+  1499→
+  1500→                    const toolCalls = anthropicStateToToolCalls(toolState);
+  1501→                    if (toolCalls.length > 0 && (toolState.stopReason === 'tool_use')) {
+  1502→                      if (roundContent.trim()) {
+  1503→                        for (const chunk of splitIntoChunks(roundContent)) {
+  1504→                          controller.enqueue(createSSEJSON({
+  1505→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1506→                          }));
+  1507→                        }
+  1508→                      }
+  1509→                        const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1510→                          toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1511→                        sessionQuests, questTemplates,
+  1512→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1513→                        lorebooks,
+  1514→                        group
+  1515→                      );
+  1516→                        allQuestActivations = [...allQuestActivations, ...questActivations];
+  1517→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1518→                        if (shouldContinue) {
+  1519→                        const toolResultPairs = toolCalls.map(tc => ({
+  1520→                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+  1521→                        }));
+  1522→                        const toolMessages = buildToolMessagesForAnthropic(toolCalls, toolResultPairs);
+  1523→                        const followUpMessages = [...anthropicMessages, ...toolMessages.flatMap(m => m)];
+  1524→
+  1525→                        // Buffer follow-up to clean model artifacts before streaming
+  1526→                        fullContent = '';
+  1527→                        let anthFollowUpContent = '';
+  1528→                        for await (const chunk of streamAnthropic(followUpMessages as any, llmConfig)) {
+  1529→                          anthFollowUpContent += chunk;
+  1530→                        }
+  1531→                        const cleanedAnthFollowUp = cleanModelArtifacts(anthFollowUpContent);
+  1532→                        fullContent = cleanedAnthFollowUp;
+  1533→                        for (const chunk of splitIntoChunks(cleanedAnthFollowUp)) {
+  1534→                          controller.enqueue(createSSEJSON({
+  1535→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1536→                          }));
+  1537→                        }
+  1538→                      }
+  1539→                    } else if (mightContainToolCall(roundContent)) {
+  1540→                      const textToolCalls = parseAllToolCallsFromText(roundContent);
+  1541→                      if (textToolCalls.length > 0) {
+  1542→                        console.log(`[GroupStream-Tools] ✓ Text-based tool call(s) detected (Anthropic): ${textToolCalls.map(tc => tc.name).join(', ')}`);
+  1543→                        const cleanContent = stripToolCallFromText(roundContent);
+  1544→                        if (cleanContent.trim()) {
+  1545→                          for (const chunk of splitIntoChunks(cleanContent)) {
+  1546→                            controller.enqueue(createSSEJSON({
+  1547→                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1548→                            }));
+  1549→                          }
+  1550→                        }
+  1551→                        const nativeCalls: NativeToolCall[] = textToolCalls.map((tc, idx) => ({
+  1552→                          id: `text_call_${Date.now()}_${idx}`, name: tc.name,
+  1553→                          arguments: tc.arguments, rawArguments: JSON.stringify(tc.arguments),
+  1554→                        }));
+  1555→                        const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1556→                          nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1557→                        sessionQuests, questTemplates,
+  1558→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1559→                        lorebooks,
+  1560→                        group
+  1561→                      );
+  1562→                        allQuestActivations = [...allQuestActivations, ...questActivations];
+  1563→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1564→                        if (shouldContinue) {
+  1565→                          fullContent = '';
+  1566→                          const toolNames = textToolCalls.map(tc => tc.name).join(', ');
+  1567→                          const followUpMessages = [
+  1568→                            ...anthropicMessages,
+  1569→                            { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${displayMessages}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
+  1570→                          ] as any;
+  1571→                          // Buffer follow-up to clean model artifacts before streaming
+  1572→                          let anthTextFollowUpContent = '';
+  1573→                          for await (const chunk of streamAnthropic(followUpMessages, llmConfig)) {
+  1574→                            anthTextFollowUpContent += chunk;
+  1575→                          }
+  1576→                          const cleanedAnthTextFollowUp = cleanModelArtifacts(anthTextFollowUpContent);
+  1577→                          fullContent = cleanedAnthTextFollowUp;
+  1578→                          for (const chunk of splitIntoChunks(cleanedAnthTextFollowUp)) {
+  1579→                            controller.enqueue(createSSEJSON({
+  1580→                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1581→                            }));
+  1582→                          }
+  1583→                        }
+  1584→                      } else {
+  1585→                        // Content looked like tool call but couldn't parse - clean and stream as regular text
+  1586→                        const cleanedContent = cleanModelArtifacts(roundContent);
+  1587→                        for (const chunk of splitIntoChunks(cleanedContent)) {
+  1588→                          controller.enqueue(createSSEJSON({
+  1589→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1590→                          }));
+  1591→                        }
+  1592→                      }
+  1593→                    } else {
+  1594→                      // Regular text response - stream buffered content (clean artifacts)
+  1595→                      const cleanedContent = cleanModelArtifacts(roundContent);
+  1596→                      for (const chunk of splitIntoChunks(cleanedContent)) {
+  1597→                        controller.enqueue(createSSEJSON({
+  1598→                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1599→                        }));
+  1600→                      }
+  1601→                    }
+  1602→                  } else {
+  1603→                    const anthropicMessages = finalChatMessages.map((m, idx) => ({
+  1604→                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+  1605→                      content: m.content
+  1606→                    }));
+  1607→                    generator = streamAnthropic(anthropicMessages, llmConfig);
+  1608→                  }
+  1609→                  break;
+  1610→                }
+  1611→
+  1612→                case 'ollama': {
+  1613→                  if (charShouldUseTools) {
+  1614→                    // Use /api/chat with tools support
+  1615→                    const ollamaMessages = finalChatMessages.map((m, idx) => ({
+  1616→                      role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+  1617→                      content: m.content
+  1618→                    }));
+  1619→                    const accumulator = createToolCallAccumulator(charAvailableTools);
+  1620→                    let roundContent = '';
+  1621→                    
+  1622→                    // BUFFER content for tool call detection
+  1623→                    for await (const chunk of streamOllamaWithTools(ollamaMessages as any, llmConfig, charAvailableTools, accumulator)) {
+  1624→                      roundContent += chunk;
+  1625→                      fullContent += chunk;
+  1626→                    }
+  1627→
+  1628→                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'tool use')) {
+  1629→                      if (roundContent.trim()) {
+  1630→                        for (const chunk of splitIntoChunks(roundContent)) {
+  1631→                          controller.enqueue(createSSEJSON({
+  1632→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1633→                          }));
+  1634→                        }
+  1635→                      }
+  1636→                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1637→                        accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1638→                        sessionQuests, questTemplates,
+  1639→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1640→                        lorebooks,
+  1641→                        group
+  1642→                      );
+  1643→                      allQuestActivations = [...allQuestActivations, ...questActivations];
+  1644→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1645→                      if (shouldContinue) {
+  1646→                        const toolResultPairs = accumulator.toolCalls.map(tc => ({
+  1647→                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+  1648→                        }));
+  1649→                        const toolResultMessages = buildToolMessagesForOllama(accumulator.toolCalls, toolResultPairs);
+  1650→                        const followUpMessages = [...ollamaMessages, ...toolResultMessages];
+  1651→
+  1652→                        // Buffer follow-up to clean model artifacts before streaming
+  1653→                        fullContent = '';
+  1654→                        const combinedPrompt = followUpMessages.map(m =>
+  1655→                          `${(m as any).role}: ${(m as any).content}`
+  1656→                        ).join('\n') + `\n${responder.name}:`;
+  1657→                        let ollamaFollowUpContent = '';
+  1658→                        for await (const chunk of streamOllama(combinedPrompt, llmConfig)) {
+  1659→                          ollamaFollowUpContent += chunk;
+  1660→                        }
+  1661→                        const cleanedOllamaFollowUp = cleanModelArtifacts(ollamaFollowUpContent);
+  1662→                        fullContent = cleanedOllamaFollowUp;
+  1663→                        for (const chunk of splitIntoChunks(cleanedOllamaFollowUp)) {
+  1664→                          controller.enqueue(createSSEJSON({
+  1665→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1666→                          }));
+  1667→                        }
+  1668→                      }
+  1669→                    } else if (mightContainToolCall(roundContent)) {
+  1670→                      const textToolCalls = parseAllToolCallsFromText(roundContent);
+  1671→                      if (textToolCalls.length > 0) {
+  1672→                        console.log(`[GroupStream-Tools] ✓ Text-based tool call(s) detected (Ollama): ${textToolCalls.map(tc => tc.name).join(', ')}`);
+  1673→                        const cleanContent = stripToolCallFromText(roundContent);
+  1674→                        if (cleanContent.trim()) {
+  1675→                          for (const chunk of splitIntoChunks(cleanContent)) {
+  1676→                            controller.enqueue(createSSEJSON({
+  1677→                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1678→                            }));
+  1679→                          }
+  1680→                        }
+  1681→                        const nativeCalls: NativeToolCall[] = textToolCalls.map((tc, idx) => ({
+  1682→                          id: `text_call_${Date.now()}_${idx}`, name: tc.name,
+  1683→                          arguments: tc.arguments, rawArguments: JSON.stringify(tc.arguments),
+  1684→                        }));
+  1685→                        const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1686→                          nativeCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1687→                        sessionQuests, questTemplates,
+  1688→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1689→                        lorebooks,
+  1690→                        group
+  1691→                      );
+  1692→                        allQuestActivations = [...allQuestActivations, ...questActivations];
+  1693→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1694→                        if (shouldContinue) {
+  1695→                          fullContent = '';
+  1696→                          const toolNames = textToolCalls.map(tc => tc.name).join(', ');
+  1697→                          const followUpMessages = [
+  1698→                            ...ollamaMessages,
+  1699→                            { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${displayMessages}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
+  1700→                          ] as any;
+  1701→                          const combinedPrompt = followUpMessages.map(m =>
+  1702→                            `${(m as any).role}: ${(m as any).content}`
+  1703→                          ).join('\n') + `\n${responder.name}:`;
+  1704→                          // Buffer follow-up to clean model artifacts before streaming
+  1705→                          let ollamaTextFollowUpContent = '';
+  1706→                          for await (const chunk of streamOllama(combinedPrompt, llmConfig)) {
+  1707→                            ollamaTextFollowUpContent += chunk;
+  1708→                          }
+  1709→                          const cleanedOllamaTextFollowUp = cleanModelArtifacts(ollamaTextFollowUpContent);
+  1710→                          fullContent = cleanedOllamaTextFollowUp;
+  1711→                          for (const chunk of splitIntoChunks(cleanedOllamaTextFollowUp)) {
+  1712→                            controller.enqueue(createSSEJSON({
+  1713→                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1714→                            }));
+  1715→                          }
+  1716→                        }
+  1717→                      } else {
+  1718→                        // Content looked like tool call but couldn't parse - clean and stream as regular text
+  1719→                        const cleanedContent = cleanModelArtifacts(roundContent);
+  1720→                        for (const chunk of splitIntoChunks(cleanedContent)) {
+  1721→                          controller.enqueue(createSSEJSON({
+  1722→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1723→                          }));
+  1724→                        }
+  1725→                      }
+  1726→                    } else {
+  1727→                      // Regular text response - stream buffered content (clean artifacts)
+  1728→                      const cleanedContent = cleanModelArtifacts(roundContent);
+  1729→                      for (const chunk of splitIntoChunks(cleanedContent)) {
+  1730→                        controller.enqueue(createSSEJSON({
+  1731→                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1732→                        }));
+  1733→                      }
+  1734→                    }
+  1735→                  } else {
+  1736→                    // Standard completion prompt (no tools)
+  1737→                    const prompt = buildCompletionPrompt({
+  1738→                      systemPrompt: finalSystemPrompt,
+  1739→                      messages: messagesForPrompt,
+  1740→                      character: responder,
+  1741→                      userName: effectiveUserName,
+  1742→                      postHistoryInstructions: resolvedPostHistoryInstructions,
+  1743→                      embeddingsContext: embeddingsContext,
+  1744→                      exampleMessages: exampleMessages,
+  1745→                      allCharacters: characters  // Pass all characters for proper speaker attribution
+  1746→                    });
+  1747→                    generator = streamOllama(prompt, llmConfig);
+  1748→                  }
+  1749→                  break;
+  1750→                }
+  1751→
+  1752→                case 'grok': {
+  1753→                  console.log(`[GroupStream] Grok case: charShouldUseTools=${charShouldUseTools}`);
+  1754→                  const grokMessages = finalChatMessages.map((m, idx) => ({
+  1755→                    role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+  1756→                    content: m.content
+  1757→                  }));
+  1758→
+  1759→                  if (charShouldUseTools) {
+  1760→                    const accumulator = createToolCallAccumulator(charAvailableTools);
+  1761→                    let roundContent = '';
+  1762→
+  1763→                    for await (const chunk of streamGrokWithTools(grokMessages as any, llmConfig, charAvailableTools, accumulator)) {
+  1764→                      roundContent += chunk;
+  1765→                      fullContent += chunk;
+  1766→                    }
+  1767→
+  1768→                    console.log(`[Grok+Tools] Round buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
+  1769→
+  1770→                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+  1771→                      if (roundContent.trim()) {
+  1772→                        for (const chunk of splitIntoChunks(roundContent)) {
+  1773→                          controller.enqueue(createSSEJSON({
+  1774→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1775→                          }));
+  1776→                        }
+  1777→                      }
+  1778→                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1779→                        accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1780→                        sessionQuests, questTemplates,
+  1781→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1782→                        lorebooks,
+  1783→                        group
+  1784→                      );
+  1785→                      allQuestActivations = [...allQuestActivations, ...questActivations];
+  1786→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1787→                      if (shouldContinue) {
+  1788→                        const toolResultPairs = accumulator.toolCalls.map(tc => ({
+  1789→                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+  1790→                        }));
+  1791→                        const toolMessages = buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs);
+  1792→                        const followUpMessages = [...grokMessages, ...toolMessages];
+  1793→                        
+  1794→                        fullContent = '';
+  1795→                        let grokFollowUpContent = '';
+  1796→                        for await (const chunk of streamGrok(followUpMessages as any, llmConfig)) {
+  1797→                          grokFollowUpContent += chunk;
+  1798→                        }
+  1799→                        const cleanedGrokFollowUp = cleanModelArtifacts(grokFollowUpContent);
+  1800→                        fullContent = cleanedGrokFollowUp;
+  1801→                        for (const chunk of splitIntoChunks(cleanedGrokFollowUp)) {
+  1802→                          controller.enqueue(createSSEJSON({
+  1803→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1804→                          }));
+  1805→                        }
+  1806→                      }
+  1807→                    } else if (mightContainToolCall(roundContent)) {
+  1808→                      const textToolCalls = parseAllToolCallsFromText(roundContent);
+  1809→                      if (textToolCalls.length > 0) {
+  1810→                        console.log(`[Grok+Tools] Text-based tool call(s) detected: ${textToolCalls.map(tc => tc.name).join(', ')}`);
+  1811→                        const cleanContent = stripToolCallFromText(roundContent);
+  1812→                        if (cleanContent.trim()) {
+  1813→                          for (const chunk of splitIntoChunks(cleanContent)) {
+  1814→                            controller.enqueue(createSSEJSON({
+  1815→                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1816→                            }));
+  1817→                          }
+  1818→                        }
+  1819→                        const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1820→                          textToolCalls.map((tc, idx) => ({
+  1821→                            id: `text_call_${Date.now()}_${idx}`,
+  1822→                            name: tc.name,
+  1823→                            arguments: tc.arguments,
+  1824→                            rawArguments: JSON.stringify(tc.arguments)
+  1825→                          })), charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1826→                        sessionQuests, questTemplates,
+  1827→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1828→                        lorebooks,
+  1829→                        group
+  1830→                      );
+  1831→                        allQuestActivations = [...allQuestActivations, ...questActivations];
+  1832→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1833→                        if (shouldContinue) {
+  1834→                          fullContent = '';
+  1835→                          const toolNames = textToolCalls.map(tc => tc.name).join(', ');
+  1836→                          const followUpMessages = [
+  1837→                            ...grokMessages,
+  1838→                            { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${displayMessages}\n\nResponde de forma natural usando esta información.` },
+  1839→                          ] as any;
+  1840→                          let grokTextFollowUpContent = '';
+  1841→                          for await (const chunk of streamGrok(followUpMessages, llmConfig)) {
+  1842→                            grokTextFollowUpContent += chunk;
+  1843→                          }
+  1844→                          const cleanedGrokTextFollowUp = cleanModelArtifacts(grokTextFollowUpContent);
+  1845→                          fullContent = cleanedGrokTextFollowUp;
+  1846→                          for (const chunk of splitIntoChunks(cleanedGrokTextFollowUp)) {
+  1847→                            controller.enqueue(createSSEJSON({
+  1848→                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1849→                            }));
+  1850→                          }
+  1851→                        }
+  1852→                      } else {
+  1853→                        const cleanedContent = cleanModelArtifacts(roundContent);
+  1854→                        for (const chunk of splitIntoChunks(cleanedContent)) {
+  1855→                          controller.enqueue(createSSEJSON({
+  1856→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1857→                          }));
+  1858→                        }
+  1859→                      }
+  1860→                    } else {
+  1861→                      const cleanedContent = cleanModelArtifacts(roundContent);
+  1862→                      for (const chunk of splitIntoChunks(cleanedContent)) {
+  1863→                        controller.enqueue(createSSEJSON({
+  1864→                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1865→                        }));
+  1866→                      }
+  1867→                    }
+  1868→                  } else {
+  1869→                    generator = streamGrok(grokMessages as any, llmConfig);
+  1870→                  }
+  1871→                  break;
+  1872→                }
+  1873→
+  1874→                case 'text-generation-webui':
+  1875→                case 'koboldcpp': {
+  1876→                  console.log(`[GroupStream] TextGenerationWebUI case: charShouldUseTools=${charShouldUseTools}`);
+  1877→                  const tgwuMessages = finalChatMessages.map((m, idx) => ({
+  1878→                    role: m.role === 'assistant' && idx === 0 ? 'system' : m.role,
+  1879→                    content: m.content
+  1880→                  }));
+  1881→
+  1882→                  if (charShouldUseTools) {
+  1883→                    const accumulator = createToolCallAccumulator(charAvailableTools);
+  1884→                    let roundContent = '';
+  1885→
+  1886→                    for await (const chunk of streamTextGenerationWebUIWithTools(tgwuMessages as any, llmConfig, charAvailableTools, accumulator)) {
+  1887→                      roundContent += chunk;
+  1888→                      fullContent += chunk;
+  1889→                    }
+  1890→
+  1891→                    console.log(`[TextGenWebUI+Tools] Round buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
+  1892→
+  1893→                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+  1894→                      if (roundContent.trim()) {
+  1895→                        for (const chunk of splitIntoChunks(roundContent)) {
+  1896→                          controller.enqueue(createSSEJSON({
+  1897→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1898→                          }));
+  1899→                        }
+  1900→                      }
+  1901→                      const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
+  1902→                        accumulator.toolCalls, charAvailableTools, responder, sessionId || '', effectiveUserName, controller,
+  1903→                        sessionQuests, questTemplates,
+  1904→                        responder.statsConfig, sessionStats, allCharacters, characterMemoryMap[responder.id],
+  1905→                        lorebooks,
+  1906→                        group
+  1907→                      );
+  1908→                      allQuestActivations = [...allQuestActivations, ...questActivations];
+  1909→                      if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
+  1910→                      if (shouldContinue) {
+  1911→                        const toolResultPairs = accumulator.toolCalls.map(tc => ({
+  1912→                          success: true, displayMessage: displayMessages || `[${tc.name} ejecutada]`
+  1913→                        }));
+  1914→                        const toolMessages = buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs);
+  1915→                        const followUpMessages = [...tgwuMessages, ...toolMessages];
+  1916→                        
+  1917→                        fullContent = '';
+  1918→                        let tgwuFollowUpContent = '';
+  1919→                        for await (const chunk of streamTextGenerationWebUIWithTools(followUpMessages as any, llmConfig, [], accumulator)) {
+  1920→                          tgwuFollowUpContent += chunk;
+  1921→                        }
+  1922→                        const cleanedTgwufollowUp = cleanModelArtifacts(tgwuFollowUpContent);
+  1923→                        fullContent = cleanedTgwufollowUp;
+  1924→                        for (const chunk of splitIntoChunks(cleanedTgwufollowUp)) {
+  1925→                          controller.enqueue(createSSEJSON({
+  1926→                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1927→                          }));
+  1928→                        }
+  1929→                      }
+  1930→                    } else {
+  1931→                      const cleanedContent = cleanModelArtifacts(roundContent);
+  1932→                      for (const chunk of splitIntoChunks(cleanedContent)) {
+  1933→                        controller.enqueue(createSSEJSON({
+  1934→                          type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+  1935→                        }));
+  1936→                      }
+  1937→                    }
+  1938→                  } else {
+  1939→                    const prompt = buildCompletionPrompt({
+  1940→                      systemPrompt: finalSystemPrompt,
+  1941→                      messages: messagesForPrompt,
+  1942→                      character: responder,
+  1943→                      userName: effectiveUserName,
+  1944→                      postHistoryInstructions: resolvedPostHistoryInstructions,
+  1945→                      embeddingsContext: embeddingsContext,
+  1946→                      exampleMessages: exampleMessages,
+  1947→                      allCharacters: characters  // Pass all characters for proper speaker attribution
+  1948→                    });
+  1949→                    generator = streamTextGenerationWebUI(prompt, llmConfig);
+  1950→                  }
+  1951→                  break;
+  1952→                }
+  1953→
+  1954→                default: {
+  1955→                  const prompt = buildCompletionPrompt({
+  1956→                    systemPrompt: finalSystemPrompt,
+  1957→                    messages: messagesForPrompt,
+  1958→                    character: responder,
+  1959→                    userName: effectiveUserName,
+  1960→                    postHistoryInstructions: resolvedPostHistoryInstructions,
+  1961→                    embeddingsContext: embeddingsContext,
+  1962→                    exampleMessages: exampleMessages,
+  1963→                    allCharacters: characters  // Pass all characters for proper speaker attribution
+  1964→                  });
+  1965→                  generator = streamTextGenerationWebUI(prompt, llmConfig);
+  1966→                  break;
+  1967→                }
+  1968→              }
+  1969→
+  1970→              // Stream the response (for providers that don't handle tool calling inline)
+  1971→              if (generator) {
+  1972→                for await (const chunk of generator) {
+  1973→                  fullContent += chunk;
+  1974→                  // Stream token to client
+  1975→                  controller.enqueue(createSSEJSON({
+  1976→                    type: 'token',
+  1977→                    characterId: responder.id,
+  1978→                    characterName: responder.name,
+  1979→                    content: chunk
+  1980→                  }));
+  1981→                }
+  1982→              }
+  1983→
+  1984→              // Clean up the response (remove character name prefix if present)
+  1985→              const cleanedContent = cleanResponseContent(fullContent, responder.name);
+  1986→
+  1987→              // Store response for next character's context
+  1988→              responsesThisTurn.push({
+  1989→                characterId: responder.id,
+  1990→                characterName: responder.name,
+  1991→                content: cleanedContent
+  1992→              });
+  1993→
+  1994→              // Send character_done event with prompt sections (including chat history)
+  1995→              // Include isNarrator flag so frontend can tag the message appropriately
+  1996→              controller.enqueue(createSSEJSON({
+  1997→                type: 'character_done',
+  1998→                characterId: responder.id,
+  1999→                characterName: responder.name,
+  2000→                fullContent: cleanedContent,
+
+[showing lines 1-2000 of 2145; use offset=2001 with limit to continue reading]

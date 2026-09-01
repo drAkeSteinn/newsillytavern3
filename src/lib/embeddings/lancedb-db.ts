@@ -124,6 +124,141 @@ export function getLanceDBUnavailableError(): string | null {
   return lancedbLoadError;
 }
 
+/**
+ * FASE 15: Reset the module load state so LanceDB can be retried after installation.
+ * This clears the one-shot `isModuleLoadAttempted` and `isPermanentlyUnavailable` flags,
+ * allowing the next DB operation to re-attempt loading the native module.
+ * Called after the user installs LanceDB from the UI.
+ */
+export function resetLanceDBModuleState(): void {
+  isModuleLoadAttempted = false;
+  isPermanentlyUnavailable = false;
+  lancedbModule = null;
+  lancedbLoadError = null;
+  isInitialized = false;
+  db = null;
+  embeddingsTable = null;
+  namespacesTable = null;
+  currentUri = null;
+  console.log('[LanceDB] Module state reset — next operation will re-attempt native module load');
+}
+
+// ============ FASE 15: Platform Detection (arch + libc) ============
+
+export type Architecture = 'x64' | 'arm64' | 'ia32' | 'arm' | 'unknown';
+export type Libc = 'gnu' | 'musl' | 'unknown';
+
+/** Detect CPU architecture */
+export function getArchitecture(): Architecture {
+  if (typeof process !== 'undefined' && process.arch) {
+    const arch = process.arch;
+    if (arch === 'x64' || arch === 'arm64' || arch === 'ia32' || arch === 'arm') {
+      return arch;
+    }
+  }
+  return 'unknown';
+}
+
+/**
+ * Detect libc variant on Linux (glibc vs musl).
+ * Alpine Linux uses musl; most other distros use glibc.
+ * On non-Linux platforms, returns 'unknown'.
+ */
+export function detectLibc(): Libc {
+  if (!isLinux()) return 'unknown';
+
+  // Check if musl is in use by looking at the dynamic linker
+  // This is a heuristic — the napi-rs loader does something similar
+  try {
+    // Use dynamic import to avoid require() lint error
+    const { execSync } = require_child_process();
+    // Try ldd — musl systems report "musl" in the output
+    const lddOutput = execSync('ldd --version 2>&1', { encoding: 'utf-8', timeout: 2000 });
+    if (lddOutput.toLowerCase().includes('musl')) {
+      return 'musl';
+    }
+    return 'gnu';
+  } catch {
+    // Fallback: assume glibc (most common)
+    return 'gnu';
+  }
+}
+
+// Helper to import child_process without require() lint error
+function require_child_process() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('child_process');
+}
+
+/**
+ * Get the LanceDB platform package name for the current system.
+ * Returns null if the platform is not supported.
+ *
+ * Examples:
+ * - Windows x64 → @lancedb/lancedb-win32-x64-msvc
+ * - Linux x64 glibc → @lancedb/lancedb-linux-x64-gnu
+ * - Linux x64 musl (Alpine) → @lancedb/lancedb-linux-x64-musl
+ * - macOS arm64 (Apple Silicon) → @lancedb/lancedb-darwin-arm64
+ * - macOS x64 (Intel) → @lancedb/lancedb-darwin-x64 (may not exist)
+ */
+export function getLanceDBPlatformPackage(): string | null {
+  const platform = getPlatform();
+  const arch = getArchitecture();
+  const libc = detectLibc();
+
+  if (platform === 'win32') {
+    if (arch === 'x64') return '@lancedb/lancedb-win32-x64-msvc';
+    if (arch === 'arm64') return '@lancedb/lancedb-win32-arm64-msvc';
+  }
+
+  if (platform === 'linux') {
+    if (arch === 'x64') {
+      return libc === 'musl'
+        ? '@lancedb/lancedb-linux-x64-musl'
+        : '@lancedb/lancedb-linux-x64-gnu';
+    }
+    if (arch === 'arm64') {
+      return libc === 'musl'
+        ? '@lancedb/lancedb-linux-arm64-musl'
+        : '@lancedb/lancedb-linux-arm64-gnu';
+    }
+  }
+
+  if (platform === 'darwin') {
+    if (arch === 'arm64') return '@lancedb/lancedb-darwin-arm64';
+    if (arch === 'x64') return '@lancedb/lancedb-darwin-x64';
+  }
+
+  return null;
+}
+
+/**
+ * Get a human-readable description of the detected platform.
+ */
+export function getPlatformDescription(): string {
+  const platform = getPlatform();
+  const arch = getArchitecture();
+  const libc = detectLibc();
+
+  const platformName = platform === 'win32' ? 'Windows'
+    : platform === 'linux' ? 'Linux'
+    : platform === 'darwin' ? 'macOS'
+    : 'Unknown';
+
+  const archName = arch === 'x64' ? 'x64'
+    : arch === 'arm64' ? 'ARM64'
+    : arch === 'ia32' ? 'x86'
+    : arch === 'arm' ? 'ARM'
+    : 'Unknown';
+
+  let desc = `${platformName} ${archName}`;
+  if (platform === 'linux' && libc !== 'unknown') {
+    desc += ` (${libc})`;
+  }
+
+  return desc;
+}
+
 // ============ Error Types ============
 
 export class LanceDBError extends Error {
@@ -441,6 +576,10 @@ export class LanceDBWrapper {
   static getSystemInfo() {
     return {
       platform: getPlatform(),
+      architecture: getArchitecture(),
+      libc: detectLibc(),
+      platformDescription: getPlatformDescription(),
+      platformPackage: getLanceDBPlatformPackage(),
       isWindows: isWindows(),
       isLinux: isLinux(),
       isMacOS: isMacOS(),

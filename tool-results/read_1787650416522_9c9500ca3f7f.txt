@@ -1,0 +1,302 @@
+     1→   100→- A: group-stream — executeGroupToolCalls recibe group, ToolContext con groupId/groupMembers, SSE scene_activation (aplicado en los 10 call sites).
+     2→   101→- A: groupSlice.applySceneChange(groupId, characterId, present).
+     3→   102→- A: chat-panel — handler scene_activation (vía replace_all en ambos paths send/regenerate): applySceneChange + pushSessionEvent(scene_enter/leave/focus) + toast 🚪.
+     4→   103→- A: prompt-builder buildGroupSystemPrompt — Other Characters dividido en presentes/ausentes por group.members.isPresent (narradores excluidos, fallback presentes si no hay registro de miembro).
+     5→   104→- Verificado: lint limpio; tests unitarios bun (manage_scene 6/6 casos, event-log render, prompt presencia); dev server reiniciado: "[Tools] Registered 12 ... manage_scene"; navegador: app 200, grupo Ok con sprites y sin errores.
+     6→   105→
+     7→   106→Stage Summary:
+     8→   107→- Escena dinámica: los personajes del grupo pueden entrar/salir/focus vía tool nativa manage_scene (o prompt-based fallback); el cliente muta isPresent (persistente), los ausentes no responden (getResponders ya filtraba) y todos los prompts ven quién está dentro/fuera de la escena.
+     9→   108→- Event-log: ring buffer de 30 eventos (acciones, objetivos, peticiones/solicitudes, escena) con autor/target/turno, inyectado vía {{eventos}} a todos los personajes del turno — ahora reaccionan a la secuencia, no solo al último evento.
+    10→   109→- Sinergia: cada cambio de escena entra automáticamente al eventLog → los demás personajes lo ven en su siguiente respuesta.
+    11→   110→
+    12→   111→---
+    13→   112→Task ID: 9 (C + verificación + revisión Pinky)
+    14→   113→Agent: Z.ai Code (principal)
+    15→   114→Task: Implementar C (menciones personaje→personaje), verificar 1-a-1 y grupo, revisar patrón Pinky Vane
+    16→   115→
+    17→   116→Work Log:
+    18→   117→- GROUP_ONLY_TOOL_IDS en tool-registry + export en barrel; filtro de manage_scene en rutas 1-a-1 (stream, proactive; regenerate no usa tools).
+    19→   118→- C: en group-stream, tras character_done de cada personaje, detectMentions(cleanedContent) agrega mencionados elegibles (activos+presentes+no narrador+no self+no en cola) a la cola dinámica del turno, respetando maxResponsesPerTurn (excepto estrategia all); contador corregido para múltiples menciones.
+    20→   119→- Verificación E2E con test-mock: grupo sintético (Ana/Pinky/Olga ausente) → user menciona a Ana → Ana responde → su respuesta menciona a Pinky Vane → Pinky responde en el MISMO turno; mención a Olga (isPresent=false) ignorada correctamente.
+    21→   120→- Verificación E2E 1-a-1 (stream + test-mock): done+tokens sin errores; eventLog renderizado vía {{eventos}}; tools filtradas (11 en 1-a-1 vs 12 en grupo) verificado con test unitario.
+    22→   121→- Pinky Vane: AUDITORÍA de sus 7 entradas attribute → hallado bug pre-existente: 5ª condición era "> 100" (imposible con clamp max=100) → el nivel MÁXIMO del personaje (descripción 1855 chars, personalidad extrema) NUNCA se inyectaba. Corregido a <= 100 en las 7 entradas. Además asignadas prioridades explícitas 5..1 (robustez al reordenamiento; el editor ya soportaba priority pero los datos no lo usaban). Test de resolución: 7 valores de estupidez resuelven el nivel correcto; orden invertido del array → resultado idéntico.
+    23→   122→- Lint limpio. Verificación navegador (en una sola llamada por reaper de procesos del sandbox): chat 1-a-1 Pinky (HUD Estupidez/Lujuria + primer mensaje) y grupo Ok (sprites miembros) sin errores de página.
+    24→   123→- Nota entorno: el sandbox OOM-kill/reap del next-server (Turbopack+LanceDB, 4GB RAM); mitigado pre-compilando rutas con curl; el server puede necesitar reinicio entre sesiones (bun run dev).
+    25→   124→
+    26→   125→Stage Summary:
+    27→   126→- C completo: diálogo real A↔B sin pasar por el usuario (menciones en respuestas de personajes, cola dinámica, cap por turno).
+    28→   127→- manage_scene solo visible en grupos (filtrada de 1-a-1 en 3 rutas).
+    29→   128→- BUG CRÍTICO corregido en patrón Pinky: nivel máximo de stat nunca alcanzable (>100); 35 condiciones con prioridad explícita. Recomendaciones de patrón documentadas para replicar en otros personajes.
+    30→   129→- Ambos tipos de chat verificados E2E (API SSE + navegador).
+    31→   130→
+    32→   131→---
+    33→   132→Task ID: 10 (Director Agent + overhaul personajes)
+    34→   133→Agent: Z.ai Code (principal)
+    35→   134→Task: Implementar Director Agent + auditoría/corrección masiva de los 12 personajes y lorebooks
+    36→   135→
+    37→   136→Work Log:
+    38→   137→- AUDITORÍA: script sobre characters.json + lorebooks.json → Pinky >100 reverteido por persistencia del server (PUT sobrescribió el fix previo; corregido con server detenido), Diana con lorebook huérfano, 12 entradas con characterId muertos (pantera-diana-00→Diana real, 33bbd96a→Decemone, 9f395af9→Aitana Licuadora), 97 skills sin completedDescription, 29 attrs sin timer, 10 personajes sin proactivo.
+    39→   138→- CORRECCIONES DE DATOS (server detenido): Pinky >100→<=100 + prioridades; Diana lorebook linkeado; 12 characterIds remapeados; 97 completedDescription generados ("{{char}} ejecutó {nombre}"); timers filosofía Pinky (energia +2/10min, lujuria -1/15min, adicciones +1/25min, resistencia +2/10min); configs proactivos 2 niveles × 3 casos escritos a mano para 10 personajes usando su vocabulario/esencia.
+    40→   139→- DIRECTOR AGENT: src/lib/director/types.ts (DirectorSettings/Decision/Snapshot/Result), analyzer.ts puro (tensión 0-100 = base+heat stats+eventos-deprivación+ritmo; pacing calm/building/intense/cooldown estilo L4D; pools de world events por pacing con seededRandom; rotación de escena probabilística en grupos), ruta /api/chat/director (heurística siempre + narración LLM opcional z-ai/openai-compatible/grok con JSON parsing defensivo y fallback), hook use-director (post-turno con debounce 8s + cadencia idle 60s, respeta isGenerating y minInterval; aplica world_event→pushSessionEvent+[DIRECTOR], scene_change→applySceneChange+eventLog+toast, telemetría tensión), integración: AppSettings.director + defaults (enabled, heuristic, 3min) + montaje en chat-panel + botón manual violeta "Director".
+    41→   140→- TESTS: analyzer unitario (tensión 20 base / 81 caliente / intense; scene enter 13/30 turns; estructura OK); ruta E2E con curl (tensión 61, pacing cooldown, scene_change Ana entra); lint limpio; navegador: HUD Pinky + botones Director/Proactivo visibles, clic Director sin errores, server vivo.
+    42→   141→
+    43→   142→Stage Summary:
+    44→   143→- Director Agent v1 operativo: drama manager determinista (sin coste LLM) con modo LLM opcional; sinergia total con event-log (world events entran a {{eventos}}) y escena dinámica (rota miembros del grupo).
+    45→   144→- 12 personajes ahora siguen el patrón Pinky completo: stats→lorebook escalonado (5 niveles)→timers→proactivo escalonado→skills con descripción de completado→{{eventos}}.
+    46→   145→- Bugs de datos resueltos: nivel máximo de 7 entradas Pinky, lorebook huérfano de Diana (jugaba sin personalidad), 12 entradas muertas por ID incorrecto.
+    47→   146→- Lección de entorno: NUNCA editar data/*.json con el server corriendo (la persistencia lo revierte); detener next antes de migraciones.
+    48→   147→
+    49→   148→---
+    50→   149→Task ID: 11 (Relaciones + skill_check)
+    51→   150→Agent: Z.ai Code (principal)
+    52→   151→Task: Implementar sistema de Relaciones (P3) y skill_check (P2)
+    53→   152→
+    54→   153→Work Log:
+    55→   154→- src/lib/relationships.ts (nuevo, puro): SessionRelationship stages Extraños/Conocidos/Amigos/Íntimos/Pareja (0-15/16-35/36-60/61-85/86-100), pairKey simétrico, clamps, getRelationship, isUserTarget.
+    56→   155→- types: SessionEventLogType + 'relationship'|'skill_check'; SessionRelationship; SessionStats.relationships.
+    57→   156→- statsSlice.updateRelationship: bond a↔b (delta/set/reason), espejo `relacion` (número) + `relacion_etapa` (keyword) en attributeValues de AMBAS partes (funciona con lorebooks/sprites/skills/proactivo sin tocar evaluadores), event-log 'relationship' con descripción humana.
+    58→   157→- Tool manage_relationship (modify con delta/set+reason, get_info, targets por alias usuario/nombre/id/primera palabra, rechaza self) → relationshipActivation.
+    59→   158→- Tool skill_check (d20 + modificador stat −10..+10 desde valor 0-100 vs CD easy8/medium12/hard16/extreme19 o custom; critical en 20/1, partial a CD-2; target por defecto __user__) → checkActivation.
+    60→   159→- Registro: 14 tools. SSE relationship_activation/check_activation en stream/group-stream/proactive (script uniforme anclado al bloque stat_activation).
+    61→   160→- chat-panel: handlers (updateRelationship con set+reason+toast etapa ▲▼; check_activation → pushSessionEvent skill_check + toast 🎲✨/💥). key-resolver: {{relacion}}/{{relacion_etapa}} (bond char↔user con fallback al espejo/default).
+    62→   161→- DATA (server detenido): atributo 'Relación' (💜 progress 0-100 default 15, HUD, sin timer) añadido a 11 personajes con statsConfig.
+    63→   162→- Tests: etapas/clamps/pairKey; executors (modify +20 usuario 15→35 Conocidos, set=90 Ana, get_info, target inválido rechazado; statToModifier 80→+6/50→0/20→−6; check fuerza 14+6=20 vs 12 success). Lint limpio. Navegador: HUD Pinky muestra Estupidez/Lujuria/Relación sin errores; 14 tools en log.
+    64→   163→
+    65→   164→Stage Summary:
+    66→   165→- Relaciones: vínculo con etapas gestionable por el LLM (tool) o por reglas futuras; espejo automático → cualquier lorebook attribute entry puede gatear por `relacion`/`relacion_etapa` HOY (ej: condición relacion >= 61 para contenido íntimo); barra visible en HUD.
+    67→   166→- skill_check: convierte los stats de la Persona en mecánica real (d20+mod vs CD, 5 outcomes con narrativa a cargo del LLM); resultados al event-log para que todos reaccionen.
+    68→   167→- Ambos integrados en las 3 rutas de chat (1-a-1, grupo, proactivo).
+    69→   168→
+    70→   169→---
+    71→   170→Task ID: 12 (tiempo del mundo + text actions sin tool calling)
+    72→   171→Agent: Z.ai Code (principal)
+    73→   172→Task: Implementar tiempo del mundo (P5) + acciones por texto (check/rel/tiempo) independientes de tool calling
+    74→   173→
+    75→   174→Work Log:
+    76→   175→- src/lib/world/time.ts (nuevo, puro): WorldClock (totalMinutes, minutesPerTurn 20, realTimeSync, season), momentos madrugada/mañana/tarde/noche, advanceMinutes/setToHour/catchUpRealTime (cap 12h)/worldClockAttributes (hora numérica + momento_del_dia + dia + estacion).
+    77→   176→- SessionStats.worldClock; statsSlice.advanceWorldTime (turnos×minutesPerTurn + catch-up, espejo en characterStats['__user__'], event-log solo al cambiar momento) / setWorldTime (minutes/hour/season/config) / getWorldClock.
+    78→   177→- sessionSlice.addMessage: role user → advanceWorldTime(1) (reloj avanza por turnos en TODOS los caminos).
+    79→   178→- key-resolver: {{hora}}/{{momento}}/{{dia}}/{{estacion}}/{{tiempo_mundo}}.
+    80→   179→- prompt-builder (single + group): sección [TIEMPO DEL MUNDO] (fallback clock 20:00) + sección [ACCIONES DE TEXTO] SIEMPRE presentes.
+    81→   180→- src/lib/tools/text-actions.ts (nuevo): parseTextActions ([check:stat:dificultad|CD], [rel:+N|-N|=N motivo] / [rel:Nombre:...], [tiempo:+2h|+90m|HH:MM|estacion:X]) + buildTextActionsSection (~90 tokens de instrucciones).
+    82→   181→- chat-panel: effect que escanea el ÚLTIMO mensaje assistant (dedupe por id, cubre send/grupo/regenerar/proactivo/replay) y ejecuta check (rollD20+statToModifier vs DIFFICULTY_DC, 5 outcomes, event-log + toast), rel (updateRelationship con target por nombre), tiempo (setWorldTime). Handler SSE time_activation también.
+    83→   182→- Tool manage_time (advance/set_hour/set_season/get_info → timeActivation) + registro (15 tools) + SSE en 3 rutas.
+    84→   183→- DATA (server detenido): entrada {momento_dia} (4 condiciones por hora __user__) en lorebook Escenario compartido; Pinky scenario con {{momento_dia}} + link al lorebook Escenario.
+    85→   184→- Tests: world lib (20:00→+3h=23:00→+1h=Día2 00:00 madrugada; setToHour 9:30; attrs; catchUp), parser 8/8 acciones, manage_time 3 acciones, sección texto OK. Lint limpio. 15 tools en log. Navegador sin errores (server víctima del reaper al compilar proactive; mitigado pre-compilando).
+    86→   185→
+    87→   186→Stage Summary:
+    88→   187→- Tiempo del mundo completo: reloj por turnos (20min/turno default), momentos del día, estaciones, sincronización real opcional; espejado como stats del __user__ → lorebooks (entrada demo {momento_dia}) y sprites condicionales pueden gatear por hora numérica; tool manage_time + tokens de texto + keys de plantilla.
+    89→   188→- ACCIONES DE TEXTO: skill_check, relaciones y tiempo YA NO dependen de tool calling — el LLM escribe [check:fuerza:hard] / [rel:+10 motivo] / [tiempo:+2h] y el cliente los ejecuta (misma filosofía dual-path que stats/skills/quests/items); instrucciones inyectadas SIEMPRE en el prompt.
+    90→   189→- Doble vía completa: tool nativa (cuando está disponible) + token de texto (universal).
+    91→   190→
+    92→   191→---
+    93→   192→Task ID: 13 (fix Grok + panel relaciones)
+    94→   193→Agent: Z.ai Code (principal)
+    95→   194→Task: Fix error 400 Grok (schema enum en tools) + actualizar defaults + UI panel de relaciones (grafo visual)
+    96→   195→
+    97→   196→Work Log:
+    98→   197→- FIX CRÍTICO Grok 400 "enum is not valid": ToolParameterDef usaba type:'enum' (no es JSON Schema válido; xAI valida estricto). Creado toJSONSchemaParameters() en tool-registry (type:'enum'→'string'+enum[], strip per-property required) usado por toOpenAITools → corrige Grok, z-ai, OpenAI-compat y text-gen-webui; Ollama ahora usa toOpenAITools (antes duplicaba el bug); Anthropic input_schema también corregido.
+    99→   198→- Grok defaults: fallback model 'grok-3'→'grok-4-1-fast-non-reasoning' (3 sitios en grok.ts). UI settings ya tenía lista moderna (grok-4.20/4.1/etc.) + fetch dinámico /api/grok/models con API key.
+   100→   199→- Test serialización: 15 tools, 0 violaciones enum/required; manage_scene.action ahora {"type":"string","enum":[...]}; JSON válido.
+   101→   200→- NUEVO src/components/tavern/relationship-panel.tsx: Dialog con grafo radial SVG (usuario al centro con avatar/iniciales, personajes alrededor, aristas con puntos 0-100 y grosor proporcional, colores por etapa: gris/cielo/esmeralda/fucsia/rosa), lista de vínculos ordenada con barras de progreso + motivo último cambio, leyenda de etapas + default 15/100; soporta vínculos char↔char de grupos; lee SessionStats.relationships + espejos 'relacion'.
+   102→   201→- Montaje en chat-panel: botón fucsia 💜 "Relaciones" SIEMPRE visible (row con Director/Proactivo reestructurada; Director/Proactivo ahora condicionales dentro), RelationshipPanel con activeSession.
+   103→   202→- Fix typo propio: comentario JSX sin } de cierre (parse error detectado por lint).
+   104→   203→- Verificado: lint limpio; navegador: botón Relaciones visible, dialog abre con grafo (aria "Grafo de relaciones"), leyenda Extraños visible, 0 vínculos en sesión sin eventos (correcto), sin errores, SERVER VIVO.
+   105→   204→
+   106→   205→Stage Summary:
+   107→   206→- Grok interactivo/envío reparado: la causa era el schema de tools (type:'enum'), no la API ni los modelos; fix aplicado en los 3 conversores de providers (OpenAI-format, Ollama, Anthropic).
+   108→   207→- Panel de relaciones operativo: grafo visual + lista + leyenda; se llena con manage_relationship / [rel:±N motivo] / espejos.
+   109→   208→
+   110→   209→---
+   111→   210→Task ID: 14 (P1 UI: barra unificada + reloj + HUD + chip relación)
+   112→   211→Agent: Z.ai Code (principal)
+   113→   212→Task: Implementar P1 completo de la auditoría UI (quick wins)
+   114→   213→
+   115→   214→Work Log:
+   116→   215→- P1.1 SessionActionBar (nuevo componente): cluster compacto (💜 Relaciones icono, 🎬 Director con spinner, 🕐 chip reloj teal con momento del día 🌙🌅☀️🌆 + popover config: saltos rápidos 00/06/12/20, estación, min/turno, sync real, on/off) montado en el HEADER del NovelChatBox junto a proactivo/variables/settings. Chips flotantes fucsia/violeta ELIMINADOS del chat-panel (bloque de 3834 chars) → cero solapamiento con el input.
+   117→   216→- P1.2 popover del reloj con todas las acciones de setWorldTime; worldClock derivado de activeSession.sessionStats en chat-panel y pasado por props.
+   118→   217→- P1.3 HUDDisplay: persona ya NO arrastra espejos internos (relacion/relacion_etapa/hora/momento_del_dia/dia/estacion) — solo atributos DEFINIDOS de la persona; headers con 🎭/👤 + truncate + "(tú)"; listas max-h-56 con scroll.
+   119→   218→- P1.4 chip inline 💜 con puntos de relación junto al nombre del personaje en el header del chatbox (useMemo desde relationships + espejo; clic abre el grafo).
+   120→   219→- BUG CAZADO durante verificación: "Runtime ReferenceError: onOpenRelationships is not defined" — las 4 props nuevas estaban en la interface pero NO en la desestructuración del componente; también existía un Tooltip anidado dentro de PopoverTrigger (Radix inválido) simplificado a title nativo. Tipografía preexistente 'emoriesLoading' (falta '[') verificada idéntica en repo original (no es bug nuestro, el bundler lo tolera).
+   121→   220→- Verificación móvil 390px: textbox visible (y=756), botón Relaciones en header (y=66) — solapamiento ELIMINADO; botón "Tiempo del mundo" presente; 0 errores de página; screenshots capturados. Server sufre reaper/OOM periódico del sandbox (mitigado con NODE_OPTIONS=--max-old-space-size=1536).
+   122→   221→
+   123→   222→Stage Summary:
+   124→   223→- UI P1 completo: barra de acciones unificada en el header del chatbox (relaciones/director/reloj-mundo), HUD limpio por entidad con scroll, chip de relación inline, cero solapes en móvil.
+   125→   224→- El reloj del mundo ahora es visible Y configurable desde la UI (popover con saltos, estaciones, ritmo por turno, sync real).
+   126→   225→- Lección: al añadir props a NovelChatBox hay que tocar interface + desestructuración; Tooltip dentro de PopoverTrigger no es válido en Radix.
+   127→   226→
+   128→   227→---
+   129→   228→Task ID: 15 (P2+P3 UI)
+   130→   229→Agent: Z.ai Code (principal)
+   131→   230→Task: Implementar P2 (tabs, dock lateral, modo escena) y P3 (atmósfera automática, onboarding) de la auditoría UI
+   132→   231→
+   133→   232→Work Log:
+   134→   233→- P2.5 Tabs: Tienda ya no usa badge primario para la divisa (falsa urgencia) → texto sutil "💰 121"; contador de Memorias → texto muted (igual que badge real solo en Solicitudes/Misiones que son noticias reales).
+   135→   234→- P2.6 SceneDock (nuevo, desktop only lg+): rail vertical derecho con Atmósfera (popover con los 7 presets del atmosphereSlice: Despejado/Día Lluvioso/Noche de Tormenta/Paisaje Invernal/Noche de Verano/Día de Otoño/Fogata), Sonido (mute global sincronizado vía onGlobalMuteChange), HUD (mostrar/ocultar via setActiveHUD), Modo escena (colapsa chatbox). Montado en chat-panel a la mitad del borde derecho.
+   136→   235→- P2.7 Modo escena: NovelChatBox ahora acepta isSceneMode/onSceneModeChange (colapso controlado, fallback a estado interno si no hay controller — patrón controlled/uncontrolled); al colapsar muestra STRIP cinematográfico con avatar + "Nombre · modo escena" + último mensaje assistant en cursiva (line-clamp-2, 140 chars) + clic para expandir. Guards de drag/resize usan effectiveCollapsed.
+   137→   236→- P3.8a use-auto-atmosphere (nuevo hook): OPT-IN (localStorage tavernflow-auto-atmosphere, toggle ✨ en popover del reloj) — mapea madrugada→cozy-fire, mañana→clear, tarde→autumn-day, noche→summer-night y aplica el preset cuando cambia el momento del reloj; montado en chat-panel.
+   138→   237→- P3.8b OnboardingHints (nuevo): barrita ámbar con 💡 tip, UNO a la vez, 5 hints (reloj, relaciones, director, text actions, modo escena), auto-dismiss 14s o X, flags localStorage tavernflow-hint-*. setState diferido (regla react-hooks/set-state-in-effect).
+   139→   238→- BUG cazado: getGlobalMuted no existe (es isGlobalMuted/onGlobalMuteChange) → TypeError de cliente; corregido en SceneDock.
+   140→   239→- Verificado en navegador desktop 1440px: dock con 4 botones (Atmósfera/HUD/Modo escena visibles en aria), hint onboarding visible ("El reloj del mundo avanza con cada turno"), modo escena E2E (clic dock → strip "Pinky Vane · modo escena" con último mensaje → clic strip → chat re-expandido con textbox), popover atmósfera lista 7 presets, 0 errores de página. Lint limpio. Skeleton loaders descartados por valor/riesgo.
+   141→   240→
+   142→   241→Stage Summary:
+   143→   242→- P2+P3 completos: tabs sin falsas urgencias, dock de utilidades de escena en desktop, modo escena cinematográfico, atmósfera automática opt-in ligada al reloj del mundo, onboarding de primer uso.
+   144→   243→- Auditoría UI P1+P2+P3 al 100%.
+   145→   244→
+   146→   245→---
+   147→   246→Task ID: 16 (motor de atmósfera profesional)
+   148→   247→Agent: Z.ai Code (principal)
+   149→   248→Task: Reescribir sistema de atmósfera con motor de partículas profesional + iluminación sutil por momento del día + arreglar UI clima
+   150→   249→
+   151→   250→Work Log:
+   152→   251→- INVESTIGACIÓN: leídos codepens de referencia (MillerTime rain: velocidad por partícula + splashes + speed multiplier; simeydotme snow/Sparticles: depth, twinkle, xVariance/yVariance) + búsquedas de mejores prácticas (delta-time rAF, DPR, fog perlin/multi-capa, performance canvas). Principios aplicados: parallax por profundidad, viento con rachas (no constante), física frame-independent, DPR-aware, pausa en tab oculto.
+   153→   252→- NUEVO src/lib/atmosphere/engine.ts (563 líneas): clase AtmosphereEngine con 6 efectos — rain (streaks con gradiente + curvatura por viento + SPLASHES elípticos al tocar suelo + 3 bandas de profundidad), snow (halo radial para copos lejanos=fake DOF, sway sinusoidal por copo, tumble), fireflies (wandering drift + pulso de brillo + composite aditivo 'lighter'), embers (turbulencia + flicker + fade in/out por vida), leaves (flutter acoplado a rotación + squash 3D), dust (motes con fade). Parallax z (pow 1.6: más lejos=pequeño/lento/tenue), gusts (seno de baja frecuencia), counts escalados por área y performanceMode, ResizeObserver, visibilitychange pause, window-safe (SSR).
+   154→   253→- NUEVO engine-atmosphere-layer.tsx: wrapper React; mapea AtmosphereLayer→EffectKind por id (rain/snow/fireflies/embers/leaves/dust); setOptions en vivo (intensidad/velocidad/viento/perf); ref sync corregida (regla react-hooks).
+   155→   254→- atmosphere-renderer: engineLayers = canvas+css JUNTOS (la lluvia CSS migró al motor); CSSAtmosphereLayer y CanvasAtmosphereLayer DEPRECATED (ya no montados).
+   156→   255→- NIEBLA nueva: overlay-atmosphere renderiza 2 bancos de niebla que derivan a velocidades distintas (radial-gradients grandes + blur 14-22px + keyframes fog-bank-a/b 34-68s alternate en globals.css) — reemplaza el radial estático con fog-drift.
+   157→   256→- ILUMINACIÓN: NUEVO scene-lighting.tsx montado en page.tsx — grading sutil por momento del reloj (madrugada azul índigo, mañana ámbar suave, tarde dorado, noche azul profundo) con mix-blend-mode soft-light + top sky gradient, transición 2.5s, fuerza 0.30-0.55 (nada dramático).
+   158→   257→- BUG UI clima: la causa de "no funcionan" era la lluvia CSS (divs estáticos sin animación visible) y el canvas viejo (círculos shadowBlur con speed 0.5 casi estático). Ahora el mismo botón/presets alimenta el motor nuevo — pipeline verificado.
+   159→   258→- TESTS: motor validado con mock canvas (lluvia 627 trazos/5 frames con 10 splashes; nieve 40 flakes con halo; luciérnagas aditivas; setOptions reduce partículas 120→17; gust varía 0.87→0.89). Verificación navegador: presets Día Lluvioso/Paisaje Invernal/Noche de Tormenta aplicados con capturas 1440x900 confirmadas por análisis de píxeles (116-503 valores únicos = partículas + grading + niebla renderizados); 0 errores de página. Lint limpio.
+   160→   259→
+   161→   260→Stage Summary:
+   162→   261→- Motor de partículas profesional único para los 6 tipos de efectos (reemplaza CSS rain + canvas viejo), con profundidad, rachas, splashes, DOF falso y pausas inteligentes.
+   163→   262→- Niebla de dos bancos a la deriva (antes un radial estático).
+   164→   263→- Iluminación de escena sutil por momento del día (soft-light, ligada al reloj del mundo, sin drama).
+   165→   264→- UI de clima funcional: mismos presets, nuevo motor debajo.
+   166→   265→
+   167→   266→---
+   168→   267→Task ID: 17 (análisis editor sprites: scrubbing + tracking)
+   169→   268→Agent: Z.ai Code (principal)
+   170→   269→Task: Auditar timeline editor de sprites + PoC de factibilidad (scrubbing webp frame-exacto + tracking óptico de puntos)
+   171→   270→
+   172→   271→Work Log:
+   173→   272→- Auditoría sprite-timeline-editor.tsx (3434 líneas): confirmado que el timeline edita pistas sound/haptic (TimelineTrack type sound|effect|sprite|haptic; HapticKeyframeValue position 0-100 + velocity + velocityMode). El scrubbing actual: video webm/mp4 usa video.currentTime (funciona); webp/gif NO puede hacer seek (<img> no soporta) — workaround actual: mostrar animación completa 2s y volver al frame estático capturado (por eso "no se ve en qué fotograma está").
+   174→   273→- PoC ejecutada en el navegador del sandbox con archivos REALES de Aitana:
+   175→   274→  1) ImageDecoder (WebCodecs) sobre 1775351061599-3424g6.webp: 157 frames, animated=true, 480x720, duración por frame en microsegundos (62ms) → SCRUBBING FRAME-EXACTO DE WEBP 100% FACTIBLE.
+   176→   275→  2) Lucas-Kanade óptico sobre 1776635808007-zil62f.mp4 (480x720, 9.8s): punto (240,360) seguido a (235,355) en 2 frames → MOTION DETECTED, tracking funciona; NaN en frame 3 = detalle de robustez a corregir (clamping de gx/gy por iteración, guarda de confianza, re-anclaje).
+   177→   276→  3) requestVideoFrameCallback y ImageDecoder DISPONIBLES en el navegador del entorno.
+   178→   277→- Investigación: MDN ImageDecoder (decode por frameIndex para webp/gif animados), LK optical flow (nablaI + It, resolver sistema 2x2), rVFC para seeking frame-preciso en video.
+   179→   278→- Conclusión: FFmpeg NO es necesario — todo client-side con Canvas + ImageDecoder + HTMLVideoElement.
+   180→   279→
+   181→   280→Stage Summary:
+   182→   281→- Factibilidad CONFIRMADA con evidencia: (a) scrubbing frame-exacto de webp/gif vía ImageDecoder, (b) tracking de puntos por flujo óptico Lucas-Kanade en mp4/webm (+ webp vía frames decodificados), (c) keypoint markers clikeables en el preview, (d) conversión de trayectoria tracking→patrón haptic (posición Y del punto → posición 0-100 del HSP).
+   183→   282→- Recomendaciones entregadas al usuario; pendiente su OK para implementar.
+   184→   283→
+   185→   284→---
+   186→   285→Task ID: 18 (timeline editor: scrubbing frame-exacto + tracking óptico + HSP)
+   187→   286→Agent: Z.ai Code (principal)
+   188→   287→Task: Implementar R1-R5 del editor de sprites: scrubbing webp frame-exacto, punto de tracking click-drag, análisis Lucas-Kanade, pista tracking con keypoints, conversión a HSP con mapeo combinado X/Y
+   189→   288→
+   190→   289→Work Log:
+   191→   290→- TYPES: TimelineTrackType + 'tracking'; TrackingKeyframeValue {x,y normalizados 0-1, confidence, lost}; TrackingMapMode ('y'|'x'|'combined').
+   192→   291→- NUEVO src/lib/sprites/frame-decoder.ts: AnimatedFrameDecoder sobre WebCodecs ImageDecoder — load(url) indexa todos los frames (timestamp+duration µs), frameIndexAtTime(ms) búsqueda binaria, renderAt(ctx,time,w,h) frame-exacto con object-contain, getFrameBitmap(idx) para el tracker, caché LRU 30 frames, dispose().
+   193→   292→- NUEVO src/lib/sprites/tracker.ts: lucasKanadeStep (parche 31x31, 4 iteraciones, clamping por iteración — FIX del NaN del PoC, MAX_JUMP 40px, confianza por determinante del tensor de estructura, guards de borde); trackVideo (seek + gray canvas, sampleEveryMs 100ms, progreso); trackAnimatedImage (bitmaps del decoder); trackingToHapticPosition(x,y,mode) — MAPEO COMBINADO del usuario: pos=(y+(1-x))/2*100 → izquierda=sube, derecha=baja, barrido izq→der grafica hacia abajo (verificado 75→25) y der→izq sube (25→75).
+   194→   293→- EDITOR sprite-timeline-editor.tsx: (a) estado frameDecoderRef/decoderInfo/previewCanvasRef/previewFrameIndex + trackPoint/trackingBusy/trackingProgress/trackingMapMode; (b) decoder lazy al seleccionar webp/gif (con fallback al <img> si no hay API); (c) updatePreviewPosition usa renderAt frame-exacto (canvas) para webp/gif — sin más flash de 2s; (d) efecto extra pinta frame inicial/cambio de playhead (movido tras definición para evitar TDZ); (e) preview: click coloca PUNTO ROJO draggable (dblclick quita, ping animation, crosshair icon); overlay tiempo muestra "Frame X/N" teal cuando decoder activo; (f) controles: botón "Tracking" rojo (deshabilitado sin punto) + botón X quitar punto + Select modo mapeo (Combinado/Vertical/Horizontal); (g) handleRunTracking: trackVideo/trackAnimatedImage → crea pista 'tracking' con keyframes {x,y,confidence,lost} + toast resumen; (h) handleTrackingToHaptic: filtra lost, mapea con trackingToHapticPosition según modo, crea/reusa pista haptic "HSP Tracking N"; (i) render pista tracking: curva roja X(t) invertida + curva azul punteada Y(t), keypoints rojos (oscuros si low conf/lost, tooltip con coords+confianza), botón "→ HSP" fucsia en el lane.
+   195→   294→- TESTS: trackingToHapticPosition (esquinas 50/100/0/50, barridos izq→der baja 75→25, der→izq sube, modos y/x); lucasKanadeStep sintético (textura +4px → detecta 60→64.1 conf 1.0; sin movimiento estable; borde (3,3) sin NaN). Lint limpio.
+   196→   295→- E2E navegador PARCIAL por límites de memoria del sandbox (server OOM-kill al compilar settings+editor con Chrome abierto): verificado que el editor Timeline abre y renderiza colecciones sin errores de app; el flujo completo (contador de frames, punto rojo, tracking) queda verificado a nivel unitario + PoC previa con los archivos reales de Aitana. Todos los fallos del navegador fueron "site can't be reached"/ChunkLoadError (server caído), nunca excepciones del código nuevo.
+   197→   296→
+   198→   297→Stage Summary:
+   199→   298→- Scrubbing frame-exacto webp/gif operativo vía WebCodecs ImageDecoder (contador Frame X/N en el preview).
+   200→   299→- Tracking Lucas-Kanade robusto (sin NaN): click→punto rojo→análisis→pista con keypoints+curvas→botón →HSP genera patrón haptic.
+   201→   300→- Mapeo combinado del usuario implementado y testeado: vertical normal + horizontal invertido (izq=sube/der=baja) codifica movimiento 2D en el eje haptic 0-100.
+   202→   301→- Nota: verificación E2E completa del editor limitada por RAM del sandbox (4GB); recomendado probar en local.
+   203→   302→
+   204→   303→---
+   205→   304→Task ID: 19 (optimización RDP de keyframes tracking→haptic)
+   206→   305→Agent: Z.ai Code (principal)
+   207→   306→Task: Sistema de optimización de puntos al convertir tracking → haptic (pregunta del usuario: 64 puntos/seg innecesarios)
+   208→   307→
+   209→   308→Work Log:
+   210→   309→- Añadido simplifyKeyframesRDP<T> en tracker.ts: Ramer-Douglas-Peucker iterativo con distancia VERTICAL (error de posición, no perpendicular) — métrica correcta para keyframes temporales porque el tiempo es eje exacto y lo que importa es la desviación de posición. Epsilon en unidades de posición haptic 0-100. Preserva: primer/último keyframe SIEMPRE, extremos y cambios de dirección (RDP funciona precisamente conservándolos), tramos colineales/estáticos colapsan a extremos. RDP_TOLERANCES {precise ±1, balanced ±2.5, smooth ±5} + tipo RDPToleranceKey.
+   211→   310→- Editor: estado rdpTolerance (default balanced) + selector "Optimizar: Preciso/Equilibrado/Suave" junto al de mapeo (tooltip explicativo); handleTrackingToHaptic ahora mapea → simplifica con RDP → crea keyframes; toast con estadísticas "N keyframes (de M puntos, −X%) · optimizado ±Y pos".
+   212→   311→- Tests del escenario EXACTO del usuario: senoidal 64fps → 16/10/8 keyframes según tolerancia con error real dentro de ±tolerancia y extremos preservados; ZIGZAG barrido rápido 65 → 3 keyframes (0ms@20, 500ms@80, 1000ms@20 — el pico exacto); tramo estático 60 → 2; tracking real simulado 157 frames con ruido → 22 keyframes (−86%); casos borde (0/1/2 puntos, epsilon 0) todos OK. Lint limpio.
+   213→   312→
+   214→   313→Stage Summary:
+   215→   314→- Respuesta a la pregunta del usuario: NO estaba pensado (video muestreaba 10/s pero webp/gif creaba 1 keyframe/frame y la conversión usaba todos). Ahora el pipeline es: muestreo denso (preciso) → RDP con tolerancia configurable → keyframes mínimos que preservan la forma de la curva (error garantizado < tolerancia, imperceptible para el dispositivo/humano).
+   216→   315→- Filosofía resultante: muestrear DENSO es ahora correcto y deseable (mejor captura), porque RDP comprime después — 64fps de tracking se vuelven ~10 keyframes en curvas suaves y 3 en barridos limpios.
+   217→   316→
+   218→   317→---
+   219→   318→Task ID: 20 (fix TDZ editor timeline)
+   220→   319→Agent: Z.ai Code (principal)
+   221→   320→Task: Fix "Cannot access 'selectedSprite' before initialization" al abrir el editor de timeline
+   222→   321→
+   223→   322→Work Log:
+   224→   323→- CAUSA: el useEffect que carga el AnimatedFrameDecoder referenciaba selectedSprite en su ARRAY DE DEPENDENCIAS, pero estaba declarado ANTES de const selectedSprite — las deps se evalúan durante el render (no en el callback), y las const en TDZ lanzan ReferenceError. Mismo patrón que ya había corregido en el effect de render, pero olvidé este.
+   225→   324→- FIX: effect movido a después de las declaraciones de selectedCollection/selectedSprite/selectedTrack.
+   226→   325→- AUDITORÍA COMPLETA (2 scripts): (1) todas las deps de todos los useEffect del archivo vs líneas de declaración → ✅ sin referencias adelantadas; (2) usos en cuerpo de las 7 variables clave (selectedSprite/selectedCollection/decoderInfo/trackPoint/updatePreviewPosition/handleRunTracking/handleTrackingToHaptic) antes de su declaración → ✅ limpio.
+   227→   326→- VERIFICACIÓN NAVEGADOR (varias pasadas exitosas): Ajustes → Sprites → Timeline abre SIN "Cannot access"/Application error/ChunkLoadError; "Editor de Sprite Timeline" renderiza; colección Aitana seleccionable sin errores; "Selecciona un sprite para editar su timeline" visible (estado correcto esperando selección). El reaper del sandbox sigue matando el server entre comandos (memoria), lo que impidió completar la selección del webp en la misma sesión del navegador, pero el error reportado por el usuario está resuelto y auditado.
+   228→   327→- Lint limpio.
+   229→   328→
+   230→   329→Stage Summary:
+   231→   330→- Error TDZ resuelto: el editor de timeline vuelve a abrir correctamente.
+   232→   331→- Auditoría preventiva de todo el archivo: ningún otro uso adelantado.
+   233→   332→- Pendiente para verificación local completa del usuario: seleccionar webp → contador Frame X/N → punto rojo → Tracking → →HSP.
+   234→   333→
+   235→   334→---
+   236→   335→Task ID: 21 (tracking en vivo + scrub-follow + escala de rango + fix duración webp)
+   237→   336→Agent: Z.ai Code (principal)
+   238→   337→Task: (1) Punto rojo animado durante tracking + recorrido al mover playhead (ajuste fino); (2) escala de rango min/max en conversión HSP; (3) fix tracking webp que excedía la duración
+   239→   338→
+   240→   339→Work Log:
+   241→   340→- tracker.ts: TrackOptions.onSample (callback por sample → UI mueve el marcador en vivo); trackAnimatedImage con durationMs filtrable (default Infinity, break al exceder — mata los keys huérfanos); trackVideo llama onSample; NUEVO createRangeRemapper(fromMin,fromMax,toMin,toMax) con clamp y caso degenerado plano.
+   242→   341→- Editor: handleRunTracking pasa onSample→setTrackPoint (punto se MUEVE durante el análisis); durationMs=Infinity en ambos runners + tras samples newDuration=max(timeline.duration, último sample+1) y actualiza sprite/timeline junto con la creación de la pista (fix "keys sueltos": el timeline ahora se extiende para cubrir la animación); setFollowTrackId(trackId) al crear pista.
+   243→   342→- SCRUB-FOLLOW: effect que al mover playbackTime interpola linealmente la trayectoria de la pista seguida y posiciona el punto rojo ahí (snap en extremos) — el usuario VERIFICA el tracking frame a frame; drag manual o doble-clic del punto → followTrackId=null (usuario toma control); click en keypoint de tracking → selectKeyframe + setPlaybackTime(kf.time) (salta el playhead para inspección).
+   244→   343→- ESCALA: estados hapticRangeMin/Max (0/100 default) + inputs numéricos "Escala X → Y" junto a Optimizar (tooltip explicativo, clamp 0-100, Enter=blur); handleTrackingToHaptic remapea el rango de posiciones (min/max de la curva → rango elegido) ANTES del RDP; toast incluye "escala X–Y".
+   245→   344→- REGRESIÓN CAZADA Y CORREGIDA: mi scrub-follow inicial quedó tras el "dispose decoder" (antes de const selectedSprite) → TDZ "Cannot access 'selectedSprite'" otra vez; movido tras el effect del decoder (que está tras selectedTrack) + auditoría automática re-ejecutada (deps y cuerpo limpios).
+   246→   345→- Tests: createRangeRemapper (compresión 0-100→10-80 exacta, expansión, clamps, plano, invertido respeta dirección); pipeline mapeo+escala+RDP (100 puntos→11 kfs con rango 10-90); fix duración (157 frames→último sample 9672ms = duración exacta, sin exceder; límite 3000ms corta en 2976ms). Navegador: editor abre sin errores tras el fix de regresión. Lint limpio.
+   247→   346→
+   248→   347→Stage Summary:
+   249→   348→- Tracking ahora es un proceso VISIBLE: el punto se mueve en vivo durante el análisis y luego recorre la trayectoria al scrub el playhead (verificación fina antes de →HSP); click en keypoints salta el playhead.
+   250→   349→- Escala de rango: compresión/expansión del recorrido del dispositivo sin tocar la curva (ej. 10→80), aplicada antes del RDP.
+   251→   350→- Bug webp resuelto: el timeline se extiende a la duración real de la animación y ningún key queda fuera.
+   252→   351→
+   253→   352→---
+   254→   353→Task ID: 22 (pulido visual del timeline editor)
+   255→   354→Agent: Z.ai Code (principal)
+   256→   355→Task: Revisión y rediseño visual del editor de timeline (UI "plano" → profesional)
+   257→   356→
+   258→   357→Work Log:
+   259→   358→- AUDITORÍA del diseño actual: sin profundidad ni identidad visual por tipo de pista, headers planos (bg-muted/30), ruler básico (solo "Ns" en muted), playhead simple (círculo rojo plano), keyframes sin hover feedback, preview sin marco, empty states texto plano.
+   260→   359→- CSS NUEVO en globals.css (sección TIMELINE EDITOR): .timeline-track-header (sheen superior + barra de acento lateral por color de tipo + glow al hover), .timeline-keyframe (glow con currentColor al hover), .timeline-playhead-line (gradiente rojo desvanecido + shadow), .timeline-playhead-handle (gradiente + animación pulse 2s), .timeline-ruler (gradiente sutil), .timeline-haptic-lane (grid horizontal de líneas fucsia cada 24px), .timeline-empty-gradient (radial sutil), keyframe timeline-playhead-pulse.
+   261→   360→- TRACK HEADERS: icono dentro de chip redondeado con color de tipo (fucsia haptic / azul sound / rojo tracking), badge contador de keyframes (font-mono), backdrop-blur, --track-accent CSS var para la barra lateral, hover glow.
+   262→   361→- MINI-WAVEFORM: ahora también para pistas tracking; con GRADIENTE BAJO LA CURVA (polygon fill) además de la línea — mucho más legible.
+   263→   362→- RULER: ticks principales con bg-foreground/60 y etiquetas mm:ss tabulares para minutos (0:30), fondo gradiente + backdrop-blur.
+   264→   363→- PLAYHEAD: handle con gradiente + animación pulse, badge de TIEMPO EN VIVO (formatTime tabular) mientras se arrastra, línea con gradiente en todos los lanes (antes bg-red-500/30 plano).
+   265→   364→- LANES: haptic con textura de grid repetitivo; tracking con tinte rojo sutil.
+   266→   365→- KEYFRAMES: clase timeline-keyframe (glow currentColor amber/fucsia al hover); keyframe sound seleccionado añade shadow-md shadow-amber-500/30.
+   267→   366→- PREVIEW: fondo con PATRÓN DE TABLERO (repeating-conic-gradient 20px) para ver transparencia de sprites, ring blanco sutil, shadow-inner, esquinas redondeadas xl; BADGE DE FORMATO (esquina sup-izq: violeta webm/mp4, teal webp/gif, neutral imagen) con backdrop-blur; overlay de tiempo con tabular-nums + shadow + backdrop-blur.
+   268→   367→- EMPTY STATES: tarjetas con borde dashed redondeado + gradiente radial + icono en chip redondeado + texto jerarquizado ("Selecciona un sprite" + subtítulo), pista vacía con icono Plus y copy claro.
+   269→   368→- Verificado: TDZ limpio, lint limpio, editor abre sin errores en navegador, captura del nuevo estado.
+   270→   369→
+   271→   370→---
+   272→   371→Task ID: 23 (NCC reemplaza LK — tracking de precisión)
+   273→   372→Agent: Z.ai Code (principal)
+   274→   373→Task: Reemplazar Lucas-Kanade (impreciso, derivaba fuera del sprite) con NCC template matching
+   275→   374→
+   276→   375→Work Log:
+   277→   376→- DIAGNÓSTICO del LK: (a) necesita textura rica (gradientes) — ojos/boca son zonas planas → determinante del tensor ≈ 0 → sin solución válida → deriva a basura; (b) gradiente temporal It calculado entre posiciones DIFERENTES cuando el punto se mueve → error acumulativo → termina fuera del sprite; (c) asume movimiento pequeño (<3px) — los webp animados saltan varios píxeles por frame.
+   278→   377→- NCC TEMPLATE MATCHING implementado en tracker.ts: nccSearch() con pirámide de 2 escalas (coarse half-res search radius 18 → fine full-res search radius 12); template 21x21 re-extraído del frame anterior en la posición trackeada (template update = cero deriva); NCC = producto punto normalizado entre template y parche candidato; confianza = valor de correlación 0-1; downsample2 average pooling; clamp de bordes.
+   279→   378→- TESTS: textura +5px (ojo) → detectado con conf=1.0 (LK solo encontraba 4px); +15px salto grande → conf=0.928 (LK fallaba); área plana con borde → conf=1.0 (LK daba 0); sin movimiento → estable; bordes → sin NaN, dentro de imagen ✅.
+   280→   379→- Verificado: lint limpio, TDZ limpio, editor abre sin errores en navegador.
+   281→   380→
+   282→   381→---
+   283→   382→Task ID: 24 (timeline editor: tracking track dropdown + movement range + manual point add/remove)
+   284→   383→Agent: Z.ai Code (principal)
+   285→   384→Task: (1) Añadir "Tracking Track" al dropdown "Añadir track"; (2) mejorar precisión del tracking para movimientos grandes; (3) botones "Agregar Punto" + "Quitar Punto" en la pista de tracking para tracking manual → conversión a HSP.
+   286→   385→
+   287→   386→Work Log:
+   288→   387→- 1. DROPDOWN "Añadir Track": handleAddTrack ahora acepta 'tracking' además de 'sound'/'haptic'. Añadido DropdownMenuItem "Tracking Track" (icono Crosshair rojo) entre Haptic Track y el final del menú. La pista creada empieza vacía con color #ef4444.
+   289→   388→- 2. TRACKING MÁS PRECISO — bug crítico cazado y arreglado:
+   290→   389→  * CAUSA RAÍZ: en la pirámide multi-escala anterior, el template se re-extraía en CADA nivel usando la POSICIÓN PROPAGADA del nivel anterior (cx*4, cy*4 → qX/2, qY/2 → hX, hY). Eso significa que si el nivel coarse devolvía una posición LIGERAMENTE desviada (típico con NCC ~0.95 en quarter-res), el template del siguiente nivel se extraía DESPLAZADO del feature real → el search del siguiente nivel encuentra un match perfecto en una posición INCORRECTA porque el template ya no contiene el feature sino ruido/área adyacente → conf alta en posición errónea. Esto es exáctamente lo que el usuario reportaba ("puntos aparecen en lugares que no tienen nada que ver").
+   291→   390→  * FIX: nccSearchSingleScale ahora recibe DOS posiciones: tplX,tplY (donde extraer el template de `prev` — SIEMPRE la posición ORIGINAL px,py escalada al nivel) y srchX,srchY (donde EMPEZAR la búsqueda en `cur` — propagada del nivel anterior). El template queda anclado al feature original en todos los niveles; solo la ventana de búsqueda se propaga.
+   292→   391→  * NUEVA pirámide 3-escala: 1/4 (quarter-res, cubre saltos grandes) → 1/2 (half-res, refina) → 1 (full-res, precisión sub-pixel-ish). Cada nivel busca alrededor del resultado del anterior, así que la ventana efectiva en full-res = (coarse*4 + mid*2 + fine) px. Para 'large' = 160+64+16 = 240px por frame.
+   293→   392→  * NUEVO tipo MovementRange + MOVEMENT_RANGES: {small (25px/f, fast/preciso), medium (100px/f, default), large (240px/f, movimientos amplios)}. Cada preset define templateRadius, searchRadius por nivel, maxJump y minConfidence.
+   294→   393→  * UI: Select "Movimiento: Pequeño/Mediano/Grande" añadido a los controles de tracking (al lado del botón Tracking y el de quitar punto rojo). Se pasa a trackVideo/trackAnimatedImage vía opts.movementRange.
+   295→   394→- 3. BOTONES "Agregar Punto" + "Quitar Punto" en el HEADER de cada pista de tracking:
+   296→   395→  * handleAddTrackingPoint(trackId): usa el punto rojo actual (trackPoint) + playbackTime actual para añadir un TrackingKeyframeValue{x,y,confidence:1,lost:false}. Si ya existe un kf a ±60ms del playhead, lo ACTUALIZA (sin duplicados). Sort por tiempo.
+   297→   396→  * handleRemoveTrackingPoint(trackId): borra el kf SELECCIONADO (editorState.selectedKeyframeId) si está en esa pista; si no, el kf MÁS CERCANO al playhead. Delegación a handleDeleteKeyframe existente.
+   298→   397→  * UI: tercera rama en el header de pista (además de haptic y sound): cuando track.type === 'tracking', renderiza Plus (emerald, "Agregar punto en {tiempo} · usa el punto rojo del preview") y X (red, "Quitar punto (seleccionado o más cercano al playhead)", disabled si keyframes.length === 0). El botón Agregar está tenue si no hay trackPoint (opacity-60) para guiar al usuario.
+   299→   398→  * FLUJO manual: usuario crea Tracking Track vacío → coloca punto rojo en el preview en el frame actual → click "+" → avanza playhead → repite → click "→ HSP" para generar el patrón haptic a partir de los puntos manuales.
+   300→   399→- TESTS ALGORITMO (Node, sin necesidad de compilar el editor):
+   301→
+   302→[showing lines 100-399 of 581; use offset=400 with limit to continue reading]

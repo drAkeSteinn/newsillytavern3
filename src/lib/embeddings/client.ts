@@ -203,6 +203,60 @@ export class EmbeddingClient {
     });
   }
 
+  /**
+   * FASE 14: Increment memory heat without re-embedding (efficient).
+   *
+   * Memory heat tracks how many times a memory has been retrieved.
+   * High-heat memories get boosted in reranking (see applyAdvancedReranking).
+   *
+   * This is more efficient than updateEmbedding() because it preserves the
+   * existing vector (no re-embed call to Ollama). It does delete+insert
+   * but reuses the same vector.
+   *
+   * @param id - Embedding ID
+   * @param heatIncrement - How much to increment heat (default: 1)
+   */
+  async incrementMemoryHeat(id: string, heatIncrement: number = 1): Promise<void> {
+    const existing = await this.db.getEmbeddingById(id);
+    if (!existing) {
+      return; // silently skip — memory may have been deleted
+    }
+
+    const currentHeat = (existing.metadata as Record<string, any>)?.heat || 0;
+    const newHeat = currentHeat + heatIncrement;
+
+    // Delete old and re-insert with updated heat (preserving vector + content)
+    await this.db.deleteEmbedding(id);
+
+    // Re-insert with the SAME vector (no re-embed needed)
+    await this.db.insertEmbedding({
+      content: existing.content,
+      vector: existing.vector || [], // preserve original vector
+      namespace: existing.namespace,
+      source_type: existing.source_type,
+      source_id: existing.source_id,
+      metadata: {
+        ...existing.metadata,
+        heat: newHeat,
+        last_retrieved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    });
+  }
+
+  /**
+   * FASE 14: Batch increment heat for multiple memories (efficient — single pass).
+   */
+  async incrementMemoryHeatBatch(ids: string[], heatIncrement: number = 1): Promise<void> {
+    for (const id of ids) {
+      try {
+        await this.incrementMemoryHeat(id, heatIncrement);
+      } catch (err) {
+        console.warn(`[MemoryHeat] Failed to increment heat for ${id}:`, err);
+      }
+    }
+  }
+
   // ========== Namespace Methods ==========
 
   async upsertNamespace(params: {

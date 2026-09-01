@@ -12,11 +12,13 @@
 //  - world_event  → pushSessionEvent (all characters see it via {{eventos}})
 //  - scene_change → applySceneChange (groups) + event log + toast
 //  - tension_shift → console telemetry only (future HUD indicator)
+//  - toolResults  → apply stat/scene/relationship/memory activations directly
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useTavernStore } from '@/store';
 import type { DirectorResult, DirectorSnapshot, DirectorSettings } from '@/lib/director/types';
 import { DEFAULT_DIRECTOR_SETTINGS } from '@/lib/director/types';
+import type { ToolExecutionResult } from '@/lib/tools/types';
 
 const POST_TURN_DEBOUNCE_MS = 8000;   // wait after a turn before directing
 const CHECK_INTERVAL_MS = 60 * 1000;  // idle check cadence
@@ -98,6 +100,10 @@ export function useDirector(activeSessionId: string | null | undefined) {
       const activeId = llmSettings.llm?.activeConfigId || activeLlm?.id;
       const llmConfig = (llmConfigs || []).find(c => c.id === activeId);
 
+      // Pass tools settings so the Director can use tool calling
+      const toolsSettings = (store.settings as { tools?: typeof store.settings extends Record<string, unknown> ? unknown : never })?.tools as any | undefined;
+      const charId = session.characterId as string | undefined;
+
       const res = await fetch('/api/chat/director', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -105,6 +111,9 @@ export function useDirector(activeSessionId: string | null | undefined) {
           snapshot,
           settings,
           llmConfig: settings.mode === 'llm' ? llmConfig : undefined,
+          toolsSettings,
+          characterId: charId,
+          groupId,
         }),
       });
       if (!res.ok) {
@@ -140,6 +149,70 @@ export function useDirector(activeSessionId: string | null | undefined) {
           console.log(`[Director] scene_change: ${decision.characterName} present=${decision.present}`);
         } else if (decision.type === 'tension_shift') {
           console.log(`[Director] tension=${decision.to} pacing=${decision.pacing}`);
+        }
+      }
+
+      // ── Apply tool results (modify_stat, manage_scene, manage_relationship, etc.) ──
+      // The Director's LLM may have called tools that produced statActivation,
+      // sceneActivation, relationshipActivation, or memoryActivation payloads.
+      // We apply these through the same store primitives the chat stream uses.
+      if (result.toolResults && result.toolResults.length > 0) {
+        for (const tr of result.toolResults) {
+          // stat_activation → updateCharacterStat
+          if (tr.statActivation) {
+            const sa = tr.statActivation;
+            const targetCharId = sa.characterId || charId;
+            if (targetCharId) {
+              store.updateCharacterStat?.(sessionId, targetCharId, sa.attributeKey, sa.newValue, 'director');
+              console.log(`[Director] Tool ${tr.toolName}: stat ${sa.attributeKey} → ${sa.newValue} (char ${targetCharId})`);
+            }
+          }
+
+          // scene_activation → applySceneChange (groups)
+          if (tr.sceneActivation && groupId) {
+            const sc = tr.sceneActivation;
+            const targetCharId = sc.characterId || sc.by;
+            if (targetCharId && sc.action !== 'focus') {
+              store.applySceneChange?.(groupId, targetCharId, sc.action === 'enter');
+              store.pushSessionEvent?.(sessionId, {
+                type: sc.action === 'enter' ? 'scene_enter' : 'scene_leave',
+                description: sc.narrative || `Director: ${targetCharId} ${sc.action === 'enter' ? 'entró a' : 'salió de'} la escena`,
+                characterId: targetCharId,
+                characterName: sc.by || targetCharId,
+              });
+              console.log(`[Director] Tool ${tr.toolName}: scene ${sc.action} for char ${targetCharId}`);
+            }
+          }
+
+          // relationship_activation → updateRelationship
+          if (tr.relationshipActivation) {
+            const ra = tr.relationshipActivation;
+            // The store has updateRelationship or similar — call it if available
+            const anyStore = store as any;
+            if (typeof anyStore.updateRelationship === 'function') {
+              anyStore.updateRelationship(sessionId, ra.aId, ra.bId, ra.newPoints);
+              console.log(`[Director] Tool ${tr.toolName}: relationship ${ra.aName}↔${ra.bName} → ${ra.newPoints}`);
+            }
+          }
+
+          // memory_activation → addMemoryEvent
+          if (tr.memoryActivation) {
+            const ma = tr.memoryActivation;
+            const anyStore = store as any;
+            if (typeof anyStore.addMemoryEvent === 'function') {
+              anyStore.addMemoryEvent(sessionId, ma.characterId || charId, {
+                type: ma.eventType || 'world_event',
+                description: ma.description || ma.content || '',
+                importance: ma.importance || 'medium',
+              });
+              console.log(`[Director] Tool ${tr.toolName}: memory added for char ${ma.characterId || charId}`);
+            }
+          }
+
+          // Show a toast for tool usage so the user sees the Director acting
+          if (tr.success && (tr.statActivation || tr.sceneActivation || tr.relationshipActivation || tr.memoryActivation)) {
+            toast.info(`🎬 Director usó: ${tr.toolName}`);
+          }
         }
       }
     } catch (err) {

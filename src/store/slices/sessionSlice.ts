@@ -736,6 +736,8 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
         updatedAt: new Date().toISOString(),
         sessionStats,  // Include initialized session stats
         sessionQuests, // Include initialized session quests
+        sessionEquipment: [],  // FASE 18: Start with empty equipment for new sessions
+        activeConsumableEffects: [],  // FASE 18: Start with no active consumable effects
         turnCount: 0   // Initialize turn counter
       }],
       activeSessionId: id,
@@ -1109,6 +1111,8 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
           }] : [],
           sessionStats: newSessionStats,
           sessionQuests: newSessionQuests,  // Reset quests to template defaults
+          sessionEquipment: [],  // FASE 18: Clear equipment on chat reset
+          activeConsumableEffects: [],  // FASE 18: Clear consumable effects on chat reset
           turnCount: 0,  // Reset turn counter
           summary: undefined,  // Clear summary — starting fresh
           updatedAt: new Date().toISOString()

@@ -57,11 +57,15 @@ import {
   Settings,
   Pencil,
   Eye,
+  Trash2,
+  AlertTriangle,
+  History,
 } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { DEFAULT_SUMMARY_SETTINGS } from '@/types';
 import { DEFAULT_MEMORY_EXTRACTION_PROMPT, DEFAULT_GROUP_MEMORY_EXTRACTION_PROMPT } from '@/lib/embeddings/memory-extraction-prompts';
+import { toast } from 'sonner';
 import { DEFAULT_EMBEDDINGS_CHAT } from '@/lib/embeddings/constants';
 import { CharacterMemoryEditor } from '@/components/memory/character-memory-editor';
 import { SummaryViewer } from '@/components/memory/summary-viewer';
@@ -1424,7 +1428,7 @@ export function MemorySettingsPanel() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="resumenes" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="resumenes" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <FileText className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Resúmenes</span>
@@ -1440,6 +1444,11 @@ export function MemorySettingsPanel() {
             <span className="hidden sm:inline">Extracción y Contexto</span>
             <span className="sm:hidden">Ext. Ctx.</span>
           </TabsTrigger>
+          <TabsTrigger value="decaimiento" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <History className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Decaimiento</span>
+            <span className="sm:hidden">Decay</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="resumenes" className="mt-4">
@@ -1453,7 +1462,267 @@ export function MemorySettingsPanel() {
         <TabsContent value="extraccion" className="mt-4">
           <ExtraccionTab />
         </TabsContent>
+
+        <TabsContent value="decaimiento" className="mt-4">
+          <DecaimientoTab />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ============================================
+// FASE 14: Memory Decay Tab
+// ============================================
+// Cross-session memory + temporal decay + cleanup script (no LLM).
+
+function DecaimientoTab() {
+  const settings = useTavernStore((s) => (s.settings as any)?.embeddingsChat) || DEFAULT_EMBEDDINGS_CHAT;
+  const updateSettings = useTavernStore((s) => s.updateSettings);
+  const [cleanupRunning, setCleanupRunning] = useState(false);
+  const [preview, setPreview] = useState<{ totalMemories: number; wouldArchive: number; oldestMemoryDate: string | null } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  const updateEmbeddingsChat = (updates: Record<string, unknown>) => {
+    updateSettings({
+      embeddingsChat: { ...settings, ...updates },
+    } as any);
+  };
+
+  const loadPreview = useCallback(async () => {
+    setLoadingPreview(true);
+    try {
+      const res = await fetch(`/api/embeddings/cleanup-old?decayDays=${settings.memoryDecayDays ?? 14}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setPreview(data.preview);
+        }
+      }
+    } catch (err) {
+      console.warn('[DecaimientoTab] Preview error:', err);
+    } finally {
+      setLoadingPreview(false);
+    }
+  }, [settings.memoryDecayDays]);
+
+  const runCleanup = async () => {
+    setCleanupRunning(true);
+    try {
+      const res = await fetch('/api/embeddings/cleanup-old', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decayEnabled: settings.memoryDecayEnabled ?? true,
+          decayDays: settings.memoryDecayDays ?? 14,
+          cleanEventLog: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const r = data.result;
+        toast.success('Limpieza completada', {
+          description: `${r.deleted} memorias eliminadas, ${r.eventLogCleaned} eventos limpiados (${(r.duration / 1000).toFixed(1)}s)`,
+        });
+        // Refresh preview
+        loadPreview();
+      } else {
+        toast.error('Error en limpieza', { description: data.error });
+      }
+    } catch (err) {
+      toast.error('Error de conexión', { description: 'No se pudo ejecutar la limpieza' });
+    } finally {
+      setCleanupRunning(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Cross-Session Memory */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <History className="w-4 h-4" />
+            Memoria Cross-Session
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Cuando está activado, los personajes recuerdan interacciones con el usuario y otros personajes entre sesiones.
+            Las memorias se almacenan sin sessionId en el namespace, persistiendo permanentemente.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-sm">Memoria cross-session</Label>
+              <p className="text-xs text-muted-foreground">
+                Los personajes recuerdan entre sesiones (recomendado)
+              </p>
+            </div>
+            <Switch
+              checked={settings.crossSessionMemory ?? true}
+              onCheckedChange={(checked) => updateEmbeddingsChat({ crossSessionMemory: checked })}
+            />
+          </div>
+          {settings.crossSessionMemory === false && (
+            <div className="flex items-start gap-2 p-2 rounded-md bg-amber-500/5 border border-amber-500/20 text-xs">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-muted-foreground">
+                <span className="text-amber-500 font-medium">Desactivado:</span> Las memorias se aislarán por sesión.
+                Los personajes no recordarán interacciones de sesiones anteriores.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Temporal Decay */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Clock className="w-4 h-4" />
+            Decaimiento Temporal
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Las memorias más antiguas que el período configurado se eliminan automáticamente.
+            El script de limpieza (sin LLM) las elimina de la base de datos vectorial y del log de eventos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-sm">Decaimiento activado</Label>
+              <p className="text-xs text-muted-foreground">
+                Elimina memorias viejas según el período configurado
+              </p>
+            </div>
+            <Switch
+              checked={settings.memoryDecayEnabled ?? true}
+              onCheckedChange={(checked) => updateEmbeddingsChat({ memoryDecayEnabled: checked })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">Período de decaimiento (días)</Label>
+              <span className="text-sm font-mono text-muted-foreground">
+                {settings.memoryDecayDays ?? 14} días
+              </span>
+            </div>
+            <Slider
+              value={[settings.memoryDecayDays ?? 14]}
+              min={1}
+              max={90}
+              step={1}
+              onValueChange={(value) => updateEmbeddingsChat({ memoryDecayDays: value[0] })}
+              disabled={!(settings.memoryDecayEnabled ?? true)}
+            />
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>1 día</span>
+              <span>2 semanas (estándar)</span>
+              <span>3 meses</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-sm">Memory heat (refuerzo)</Label>
+              <p className="text-xs text-muted-foreground">
+                Las memorias recuperadas frecuentemente se priorizan
+              </p>
+            </div>
+            <Switch
+              checked={settings.memoryHeatEnabled ?? true}
+              onCheckedChange={(checked) => updateEmbeddingsChat({ memoryHeatEnabled: checked })}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Cleanup Script */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Trash2 className="w-4 h-4" />
+            Script de Limpieza (sin LLM)
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Ejecuta la limpieza de memorias viejas. Esta operación es 100% interna (sin LLM),
+            elimina memorias de la base de datos vectorial y limpia el log de eventos de sesiones.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Preview */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadPreview}
+              disabled={loadingPreview}
+            >
+              {loadingPreview ? <RotateCcw className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Eye className="w-3.5 h-3.5 mr-1" />}
+              Vista previa
+            </Button>
+          </div>
+
+          {preview && (
+            <div className="p-3 rounded-md border bg-muted/30 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total memorias:</span>
+                <span className="font-mono">{preview.totalMemories}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Serían eliminadas:</span>
+                <span className="font-mono text-amber-500">{preview.wouldArchive}</span>
+              </div>
+              {preview.oldestMemoryDate && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Memoria más vieja:</span>
+                  <span className="font-mono">{new Date(preview.oldestMemoryDate).toLocaleDateString()}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm" disabled={cleanupRunning}>
+                {cleanupRunning ? (
+                  <><RotateCcw className="w-3.5 h-3.5 mr-1 animate-spin" /> Limpiando...</>
+                ) : (
+                  <><Trash2 className="w-3.5 h-3.5 mr-1" /> Ejecutar limpieza ahora</>
+                )}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Ejecutar limpieza de memorias?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Esta acción eliminará permanentemente todas las memorias con más de{' '}
+                  <strong>{settings.memoryDecayDays ?? 14} días</strong> de antigüedad.
+                  También limpiará el log de eventos de las sesiones.
+                  <br /><br />
+                  Esta acción <strong>no se puede deshacer</strong>.
+                  Las memorias eliminadas no se pueden recuperar.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={runCleanup}>
+                  Sí, eliminar memorias viejas
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <div className="flex items-start gap-2 p-2 rounded-md bg-blue-500/5 border border-blue-500/20 text-xs">
+            <Info className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+            <p className="text-muted-foreground">
+              La limpieza es 100% interna (sin LLM). Solo elimina memorias por fecha.
+              No requiere conexión a internet ni llamadas a la API.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

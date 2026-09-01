@@ -410,6 +410,8 @@ export function CharacterSprite({
   }, [isTTSPlaying, isStreaming, characterId, characterSpriteStates, setSpriteStateForCharacter]);
 
   // Update countdown for return to idle
+  // PERF FIX: Changed from 100ms to 1000ms — the countdown is in seconds, so 1Hz
+  // is sufficient and avoids 10 React state updates per second per visible character.
   useEffect(() => {
     if (!isReturnToIdleScheduled) {
       setCountdown(0);
@@ -422,7 +424,7 @@ export function CharacterSprite({
     };
 
     updateCountdown();
-    const interval = setInterval(updateCountdown, 100);
+    const interval = setInterval(updateCountdown, 1000);
 
     return () => clearInterval(interval);
   }, [isReturnToIdleScheduled, getReturnToIdleCountdownForCharacter, characterId]);

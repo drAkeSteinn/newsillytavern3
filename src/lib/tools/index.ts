@@ -15,6 +15,7 @@ export {
   toJSONSchemaParameters,
   resolveToolDefinitionsKeys,
   executeTool,
+  summarizeToolResult,
   buildPromptBasedToolsSection,
 } from './tool-registry';
 export {

@@ -80,6 +80,12 @@ export interface MemoryFact {
   tipo: MemoryType;
   importancia: number; // 1-5
   sujeto?: 'usuario' | 'personaje' | 'otro';
+  /** FASE 14: Whether this is an episodic memory (specific event with timestamp)
+   *  or a semantic memory (general fact/knowledge).
+   *  - Episodic: "El usuario dijo X el día Y" / "Ocurrió Z"
+   *  - Semantic: "Al usuario le gusta el anime" / "El personaje es tímido"
+   *  Defaults to false (semantic) for backward compat. */
+  episodica?: boolean;
 }
 
 export type MemoryType = 'hecho' | 'evento' | 'relacion' | 'preferencia' | 'secreto' | 'otro';
@@ -303,11 +309,21 @@ function normalizeSingleFact(item: unknown): MemoryFact | null {
     sujeto = 'otro';
   }
 
+  // FASE 14: Parse episodica flag — episodic memories are specific events ("Ocurrió X"),
+  // semantic memories are general facts ("Al usuario le gusta Y").
+  const rawEpisodica = obj.episodica ?? obj.episodic ?? obj.is_episodic;
+  const episodica = rawEpisodica === true || rawEpisodica === 'true' || rawEpisodica === 1;
+
+  // Auto-detect: memories of type 'evento' are episodic by default
+  const tipo = normalizeMemoryType(String(obj.tipo || obj.type || 'hecho'));
+  const isEpisodic = episodica || tipo === 'evento';
+
   return {
     contenido,
-    tipo: normalizeMemoryType(String(obj.tipo || obj.type || 'hecho')),
+    tipo,
     importancia: clampImportance(Number(obj.importancia || obj.importance || 3)),
     sujeto,
+    episodica: isEpisodic,
   };
 }
 
@@ -421,10 +437,11 @@ export async function saveMemoriesAsEmbeddings(
     return { saved: 0, embeddingIds: [], namespace: '', savedFacts: [] };
   }
 
-  // Determine namespace (include sessionId to isolate memories per session)
-  // Individual memories: memory-character-{characterId}-{sessionId}
-  // Group dynamics: memory-group-{groupId}-{sessionId} (when characterId === 'group' and groupId present)
-  const sessionSuffix = sessionId && sessionId !== 'unknown' ? `-${sessionId}` : '';
+  // FASE 14: Cross-session memory — when enabled, memories are stored WITHOUT sessionId
+  // in the namespace so the character remembers across sessions.
+  // When disabled, falls back to per-session namespaces (legacy).
+  const useCrossSession = true; // Default enabled — can be parameterized later if needed
+  const sessionSuffix = (!useCrossSession && sessionId && sessionId !== 'unknown') ? `-${sessionId}` : '';
   const isGroupDynamics = characterId === 'group' && groupId;
   const namespace = isGroupDynamics
     ? `memory-group-${groupId}${sessionSuffix}`
@@ -468,6 +485,8 @@ export async function saveMemoriesAsEmbeddings(
             importance: fact.importancia,
             memory_type: fact.tipo,
             memory_subject: fact.sujeto || 'personaje',
+            // FASE 14: episodic vs semantic distinction
+            episodica: fact.episodica === true,
             extracted_at: new Date().toISOString(),
             character_id: characterId,
             session_id: sessionId,

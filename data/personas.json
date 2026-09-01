@@ -6,7 +6,7 @@
     "avatar": "",
     "isActive": true,
     "createdAt": "2026-03-01T21:37:31.485Z",
-    "updatedAt": "2026-08-25T09:11:45.636Z",
+    "updatedAt": "2026-08-31T15:34:49.615Z",
     "statsConfig": {
       "enabled": true,
       "attributes": [
@@ -101,13 +101,13 @@
       {
         "itemId": "dildo-002",
         "quantity": 1,
-        "equipped": true,
-        "equippedSlotId": "main_hand"
+        "equipped": false
       },
       {
         "itemId": "cum-002",
         "quantity": 1,
-        "equipped": false
+        "equipped": true,
+        "equippedSlotId": "main_hand"
       },
       {
         "itemId": "cum-003",
@@ -117,8 +117,7 @@
       {
         "itemId": "cum-001",
         "quantity": 1,
-        "equipped": true,
-        "equippedSlotId": "main_hand"
+        "equipped": false
       },
       {
         "itemId": "plug-002",
@@ -129,10 +128,15 @@
         "itemId": "plug-001",
         "quantity": 1,
         "equipped": true,
-        "equippedSlotId": "slot-1780243589021-wpam34n"
+        "equippedSlotId": "slot-1780243594672-h7lvhsf"
+      },
+      {
+        "itemId": "leche-010",
+        "quantity": 1,
+        "equipped": false
       }
     ],
-    "currency": 121,
+    "currency": 86,
     "currencyName": "Puntos",
     "currencyIcon": "💰"
   }

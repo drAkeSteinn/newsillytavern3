@@ -63,6 +63,8 @@ import {
   ArrowUpNarrowWide,
   Layers,
   Heart,
+  Star,
+  Crown,
 } from 'lucide-react';
 import type {
   CharacterStatsConfig,
@@ -176,11 +178,48 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
               {attribute.timer.intervalMinutes}min
             </Badge>
           )}
+          {/* Main attribute badge — shown when this attribute is marked as the primary one */}
+          {attribute.isMain && (
+            <Badge variant="outline" className="text-xs border-amber-500/50 text-amber-500 bg-amber-500/10">
+              <Crown className="w-2.5 h-2.5 mr-0.5" />
+              Principal
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground mr-2">
             {attribute.type === 'number' ? `${displayValue}` : displayValue.slice(0, 15)}
           </span>
+          {/* Toggle main attribute — crown/star button. Only one attribute can be main at a time. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-7 w-7",
+                  attribute.isMain
+                    ? "text-amber-500 hover:bg-amber-500/10"
+                    : "text-muted-foreground/40 hover:text-amber-500 hover:bg-amber-500/10"
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange(index, { isMain: !attribute.isMain });
+                }}
+                title={attribute.isMain ? 'Quitar como atributo principal' : 'Marcar como atributo principal'}
+              >
+                <Crown className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p className="font-medium">Atributo Principal</p>
+              <p className="text-muted-foreground text-xs">
+                {attribute.isMain
+                  ? 'Este atributo es el principal del personaje. Se usará por defecto para proactivo, Director, y se resaltará al LLM.'
+                  : 'Marca este atributo como el principal. Solo puede haber uno por personaje. Útil para atributos como "Adicción", "Lujuria", "Vida" que definen el estado del personaje.'}
+              </p>
+            </TooltipContent>
+          </Tooltip>
           <Button
             variant="ghost"
             size="icon"
@@ -1555,7 +1594,7 @@ interface ThresholdEffectDialogProps {
   attributeKey: string;  // The parent attribute's key (for self-referencing conditions)
 }
 
-function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allAttributes, availableTargets, spritePacksV2, attributeKey }: ThresholdEffectDialogProps) {
+export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allAttributes, availableTargets, spritePacksV2, attributeKey }: ThresholdEffectDialogProps) {
   // Local state for editing
   const [localEffect, setLocalEffect] = useState<ThresholdEffect>({ ...effect });
 
@@ -4859,6 +4898,15 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
   const updateAttribute = (index: number, updates: Partial<AttributeDefinition>) => {
     const newAttrs = [...config.attributes];
     newAttrs[index] = { ...newAttrs[index], ...updates };
+    // Enforce single-main invariant: only one attribute can be isMain=true at a time.
+    // When marking an attribute as main, clear isMain on all others.
+    if (updates.isMain === true) {
+      for (let i = 0; i < newAttrs.length; i++) {
+        if (i !== index) {
+          newAttrs[i] = { ...newAttrs[i], isMain: false };
+        }
+      }
+    }
     updateConfig({ attributes: newAttrs });
   };
   

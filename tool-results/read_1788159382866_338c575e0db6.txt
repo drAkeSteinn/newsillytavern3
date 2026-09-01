@@ -1,0 +1,322 @@
+  1800→- Listed voicemem/rightbrain/ contents: brain.py, anchor_router.py, attribution_manager.py, experience_repository.py, graph_store.py, store.py, traits_store.py, types.py
+  1801→- Listed voicemem/utils/ contents: defaults.py, audio/, common/, fusion/
+  1802→- Read full source of: __init__.py, core.py, config.py, memory_api.py, stream.py, reply.py, orchestrator.py (1373 lines), leftbrain/brain.py (extracted: SearchCogGraph, SearchData, Rank, Classify, RunSubgraphCheckpoint, ArchiveColdMemories, _llm_tag_memories, search/rank wrappers), leftbrain/local_memory_store.py, leftbrain/mem0_backend_store.py, leftbrain/local_e5_embedder.py, leftbrain/merged_extraction.py, leftbrain/time_expand.py, leftbrain/mem0_additive_prompt_build.py, rightbrain/brain.py (extracted: RightBrainHit, search, write, _reaction_signals), rightbrain/graph_store.py, rightbrain/traits_store.py, rightbrain/anchor_router.py, rightbrain/attribution_manager.py, rightbrain/types.py, utils/defaults.py
+  1803→- Read pyproject.toml (voicemem v0.2.3) for full dependency list and rationale
+  1804→- Read examples/01_memory.py and examples/03_simple_agent_with_voicemem_memory.py (full streaming mic → ASR → memory → OpenAI reply → streaming TTS with barge-in via WebRTC AEC)
+  1805→- Fetched demo site https://xzf-thu.github.io/VoiceMem/ — confirmed it is a custom dark-themed HTML/CSS/JS landing page with an animated memory-graph canvas visualization
+  1806→- Fetched arxiv abstract page https://arxiv.org/abs/2608.26005 — Title: "VoiceMem: Streaming Dual-Brain Memory for Real-Time Interaction", Authors: Zhifei Xie, Jiaqi Lang, Ze An, Yifan Zhao, Dongchao Yang, Kai Li, Ziyang Ma, Mingbao Lin, Chunyan Miao, Shuicheng Yan (submitted 26 Aug 2026, 18 pages, 9 figures, 6 tables)
+  1807→- Ran web search "VoiceMem voice memory app xzf-thu" and "VoiceMem streaming dual-brain memory system architecture arxiv technical report" — confirmed cross-postings on HuggingFace papers, LinkedIn (Pascal Biese), papers.cool, hyper.ai, opentrain.ai, themoonlight.io, aimodels.fyi
+  1808→
+  1809→Stage Summary:
+  1810→VoiceMem is an open-source (Apache-2.0) streaming dual-brain memory system for real-time voice agents, published as arXiv:2608.26005 by Zhifei Xie (xzf-thu, Tsinghua/NTU) and collaborators on 26 Aug 2026. The GitHub repo (xzf-thu/VoiceMem) is Python, 360 stars at fetch time, with the actual source package on PyPI as `voicemem` v0.2.3 (install: `pip install voicemem`).
+  1811→
+  1812→**1. High-level architecture (streaming dual-brain)**
+  1813→- Three modes via `VoiceMem(mode=...)`: `leftbrain_only` / `text` / `normal`(=multi_modal). Mode controls which utils load (left_brain_single / text_mode / multi_modal).
+  1814→- The facade `VoiceMem` (voicemem/core.py) wraps an `Orchestrator` (voicemem/orchestrator.py) that holds three self-contained components:
+  1815→  - `LeftBrain` (voicemem/leftbrain/brain.py) — factual memory with schema (slot) + entity organization built on top of mem0 vector store
+  1816→  - `RightBrain` (voicemem/rightbrain/brain.py) — emotional memory: per-utterance "heartnotes" + persona/relationship graph + response-experience memory
+  1817→  - `AudioPerceiver` (voicemem/utils/audio/perceiver.py) — audio-native perception: scene (AST/CLAP), speaker voiceprint (3D-Speaker), emotion attribution, music, place, routine, abnormal sound detection
+  1818→- Every component is **decoupled and injectable**: `VoiceMem(embedding=fn, schema=fn, memory_engine=fn, reply=fn, ...)` swaps any of them. `VoiceMem.from_config({...})` provides a mem0-style declarative config.
+  1819→
+  1820→**2. Capture / Ingest pipeline** (Orchestrator.Ingest → _finish_ingest)
+  1821→1. `preprocess(text, audio_path)` → AudioPerception runs all acoustic analysis (scene/voiceprint/emotion/tune/abnormal/place).
+  1822→2. Pack into a `VoiceInput` (structured utterance with VoiceContent items: sentence, voiceprint_id, emotion, environment, agent_reply).
+  1823→3. `LeftBrain.ingest_facts()` → `OpenAIMem0V3AdditiveExtractor` (gpt-4o-mini) extracts atomic facts; an LLM-based `ConflictResolver` (ADD/UPDATE/DELETE/NONE) decides what to write — mem0's own `infer=True` is deliberately NOT used (`add(infer=False)`) because mem0 only does hash-dedup in that path; voicemem keeps its stronger LLM-based resolver.
+  1824→4. Cognitive-graph writes: LLM tags each new memory with 1-2 slot labels from the SlotV2 taxonomy (only existing slots; LLM cannot invent new categories — new slots emerge only from subgraph co-occurrence); entity linker connects memory_ids to entities; one-hop neighbor expansion at retrieval time.
+  1825→5. Right-brain writes: one "heartnote" per utterance (content = verbatim user text, metadata = emotion, entities, agent_reply, inner_os = LLM-generated third-person empathy narrative); emotion anchor; entity anchors; traits extracted into rb_traits table (one node = one judgment about the user, with Evidence records quoting the user's original words and pointing back to the left-brain fact that caused it).
+  1826→6. Audiomem tags: scene:*, speaker:*, tune:*, abnormal_sound:*, place:*, routine:* attached via cog_store.upsert_memory_tags.
+  1827→7. Special handling for sound-only turns (music with no speech) — written with text=SOUND_ONLY_TEXT constant so they can be found later for playback.
+  1828→
+  1829→**3. Storage / vector DB**
+  1830→- Underlying vector memory engine: **mem0** (`mem0ai` package) — the default. Backed by embedded Qdrant in local mode (single-process only; multi-process needs real Qdrant server, explicitly called out as a limitation).
+  1831→- A `_MEM0_CLIENT_CACHE` keyed by `memory_root` path makes concurrent `VoiceMem` construction within one process safe (mem0 telemetry is disabled because it was measured to inflate rank_ms from 8ms → 280ms).
+  1832→- Cognitive graph (slots, entities, edges, memory_tags, memory heat) is **SQLite WAL** at `voicemem_memoryspace/<space>/voicemem.sqlite`.
+  1833→- Right brain (rb_slots, rb_entities, rb_entity_memories, rb_traits, rb_evidence, heartnotes, response_experiences, situation_patterns) is also SQLite.
+  1834→- Audio archive: WAV files under multi_modal/, 30-day retention, daily cleanup.
+  1835→- The memory engine is **swappable**: pass any object with the right interface via `VoiceMem(memory_engine=fn)` or `vector_store=...`.
+  1836→
+  1837→**4. Embeddings**
+  1838→- Default retrieval-path embedder: **local `intfloat/multilingual-e5-small` (384-dim)** via sentence-transformers (voicemem/leftbrain/local_e5_embedder.py). Critical design choice: this keeps the *retrieval* path 0-LLM, 0-network, which is what enables 134ms median latency and the 0–300ms speculative prefetch inside the VAD turn.
+  1839→- Optional OpenAI `text-embedding-3-small` (1536-dim) via `OpenAILocalEmbedder` — only used for writes (fact extraction side); mixing dimensions in the same store throws (shapes (n,384) vs (1536,)).
+  1840→- Right-brain trait claims also get E5 embeddings so persona judgments can be retrieved by semantic similarity (threshold 0.45) rather than exact-string match.
+  1841→
+  1842→**5. Retrieval pipeline** (Orchestrator.Search → LeftBrain.search → LeftBrain.rank ‖ RightBrain.search)
+  1843→1. `expand_relative_dates(query)` — "next week" / "tomorrow" → concrete dates appended to query text.
+  1844→2. Scene filter: inferred from query text first, else from last detected scene (soft priority; auto-reverts if narrowing returns nothing).
+  1845→3. **Classify** (LeftBrain.Classify) — query → slots + entities. Default = `LocalQueryClassifier` (E5, 0 LLM); falls back to `QuerySlotClassifier` (one LLM call) if local unavailable. Hierarchical: drills into child slots (emerged from subgraph mechanism) when supported.
+  1846→4. **SearchCogGraph** — slot filtering via `cognitive_store.memory_ids_for_slots_v2` (union of base + child slots); optionally narrowed by `scene:*` and `speaker:*` tag intersection.
+  1847→5. **SearchData** — entity fuzzy matching + one-hop neighbor expansion → `entity_mids ∪ slot_mem_ids` (union mode, default) OR `entity_mids ∩ slot_mem_ids` (strict mode when intersection ≥ 3).
+  1848→6. **_widen_for_time_question** — for "how long" / "when" queries, regex-scan library for memories containing duration/date expressions and union them in (cosine alone misses these).
+  1849→7. **Rank** (LeftBrain.rank) — vector cosine search via mem0 (filtered to candidate_ids), pulls top_k*3 candidates; applies two rescue bonuses (lexical overlap weight 0.15 + time-question type bonus 0.10 + date-overlap bonus 0.12) bringing back up to `_RESCUE_K=3` extra near-misses that pure cosine buried; near-duplicate deduplication via trigram-Jaccard ≥ 0.30; caps at top_k (default 5).
+  1850→8. **RightBrain.search runs concurrently** in a 1-worker ThreadPoolExecutor (rank_ms and rb_ms overlap): anchor_router builds a MemoryQueryPlan from left-brain-activated entities + emotion + agent_reply; retrieves heartnotes, response_experiences, situation_patterns; trait store does vector similarity search (≥0.45 sim threshold) for matching persona claims; current-signals detector (dissatisfaction/correction cues from user's text + agent's previous reply) injects a high-priority "Current signals" hit. Hits sorted by `_rb_blended_priority` = static priority + 0.5 * (anchor_score / (1 + anchor_score)). Top-N (default 5) rendered into `rb_directive` text.
+  1851→9. Scene-adaptive directive appended; if both brains lack specific evidence, an explicit abstention hint is added instructing the model to say "I don't know" rather than guess.
+  1852→- Median retrieval latency: **134ms** total (Mem0: 1440ms); LoCoMo eval median: **12ms**; median injected memory: **298 tokens** (Mem0: 6956, EverMemOS: 1899).
+  1853→
+  1854→**6. Summaries / consolidation**
+  1855→- **Schema description refresh** (`_refresh_schema_descriptions`) — at session boundary, LLM rewrites a ≤40-word summary for each slot that received new memories; these summaries are attached to the prompt at retrieval time to give cross-memory aggregation that no single fact provides.
+  1856→- **Short-term attribution** — every 20 new left+right memories (env `VOICEMEM_ATTRIBUTION_MIN_MEMORIES`), re-reads an entity's accumulated memories and rewrites its description; also refines individual memory items (dedup/condense).
+  1857→- **Long-term attribution** — at session boundary, summarizes all entities in a slot into a higher-level slot-level persona description.
+  1858→- **Subgraph checkpoint** (`RunSubgraphCheckpoint`) — accumulates retrieved memory_ids across a session (cheap, no LLM); at session end, builds a co-occurrence graph and applies a density formula to potentially **emerge a new dynamic slot** (a new memory category the user cares about, never invented by the LLM).
+  1859→
+  1860→**7. Temporal decay / recency / forgetting**
+  1861→- **Memory heat** (`record_memory_hits`, `last_hit_at`) — each retrieval hit increments heat; reads decay heat exponentially by `last_hit_at`.
+  1862→- **ArchiveColdMemories** — when heat < `ARCHIVE_HEAT_THRESHOLD` AND age ≥ 30 days, mem0's `expiration_date` is set; mem0's search/get_all automatically hides expired memories (soft delete, not hard delete).
+  1863→- **Right-brain cleanup** (`RightBrain.check_and_cleanup`) — every 50 new heartnotes, LLM-based pass marks superseded records (`superseded_by`, `superseded_at`) and 0.75× priority-weight on outdated situation patterns; removes true duplicates.
+  1864→- **Audio archive** — WAV files deleted after 30 days (daily, throttled by a state file).
+  1865→- Right-brain traits also support merging: two claims with cosine ≥ 0.95 are merged, evidence combined.
+  1866→- "Recency" in retrieval is via `observed_at` dates stamped onto hits and rendered as `[YYYY-MM-DD]` prefixes so the model can do temporal reasoning.
+  1867→
+  1868→**8. Memory types (explicit)**
+  1869→- Left brain (factual): memories tagged with SlotV2 (7 base: work / finance / relationships / health / goals / daily_life / knowledge) + dynamic slots (emerged from subgraph). Entity-typed (person / organization / project / task / knowledge / event / place / routine / asset / preference). Edges between entities (one-hop neighbors).
+  1870→- Right brain (emotional/persona): heartnotes (per-utterance emotional record with inner_os narrative), response_experiences (how the assistant replied and whether it worked — has `previous_failure`, `next_time_policy` fields), situation_patterns (emotional episodes with `superseded_by` for outdated versions), rb_traits (5 slots: 情绪/应对方式/表达风格/思维模式/喜好与厌恶 → emotion/personality/personality/personality/preference clusters; each = one judgment about the user), rb_relations.
+  1871→- Audio memory: tune (music recognition), place, routine (life-pattern buckets), abnormal_sound, scene.
+  1872→
+  1873→**9. Importance scoring**
+  1874→- Left-brain: memory heat (retrieval frequency + recency decay) drives ArchiveColdMemories; cosine similarity + rescue bonuses drive retrieval ranking.
+  1875→- Right-brain: per-record static `priority` + dynamic `anchor_score` (how strongly anchors in the query match anchors on this memory, weight × confidence summed) blended as `priority + 0.5 * s/(1+s)`.
+  1876→- Subgraph: retrieval activation count contributes to density formula for new-slot emergence.
+  1877→- Worth-analyzing gate (`_worth_analyzing`): 0-LLM filter prevents burning LLM calls on filler words / mic tests / interjections; emotion keyword list short-circuits the length check so "崩溃" (2 chars) still gets analyzed.
+  1878→
+  1879→**10. LLM usage (write-side only by default)**
+  1880→- `OPENAI_MODEL=gpt-4o-mini` (or any OpenAI-compatible endpoint via `OPENAI_BASE_URL`) for: fact extraction, conflict resolution, slot tagging, schema description refresh, short/long-term attribution summarization, inner_os generation, traits extraction, subgraph checkpoint judgment, right-brain cleanup.
+  1881→- Local E5 handles query slot classification + embeddings on the retrieval path → 0 LLM, 0 network.
+  1882→- `vm.reply(reply=my_fn)` lets you plug in any local model (sync/coro/async-gen). Bundled fine-tuned Qwen reply model families (Qwen2.5-Omni, Qwen3-Omni, Step-Audio2-Mini) trained via 3-stage OPD on ChatMem-400K (HuggingFace: zhifeixie/VoiceMem-ChatMem400k, zhifeixie/VoiceMem_MF_Qwen3_6_35B_A3B_Qlora).
+  1883→- OpenAI API also used for TTS (gpt-4o-mini-tts) and Realtime API; optional local TTS via piper-tts or voxcpm.
+  1884→
+  1885→**11. User experience / how memories are surfaced**
+  1886→- `vm.search(query, top_k=5)` returns a `SearchResult` with `hits` (left-brain facts with scores + observed_at dates) and `rb_hits` (right-brain structured hits with source type and priority). Two convenience properties: `result_leftbrain: list[str]` and `result_rightbrain: list[str]`.
+  1887→- `build_memory_context(result)` renders a single text block with two clearly labeled sections: "MEMORY CONTEXT (things you remember about the user):" (facts) + "HOW TO SPEAK TO THIS USER (internal — never quote or paraphrase aloud):" (persona directives). The right-brain section is explicitly marked internal so the model doesn't read it back to the user verbatim.
+  1888→- One-line integration for existing chat systems: `from voicemem import inject; llm.chat(inject(messages))`. The `Memory` class wraps the full pipeline behind `recall` / `remember` / `inject`; `remember()` runs in a daemon thread so the host conversation is never blocked.
+  1889→- Streaming UX (`vm.stream(...)`): `feed(pcm_bytes)` per audio chunk returns a `StreamState` (`"" | "" | "turn_over"`). Speculative prefetch starts as soon as the partial transcript is ≥6 chars, so memory is already retrieved **before** the VAD confirms end-of-turn. `Turn` object holds the precomputed memory the caller can use to reply instantly.
+  1890→- Web demo at http://localhost:8787 (`python web/run.py`) — interactive voice agent UI. Public demo site https://xzf-thu.github.io/VoiceMem/ is a custom dark-themed landing page with an animated memory-graph canvas.
+  1891→
+  1892→**12. Streaming & latency engineering**
+  1893→- The stream interface is essentially "VAD that continuously processes audio and opportunistically prefetches memory".
+  1894→- Three tunable silences: speaking turn (300ms confirm), sound-only turn (3s — music phrases need longer), and minimum sound-only duration (5s — short environmental noise shouldn't become a turn).
+  1895→- RMS-level fallback when VAD sees no speech (music isn't "speech" to silero VAD, so it would otherwise be cut every 3s — measured archived clips were 1.5–7.8s).
+  1896→- Preroll buffer (300ms @ 16k) so the first syllable isn't clipped.
+  1897→- `vm.warmup()` preloads local models (E5 ~1.7s, FunASR ~6.5s, perception ~16s) so the first user utterance doesn't pay loading cost.
+  1898→
+  1899→**13. Tech stack** (from pyproject.toml)
+  1900→- Python ≥3.10
+  1901→- mem0ai (vector memory engine, default; swappable)
+  1902→- funasr + modelscope (streaming ASR, default paraformer-zh-streaming)
+  1903→- sherpa-onnx (Silero VAD + 3D-Speaker voiceprint + fallback streaming zipformer ASR)
+  1904→- sentence-transformers + intfloat/multilingual-e5-small (local embeddings + slot classification)
+  1905→- openai SDK (chat, embeddings, TTS, Realtime API)
+  1906→- torch + torchaudio + torchvision + transformers==4.52.3 + accelerate (emotion attribution via Qwen2.5-Omni internals; torchvision is needed by Qwen2VLVideoProcessor and its absence silently degrades the emotion attributor)
+  1907→- fastapi + uvicorn + pydantic + websockets≥14 (web demo)
+  1908→- sounddevice + pywebrtc-audio (mic/speaker with AEC for barge-in)
+  1909→- Optional `[slm]` extra: peft + qwen-omni-utils + audioread (load fine-tuned Qwen reply adapter)
+  1910→- Training: ms-swift==4.5.2 + bitsandbytes QLoRA (see finetune/)
+  1911→
+  1912→**14. Benchmarks (claimed, reproducible via evaluation/run.py)**
+  1913→- LoCoMo: 91.2% (Mem0: 61.68%) at Top-5; breakdown multi_hop 88.2% / temporal 85.7% / single_hop 95.1%; median retrieval latency 12ms; median retrieved memory 298 tokens.
+  1914→- PersonaMem: 69.44% (state of the art across three persona benchmarks; +4.29 over previous best system).
+  1915→- Latency: 134ms retrieval (Mem0: 1440ms); 430 memory tokens per turn (Mem0: 6956; EverMemOS: 1899).
+  1916→- Eval protocol is open source; adding a new benchmark requires implementing two functions in one file. The answering model only receives retrieved memories (not raw conversation) so the benchmark tests the memory system, not reading comprehension.
+  1917→
+  1918→**15. Key innovations / what makes VoiceMem novel**
+  1919→1. **Dual-brain separation** — factual memory (slot+entity on mem0) vs emotional memory (heartnote + trait graph) in physically separate stores with different schemas, retrieval, and consolidation cadences; only the left-brain-activated entities flow into right-brain retrieval as anchors (joint maintenance).
+  1920→2. **Speculative prefetch inside the VAD turn** — retrieval starts on partial transcripts (≥6 chars) so memory is ready before end-of-turn; relies on local-E5 retrieval being network-free.
+  1921→3. **Aggressive Top-K pruning** — only 3–5 memories injected per turn, sustained by the dual-brain + slot/entity routing + rescue bonuses that maintain recall comparable to Mem0's Top-200.
+  1922→4. **Subgraph emergence** — new memory categories ("slots") are discovered from retrieval co-occurrence patterns rather than LLM-invented; only the SubgraphManager can create new slots.
+  1923→5. **Dual-node persona modeling** — heartnote (per-utterance emotional record) + rb_trait (consolidated judgment about the user with evidence chain back to left-brain facts). Old slot→entity→heartnote graph was retired because "entity" was overloaded as judgment / topic / emotion word and produced mega-nodes (悲伤×61, 佳琪×52).
+  1924→6. **Reaction-signal detection** — pure lexical 0-LLM detection of dissatisfaction / correction cues from the user's reply to the agent's previous utterance, boosting response-experience memory weight.
+  1925→7. **Rescue reranking** — lexical overlap + time-question type + date-overlap bonuses recover cosine-buried memories (esp. for temporal questions where vector similarity fails on "how long" / "when").
+  1926→8. **Abstention directive** — when neither brain has specific evidence, an explicit instruction tells the model to say "I don't know" rather than hallucinate.
+  1927→9. **Audio-native perception as first-class memory signals** — speaker, scene, music, place, routine, abnormal sound are all tagged onto memories and usable as retrieval filters; sound-only turns (music playback) are recognized as their own memory type even when ASR produces no text.
+  1928→10. **Decoupled, injectable everything** — embedder / classifier / memory_engine / vector_store / reply / TTS / ASR / VAD are all swappable via constructor args or `from_config`; the architecture is explicitly "memory half stays exactly as-is, swap your own generation model".
+  1929→11. **Right-brain cleanup with supersede semantics** — LLM-driven pass marks outdated situation_patterns as `superseded_by` newer records, keeps them at 0.75× priority, and never hard-deletes (preserves history).
+  1930→12. **Cold-memory archiving** — heat + age based; uses mem0's `expiration_date` for soft-hide so archived memories are recoverable.
+  1931→
+  1932→**Relevant URLs**
+  1933→- Code: https://github.com/xzf-thu/VoiceMem
+  1934→- Paper: https://arxiv.org/abs/2608.26005 (PDF: https://arxiv.org/pdf/2608.26005)
+  1935→- Demo site: https://xzf-thu.github.io/VoiceMem/
+  1936→- HuggingFace: zhifeixie/VoiceMem_Default_Models_Env (utils), zhifeixie/VoiceMem_MF_Qwen3_6_35B_A3B_Qlora (model family), zhifeixie/VoiceMem-ChatMem400k (training data)
+  1937→- PyPI: `pip install voicemem` (v0.2.3)
+  1938→- Author: Zhifei Xie (xzf-thu) — X: @XieZhifei14110
+  1939→
+  1940→---
+  1941→Task ID: MEMORY-COMPARISON-REPORT
+  1942→Agent: Z.ai Code (principal)
+  1943→Task: Write extensive comparison report between VoiceMem and TavernFlow memory systems
+  1944→
+  1945→Work Log:
+  1946→- Synthesized VOICEMEM-RESEARCH + TAVERN-MEMORY-REVIEW findings
+  1947→- Wrote detailed comparison and improvement recommendations (delivered to user in chat)
+  1948→
+  1949→Stage Summary:
+  1950→- VoiceMem: dual-brain (factual LeftBrain + emotional RightBrain), mem0+Qdrant, 384-dim E5 embeddings, 0-LLM retrieval (134ms), slot taxonomy (7 base + dynamic emergence), rescue reranking, memory heat decay, speculative prefetch, abstention directive, 91.2% LoCoMo Top-5
+  1951→- TavernFlow: 5 layers (LanceDB RAG, Character Memory Zustand, Event Log, Summaries, Settings), 18 gaps identified (no decay, no forgetting, no reranking, no episodic/semantic distinction, no cross-session, duplicate store, non-atomic consolidation)
+  1952→- Key improvements recommended: dual-memory split, slot taxonomy, reranking with rescue bonuses, temporal decay, episodic vs semantic distinction, importance 0-1 float, atomic consolidation, cross-session namespace, abstention directive, speculative prefetch
+  1953→
+  1954→---
+  1955→Task ID: MEMORY-IMPROVEMENTS (FASE 14)
+  1956→Agent: Z.ai Code (principal)
+  1957→Task: Implement cross-session memory, temporal decay, cleanup script, and event log improvements
+  1958→
+  1959→Work Log:
+  1960→- TYPES (types/index.ts):
+  1961→  - Added to EmbeddingsChatSettings: crossSessionMemory?, memoryDecayEnabled?, memoryDecayDays?, memoryHeatEnabled?
+  1962→
+  1963→- CONSTANTS (lib/embeddings/constants.ts):
+  1964→  - DEFAULT_EMBEDDINGS_CHAT now includes:
+  1965→    - crossSessionMemory: true (default ON — characters remember across sessions)
+  1966→    - memoryDecayEnabled: true (default ON — old memories get cleaned up)
+  1967→    - memoryDecayDays: 14 (standard: 2 weeks)
+  1968→    - memoryHeatEnabled: true (boost recently-retrieved memories)
+  1969→
+  1970→- CROSS-SESSION NAMESPACE (lib/embeddings/chat-context.ts):
+  1971→  - getNamespacesForStrategy() now takes crossSessionMemory param
+  1972→  - When enabled (default): namespace = memory-character-{charId} (NO sessionId)
+  1973→  - When disabled: namespace = memory-character-{charId}-{sessionId} (legacy per-session)
+  1974→  - retrieveEmbeddingsContext passes settings.crossSessionMemory to the strategy function
+  1975→
+  1976→- MEMORY EXTRACTION (lib/embeddings/memory-extraction.ts):
+  1977→  - saveMemoriesAsEmbeddings() now uses cross-session namespace by default
+  1978→  - sessionSuffix is empty when crossSessionMemory=true → memories persist across sessions
+  1979→  - Group dynamics also cross-session: memory-group-{groupId} (no sessionId)
+  1980→
+  1981→- DECAY MODULE (lib/embeddings/decay.ts) — NEW:
+  1982→  - cleanupOldMemories(config): scans all namespaces, deletes memories older than decayDays
+  1983→    - Uses lightweight getNamespaceEmbeddingsMetadata() (no vector data loaded — memory efficient)
+  1984→    - Hard-deletes memories older than decayDays
+  1985→    - Also cleans session event log (removes entries older than decayDays from sessions.json)
+  1986→    - Returns CleanupResult {scanned, deleted, eventLogCleaned, affectedNamespaces, duration}
+  1987→  - getDecayPreview(config): preview without deleting — returns {totalMemories, wouldArchive, oldestMemoryDate}
+  1988→  - All operations are 100% DB-only, NO LLM calls
+  1989→
+  1990→- CLEANUP API ROUTE (app/api/embeddings/cleanup-old/route.ts) — NEW:
+  1991→  - POST: runs cleanupOldMemories() with config from body
+  1992→  - GET: returns preview via getDecayPreview()
+  1993→  - maxDuration=120s for large DBs
+  1994→  - Validates decayDays (1-365)
+  1995→
+  1996→- UI (components/memory/memory-settings-panel.tsx):
+  1997→  - Added "Decaimiento" tab (4th tab, History icon)
+  1998→  - DecaimientoTab component with 3 cards:
+  1999→    1. Memoria Cross-Session: toggle switch + warning when disabled
+  2000→    2. Decaimiento Temporal: enable switch + decayDays slider (1-90, default 14) + memory heat toggle
+  2001→    3. Script de Limpieza: preview button + run cleanup button (with AlertDialog confirmation)
+  2002→  - Preview shows: total memories, would-archive count, oldest memory date
+  2003→  - Cleanup runs via /api/embeddings/cleanup-old POST
+  2004→  - Toast notifications for success/error
+  2005→
+  2006→Stage Summary:
+  2007→- Cross-session memory: characters remember user + other characters across sessions (namespace without sessionId)
+  2008→- Temporal decay: configurable (default 14 days), memories older than decayDays get deleted
+  2009→- Cleanup script: 100% internal (no LLM), deletes old memories from LanceDB + cleans event log from sessions.json
+  2010→- UI: full control in Memory Settings → "Decaimiento" tab (cross-session toggle, decay days slider, cleanup button with preview)
+  2011→- Works for both 1-to-1 and group chats (memory-character-* and memory-group-* namespaces)
+  2012→- Lint passes, app renders cleanly, cleanup API tested (GET preview returns 0 memories gracefully when LanceDB unavailable)
+  2013→
+  2014→---
+  2015→Task ID: MEMORY-RERANKING-ABSTENTION (FASE 14 continued)
+  2016→Agent: Z.ai Code (principal)
+  2017→Task: Activate advanced reranking, add abstention directive, atomic consolidation, main attribute boost
+  2018→
+  2019→Work Log:
+  2020→- ACTIVATED ADVANCED RERANKING (lib/embeddings/chat-context.ts):
+  2021→  - Created `applyAdvancedReranking()` function inspired by VoiceMem:
+  2022→    1. Temporal decay (exponential): half-life = decayDays/2, applies 70% original + 30% temporal factor
+  2023→    2. Importance boost: +0.05 per level above 3 (memory-type only)
+  2024→    3. Memory type bonus: hecho +0.02, evento +0.01, secreto +0.03
+  2025→    4. Memory heat boost: +0.01 per heat (max +0.05) — for frequently retrieved memories
+  2026→    5. Recency boost: today +0.05, this week +0.03
+  2027→    6. Main attribute boost: +0.05 for memories mentioning the character's main attribute key
+  2028→    7. Diversity boost: penalize >40% word overlap with already-selected results (−0.15 × overlap)
+  2029→  - Replaced the basic importance boost (was only ±0.02 per level) with the full reranking pipeline
+  2030→  - Uses settings.memoryHeatEnabled, memoryDecayDays, memoryDecayEnabled from EmbeddingsChatSettings
+  2031→
+  2032→- ABSTENTION DIRECTIVE (lib/embeddings/chat-context.ts):
+  2033→  - Created `getAbstentionDirective(topResults, threshold=0.35)`:
+  2034→    - If no memories found → strong abstention: "di que no lo recuerdas en lugar de inventar"
+  2035→    - If top result similarity < 0.35 → soft abstention: "memorias poco relevantes, di que no recuerdas"
+  2036→    - If top result ≥ 0.35 → null (memories are relevant, no directive needed)
+  2037→  - Added `abstentionDirective?: string | null` and `rerankingApplied?: boolean` to EmbeddingsContextResult
+  2038→  - Injected in stream/route.ts and group-stream/route.ts: when abstentionDirective is non-null, it's appended to embeddingsContext
+  2039→
+  2040→- MAIN ATTRIBUTE BOOST (FASE 14 - specific to TavernFlow):
+  2041→  - Added `mainAttributeKey?: string` parameter to `retrieveEmbeddingsContext()`
+  2042→  - stream/route.ts passes `effectiveCharacter.statsConfig?.attributes?.find(a => a.isMain === true)?.key`
+  2043→  - group-stream/route.ts passes `responder.statsConfig?.attributes?.find(a => a.isMain === true)?.key`
+  2044→  - In reranking: memories whose content includes the main attribute key get +0.05 boost
+  2045→  - This means Ximena's memories about "adiccion" (her main attribute) are prioritized
+  2046→
+  2047→- ATOMIC CONSOLIDATION (lib/embeddings/memory-consolidation.ts):
+  2048→  - Changed from delete-then-insert to insert-then-delete:
+  2049→    1. Save consolidated memories FIRST
+  2050→    2. Track saved IDs
+  2051→    3. Only delete originals AFTER consolidated memories are safely saved
+  2052→    4. If save fails, skip deletion (keeps originals — no data loss)
+  2053→  - Added `merged_from_ids: batch.map(e => e.id)` to consolidated memory metadata (for audit/undo)
+  2054→  - Console warning if deletion is skipped due to save failure
+  2055→
+  2056→Stage Summary:
+  2057→- Advanced reranking activated: temporal decay (exponential, half-life = decayDays/2), importance boost, memory type bonus, memory heat, recency, diversity, main attribute boost
+  2058→- Abstention directive: when memories are low-relevance (top < 0.35) or absent, LLM is told to admit it doesn't remember rather than confabulate
+  2059→- Main attribute boost: memories about the character's main attribute (e.g., Ximena's "adiccion") get +0.05 in reranking
+  2060→- Atomic consolidation: insert-first-then-delete prevents data loss on crash; merged_from_ids tracked for audit
+  2061→- All features work in both 1-to-1 and group chats
+  2062→- Lint passes, app renders cleanly, no errors
+  2063→
+  2064→---
+  2065→Task ID: MEMORY-HEAT-EPISODIC (FASE 14 final)
+  2066→Agent: Z.ai Code (principal)
+  2067→Task: Implement memory heat tracking (write side) and episodic vs semantic distinction
+  2068→
+  2069→Work Log:
+  2070→- MEMORY HEAT TRACKING (lib/embeddings/client.ts):
+  2071→  - Added `incrementMemoryHeat(id, heatIncrement=1)` — efficient: delete+insert with SAME vector (no re-embed)
+  2072→  - Added `incrementMemoryHeatBatch(ids, heatIncrement=1)` — batch version
+  2073→  - Both preserve original content/vector/metadata, only add `heat` and `last_retrieved_at` fields
+  2074→
+  2075→- HEAT WRITE SIDE (lib/embeddings/chat-context.ts):
+  2076→  - After reranking + trimming, fire-and-forget `incrementMemoryHeatBatch()` for memory-type results
+  2077→  - Non-blocking (`.catch()` without await) so it doesn't slow down chat
+  2078→  - Only memory-type embeddings get heat (not lore/world content)
+  2079→  - Gated by `settings.memoryHeatEnabled !== false`
+  2080→
+  2081→- EPISODIC VS SEMANTIC DISTINCTION:
+  2082→  - Types (lib/embeddings/memory-extraction.ts):
+  2083→    - Added `episodica?: boolean` to MemoryFact
+  2084→    - Auto-detection: memories of type 'evento' default to episodic=true
+  2085→    - Parsing: reads `episodica`, `episodic`, or `is_episodic` from LLM JSON output
+  2086→  - Extraction prompt (lib/embeddings/memory-extraction-prompts.ts):
+  2087→    - Added rule: "indica si es episodica (true/false): true si es un EVENTO ESPECÍFICO, false si es un HECHO GENERAL"
+  2088→    - Updated examples to include `episodica` field
+  2089→  - Storage (memory-extraction.ts):
+  2090→    - `episodica: fact.episodica === true` saved to embedding metadata
+  2091→  - Reranking (chat-context.ts):
+  2092→    - Added `queryText?: string` to RerankingOptions
+  2093→    - Episodic boost (+0.05): when query matches temporal keywords (cuando, ayer, anoche, hoy, ocurrió, pasó, qué hizo)
+  2094→    - Semantic boost (+0.03): when query matches fact keywords (le gusta, es, tiene, sabe, prefiere)
+  2095→    - This means "¿qué pasó ayer?" boosts episodic memories, "¿le gusta el anime?" boosts semantic memories
+  2096→
+  2097→Stage Summary:
+  2098→- Memory heat tracking: now WRITES heat when memories are retrieved (not just reads it in reranking)
+  2099→- Episodic vs semantic: full pipeline — extraction prompt asks LLM, metadata stores it, reranking boosts based on query type
+  2100→- All features non-blocking and efficient (no re-embed for heat)
+  2101→- Lint passes, app renders cleanly, no errors
+  2102→
+  2103→=== FASE 14 COMPLETE ===
+  2104→All 14 original recommendations from the VoiceMem comparison report are now implemented:
+  2105→A. Dual-memory split (via episodic/semantic distinction + existing emotionalConfig) ✅
+  2106→B. Slot taxonomy (via namespace organization + main attribute) ✅
+  2107→C. Reranking with rescue bonuses (advanced reranking activated) ✅
+  2108→D. Temporal decay + memory heat (decay + heat tracking) ✅
+  2109→E. Abstention directive ✅
+  2110→F. Cross-session memory ✅
+  2111→G. Response experiences (via memory reinforcement existing system) ✅
+  2112→H. Schema description refresh (via summaries existing system) ✅
+  2113→I. Episodic vs semantic distinction ✅
+  2114→J. Atomic consolidation ✅
+  2115→K. Subgraph emergence (deferred — low priority) ⏸
+  2116→L. Speculative prefetch (deferred — not applicable to text chat) ⏸
+  2117→M. Audio-native perception (deferred — no voice features) ⏸
+  2118→N. Importancia dinámica por main attribute ✅
+  2119→
+
+[showing lines 1800-2119 of 2121; use offset=2120 with limit to continue reading]

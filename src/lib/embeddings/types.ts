@@ -183,3 +183,47 @@ export function resolveModelContextLength(
   if (MODEL_CONTEXT_LENGTHS[baseModel]) return MODEL_CONTEXT_LENGTHS[baseModel];
   return DEFAULT_CONTEXT_LENGTH;
 }
+
+/**
+ * FASE 16: Calculate the safe chunk size (in chars) for a given embedding model.
+ *
+ * Uses 75% of the model's context window as safe budget (leaving 25% for overhead).
+ * The result is in characters (not tokens) — multiply tokens by CHARS_PER_TOKEN.
+ *
+ * @param model - Embedding model name (e.g., 'bge-m3:567m')
+ * @param configContextLength - Auto-detected context length from Ollama /api/show
+ * @returns Safe chunk size in characters
+ */
+export function getSafeChunkSize(
+  model: string,
+  configContextLength?: number,
+): number {
+  const contextLength = resolveModelContextLength(model, configContextLength);
+  const safeTokens = Math.floor(contextLength * 0.75);
+  const safeChars = Math.floor(safeTokens * CHARS_PER_TOKEN);
+  return Math.max(100, safeChars); // minimum 100 chars
+}
+
+/**
+ * FASE 16: Get a human-readable recommendation for chunk size.
+ * Returns the recommended chunk size and whether the current setting is safe.
+ */
+export function getChunkSizeRecommendation(
+  model: string,
+  configContextLength: number | undefined,
+  currentChunkSize: number,
+): { recommended: number; isSafe: boolean; warning?: string; contextLength: number } {
+  const recommended = getSafeChunkSize(model, configContextLength);
+  const contextLength = resolveModelContextLength(model, configContextLength);
+
+  if (currentChunkSize > recommended) {
+    return {
+      recommended,
+      isSafe: false,
+      warning: `El tamaño de fragmento (${currentChunkSize}) excede el 75% del contexto del modelo (${contextLength} tokens ≈ ${recommended} chars). Se truncará silenciosamente al crear embeddings.`,
+      contextLength,
+    };
+  }
+
+  return { recommended, isSafe: true, contextLength };
+}

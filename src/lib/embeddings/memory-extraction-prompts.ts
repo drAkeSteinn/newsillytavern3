@@ -27,6 +27,7 @@ Reglas estrictas:
 - Cada hecho debe ser una FRASE concisa (máximo 50 palabras) en tercera persona
 - Usa el contexto de la conversación para entender referencias implícitas (nombres, lugares, eventos mencionados anteriormente)
 - Para cada hecho, indica quién es el sujeto: "usuario" si el hecho es sobre el jugador/usuario ({userName}), "personaje" si es sobre {characterName} mismo, o "otro" si es sobre otra persona o entidad
+- Para cada hecho, indica si es "episodica" (true/false): true si es un EVENTO ESPECÍFICO que ocurrió ("encontró un mapa", "dijo X", "peleó con Y"), false si es un HECHO GENERAL ("le gusta el anime", "es tímido", "vive en la costa")
 - Si NO hay nada memorable, responde EXACTAMENTE: []
 
 Responde SOLO con un JSON array, sin explicaciones, sin markdown, sin texto adicional.
@@ -41,13 +42,13 @@ Mensaje del personaje:
 "Milo se lleva súper bien con los vecinos."
 
 Respuesta correcta:
-[{"contenido":"{userName} tiene un gato llamado Milo","tipo":"hecho","importancia":3,"sujeto":"usuario"},{"contenido":"{userName} se mudó recientemente a la costa","tipo":"hecho","importancia":3,"sujeto":"usuario"}]
+[{"contenido":"{userName} tiene un gato llamado Milo","tipo":"hecho","importancia":3,"sujeto":"usuario","episodica":false},{"contenido":"{userName} se mudó recientemente a la costa","tipo":"hecho","importancia":3,"sujeto":"usuario","episodica":true}]
 
 Mensaje del personaje:
 "¡Acabo de encontrar un mapa antiguo en el sótano del castillo!"
 
 Respuesta correcta:
-[{"contenido":"{characterName} encontró un mapa antiguo en el sótano del castillo","tipo":"evento","importancia":4,"sujeto":"personaje"}]
+[{"contenido":"{characterName} encontró un mapa antiguo en el sótano del castillo","tipo":"evento","importancia":4,"sujeto":"personaje","episodica":true}]
 
 Mensaje del personaje:
 "¡Buenos días! ¿En qué puedo ayudarte hoy?"

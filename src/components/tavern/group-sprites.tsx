@@ -256,11 +256,13 @@ export function GroupSprites({
     localStorage.setItem(POSITIONS_KEY, JSON.stringify(positions));
   }, [positions]);
 
-  // Update countdowns every 100ms for all characters
+  // Update countdowns every 1000ms for all characters
+  // PERF FIX: Changed from 100ms to 1000ms — countdowns are in seconds, so 1Hz is
+  // sufficient and avoids 10 state updates per second per group character.
   useEffect(() => {
     const interval = setInterval(() => {
       const newCountdowns = new Map<string, number>();
-      
+
       characters.forEach(character => {
         const remaining = store.getReturnToIdleCountdownForCharacter(character.id);
         if (remaining > 0) {
@@ -269,7 +271,7 @@ export function GroupSprites({
       });
 
       setCountdowns(newCountdowns);
-    }, 100);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [characters, store]);

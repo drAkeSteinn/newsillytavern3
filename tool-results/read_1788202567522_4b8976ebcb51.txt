@@ -1,0 +1,412 @@
+  2700→- L71-92 — each chunk is sent AS-IS to `client.createEmbedding()`.
+  2701→- The Ollama client (`ollama-client.ts:174-265`) then truncates EACH chunk to 75% of the model's context window before sending to `/api/embeddings`. So if chunkSize > safe budget, the chunk is silently truncated and data is lost (with only a console.warn).
+  2702→- **GAP**: No validation/warning at upload time. For `mxbai-embed-large` (512 tokens): safe budget = 384 tokens ≈ 1344 chars. For `all-minilm` (256 tokens): safe budget = 192 tokens ≈ 672 chars. The default chunkSize=1000 would be silently truncated for all-minilm, losing ~33% of each chunk.
+  2703→
+  2704→### 5. Text splitter defaults (text-splitter.ts:291-316)
+  2705→
+  2706→| Splitter | Default chunkSize (chars) | Default overlap (chars) |
+  2707→|---|---|---|
+  2708→| character | 1000 | 200 |
+  2709→| recursive-character | 1000 | 200 |
+  2710→| markdown | 1000 | 200 |
+  2711→| code | 1500 | 300 |
+  2712→
+  2713→All HARDCODED. Character-knowledge-uploader.tsx L69-74 uses slightly different hardcoded defaults (recursive=500, token=500, character=1000, line=2000). None are adaptive to the detected embedding model context.
+  2714→
+  2715→### 6. Ollama client behavior on oversize chunks
+  2716→
+  2717→- `embedText()` (`ollama-client.ts:173-265`):
+  2718→  - L182-184: estimates tokens, truncates to 75% of model context BEFORE the API call. Logs `[Embeddings] Truncated input from X to Y chars…` if it had to truncate.
+  2719→  - L209-248: if Ollama returns HTTP 500 + "exceeds the context length" (i.e. estimation was wrong), does ONE emergency retry at half the truncated size. Updates `cachedMaxContextTokens` to a smaller estimate for future calls (L242).
+  2720→  - So oversize chunks NEVER cause an embedding failure — they cause SILENT DATA LOSS. The chunk is stored in LanceDB as the truncated version, but its metadata.chunkSize still reports the original chunkSize value (create-from-file/route.ts:83). This means the database is inconsistent with reality.
+  2721→
+  2722→### 7. Identified gaps
+  2723→
+  2724→1. **Chunk sizes are NOT adaptive to detected embedding context** (`text-splitter.ts:291-316`, `create-from-file/route.ts:39-43`, `character-knowledge-uploader.tsx:69-74`). Hardcoded 1000-char default is fine for bge-m3 (8192 tokens ≈ 28k chars safe) but TOO LARGE for all-minilm (256 tokens ≈ 672 chars safe → ~33% of each chunk silently truncated).
+  2725→
+  2726→2. **No warning in upload UI when chunkSize exceeds safe budget.** The user can set chunkSize=10000 with model=all-minilm and get silently-truncated embeddings, no toast/error.
+  2727→
+  2728→3. **`maxTokenBudget` for embeddings retrieval (default 1024) is NOT linked to either the embedding model context or the LLM model context.** It's a fixed user-configurable value (128-4096, slider at `memory-settings-panel.tsx:1383-1393`). For a 4096-token LLM, 1024 tokens of embeddings = 25% of context (large). For 128k OpenAI, 1024 = <1% (could safely use much more). The user has to manually tune this.
+  2729→
+  2730→4. **`buildGroupedContextString` uses `maxTokenBudget * 4`** (`chat-context.ts:574`) — hardcoded 4 chars/token, INCONSISTENT with `CHARS_PER_TOKEN = 3.5` used everywhere else. This causes ~14% more content to be packed than the budget nominally represents.
+  2731→
+  2732→5. **No LLM-side context length detection.** `PROVIDER_CONTEXT_LIMITS` (`context-manager.ts:46-55`) is a hardcoded per-provider map. The chat model's actual context length (e.g. llama3.1:8b has 128k, but ollama provider limit is hardcoded 4096) is never queried via /api/show. This means Ollama users are artificially capped at 4096 tokens even if their model supports 128k.
+  2733→
+  2734→6. **`reservedTokens` logic in stream route (`chat/stream/route.ts:850-864`)** reserves the ACTUAL embeddings size (via `estimateContentTokens(embeddingsContext)`), NOT the `maxTokenBudget` cap. This is correct behavior — but it means the LLM context window is only re-evaluated when `reservedTokens > 200`, so small embeddings injections don't trigger budget recalculation (probably fine, but worth noting).
+  2735→
+  2736→7. **The detected embedding model context is used in 4 places** (all for input truncation, NOT for output budgeting):
+  2737→   - Search-query truncation in `chat-context.ts:160-176` (75% × CHARS_PER_TOKEN).
+  2738→   - Search-query truncation in `chat/stream/route.ts:542-549` (75% × CHARS_PER_TOKEN, but reads the map directly rather than calling getModelContextLength() — slight code duplication, both call sites must stay in sync).
+  2739→   - Embedding input truncation in `ollama-client.ts:182-184` (75% safe budget).
+  2740→   - Memory extraction context budget in `memory-extraction.ts:369-371` (50% budget).
+  2741→   - Memory consolidation facts-list budget in `memory-consolidation.ts:269-270` (60% budget × CHARS_PER_TOKEN).
+  2742→
+  2743→8. **The detected context is NOT used for:**
+  2744→   - Chunk sizing during knowledge upload (text-splitter.ts defaults are static).
+  2745→   - The `maxTokenBudget` for how much retrieved context to inject into the LLM prompt.
+  2746→   - Any LLM-side budgeting (the LLM model context is never detected).
+  2747→
+  2748→### 8. Recommendations (priority-ordered)
+  2749→
+  2750→**A. (HIGH) Auto-recommend chunkSize from detected embedding model context.**
+  2751→In `create-from-file/route.ts` (and the upload UI), compute `recommendedChunkSize = Math.floor(getModelContextLength() * 0.75 * CHARS_PER_TOKEN)` and use it as the default if the user hasn't explicitly set one. Examples:
+  2752→- bge-m3 (8192 tok): recommended ≈ 21504 chars (current 1000 is far below — could use much larger chunks, fewer API calls, faster uploads).
+  2753→- nomic-embed-text (8192 tok): same.
+  2754→- mxbai-embed-large (512 tok): recommended ≈ 1344 chars (current 1000 is fine).
+  2755→- all-minilm (256 tok): recommended ≈ 672 chars (current 1000 is TOO LARGE — silently truncates).
+  2756→
+  2757→**B. (HIGH) Warn the user when chunkSize exceeds safe budget.**
+  2758→In `embeddings-settings-panel.tsx` and `character-knowledge-uploader.tsx`, when `chunkSize > modelContextLength * 0.75 * CHARS_PER_TOKEN`, show a yellow warning under the slider: "⚠ Este tamaño excede el contexto seguro del modelo ({N} tokens). Los fragmentos serán truncados silenciosamente."
+  2759→
+  2760→**C. (MEDIUM) Fix the chars/token inconsistency at `chat-context.ts:574`.**
+  2761→Change `const maxChars = maxTokenBudget * 4` → `const maxChars = maxTokenBudget * CHARS_PER_TOKEN` (import already exists at L22). This makes the budget consistent with the rest of the codebase.
+  2762→
+  2763→**D. (MEDIUM) Auto-derive `maxTokenBudget` default from LLM provider context.**
+  2764→In `constants.ts:9`, replace the fixed `maxTokenBudget: 1024` with a function that derives it from `PROVIDER_CONTEXT_LIMITS[llmConfig.provider]` (e.g. 15-20% of provider limit). Or expose a "Smart" preset in the memory settings panel that auto-adjusts. This ensures users with 128k-context LLMs get more retrieved context by default, while 4k-context users get a smaller budget.
+  2765→
+  2766→**E. (MEDIUM) Detect LLM model context length from Ollama /api/show.**
+  2767→Reuse `detectModelContextLength()` (already in `ollama-client.ts:28-85`) for the CHAT model when the provider is 'ollama'. Store it on the LLMConfig (e.g. `llmContextLength?: number`) and use it in `selectContextMessages()` instead of the hardcoded `PROVIDER_CONTEXT_LIMITS['ollama'] = 4096`. This unlocks 128k-context models like llama3.1:8b that are currently artificially capped.
+  2768→
+  2769→**F. (LOW) Deduplicate the search-query truncation logic.**
+  2770→`chat-context.ts:160-176` and `chat/stream/route.ts:542-549` both independently compute `modelCtx * 0.75 * CHARS_PER_TOKEN`. The stream route reads the MODEL_CONTEXT_LENGTHS map directly (L546-548) instead of calling `getModelContextLength()` — they could diverge. Consolidate into a single helper like `getSafeSearchQueryChars()` exported from `chat-context.ts`.
+  2771→
+  2772→**G. (LOW) Persist detected chunkSize in chunk metadata for diagnostics.**
+  2773→When the Ollama client truncates a chunk (`ollama-client.ts:186-192`), the warning is logged but the stored LanceDB record's `metadata.chunkSize` still reports the ORIGINAL chunkSize (set at `create-from-file/route.ts:83`). This makes the DB inconsistent with reality. Fix: have `OllamaEmbeddingClient.embedText()` return both the embedding AND the actual truncated length, and store that in metadata. (Or: have the create-from-file route pre-truncate chunks and store the truncated length in metadata.)
+  2774→
+  2775→---
+  2776→Task ID: CONTEXT-BUDGET-FIX (FASE 16)
+  2777→Agent: Z.ai Code (principal)
+  2778→Task: Use detected context length for knowledge chunk sizing + fix budget bug
+  2779→
+  2780→Work Log:
+  2781→- NEW HELPERS (lib/embeddings/types.ts):
+  2782→  - getSafeChunkSize(model, configContextLength): calculates 75% of context × CHARS_PER_TOKEN
+  2783→  - getChunkSizeRecommendation(model, configContextLength, currentChunkSize): returns {recommended, isSafe, warning, contextLength}
+  2784→
+  2785→- BUG FIX (lib/embeddings/chat-context.ts:574):
+  2786→  - Changed `maxTokenBudget * 4` to `maxTokenBudget * CHARS_PER_TOKEN` (3.5)
+  2787→  - This was causing ~14% more content than the budget represented
+  2788→
+  2789→- CHARACTER KNOWLEDGE UPLOADER (components/tavern/character-knowledge-uploader.tsx):
+  2790→  - Loads embedding config on mount (fetch /api/embeddings/config)
+  2791→  - Auto-recommends chunkSize based on detected model context length
+  2792→  - Shows model name + context length badge in advanced settings
+  2793→  - Shows recommended chunk size with "Auto" button to apply it
+  2794→  - Shows warning (AlertTriangle) when chunkSize exceeds safe budget
+  2795→  - Tooltip explains the warning in detail
+  2796→  - Imported getSafeChunkSize, getChunkSizeRecommendation, CHARS_PER_TOKEN
+  2797→
+  2798→- VERIFIED: App loads without errors, lint passes, page renders correctly.
+  2799→
+  2800→Stage Summary:
+  2801→- Knowledge chunk sizing is now adaptive: uses 75% of the detected model context window
+  2802→- Warning shown when chunkSize exceeds safe budget (prevents silent truncation)
+  2803→- "Auto" button lets users apply the recommended chunk size with one click
+  2804→- Fixed the 4 vs 3.5 CHARS_PER_TOKEN bug in buildGroupedContextString
+  2805→
+  2806→---
+  2807→Task ID: MARKDOWN-SPLITTER (FASE 16)
+  2808→Agent: Z.ai Code (principal)
+  2809→Task: Add markdown heading-based chunking with heading context preservation
+  2810→
+  2811→Work Log:
+  2812→- IMPROVED markdownTextSplit (lib/embeddings/splitters/text-splitter.ts):
+  2813→  - Now tracks heading hierarchy (headingStack) — knows parent sections
+  2814→  - Each chunk preserves its section heading as prefix context
+  2815→  - When a section is too big and gets sub-split, each sub-chunk gets the heading prepended
+  2816→  - Example: "## Escuela Secundaria: la fama se le adelanta\nEn la escuela, Ximena era popular."
+  2817→  - This means the embedding captures WHAT the section is about, not just random text
+  2818→  - Handles nested headings (# → ## → ###) correctly
+  2819→
+  2820→- UI (character-knowledge-uploader.tsx):
+  2821→  - Added "Markdown" as the FIRST and DEFAULT splitter option
+  2822→  - Changed default splitterType from 'recursive' to 'markdown'
+  2823→  - Markdown default: chunkSize=1500, overlap=100 (larger because sections are semantic units)
+  2824→  - handleSplitterChange now respects safe chunk size when switching splitters
+  2825→
+  2826→- VERIFIED: preview-chunks API test with markdown content produces 4 correctly-sized chunks,
+  2827→  each with its heading preserved:
+  2828→    [1] # Biografia de Ximena...
+  2829→    [2] ## Escuela Secundaria: la fama se le adelanta...
+  2830→    [3] ### Primer ano...
+  2831→    [4] ## Universidad...
+  2832→
+  2833→Stage Summary:
+  2834→- Markdown splitter now preserves heading context in each chunk
+  2835→- This means embeddings capture section semantics (e.g., "Escuela Secundaria" section)
+  2836→- Default splitter is now "Markdown" instead of "Recursive"
+  2837→- Works with the auto-chunk-size recommendation based on model context length
+  2838→
+  2839→---
+  2840→Task ID: KNOWLEDGE-SEARCH-FIX (FASE 16)
+  2841→Agent: Z.ai Code (principal)
+  2842→Task: Fix knowledge search not finding character knowledge files
+  2843→
+  2844→Work Log:
+  2845→- ROOT CAUSE: `retrieveEmbeddingsContext()` returned `emptyResult()` immediately when `settings.enabled === false`.
+  2846→  Since `DEFAULT_EMBEDDINGS_CHAT.enabled = false`, the ENTIRE embeddings system was disabled by default —
+  2847→  including knowledge search. Users who uploaded knowledge files to a character could never retrieve them
+  2848→  unless they explicitly enabled the full memory pipeline in Settings → Conocimiento.
+  2849→
+  2850→- FIX: Separated knowledge search from memory pipeline:
+  2851→  - `enabled` = controls the FULL memory pipeline (extraction + retrieval + reinforcement + decay)
+  2852→  - `knowledgeSearchEnabled` = controls ONLY the knowledge/backhistory search (character namespace)
+  2853→  - When `knowledgeSearchEnabled` is true (default), the system searches `character-{charId}` namespace
+  2854→    for uploaded knowledge files, even if `enabled` is false.
+  2855→
+  2856→- IMPLEMENTATION (lib/embeddings/chat-context.ts):
+  2857→  - `retrieveEmbeddingsContext()` now checks both flags:
+  2858→    - If neither enabled → return emptyResult()
+  2859→    - If only knowledgeSearchEnabled → search but filter to knowledge-only mode
+  2860→  - `knowledgeOnly` mode:
+  2861→    - Filters out `memory-*` namespaces (only searches `character-{charId}`, `group-{groupId}`, custom)
+  2862→    - Filters results: all results treated as non-memory (source_type != 'memory')
+  2863→    - Budget: 100% goes to non-memory (no memory budget allocated)
+  2864→    - Console log: "Knowledge-only mode: searching N namespaces (excluded memory)"
+  2865→  - When both enabled: normal behavior (searches both memory + knowledge)
+  2866→
+  2867→- TYPES (types/index.ts):
+  2868→  - Added `knowledgeSearchEnabled?: boolean` to EmbeddingsChatSettings
+  2869→
+  2870→- CONSTANTS (lib/embeddings/constants.ts):
+  2871→  - Added `knowledgeSearchEnabled: true` to DEFAULT_EMBEDDINGS_CHAT (default ON)
+  2872→
+  2873→- VERIFIED: App loads without errors, lint passes, page renders correctly.
+  2874→
+  2875→Stage Summary:
+  2876→- Knowledge search now works by DEFAULT (without needing to enable the full memory pipeline)
+  2877→- Users can upload knowledge files to a character and they'll be found during chat
+  2878→- The `enabled` flag now only controls the memory extraction/consolidation/reinforcement pipeline
+  2879→- Knowledge and memory are clearly separated:
+  2880→  - Knowledge: character-{charId} namespace, source_type='file' → [CONTEXTO RELEVANTE]
+  2881→  - Memory: memory-character-{charId} namespace, source_type='memory' → [MEMORIA RELEVANTE]
+  2882→
+  2883→
+  2884→---
+  2885→Task ID: TYPEWRITER-FORMAT-REVIEW
+  2886→Agent: Explore (typewriter + dialogue format + opacity + comic sounds)
+  2887→Task: Review typewriter effect, dialogue formatting, opacity, and comic sound positioning
+  2888→
+  2889→Work Log:
+  2890→- Read /home/z/my-project/worklog.md (history of prior agents — Task 0 through knowledge-search refinement)
+  2891→- Listed src/ structure to locate dialogue, tavern, hooks, lib modules
+  2892→- Read src/components/dialogue/typewriter-text.tsx (50 lines)
+  2893→- Read src/components/tavern/streaming-text.tsx (230 lines)
+  2894→- Read src/components/dialogue/formatted-message.tsx (273 lines)
+  2895→- Read src/components/dialogue/speech-bubble.tsx (176 lines)
+  2896→- Read src/components/dialogue/dialogue-settings-panel.tsx (1023 lines, scanned 60–859)
+  2897→- Read src/components/tavern/text-formatter.tsx (296 lines, full)
+  2898→- Read src/components/tavern/chat-message.tsx (893 lines, full via persisted-output)
+  2899→- Read src/components/tavern/novel-chat-box.tsx around streaming block (lines 2200–2380)
+  2900→- Grep'd src/components/tavern/chat-panel.tsx for streamingContent / StreamingText / TypewriterText / FormattedMessage / isStreaming
+  2901→- Grep'd src/components/tavern/novel-chat-box.tsx for same keywords
+  2902→- Grep'd all *.tsx for `<StreamingText|<FormattedMessage|<SpeechBubble|<TypewriterText` to find usages
+  2903→- Read src/lib/dialogue/dialogue-parser.ts (235 lines)
+  2904→- Read src/components/tavern/appearance-settings-panel.tsx (1428 lines, sections 1–200, 820–1019, 1020–1400)
+  2905→- Read src/components/tavern/comic-sound-overlay.tsx (350 lines)
+  2906→- Read src/components/tavern/comic-sound-templates.tsx (473 lines)
+  2907→- Read src/lib/comic-sound-bus.ts (117 lines)
+  2908→- Grep'd character-sprite.tsx and group-sprites.tsx for `data-character-id` / `getBoundingClientRect` / `forwardRef`
+  2909→- Read src/components/tavern/character-sprite.tsx around sprite render block (lines 580–629)
+  2910→- Read src/components/tavern/group-sprites.tsx around sprite render block (lines 280–310, 390–549)
+  2911→- Read src/types/index.ts for TypewriterSettings (L3755), DialogueSettings (L3788), ComicSoundSettings (L1569), MessageBubbleSettings (L1961)
+  2912→- Grep'd src/ for `emitComicSoundEvent` callsites (found 7 callsites in spriteSlice.ts, use-timeline-sprite-sounds.ts, use-sound-triggers.ts, timeline-sound-player.ts, sound-handler.ts, sound-key-handler.ts)
+  2913→
+  2914→Stage Summary:
+  2915→
+  2916→═══════════════════════════════════════════════════════════════
+  2917→## 1. TYPEWRITER / STREAMING EFFECT
+  2918→═══════════════════════════════════════════════════════════════
+  2919→
+  2920→### How it currently works
+  2921→- **Chat panel streaming flow** (src/components/tavern/chat-panel.tsx):
+  2922→  - L38: `const [streamingContent, setStreamingContent] = useState('')` — single state for partial text
+  2923→  - L67: `streamingContentRef` mirrors it for interrupt access
+  2924→  - L3123: `streamingContent` is passed as a prop to `<NovelChatBox streamingContent={streamingContent} ...>`
+  2925→  - L3056–3057: `<CharacterSprite isStreaming={isGenerating || isGeneratingProactive} hasContent={!!streamingContent} />`
+  2926→- **Novel chat box rendering** (src/components/tavern/novel-chat-box.tsx):
+  2927→  - L14: `import { StreamingText } from './streaming-text';` — but the component is **NEVER used in JSX**
+  2928→  - L2335–2353: The streaming bubble renders `{streamingContent}` as **PLAIN TEXT** inside a `<div style={{color: ...characterBubbleTextColor}}>` — no inline formatting, no TextFormatter, no StreamingText
+  2929→  - L2343–2352: A blinking cursor span is appended manually (block ▋ / line | / underscore _ / dot ●), honoring `safeAppearance.streaming.cursorStyle`, `cursorColor`, `cursorBlinkRate`
+  2930→  - Cursor color/char read from `safeAppearance.streaming` (type `ChatboxStreamingSettings`)
+  2931→- **TypewriterText component** (src/components/dialogue/typewriter-text.tsx, L19–48):
+  2932→  - L27–29: If `!settings.enabled || isStreaming` → returns `<span>{text}</span>` (i.e. no typewriter effect AT ALL during streaming)
+  2933→  - L33–47: Even when enabled and not streaming, it just renders `{text}` plus an animated cursor — there is NO character-by-character animation. Comment on L31 admits: "the full typewriter effect would need a more complex implementation with requestAnimationFrame"
+  2934→  - i.e. **the typewriter effect is effectively a no-op**; the "animation" only consists of a blinking cursor
+  2935→- **TypewriterSettings** (src/types/index.ts L3755–3764):
+  2936→  - Fields exist: `enabled, speed, startDelay, pauseOnPunctuation, punctuationPauseMs, cursorChar, showCursor, cursorBlinkMs`
+  2937→  - DEFAULT_DIALOGUE_SETTINGS.typewriter.enabled = true, speed = 50 (L3846–3855)
+  2938→- **DialogueSettingsPanel** (src/components/dialogue/dialogue-settings-panel.tsx L732–809): Has full UI for typewriter (toggle, speed slider 10–200 c/s, pause-on-punctuation, cursor char, show cursor) — wired to `setTypewriterSettings`
+  2939→- **Streaming settings** (src/components/tavern/appearance-settings-panel.tsx L1213–1320): Tab "Streaming" has `animationStyle` selector (typing-cursor / fade-in / grow / typewriter), `animationSpeed` slider, streaming text color, cursor style/color/blink rate — wired to `updateChatboxStreaming`
+  2940→- **StreamingText component** (src/components/tavern/streaming-text.tsx L1–230): A real-time parser that handles incomplete `**`, `*`, `_`, `"`, `«`, `` ` `` patterns as tokens arrive. Includes a `StreamingCursor` element. **This is exactly what should be rendering streamingContent** but isn't.
+  2941→
+  2942→### What's broken / missing
+  2943→1. **`StreamingText` is imported but never used** in novel-chat-box.tsx — confirmed by Grep (no `<StreamingText` matches anywhere in src/). It is dead code.
+  2944→2. **`TypewriterText` is a stub** — only renders the text + a cursor, never does the per-character animation. Its own comment admits it.
+  2945→3. **Streaming content is rendered as PLAIN TEXT** at novel-chat-box.tsx L2342 (`{streamingContent}`) — meaning during streaming the user sees raw `*italic*`, `"dialogue"`, `(thought)`, `**bold**` markers instead of formatted output.
+  2946→4. **`FormattedMessage` and `SpeechBubble` are also dead code** — never instantiated anywhere outside their own files. Only the import/export at src/components/dialogue/index.ts exists.
+  2947→5. **Two parallel streaming systems** exist and don't agree:
+  2948→   - `dialogueSettings.typewriter` (TypewriterSettings — speed, cursorChar, etc.) consumed by the dead FormattedMessage/TypewriterText path
+  2949→   - `chatboxAppearance.streaming` (ChatboxStreamingSettings — animationStyle, cursorStyle, cursorColor, cursorBlinkRate) consumed by novel-chat-box.tsx manual cursor at L2343–2352
+  2950→6. `safeAppearance.streaming.animationStyle` includes options `'fade-in'`, `'grow'`, `'typewriter'` but the code at L2343 only honors `showCursor` — no fade-in, no grow, no typewriter animation is actually applied.
+  2951→
+  2952→### What needs to change
+  2953→- Replace the manual `<div>{streamingContent}<cursor/></div>` block at novel-chat-box.tsx L2335–2353 with `<StreamingText content={streamingContent} isStreaming={true} isUser={false} className="text-xs" />` (the StreamingText component already handles a blinking cursor and parses incomplete markdown).
+  2954→- OR add `<TextFormatter content={streamingContent} isUser={false} className="text-xs" appearance={safeAppearance} />` to reuse the same formatter as finalized messages (TextFormatter's regex handles partial text gracefully).
+  2955→- Either implement the typewriter animation in TypewriterText (via requestAnimationFrame) OR remove the dead typewriter settings UI/types and consolidate into `ChatboxStreamingSettings`.
+  2956→- Decide which streaming animationStyle to honor; map `animationStyle: 'fade-in'` → add fade-in classes, `'typewriter'` → enable StreamingText with progress reveal, `'grow'` → scale animation.
+  2957→
+  2958→═══════════════════════════════════════════════════════════════
+  2959→## 2. DIALOGUE FORMAT (*thoughts*, "speech", (actions))
+  2960→═══════════════════════════════════════════════════════════════
+  2961→
+  2962→### How it currently works
+  2963→- **Active parser**: `parseSillyTavernFormat()` in src/components/tavern/text-formatter.tsx L125–280
+  2964→  - Single regex (L138): `(\*\*\*.+?\*\*\*)|(\*\*.+?\*\*)|(\*.+?\*)|(_.+?_)|(["«][^"»]+["»])|(\([^)]+\))|(~[^~]+~)|(`[^`]+`)`
+  2965→  - Maps patterns to types (L159–258):
+  2966→    - `***text***` → bold italic `<strong className="italic font-bold">`
+  2967→    - `**text**` → bold `<strong className="font-bold">`
+  2968→    - `*text*` or `_text_` → action (italic + contentStyles.action.color) when dialogueEnabled, else green italic
+  2969→    - `"text"` or `«text»` → dialogue (contentStyles.dialogue.color), preserves quotes around content
+  2970→    - `(text)` → thought (contentStyles.thought.color), preserves parens
+  2971→    - `~text~` → whisper (contentStyles.whisper.color + opacity)
+  2972→    - `` `text` `` → inline code
+  2973→- **Style classes** (text-formatter.tsx L98–123 `buildStyleClasses()`): reads `contentStyles.{dialogue,action,thought,whisper,narration}.{color, fontWeight, fontStyle, textDecoration, opacity}` from `dialogueSettings.contentStyles`
+  2974→- **ChatMessageBubble** (chat-message.tsx L544/L751) renders `<TextFormatter content={message.content} isUser={isUser} className={...} appearance={safeAppearance} />` for both 'full' and 'bubble' display modes — formatting IS applied to finalized messages.
+  2975→- **DEFAULT contentStyles** (src/types/index.ts L3863–3898): dialogue=text-foreground, action=text-purple-600 dark:text-purple-400 italic, thought=text-blue-600 dark:text-blue-400 italic, whisper=text-muted-foreground italic opacity:80, narration=text-muted-foreground
+  2976→- **DEFAULT dialogueMarkers** (types L3840–3845): `"`, `*`, `()`, `~~`
+  2977→- **DEFAULT dialogue formatting** (DialogueSettings.formatting at L3767–3785): markers are configurable but NOT consumed by the active text-formatter.tsx parser. The regex hardcodes `"`, `«`, `*`, `_`, `()`, `~`, `` ` `` regardless of dialogueSettings.formatting markers.
+  2978→- **Dialogue settings UI** (dialogue-settings-panel.tsx): Three tabs — Typography / Styles / Effects. Per-type color pickers (COLOR_PRESETS L61–71) for dialogue/action/thought/whisper/narration, font style/weight/decoration selectors. Whisper also has an opacity slider (L565–577). Effect tab has typewriter (L732–809), bubble style selector, avatar settings, max-width slider, emotion/action detection toggles.
+  2979→- **Dead-code parser**: `parseTextSegments()` in src/lib/dialogue/dialogue-parser.ts L104–192 uses `format.dialogueMarkers` etc. — but is only consumed by the dead `FormattedMessage` component.
+  2980→
+  2981→### What's broken / missing
+  2982→1. **DialogueSettings.formatting markers are ignored** — text-formatter.tsx uses hardcoded regex, so changing `dialogueMarkers.open` from `"` to `«` in the settings UI does nothing.
+  2983→2. **Dead `FormattedMessage`, `SpeechBubble`, `TypewriterText` components** (in src/components/dialogue/) — none are rendered. They use the dialogue-parser but the parser is unused on the active path.
+  2984→3. **Streaming content is NOT formatted** (see #1 above) — TextFormatter is only called for finalized messages.
+  2985→4. **Smart quote `«` works only as opener with `»` closer**; the dialogue regex at L138 is `["«][^"»]+["»]` — it would also match `"text»` or `«text"` incorrectly (mixed quote types), although this is rare.
+  2986→5. **Whisper opacity from settings is applied via inline `style={{ opacity }}`** (text-formatter.tsx L236) — this overrides the Tailwind `opacity-*` class on the parent span, but the color class (text-muted-foreground) is still applied. Working as intended.
+  2987→6. **`(text)` thought pattern over-matches**: regex `\([^)]+\)` won't nest, so `((nested))` would only match the outer pair — acceptable.
+  2988→
+  2989→### What needs to change
+  2990→- If dialogue markers should be configurable, update text-formatter.tsx's regex to use `dialogueSettings.formatting.*Markers` values instead of hardcoded characters. (Currently the settings UI for marker customization does not exist anyway — only DEFAULT_DIALOGUE_SETTINGS.formatting contains them, but no panel exposes them. So either add a markers editor or remove the unused config.)
+  2991→- Delete or wire up `FormattedMessage` / `SpeechBubble` / `TypewriterText` / `dialogue-parser.ts` — they are ~700 lines of dead code.
+  2992→- Apply `TextFormatter` (or `StreamingText`) to streaming content (see #1).
+  2993→
+  2994→═══════════════════════════════════════════════════════════════
+  2995→## 3. CHAT BACKGROUND OPACITY
+  2996→═══════════════════════════════════════════════════════════════
+  2997→
+  2998→### How it currently works
+  2999→- **Type** (src/types/index.ts L1960–1978 `MessageBubbleSettings`): has `transparency: number` (0–1) plus 8 color fields (`userBubbleColor` / `userBubbleTextColor` / `characterBubbleColor` / `characterBubbleTextColor` / `narratorBubbleColor` / `narratorBubbleTextColor` / `systemBubbleColor` / `systemBubbleTextColor`).
+  3000→- **DEFAULT** (types L2131, transparency: 1; L2136 userBubbleColor: '#3b82f6', L2139 characterBubbleTextColor: '#fafafa', etc.)
+  3001→- **hexToRgba helper** (chat-message.tsx L199–205): converts hex + alpha → `rgba(r, g, b, alpha)` string
+  3002→- **getBubbleStyle()** (chat-message.tsx L315–373):
+  3003→  - L319: `const transparency = safeAppearance.bubbles.transparency;`
+  3004→  - L360–370: `style.backgroundColor = hexToRgba(...BubbleColor, transparency)` and `style.color = ...BubbleTextColor` (text color is applied SEPARATELY, NOT affected by transparency)
+  3005→  - Comment on L360: "Colors based on message type - apply transparency ONLY to background"
+  3006→- **novel-chat-box.tsx streaming bubble** (L2325): `backgroundColor: hexToRgba(safeAppearance.bubbles.characterBubbleColor, safeAppearance.bubbles.transparency)` and L2339 `color: safeAppearance.bubbles.characterBubbleTextColor` — also correctly separated.
+  3007→- **System messages** (chat-message.tsx L273–288): `backgroundColor: hexToRgba(...systemBubbleColor, transparency)`, `color: ...systemBubbleTextColor` — same correct pattern.
+  3008→- **Background (chat) layer** also has its own `transparency` (types L1926 `background.transparency`), separate from bubbles.
+  3009→- **Settings UI** (appearance-settings-panel.tsx L942–954): single "Transparency" slider 0–100% step 5, mapped via `updateMessageBubbles({ transparency: v / 100 })`. Located inside the Bubbles tab. Default value displayed as `Math.round(transparency * 100)%`.
+  3010→
+  3011→### What's broken / missing
+  3012→1. **Opacity correctly applies ONLY to background, NOT to text** — this is the desired behavior. The hex color → rgba conversion only modifies backgroundColor, while `style.color` is set independently to the bubble's textColor hex.
+  3013→2. **No textOpacity slider exists**. If a user wants the entire bubble (text + bg) semi-transparent (e.g. for a ghost/narrator overlay), there is no way to do it. Currently the text is always at full opacity regardless of the background transparency slider.
+  3014→3. The slider only controls the four bubble types' background opacity uniformly — there is no per-bubble-type transparency (e.g. narrator more transparent than user).
+  3015→4. There is no separate "background chat container opacity" slider distinct from "bubble background opacity" — they are different settings (`background.transparency` for the chat container vs `bubbles.transparency` for bubbles), and only `bubbles.transparency` is in the Bubbles tab. `background.transparency` is in the Background tab (L622–629).
+  3016→
+  3017→### What needs to change
+  3018→- If textOpacity is desired, add a new field `textOpacity?: number` to MessageBubbleSettings (default 1), a slider in the Bubbles tab next to Transparency, and apply `style.opacity = safeAppearance.bubbles.textOpacity` on the bubble div (NOT on the inner text spans — applying opacity to the container affects both bg and text uniformly).
+  3019→- Alternative: add per-bubble-type transparency fields (`userTransparency`, `characterTransparency`, etc.) if finer control is needed.
+  3020→- Document that the existing Transparency slider is **background-only** and that text remains fully opaque — this is intentional.
+  3021→
+  3022→═══════════════════════════════════════════════════════════════
+  3023→## 4. COMIC SOUND TEMPLATES
+  3024→═══════════════════════════════════════════════════════════════
+  3025→
+  3026→### How it currently works
+  3027→- **Event bus** (src/lib/comic-sound-bus.ts):
+  3028→  - `emitComicSoundEvent(triggerName, keyword, characterId?)` (L69) creates an event `{id, triggerName, keyword, timestamp, characterId?}` and notifies all listeners
+  3029→  - `subscribeToComicSound(callback)` (L57) returns an unsubscribe function
+  3030→  - 7 callsites emit events: src/store/slices/spriteSlice.ts:156, src/hooks/use-timeline-sprite-sounds.ts:576,599, src/hooks/use-sound-triggers.ts:63, src/lib/timeline-sound-player.ts:145,176, src/lib/triggers/handlers/sound-handler.ts:53, src/lib/triggers/handlers/sound-key-handler.ts:141,149
+  3031→- **Overlay component** (src/components/tavern/comic-sound-overlay.tsx):
+  3032→  - Subscribes via `addEffectRef` ref pattern (L278–291) — stable, no resubscription
+  3033→  - `addEffect()` (L216–276): creates `ActiveSoundEffect` with x/y/rotation/scale/duration/createdAt
+  3034→  - `maxEffects` FIFO eviction (L256–265)
+  3035→  - `removeTimer` schedules cleanup after `duration + 200` ms (L271–273)
+  3036→  - Periodic cleanup interval (L294–322) — safety net for stale effects (every 300ms)
+  3037→  - **Rendering** (L328–348): `<div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 12 }}>` — covers the WHOLE chat area, fixed to chat-panel.tsx L3076 `<ComicSoundOverlay />` (rendered when `settings.chatLayout.showCharacterSprite` is true)
+  3038→- **Sprite position lookup** (comic-sound-overlay.tsx L60–98 `getSpritePositionCached`):
+  3039→  - L82: `document.querySelector('[data-character-id="${characterId}"]')` — looks up the sprite wrapper DOM element
+  3040→  - L87–93: computes sprite center X (as % of container width), sprite top Y, sprite upper-body Y (= spriteTopY + 38% of spriteHeight)
+  3041→  - L65: `spritePositionCache` Map with 500ms TTL to avoid `getBoundingClientRect` reflow during animation frames
+  3042→  - Fallback (L128–133): `getFallbackPosition()` returns `{x: 35–65, y: 30–55}` — center area
+  3043→  - L103–112: `addControlledRandomness()` offsets ±8% x and ±6% y
+  3044→  - L117–122: `clampPosition()` keeps within 10–90% margin
+  3045→- **Sprite DOM exposure**:
+  3046→  - `CharacterSprite` (src/components/tavern/character-sprite.tsx L608–611): wrapper `<div ref={spriteRef} data-character-id={characterId} className="absolute select-none" style={{ left, bottom, width, height, opacity, zIndex: 5 }}>`
+  3047→  - `GroupSprites` (src/components/tavern/group-sprites.tsx L512–533): per-character wrapper `<div key={character.id} data-character-id={character.id} className="absolute select-none" style={{ left, bottom, width, height, opacity, zIndex, filter }}>`
+  3048→- **Template rendering** (src/components/tavern/comic-sound-templates.tsx L369–416 `ComicSoundTemplate`):
+  3049→  - `React.memo` with custom `areEqual` comparator
+  3050→  - `hostRef` + `useEffect` once-only innerHTML assignment (L386–391) — prevents animation restart on parent re-render
+  3051→  - Generates SVG via `createComicSFX({text, preset, duration, instanceId})` (L256–320) with 4 presets (vertical / oval / wail / tall)
+  3052→  - Inline CSS animations (L92–135): sfx-pop, text-pop, boilA/B/C, mark-in, dot-pop, heart-pop, arrow-drop
+  3053→  - SVG filters with instance-unique IDs (L143–160) to avoid DOM collisions
+  3054→- **Template presets** (types L1584–1617): 4 types (vertical / oval / wail / tall). `autoSelectPreset()` at L338–348 picks based on text length (≤3 vertical, ≤5 oval, ≤7+!/??? wail, else tall).
+  3055→
+  3056→### What's broken / missing
+  3057→1. **ComicSoundOverlay is rendered as a sibling of sprites inside the chat area** (chat-panel.tsx L3076), positioned absolutely (inset-0) over the chat container. It does NOT directly track sprite movement — instead it re-queries `getBoundingClientRect()` on every new event (cached for 500ms).
+  3058→2. **Sprite cache TTL can cause stale positions**: if a sprite is dragged during the 500ms cache window, the comic sound will appear at the old position. The cache returns the stale value if `Date.now() - cached.timestamp < SPRITE_CACHE_TTL`.
+  3059→3. **`getSpritePositionCached` falls back to `null` when sprite not found** (L85): returns stale cache OR null. If a sprite is unmounted (e.g. group mode switching characters), sounds will briefly fall back to `getFallbackPosition()`.
+  3060→4. **`event.characterId` is sometimes undefined** (timeline-sound-player.ts L145, 176 — calls emitComicSoundEvent without characterId). In this case `getSpritePositionCached('')` queries `document.querySelector('[data-character-id]')` — returns the FIRST sprite in the DOM, which may be wrong character in group mode.
+  3061→5. **Z-index**: ComicSoundOverlay uses zIndex 12; CharacterSprite wrapper uses zIndex 5; GroupSprites active+streaming uses zIndex 10. So comic sounds render ABOVE sprites (good) but BELOW the chat box (which has higher z-index due to its own absolute positioning in the layout).
+  3062→6. **No bounding box API exposed via React** — the sprites use `data-character-id` HTML attribute and the overlay reaches into the DOM directly via `document.querySelector`. This is fragile (any DOM refactor breaks positioning) but works.
+  3063→7. **Positioning is correct in concept**: top-of-upper-body positioning at 38% of sprite height is sensible for placing the SFX above the character's head/torso.
+  3064→
+  3065→### What needs to change
+  3066→- Consider exposing sprite bounding box via a React context or shared ref store (e.g. `useSpritePositionStore`) instead of DOM queries, to avoid `getBoundingClientRect` reflow and stale-cache issues.
+  3067→- Pass `characterId` from timeline-sound-player.ts (currently undefined) — needs a way to know which character is "active" in non-character-specific sound triggers.
+  3068→- Invalidate sprite position cache on sprite drag end (could expose a `clearSpritePositionCache(characterId)` from comic-sound-overlay and call it from character-sprite.tsx / group-sprites.tsx drag handlers).
+  3069→- Optionally position the SFX relative to a fixed point on each sprite (e.g. above the head) — the current 38% of sprite height is a reasonable proxy but may be too high or too low depending on the sprite's framing.
+  3070→
+  3071→
+  3072→---
+  3073→Task ID: STREAMING-FORMAT-OPACITY (FASE 17)
+  3074→Agent: Z.ai Code (principal)
+  3075→Task: Fix streaming text formatting, add text opacity slider, apply dialogue format during streaming
+  3076→
+  3077→Work Log:
+  3078→- CRITICAL FIX: Streaming text was rendered as PLAIN TEXT (novel-chat-box.tsx:2342 — `{streamingContent}`).
+  3079→  The StreamingText component was imported (line 14) but NEVER USED in JSX.
+  3080→  Now replaced with `<StreamingText>` which applies real-time formatting:
+  3081→  - *italic* → green italic (thoughts)
+  3082→  - "dialogue" → amber medium weight (speech)
+  3083→  - **bold** → bold
+  3084→  - `code` → monospace
+  3085→  - Incomplete patterns (like ** without closing) shown as-is until completed
+  3086→  - Blinking cursor animation
+  3087→  - Text color from appearance settings applied via style prop
+  3088→
+  3089→- StreamingText component enhanced (streaming-text.tsx):
+  3090→  - Added `style?: CSSProperties` prop so the caller can set text color
+  3091→  - Already handles: bold, italic (* and _), dialogue (" and «), code (`)
+  3092→  - Already has StreamingCursor (blinking animation)
+  3093→
+  3094→- TEXT OPACITY SLIDER (FASE 17):
+  3095→  - Added `textOpacity: number` to MessageBubbleSettings (types/index.ts)
+  3096→  - Default: 1 (100%) in DEFAULT_CHATBOX_APPEARANCE
+  3097→  - Added slider in appearance-settings-panel.tsx (Bubbles tab):
+  3098→    - "Opacidad del texto" (10-100%, step 5)
+  3099→    - Separate from "Transparencia (fondo)" — renamed for clarity
+  3100→  - Applied in chat-message.tsx: wrapped TextFormatter in `<div style={{ opacity: textOpacity }}>`
+  3101→    - Applied in BOTH full mode (line 544) and compact/bubble mode (line 753)
+  3102→    - Only affects text content, NOT the bubble background (background uses transparency)
+  3103→
+  3104→- VERIFIED: App loads without errors, lint passes, page renders correctly.
+  3105→
+  3106→Stage Summary:
+  3107→- Streaming now shows formatted text (thoughts in italic green, dialogue in amber, bold, code) during generation
+  3108→- Text opacity slider added separately from background transparency
+  3109→- Background transparency renamed to "Transparencia (fondo)" for clarity
+
+[showing lines 2700-3109 of 3111; use offset=3110 with limit to continue reading]

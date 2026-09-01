@@ -3,11 +3,13 @@
 import { cn } from '@/lib/utils';
 import type { ChatMessage as ChatMessageType, PromptSection, ChatboxAppearanceSettings, ToolUsedInfo } from '@/types';
 import { DEFAULT_CHATBOX_APPEARANCE } from '@/types';
-import { Copy, Check, Trash2, RefreshCw, ChevronLeft, ChevronRight, Volume2, Eye, Edit2, Play, X, Check as CheckIcon, Ghost, Wrench, Zap, Dices, Globe, CloudSun, Bell, Sparkles, Pause, Flame, Heart } from 'lucide-react';
+import { Copy, Check, Trash2, RefreshCw, ChevronLeft, ChevronRight, Volume2, Eye, Edit2, Play, X, Check as CheckIcon, Ghost, Wrench, Zap, Dices, Globe, CloudSun, Bell, Sparkles, Pause, Flame, Heart, Pencil, Crown } from 'lucide-react';
 import { useState, memo, Fragment, useMemo, useCallback } from 'react';
+import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { formatDistanceToNow } from 'date-fns';
 import { TextFormatter } from './text-formatter';
 import { PromptViewerDialog } from './prompt-viewer-dialog';
@@ -37,6 +39,112 @@ interface ChatMessageProps {
   isNarrator?: boolean;
   appearance?: ChatboxAppearanceSettings;
   emotionalState?: string;  // FASE 5: Current emotional state for this character
+}
+
+// ============================================
+// Tool Badge with rich tooltip
+// ============================================
+// Shows the tool icon + label, and on hover displays a meaningful tooltip
+// explaining WHAT changed (e.g., "Lujuria: 55 → 70 (+15)") instead of just
+// the tool name.
+
+const TOOL_ICON_MAP: Record<string, typeof Wrench> = {
+  Dices,
+  Brain: Zap,
+  Globe,
+  CloudSun,
+  Bell,
+  Search: Globe,
+  WebSearch: Globe,
+  Calculator: Zap,
+  Weather: CloudSun,
+  Timer: Bell,
+  Pencil,
+  Crown,
+  Heart,
+  Flame,
+  Sparkles,
+  Wrench,
+};
+
+function getToolBadgeIcon(iconName?: string): typeof Wrench {
+  if (!iconName) return Wrench;
+  return TOOL_ICON_MAP[iconName] ?? Wrench;
+}
+
+/** Build a rich tooltip content for a tool usage */
+function ToolBadgeWithTooltip({ tool, index }: { tool: ToolUsedInfo; index: number }) {
+  const ToolIcon = getToolBadgeIcon(tool.icon);
+  const isSuccess = tool.success !== false;
+  const hasDetails = !!tool.details;
+  const hasDisplayMessage = !!tool.displayMessage;
+
+  // Build the tooltip content: title + details + display message
+  const tooltipContent = (
+    <div className="max-w-xs space-y-1.5 text-left">
+      {/* Title row */}
+      <div className="flex items-center gap-1.5 font-semibold">
+        {React.createElement(ToolIcon, { className: 'w-3 h-3 shrink-0' })}
+        <span>{tool.label}</span>
+        {isSuccess ? (
+          <span className="text-emerald-400 text-[10px]">✓</span>
+        ) : (
+          <span className="text-red-400 text-[10px]">✗</span>
+        )}
+      </div>
+
+      {/* Meaningful details: what changed */}
+      {hasDetails && (
+        <div className="border-t border-border/50 pt-1">
+          {tool.details!.split('\n').map((line, i) => (
+            <p key={i} className="text-[11px] leading-snug text-muted-foreground whitespace-pre-wrap break-words">
+              {line}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Full display message (collapsible, only if different from details) */}
+      {hasDisplayMessage && tool.displayMessage !== tool.details && (
+        <details className="border-t border-border/50 pt-1">
+          <summary className="text-[10px] text-muted-foreground/70 cursor-pointer hover:text-muted-foreground">
+            Ver mensaje completo
+          </summary>
+          <pre className="mt-1 text-[10px] leading-tight text-muted-foreground/80 whitespace-pre-wrap break-words font-mono">
+            {tool.displayMessage}
+          </pre>
+        </details>
+      )}
+
+      {!hasDetails && !hasDisplayMessage && (
+        <p className="text-[11px] text-muted-foreground/70 italic">
+          {isSuccess ? 'Herramienta ejecutada' : 'La herramienta falló'}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <Tooltip key={`${tool.name}-${index}`}>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={cn(
+            'text-[10px] py-0 h-4 px-1 gap-0.5 cursor-help',
+            isSuccess
+              ? 'border-green-500/30 text-green-400/70 hover:border-green-500/50 hover:text-green-400'
+              : 'border-red-500/30 text-red-400/70 hover:border-red-500/50 hover:text-red-400',
+          )}
+        >
+          {React.createElement(ToolIcon, { className: 'w-2.5 h-2.5' })}
+          <span className="truncate max-w-[60px]">{tool.label}</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs p-2">
+        {tooltipContent}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 export const ChatMessageBubble = memo(function ChatMessageBubble({
@@ -406,23 +514,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             {/* Tool badges */}
             {toolsUsed.length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
-                {toolsUsed.map((tool, idx) => {
-                  const ToolIcon = getToolIcon(tool.icon);
-                  return (
-                    <Badge 
-                      key={`${tool.name}-${idx}`}
-                      variant="outline"
-                      className={cn(
-                        'text-[10px] py-0 h-4 px-1 gap-0.5',
-                        tool.success === false ? 'border-red-500/30 text-red-400/70' : 'border-green-500/30 text-green-400/70'
-                      )}
-                      title={tool.label}
-                    >
-                      <ToolIcon className="w-2.5 h-2.5" />
-                      <span className="truncate max-w-[60px]">{tool.label}</span>
-                    </Badge>
-                  );
-                })}
+                {toolsUsed.map((tool, idx) => (
+                  <ToolBadgeWithTooltip key={`${tool.name}-${idx}`} tool={tool} index={idx} />
+                ))}
               </div>
             )}
           </div>
@@ -447,12 +541,14 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               </div>
             </div>
           ) : (
-            <TextFormatter 
-              content={message.content} 
-              isUser={isUser}
-              className={cn('text-sm leading-relaxed', fontClasses)}
-              appearance={safeAppearance}
-            />
+            <div style={{ opacity: safeAppearance.bubbles.textOpacity ?? 1 }}>
+              <TextFormatter 
+                content={message.content} 
+                isUser={isUser}
+                className={cn('text-sm leading-relaxed', fontClasses)}
+                appearance={safeAppearance}
+              />
+            </div>
           )}
           
           <div className={cn(
@@ -614,23 +710,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               'flex items-center gap-1 flex-wrap',
               isUser && 'flex-row-reverse'
             )}>
-              {toolsUsed.map((tool, idx) => {
-                const ToolIcon = getToolIcon(tool.icon);
-                return (
-                  <Badge 
-                    key={`${tool.name}-${idx}`}
-                    variant="outline"
-                    className={cn(
-                      'text-[10px] py-0 h-4 px-1 gap-0.5',
-                      tool.success === false ? 'border-red-500/30 text-red-400/70' : 'border-green-500/30 text-green-400/70'
-                    )}
-                    title={tool.label}
-                  >
-                    <ToolIcon className="w-2.5 h-2.5" />
-                    <span className="truncate max-w-[60px]">{tool.label}</span>
-                  </Badge>
-                );
-              })}
+              {toolsUsed.map((tool, idx) => (
+                <ToolBadgeWithTooltip key={`${tool.name}-${idx}`} tool={tool} index={idx} />
+              ))}
             </div>
           )}
         </div>
@@ -668,16 +750,18 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               </div>
             </div>
           ) : (
-            <TextFormatter 
-              content={message.content} 
-              isUser={isUser}
-              className={cn(
-                'text-sm leading-relaxed',
-                isCompact && 'text-xs',
-                fontClasses
-              )}
-              appearance={safeAppearance}
-            />
+            <div style={{ opacity: safeAppearance.bubbles.textOpacity ?? 1 }}>
+              <TextFormatter 
+                content={message.content} 
+                isUser={isUser}
+                className={cn(
+                  'text-sm leading-relaxed',
+                  isCompact && 'text-xs',
+                  fontClasses
+                )}
+                appearance={safeAppearance}
+              />
+            </div>
           )}
 
           {/* Swipe Indicators */}

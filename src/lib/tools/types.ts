@@ -72,6 +72,8 @@ export interface ToolContext {
   lorebooks?: import('@/types').Lorebook[];
   /** Group members with presence state (for manage_scene, group chats only) */
   groupMembers?: GroupMember[];
+  /** The active character card (for wardrobe tool — needs wardrobeConfig + main attribute) */
+  character?: CharacterCard;
 }
 
 /** Result from tool execution */
@@ -198,6 +200,24 @@ export interface ToolExecutionResult {
     /** For delete_memory: the event/embedding ID to delete */
     deleteEventId?: string;
     deleteEmbeddingId?: string;
+  };
+  /** Special result for wardrobe tools — syncs to client-side session stats wardrobeOffset */
+  wardrobeActivation?: {
+    characterId: string;
+    /** Action taken: escalate (+1), regress (-1), or reset (0) */
+    action: 'escalate' | 'regress' | 'reset' | 'get_info';
+    /** The new offset after the action */
+    newOffset: number;
+    /** Previous offset before the action */
+    previousOffset: number;
+    /** The wardrobe level name after the action */
+    newLevelName: string;
+    /** The wardrobe level content after the action */
+    newLevelContent: string;
+    /** Whether the action actually changed the level */
+    changed: boolean;
+    /** Reason for the change (narrative) */
+    reason?: string;
   };
 }
 

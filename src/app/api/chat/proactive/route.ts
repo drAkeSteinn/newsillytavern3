@@ -56,6 +56,7 @@ import {
   getToolDefinitionsByIds,
   resolveToolDefinitionsKeys,
   executeTool,
+  summarizeToolResult,
   getSessionReminders,
   createToolCallAccumulator,
   hasToolCalls,
@@ -321,6 +322,9 @@ async function executeToolCallsAndContinue(
       label: toolDef?.label || tc.name,
       icon: toolDef?.icon || 'Wrench',
       success: toolResult.success,
+      // Build a meaningful tooltip summary so the user understands what changed
+      details: summarizeToolResult(toolResult, tc.arguments),
+      displayMessage: toolResult.displayMessage,
     });
     if (toolResult.displayMessage) {
       allDisplayMessages += (allDisplayMessages ? '\n' : '') + toolResult.displayMessage;

@@ -27,6 +27,7 @@ import {
   List,
   Pencil,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -212,6 +213,8 @@ export function EmbeddingsSettingsPanel() {
   const [ollamaError, setOllamaError] = useState<string | undefined>();
   const [lanceDBStatus, setLanceDBStatus] = useState<'unknown' | 'ok' | 'error'>('unknown');
   const [lanceDBError, setLanceDBError] = useState<string | undefined>();
+  const [lanceDBPlatformInfo, setLanceDBPlatformInfo] = useState<any>(null);
+  const [installingLanceDB, setInstallingLanceDB] = useState(false);
   const [checkingOllama, setCheckingOllama] = useState(false);
   const [checkingLanceDB, setCheckingLanceDB] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
@@ -388,17 +391,36 @@ export function EmbeddingsSettingsPanel() {
   const checkLanceDB = async () => {
     setCheckingLanceDB(true);
     try {
-      const res = await fetch('/api/embeddings/test', { method: 'POST' });
+      const res = await fetch('/api/embeddings/status');
       const data = await res.json();
       if (data.success) {
-        setLanceDBStatus(data.data.connections.db ? 'ok' : 'error');
-        setLanceDBError(data.data.dbError);
-        setStats(data.data.stats);
-        if (data.data.connections.db) {
-          toast({ title: 'LanceDB activo', description: 'Base de datos conectada y funcionando.' });
+        const status = data.status;
+        // Update LanceDB status based on the comprehensive check
+        if (status.isAvailable && status.dbConnected) {
+          setLanceDBStatus('ok');
+          setLanceDBError(null);
+          setStats(null);
+          toast({ title: 'LanceDB activo', description: `Base de datos conectada en ${status.platformDescription}` });
+        } else if (status.isAvailable && !status.dbConnected) {
+          setLanceDBStatus('error');
+          setLanceDBError(status.dbError || 'Base de datos no inicializada');
+          toast({ title: 'LanceDB detectado pero no conectado', description: status.dbError || 'Revisa la configuración.', variant: 'destructive' });
+        } else if (!status.mainPackageInstalled) {
+          setLanceDBStatus('error');
+          setLanceDBError(`Paquete @lancedb/lancedb no instalado`);
+          toast({ title: 'LanceDB no instalado', description: 'Falta el paquete principal. Haz clic en "Instalar".', variant: 'destructive' });
+        } else if (!status.platformBinaryInstalled) {
+          setLanceDBStatus('error');
+          setLanceDBError(`Binario nativo no instalado: ${status.platformPackage || 'desconocido'}`);
+          toast({ title: 'Binario nativo faltante', description: `Falta ${status.platformPackage}. Haz clic en "Instalar".`, variant: 'destructive' });
         } else {
-          toast({ title: 'LanceDB no disponible', description: data.data.dbError || 'No se pudo inicializar.', variant: 'destructive' });
+          setLanceDBStatus('error');
+          setLanceDBError(status.error || status.unavailableError || 'No se pudo inicializar');
+          toast({ title: 'LanceDB no disponible', description: status.error || 'Revisa los logs.', variant: 'destructive' });
         }
+
+        // Store platform info for the UI
+        setLanceDBPlatformInfo(status);
       } else {
         setLanceDBStatus('error');
         setLanceDBError(data.error);
@@ -410,6 +432,43 @@ export function EmbeddingsSettingsPanel() {
       toast({ title: 'Error de LanceDB', description: 'Error al probar la conexión.', variant: 'destructive' });
     }
     setCheckingLanceDB(false);
+  };
+
+  const installLanceDB = async () => {
+    setInstallingLanceDB(true);
+    try {
+      const res = await fetch('/api/embeddings/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const result = data.result;
+        toast({
+          title: 'LanceDB instalado',
+          description: result.message || `${result.installed} instalado correctamente`,
+        });
+        // Re-check status after install
+        await checkLanceDB();
+      } else {
+        toast({
+          title: 'Error de instalación',
+          description: data.error || 'No se pudo instalar LanceDB',
+          variant: 'destructive',
+        });
+        if (data.output) {
+          console.error('[LanceDB Install] Output:', data.output);
+        }
+      }
+    } catch (err) {
+      toast({
+        title: 'Error de conexión',
+        description: 'No se pudo conectar con el servidor para instalar',
+        variant: 'destructive',
+      });
+    }
+    setInstallingLanceDB(false);
   };
 
   const loadStats = async () => {
@@ -450,6 +509,8 @@ export function EmbeddingsSettingsPanel() {
       await fetchConfig();
       if (mounted) {
         await Promise.all([loadNamespaces(), loadStats()]);
+        // FASE 15: Auto-check LanceDB status on load
+        checkLanceDB();
         // Auto-check Ollama connection to show status immediately
         try {
           const currentConfig = config; // Use the config just loaded
@@ -1030,16 +1091,75 @@ export function EmbeddingsSettingsPanel() {
                       {lanceDBStatus === 'ok' ? 'Activo' : lanceDBStatus === 'error' ? 'Error' : 'Desconocido'}
                     </Badge>
                   </div>
+
+                  {/* Platform info */}
+                  {lanceDBPlatformInfo && (
+                    <div className="text-[10px] text-muted-foreground mb-2 space-y-0.5">
+                      <div className="flex justify-between">
+                        <span>Plataforma:</span>
+                        <span className="font-mono">{lanceDBPlatformInfo.platformDescription}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Paquete:</span>
+                        <span className="font-mono text-[9px]">{lanceDBPlatformInfo.platformPackage || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Principal:</span>
+                        <span className={lanceDBPlatformInfo.mainPackageInstalled ? 'text-emerald-500' : 'text-red-500'}>
+                          {lanceDBPlatformInfo.mainPackageInstalled ? '✓ Instalado' : '✗ Faltante'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Binario:</span>
+                        <span className={lanceDBPlatformInfo.platformBinaryInstalled ? 'text-emerald-500' : 'text-red-500'}>
+                          {lanceDBPlatformInfo.platformBinaryInstalled ? '✓ Instalado' : '✗ Faltante'}
+                        </span>
+                      </div>
+                      {lanceDBPlatformInfo.dbUri && (
+                        <div className="flex justify-between">
+                          <span>BD:</span>
+                          <span className="font-mono text-[9px]">{lanceDBPlatformInfo.dbUri}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {lanceDBError && (
-                    <p className="text-[10px] text-red-500/80 mb-2 line-clamp-2">{lanceDBError}</p>
+                    <p className="text-[10px] text-red-500/80 mb-2">{lanceDBError}</p>
                   )}
                   {lanceDBStatus === 'ok' && stats && (
                     <p className="text-[10px] text-muted-foreground mb-2">{stats.totalEmbeddings} embeddings, {stats.totalNamespaces} namespaces</p>
                   )}
-                  <Button size="sm" variant="outline" className="h-7 text-xs w-full" onClick={checkLanceDB} disabled={checkingLanceDB}>
-                    {checkingLanceDB ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Database className="w-3 h-3 mr-1" />}
-                    Verificar BD
-                  </Button>
+
+                  {/* Action buttons */}
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={checkLanceDB} disabled={checkingLanceDB || installingLanceDB}>
+                      {checkingLanceDB ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Database className="w-3 h-3 mr-1" />}
+                      Verificar
+                    </Button>
+
+                    {/* Install button — only show if not fully installed or always (for reinstall) */}
+                    <Button
+                      size="sm"
+                      variant={lanceDBPlatformInfo?.fullyInstalled ? 'ghost' : 'default'}
+                      className="h-7 text-xs flex-1"
+                      onClick={installLanceDB}
+                      disabled={checkingLanceDB || installingLanceDB || !lanceDBPlatformInfo?.isSupported}
+                    >
+                      {installingLanceDB ? (
+                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Instalando...</>
+                      ) : (
+                        <><Download className="w-3 h-3 mr-1" /> {lanceDBPlatformInfo?.fullyInstalled ? 'Reinstalar' : 'Instalar'}</>
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Not supported warning */}
+                  {lanceDBPlatformInfo && !lanceDBPlatformInfo.isSupported && (
+                    <p className="text-[10px] text-amber-500 mt-2">
+                      ⚠️ Plataforma no soportada por LanceDB. Revisa la documentación.
+                    </p>
+                  )}
                 </div>
               </div>
 

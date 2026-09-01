@@ -57,6 +57,7 @@ import {
   getToolDefinitionsByIds,
   resolveToolDefinitionsKeys,
   executeTool,
+  summarizeToolResult,
   createToolCallAccumulator,
   hasToolCalls,
   buildToolMessagesForOpenAI,
@@ -398,6 +399,7 @@ async function executeGroupToolCalls(
         lorebooks,
         groupId: group?.id,
         groupMembers: group?.members,
+        character,  // FASE 12: needed by manage_wardrobe tool
       },
     );
 
@@ -566,6 +568,25 @@ async function executeGroupToolCalls(
       }));
     }
 
+    // Check for wardrobe activation and send SSE event
+    if (toolResult.wardrobeActivation) {
+      const wa = toolResult.wardrobeActivation;
+      console.log(`[GroupStream-Tools] Wardrobe activation from ${tc.name}:`, wa.action, 'offset:', wa.previousOffset, '→', wa.newOffset);
+
+      controller.enqueue(createSSEJSON({
+        type: 'wardrobe_activation',
+        toolName: tc.name,
+        characterId: wa.characterId,
+        action: wa.action,
+        newOffset: wa.newOffset,
+        previousOffset: wa.previousOffset,
+        newLevelName: wa.newLevelName,
+        newLevelContent: wa.newLevelContent,
+        changed: wa.changed,
+        reason: wa.reason,
+      }));
+    }
+
     // Send tool_call_result event
     controller.enqueue(createSSEJSON({
       type: 'tool_call_result',
@@ -583,6 +604,9 @@ async function executeGroupToolCalls(
       label: toolDef?.label || tc.name,
       icon: toolDef?.icon || 'Wrench',
       success: toolResult.success,
+      // Build a meaningful tooltip summary so the user understands what changed
+      details: summarizeToolResult(toolResult, tc.arguments),
+      displayMessage: toolResult.displayMessage,
     });
 
     if (toolResult.displayMessage) {
@@ -954,6 +978,8 @@ export async function POST(request: NextRequest) {
                 importance: e.importance,
               })), // for deduplication with Character Memory
               lastAssistantMsg, // bidirectional search with last assistant message
+              // FASE 14: pass main attribute key for importance boost in reranking
+              responder.statsConfig?.attributes?.find(a => a.isMain === true)?.key,
             );
             
             if (embeddingsResult.found) {
@@ -1103,6 +1129,12 @@ export async function POST(request: NextRequest) {
             if (embeddingsResult.memoryContextString?.trim()) {
               contextParts.push(embeddingsResult.memoryContextString);
             }
+            // FASE 14: Abstention directive — when memories are low-relevance, inject a hint
+            // telling the LLM to admit it doesn't remember rather than confabulating.
+            if (embeddingsResult.abstentionDirective) {
+              contextParts.push(embeddingsResult.abstentionDirective);
+              console.log('[GroupStream] Abstention directive injected for', responder.name, '(low memory relevance)');
+            }
             const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
 
             // Re-evaluate context window with reserved tokens for summary + embeddings
@@ -1136,6 +1168,15 @@ export async function POST(request: NextRequest) {
             const charGlobalDisabled = toolsSettings.disabledTools || [];
             if (charGlobalDisabled.length > 0) {
               charAvailableTools = charAvailableTools.filter(t => !charGlobalDisabled.includes(t.id));
+            }
+
+            // FASE 12: Filter out the manage_wardrobe tool if this character doesn't have
+            // a wardrobeConfig with levels + a main attribute.
+            if (charAvailableTools.length > 0) {
+              const { isWardrobeAvailable } = await import('@/lib/wardrobe');
+              if (!isWardrobeAvailable(responder)) {
+                charAvailableTools = charAvailableTools.filter(t => t.id !== 'manage_wardrobe');
+              }
             }
             const charToolsEnabled = toolsSettings.enabled && charAvailableTools.length > 0;
 

@@ -32,9 +32,11 @@ import {
   Package,
   Layers,
   Activity,
-  BookOpen,
   ScrollText,
-  Database
+  Database,
+  Shirt,
+  FolderOpen,
+  BookOpen
 } from 'lucide-react';
 import type { CharacterCard, CharacterVoiceSettings } from '@/types';
 import { DEFAULT_CHARACTER_VOICE_SETTINGS } from '@/types';
@@ -48,6 +50,10 @@ import { StatsEditor } from './stats-editor';
 import { CharacterVoicePanel } from './character-voice-panel';
 import { ProactiveMessagesPanel } from './proactive-messages-panel';
 import { QuickRepliesPanel } from './quick-replies-panel';
+import { WardrobeEditor } from './wardrobe-editor';
+import { AvatarLibraryPicker } from './avatar-library-picker';
+import { CharacterKnowledgeUploader } from './character-knowledge-uploader';
+import { CharacterSlotsEditor } from './character-slots-editor';
 import { LegacyMigrationPanel } from './legacy-migration-panel';
 import { getLogger } from '@/lib/logger';
 
@@ -68,6 +74,9 @@ const characterEditorTabs = [
   { value: 'stats', label: 'Stats', icon: Activity },
   { value: 'voice', label: 'Voz', icon: Mic },
   { value: 'proactive', label: 'Proactivo', icon: Sparkles },
+  { value: 'wardrobe', label: 'Vestuario', icon: Shirt },
+  { value: 'slots', label: 'Slots', icon: Package },
+  { value: 'knowledge', label: 'Conocimiento', icon: BookOpen },
   { value: 'quickreplies', label: 'Resp. Rápidas', icon: MessageSquare },
   { value: 'migration', label: 'Migración', icon: Database },
 ];
@@ -93,6 +102,9 @@ const defaultCharacter: Omit<CharacterCard, 'id' | 'createdAt' | 'updatedAt'> = 
   questTemplateIds: [],
   proactiveMessages: undefined,
   quickReplies: undefined,
+  wardrobeConfig: undefined,
+  equipmentSlots: undefined,
+  slotDefinitions: undefined,
 };
 
 export function CharacterEditor({ characterId, open, onClose }: CharacterEditorProps) {
@@ -242,6 +254,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
   const [character, setCharacter] = useState(getInitialCharacter);
   const [newTag, setNewTag] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = () => {
@@ -347,46 +360,84 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
           {/* Avatar */}
           <div className="flex-shrink-0">
             <Label className="text-xs font-medium mb-2 block">Avatar</Label>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div 
-                  className={cn(
-                    "w-32 h-32 rounded-xl overflow-hidden bg-muted border-2 border-dashed border-muted-foreground/25 flex items-center justify-center transition-colors",
-                    !uploading && "cursor-pointer hover:border-primary/50 hover:bg-muted/50"
-                  )}
-                  onClick={() => !uploading && fileInputRef.current?.click()}
-                >
-                  {uploading ? (
-                    <div className="text-center text-muted-foreground">
-                      <Loader2 className="w-7 h-7 mx-auto animate-spin" />
-                      <span className="text-[10px] mt-1 block">Subiendo...</span>
-                    </div>
-                  ) : character.avatar ? (
-                    <img 
-                      src={character.avatar} 
-                      alt={character.name || 'Avatar'}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="text-center text-muted-foreground">
-                      <Camera className="w-8 h-8 mx-auto mb-1 opacity-50" />
-                      <span className="text-[10px]">Subir avatar</span>
-                    </div>
-                  )}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Haz clic para subir avatar (máx 5MB)</p>
-              </TooltipContent>
-            </Tooltip>
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              accept="image/*"
-              onChange={handleAvatarUpload}
-              disabled={uploading}
-            />
+            <div className="flex flex-col items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div 
+                    className={cn(
+                      "w-32 h-32 rounded-xl overflow-hidden bg-muted border-2 border-dashed border-muted-foreground/25 flex items-center justify-center transition-colors",
+                      !uploading && "cursor-pointer hover:border-primary/50 hover:bg-muted/50"
+                    )}
+                    onClick={() => !uploading && fileInputRef.current?.click()}
+                  >
+                    {uploading ? (
+                      <div className="text-center text-muted-foreground">
+                        <Loader2 className="w-7 h-7 mx-auto animate-spin" />
+                        <span className="text-[10px] mt-1 block">Subiendo...</span>
+                      </div>
+                    ) : character.avatar ? (
+                      <img 
+                        src={character.avatar} 
+                        alt={character.name || 'Avatar'}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="text-center text-muted-foreground">
+                        <Camera className="w-8 h-8 mx-auto mb-1 opacity-50" />
+                        <span className="text-[10px]">Subir avatar</span>
+                      </div>
+                    )}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Haz clic para subir avatar (máx 5MB)</p>
+                </TooltipContent>
+              </Tooltip>
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleAvatarUpload}
+                disabled={uploading}
+              />
+              {/* Action buttons */}
+              <div className="flex items-center gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setShowAvatarPicker(true)}
+                    >
+                      <FolderOpen className="w-3 h-3 mr-1" />
+                      Biblioteca
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Elegir de imágenes existentes</p>
+                  </TooltipContent>
+                </Tooltip>
+                {character.avatar && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setCharacter(prev => ({ ...prev, avatar: '' }))}
+                      >
+                        <X className="w-3.5 h-3.5 text-muted-foreground" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Quitar avatar</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Name + Tags */}
@@ -1026,6 +1077,45 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
     );
   };
 
+  const renderWardrobeTab = () => {
+    return (
+      <WardrobeEditor
+        config={character.wardrobeConfig}
+        onChange={(wardrobeConfig) => setCharacter(prev => ({ ...prev, wardrobeConfig }))}
+        attributes={character.statsConfig?.attributes || []}
+      />
+    );
+  };
+
+  const renderSlotsTab = () => {
+    return (
+      <CharacterSlotsEditor
+        equipmentSlots={character.equipmentSlots}
+        slotDefinitions={character.slotDefinitions}
+        attributes={character.statsConfig?.attributes || []}
+        onChange={(updates) => setCharacter(prev => ({ ...prev, ...updates }))}
+      />
+    );
+  };
+
+  const renderKnowledgeTab = () => {
+    if (!character.id) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <BookOpen className="w-10 h-10 opacity-30 mb-3" />
+          <p className="text-sm">Guarda el personaje primero</p>
+          <p className="text-xs mt-1">El conocimiento se asigna al ID del personaje. Guarda el personaje para poder subir conocimiento.</p>
+        </div>
+      );
+    }
+    return (
+      <CharacterKnowledgeUploader
+        characterId={character.id}
+        characterName={character.name || 'Personaje'}
+      />
+    );
+  };
+
   const renderMigrationTab = () => (
     <LegacyMigrationPanel
       character={character}
@@ -1043,6 +1133,9 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       case 'stats': return renderStatsTab();
       case 'voice': return renderVoiceTab();
       case 'proactive': return renderProactiveTab();
+      case 'wardrobe': return renderWardrobeTab();
+      case 'slots': return renderSlotsTab();
+      case 'knowledge': return renderKnowledgeTab();
       case 'quickreplies': return renderQuickRepliesTab();
       case 'migration': return renderMigrationTab();
       default: return renderInfoTab();
@@ -1143,6 +1236,14 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
           </div>
         </motion.div>
       )}
+
+      {/* Avatar Library Picker — lets user pick from existing uploaded avatars */}
+      <AvatarLibraryPicker
+        open={showAvatarPicker}
+        onOpenChange={setShowAvatarPicker}
+        currentAvatar={character.avatar}
+        onSelect={(url) => setCharacter(prev => ({ ...prev, avatar: url }))}
+      />
     </AnimatePresence>
   );
 }

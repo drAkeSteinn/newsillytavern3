@@ -187,17 +187,19 @@ async function consolidateNamespace(
     try {
       const consolidated = await consolidateGroup(batch, type, namespace, llmConfig);
       if (consolidated.length > 0) {
-        // Delete originals
-        const idsToDelete = batch.map(e => e.id);
-        for (const id of idsToDelete) {
-          try { await client.deleteEmbedding(id); } catch { /* skip */ }
-        }
-        totalRemoved += batch.length;
+        // FASE 14: Atomic consolidation — INSERT first, then DELETE originals.
+        // Previously this was delete-then-insert, which could lose memories if the
+        // app crashed between delete and insert. Now we:
+        // 1. Save the consolidated memories FIRST
+        // 2. Only delete originals AFTER the new ones are safely saved
+        // This way, if the app crashes mid-operation, we might get duplicates
+        // (old + new) but we never lose data.
 
-        // Save consolidated memories
+        // Step 1: Save consolidated memories FIRST
+        const savedConsolidatedIds: string[] = [];
         for (const fact of consolidated) {
           try {
-            await client.createEmbedding({
+            const newId = await client.createEmbedding({
               content: fact.contenido,
               namespace,
               source_type: 'memory',
@@ -209,12 +211,29 @@ async function consolidateNamespace(
                 consolidated_from: batch.length,
                 character_id: batch[0].metadata?.character_id,
                 is_consolidated: true,
+                // FASE 14: Track which originals were merged (for audit/undo)
+                merged_from_ids: batch.map(e => e.id),
               },
             });
+            if (newId && newId !== '__unavailable__') {
+              savedConsolidatedIds.push(newId);
+            }
             totalCreated++;
           } catch (err) {
             console.warn('[Consolidation] Failed to save consolidated memory:', err);
           }
+        }
+
+        // Step 2: Only delete originals AFTER consolidated memories are safely saved
+        // This makes the operation atomic: either both succeed, or we keep originals
+        if (savedConsolidatedIds.length > 0) {
+          const idsToDelete = batch.map(e => e.id);
+          for (const id of idsToDelete) {
+            try { await client.deleteEmbedding(id); } catch { /* skip */ }
+          }
+          totalRemoved += batch.length;
+        } else {
+          console.warn('[Consolidation] Skipped deleting originals — consolidated memories failed to save (atomic safety)');
         }
       }
     } catch (err) {

@@ -1,0 +1,1475 @@
+     1→// ============================================
+     2→// Quick Replies Panel - Character-specific quick replies
+     3→// Each quick reply can optionally modify character attributes
+     4→// AND support visibility conditions (requirements with AND/OR logic)
+     5→// ============================================
+     6→
+     7→'use client';
+     8→
+     9→import React, { useState } from 'react';
+    10→import { Button } from '@/components/ui/button';
+    11→import { Input } from '@/components/ui/input';
+    12→import { Label } from '@/components/ui/label';
+    13→import { Badge } from '@/components/ui/badge';
+    14→import {
+    15→  Select,
+    16→  SelectContent,
+    17→  SelectItem,
+    18→  SelectTrigger,
+    19→  SelectValue,
+    20→} from '@/components/ui/select';
+    21→import {
+    22→  Tooltip,
+    23→  TooltipContent,
+    24→  TooltipProvider,
+    25→  TooltipTrigger,
+    26→} from '@/components/ui/tooltip';
+    27→import {
+    28→  MessageSquare,
+    29→  Plus,
+    30→  Trash2,
+    31→  ChevronDown,
+    32→  ChevronUp,
+    33→  Zap,
+    34→  Settings2,
+    35→  X,
+    36→  Check,
+    37→  ImageIcon,
+    38→  Timer,
+    39→  GripVertical,
+    40→  Filter,
+    41→} from 'lucide-react';
+    42→import { cn } from '@/lib/utils';
+    43→import {
+    44→  DndContext,
+    45→  closestCenter,
+    46→  KeyboardSensor,
+    47→  PointerSensor,
+    48→  useSensor,
+    49→  useSensors,
+    50→  DragEndEvent,
+    51→} from '@dnd-kit/core';
+    52→import {
+    53→  arrayMove,
+    54→  SortableContext,
+    55→  sortableKeyboardCoordinates,
+    56→  useSortable,
+    57→  verticalListSortingStrategy,
+    58→} from '@dnd-kit/sortable';
+    59→import { CSS } from '@dnd-kit/utilities';
+    60→import type {
+    61→  CharacterQuickReply,
+    62→  QuickReplyAttributeModifier,
+    63→  QuickReplyModifierOperation,
+    64→  QuickReplySpriteActivation,
+    65→  QuickReplySpriteFallbackMode,
+    66→  AttributeDefinition,
+    67→  CharacterStatsConfig,
+    68→  SpritePackV2,
+    69→  TriggerCollection,
+    70→  StatRequirement,
+    71→  RequirementOperator,
+    72→  GroupQuickReply,
+    73→} from '@/types';
+    74→
+    75→// ============================================
+    76→// Numeric and Text operator options (same as stats-editor)
+    77→// ============================================
+    78→
+    79→const NUMERIC_OPERATOR_OPTIONS: { value: RequirementOperator; label: string; description: string }[] = [
+    80→  { value: '>=', label: '≥', description: 'Mayor o igual que' },
+    81→  { value: '>', label: '>', description: 'Mayor que' },
+    82→  { value: '<=', label: '≤', description: 'Menor o igual que' },
+    83→  { value: '<', label: '<', description: 'Menor que' },
+    84→  { value: '==', label: '=', description: 'Exactamente igual' },
+    85→  { value: '!=', label: '≠', description: 'Diferente de' },
+    86→  { value: 'between', label: '∈', description: 'Entre (rango)' },
+    87→];
+    88→
+    89→const TEXT_OPERATOR_OPTIONS: { value: RequirementOperator; label: string; description: string }[] = [
+    90→  { value: '==', label: '=', description: 'Exactamente igual' },
+    91→  { value: '!=', label: '≠', description: 'Diferente de' },
+    92→  { value: 'contains', label: '⊂', description: 'Contiene' },
+    93→  { value: 'not_contains', label: '⊄', description: 'No contiene' },
+    94→];
+    95→
+    96→// ============================================
+    97→// Requirement Operator Toggle (AND/OR) - same as stats-editor
+    98→// ============================================
+    99→
+   100→interface RequirementOperatorToggleProps {
+   101→  operator: 'AND' | 'OR' | undefined;
+   102→  onChange: (operator: 'AND' | 'OR') => void;
+   103→  requirementCount: number;
+   104→}
+   105→
+   106→function RequirementOperatorToggle({ operator, onChange, requirementCount }: RequirementOperatorToggleProps) {
+   107→  if (requirementCount < 2) return null;
+   108→
+   109→  const currentOperator = operator || 'AND';
+   110→
+   111→  return (
+   112→    <div className="flex items-center gap-2 py-1">
+   113→      <div className="flex items-center gap-1">
+   114→        <button
+   115→          type="button"
+   116→          className={cn(
+   117→            'px-2 py-0.5 text-xs rounded border transition-colors',
+   118→            currentOperator === 'AND'
+   119→              ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+   120→              : 'bg-muted/30 text-muted-foreground border-transparent'
+   121→          )}
+   122→          onClick={() => onChange('AND')}
+   123→        >
+   124→          Y (AND)
+   125→        </button>
+   126→        <button
+   127→          type="button"
+   128→          className={cn(
+   129→            'px-2 py-0.5 text-xs rounded border transition-colors',
+   130→            currentOperator === 'OR'
+   131→              ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+   132→              : 'bg-muted/30 text-muted-foreground border-transparent'
+   133→          )}
+   134→          onClick={() => onChange('OR')}
+   135→        >
+   136→          O (OR)
+   137→        </button>
+   138→      </div>
+   139→      <span className="text-[10px] text-muted-foreground">
+   140→        {currentOperator === 'AND' ? 'Todas deben cumplirse' : 'Al menos una debe cumplirse'}
+   141→      </span>
+   142→    </div>
+   143→  );
+   144→}
+   145→
+   146→// ============================================
+   147→// Requirement Editor Component (same pattern as stats-editor)
+   148→// ============================================
+   149→
+   150→interface RequirementEditorProps {
+   151→  requirement: StatRequirement;
+   152→  availableAttributes: AttributeDefinition[];
+   153→  availableTargets?: { id: string; name: string; attributes: AttributeDefinition[] }[];
+   154→  onChange: (updates: Partial<StatRequirement>) => void;
+   155→  onDelete: () => void;
+   156→}
+   157→
+   158→function RequirementEditor({ requirement, availableAttributes, availableTargets = [], onChange, onDelete }: RequirementEditorProps) {
+   159→  const isTargetMode = requirement.targetCharacterId !== undefined;
+   160→  const selectedTarget = isTargetMode && requirement.targetCharacterId
+   161→    ? availableTargets.find(t => t.id === requirement.targetCharacterId)
+   162→    : undefined;
+   163→  const targetAttrs = selectedTarget?.attributes || [];
+   164→
+   165→  // Determine the selected attribute and its type
+   166→  const selectedSelfAttr = !isTargetMode ? availableAttributes.find(a => a.key === requirement.attributeKey) : undefined;
+   167→  const selectedTargetAttr = isTargetMode ? targetAttrs.find(a => a.key === requirement.attributeKey) : undefined;
+   168→  const selectedAttr = selectedSelfAttr || selectedTargetAttr;
+   169→  const attrType = selectedAttr?.type || 'number';
+   170→  const isTextType = attrType === 'text' || attrType === 'keyword';
+   171→
+   172→  const operatorOptions = isTextType ? TEXT_OPERATOR_OPTIONS : NUMERIC_OPERATOR_OPTIONS;
+   173→  const selectedOperator = operatorOptions.find(op => op.value === requirement.operator);
+   174→
+   175→  const hasTargets = availableTargets.length > 0;
+   176→
+   177→  return (
+   178→    <div className="flex items-center gap-2 bg-muted/50 rounded p-2 flex-wrap">
+   179→      {/* Target/Mode indicator - only show Target option when availableTargets is provided */}
+   180→      <Select
+   181→        value={isTargetMode ? 'target' : 'self'}
+   182→        onValueChange={(value) => {
+   183→          if (value === 'target') {
+   184→            onChange({ attributeKey: '', targetCharacterId: '', targetAttributeName: '', operator: '==', value: '' });
+   185→          } else {
+   186→            onChange({ attributeKey: '', targetCharacterId: undefined, targetAttributeName: undefined, operator: '>=', value: 0 });
+   187→          }
+   188→        }}
+   189→      >
+   190→        <SelectTrigger className="h-7 w-16 text-xs">
+   191→          <SelectValue />
+   192→        </SelectTrigger>
+   193→        <SelectContent>
+   194→          <SelectItem value="self">
+   195→            <span className="flex items-center gap-1">🎭 Yo</span>
+   196→          </SelectItem>
+   197→          {hasTargets && (
+   198→            <SelectItem value="target">
+   199→              <span className="flex items-center gap-1">🎯 Target</span>
+   200→            </SelectItem>
+   201→          )}
+   202→        </SelectContent>
+   203→      </Select>
+   204→
+   205→      {isTargetMode ? (
+   206→        <>
+   207→          {/* Target selector */}
+   208→          <Select
+   209→            value={requirement.targetCharacterId || ''}
+   210→            onValueChange={(value) => {
+   211→              const target = availableTargets.find(t => t.id === value);
+   212→              onChange({ targetCharacterId: value, attributeKey: '', targetAttributeName: target?.name || '' });
+   213→            }}
+   214→          >
+   215→            <SelectTrigger className="h-7 w-28 text-xs">
+   216→              <SelectValue placeholder="Target..." />
+   217→            </SelectTrigger>
+   218→            <SelectContent>
+   219→              {availableTargets.map(t => (
+   220→                <SelectItem key={t.id} value={t.id}>
+   221→                  {t.id === '__user__' ? '👤 ' : '🎭 '}{t.name}
+   222→                </SelectItem>
+   223→              ))}
+   224→            </SelectContent>
+   225→          </Select>
+   226→
+   227→          {/* Target attribute selector */}
+   228→          <Select
+   229→            value={requirement.attributeKey}
+   230→            onValueChange={(value) => {
+   231→              const attr = targetAttrs.find(a => a.key === value);
+   232→              const isText = attr?.type === 'text' || attr?.type === 'keyword';
+   233→              onChange({
+   234→                attributeKey: value,
+   235→                targetAttributeName: attr?.name || '',
+   236→                operator: isText ? '==' : '>=',
+   237→                value: isText ? '' : 0,
+   238→              });
+   239→            }}
+   240→            disabled={!requirement.targetCharacterId}
+   241→          >
+   242→            <SelectTrigger className="h-7 w-28 text-xs">
+   243→              <SelectValue placeholder="Atributo..." />
+   244→            </SelectTrigger>
+   245→            <SelectContent>
+   246→              {targetAttrs.map((attr, i) => (
+   247→                <SelectItem key={attr.key || `attr-${i}`} value={attr.key}>
+   248→                  <span className="flex items-center gap-1">
+   249→                    <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-blue-400' : 'text-green-400'}>
+   250→                      {attr.type === 'text' ? '📝' : attr.type === 'keyword' ? '🏷️' : '🔢'}
+   251→                    </span>
+   252→                    {attr.name}
+   253→                  </span>
+   254→                </SelectItem>
+   255→              ))}
+   256→            </SelectContent>
+   257→          </Select>
+   258→        </>
+   259→      ) : (
+   260→        /* Self attribute selector */
+   261→        <Select
+   262→          value={requirement.attributeKey}
+   263→          onValueChange={(value) => {
+   264→            const attr = availableAttributes.find(a => a.key === value);
+   265→            const isText = attr?.type === 'text' || attr?.type === 'keyword';
+   266→            onChange({
+   267→              attributeKey: value,
+   268→              operator: isText ? '==' : '>=',
+   269→              value: isText ? '' : 0,
+   270→            });
+   271→          }}
+   272→        >
+   273→          <SelectTrigger className="h-7 w-24 text-xs">
+   274→            <SelectValue placeholder="Atributo" />
+   275→          </SelectTrigger>
+   276→          <SelectContent>
+   277→            {availableAttributes.map(attr => (
+   278→              <SelectItem key={attr.id} value={attr.key}>
+   279→                <span className="flex items-center gap-1">
+   280→                  <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-blue-400' : 'text-green-400'}>
+   281→                    {attr.type === 'text' ? '📝' : attr.type === 'keyword' ? '🏷️' : '🔢'}
+   282→                  </span>
+   283→                  {attr.name}
+   284→                </span>
+   285→              </SelectItem>
+   286→            ))}
+   287→          </SelectContent>
+   288→        </Select>
+   289→      )}
+   290→
+   291→      {/* Operator selector with descriptions */}
+   292→      <Tooltip>
+   293→        <TooltipTrigger asChild>
+   294→          <Select
+   295→            value={operatorOptions.some(op => op.value === requirement.operator) ? requirement.operator : operatorOptions[0].value}
+   296→            onValueChange={(value: RequirementOperator) => onChange({ operator: value })}
+   297→          >
+   298→            <SelectTrigger className="h-7 w-16 text-xs">
+   299→              <SelectValue />
+   300→            </SelectTrigger>
+   301→            <SelectContent>
+   302→              {operatorOptions.map(op => (
+   303→                <SelectItem key={op.value} value={op.value}>
+   304→                  <div className="flex items-center gap-2">
+   305→                    <span className="font-mono w-4">{op.label}</span>
+   306→                    <span className="text-muted-foreground text-xs">{op.description}</span>
+   307→                  </div>
+   308→                </SelectItem>
+   309→              ))}
+   310→            </SelectContent>
+   311→          </Select>
+   312→        </TooltipTrigger>
+   313→        <TooltipContent className="max-w-xs">
+   314→          <p className="font-medium">{selectedOperator?.description}</p>
+   315→          <p className="text-xs text-muted-foreground mt-1">
+   316→            {requirement.operator === 'between'
+   317→              ? `El valor debe estar entre ${requirement.value} y ${requirement.valueMax || '?'}`
+   318→              : `El valor debe ser ${selectedOperator?.description} ${requirement.value}`
+   319→            }
+   320→          </p>
+   321→        </TooltipContent>
+   322→      </Tooltip>
+   323→
+   324→      {/* Value input - text or number based on attribute type */}
+   325→      {isTextType ? (
+   326→        <Input
+   327→          type="text"
+   328→          value={typeof requirement.value === 'string' ? requirement.value : String(requirement.value)}
+   329→          onChange={(e) => onChange({ value: e.target.value })}
+   330→          placeholder="Texto..."
+   331→          className="h-7 w-24 text-xs"
+   332→        />
+   333→      ) : (
+   334→        <Input
+   335→          type="number"
+   336→          value={requirement.value}
+   337→          onChange={(e) => onChange({ value: parseFloat(e.target.value) || 0 })}
+   338→          className="h-7 w-16 text-xs"
+   339→        />
+   340→      )}
+   341→
+   342→      {/* Max value for between operator (only for numeric) */}
+   343→      {!isTextType && requirement.operator === 'between' && (
+   344→        <>
+   345→          <span className="text-xs text-muted-foreground">y</span>
+   346→          <Input
+   347→            type="number"
+   348→            value={requirement.valueMax ?? ''}
+   349→            onChange={(e) => {
+   350→              const parsed = parseFloat(e.target.value);
+   351→              onChange({ valueMax: isNaN(parsed) ? undefined : parsed });
+   352→            }}
+   353→            placeholder="max"
+   354→            className="h-7 w-16 text-xs"
+   355→          />
+   356→        </>
+   357→      )}
+   358→
+   359→      {/* Delete button */}
+   360→      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onDelete}>
+   361→        <Trash2 className="w-3 h-3 text-muted-foreground" />
+   362→      </Button>
+   363→    </div>
+   364→  );
+   365→}
+   366→
+   367→// ============================================
+   368→// Main Quick Replies Panel Component
+   369→// ============================================
+   370→
+   371→interface QuickRepliesPanelProps {
+   372→  quickReplies: CharacterQuickReply[] | undefined;
+   373→  statsConfig: CharacterStatsConfig | undefined;
+   374→  /** Available sprite packs for sprite activation */
+   375→  spritePacksV2?: SpritePackV2[];
+   376→  /** Available trigger collections for sprite activation */
+   377→  triggerCollections?: TriggerCollection[];
+   378→  /** Available target characters for cross-character conditions (group mode) */
+   379→  availableTargets?: { id: string; name: string; attributes: AttributeDefinition[] }[];
+   380→  onChange: (quickReplies: CharacterQuickReply[]) => void;
+   381→}
+   382→
+   383→// Operation labels for display
+   384→const OPERATION_LABELS: Record<QuickReplyModifierOperation, { label: string; symbol: string; description: string }> = {
+   385→  set: { label: 'Establecer', symbol: '=', description: 'Reemplaza el valor actual' },
+   386→  add: { label: 'Sumar', symbol: '+', description: 'Agrega al valor actual' },
+   387→  subtract: { label: 'Restar', symbol: '-', description: 'Reduce del valor actual' },
+   388→  multiply: { label: 'Multiplicar', symbol: '×', description: 'Multiplica el valor actual' },
+   389→  divide: { label: 'Dividir', symbol: '÷', description: 'Divide el valor actual' },
+   390→};
+   391→
+   392→function generateId(): string {
+   393→  return `qr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+   394→}
+   395→
+   396→export function QuickRepliesPanel({
+   397→  quickReplies,
+   398→  statsConfig,
+   399→  spritePacksV2,
+   400→  triggerCollections,
+   401→  availableTargets,
+   402→  onChange,
+   403→}: QuickRepliesPanelProps) {
+   404→  const replies = quickReplies || [];
+   405→  const attributes = statsConfig?.attributes || [];
+   406→
+   407→  // State for new reply form
+   408→  const [newLabel, setNewLabel] = useState('');
+   409→  const [newResponse, setNewResponse] = useState('');
+   410→  const [newModifiers, setNewModifiers] = useState<QuickReplyAttributeModifier[]>([]);
+   411→  const [newRequirements, setNewRequirements] = useState<StatRequirement[]>([]);
+   412→  const [newRequirementOperator, setNewRequirementOperator] = useState<'AND' | 'OR'>('AND');
+   413→
+   414→  // State for editing existing reply
+   415→  const [editingId, setEditingId] = useState<string | null>(null);
+   416→  const [editLabel, setEditLabel] = useState('');
+   417→  const [editResponse, setEditResponse] = useState('');
+   418→  const [editModifiers, setEditModifiers] = useState<QuickReplyAttributeModifier[]>([]);
+   419→  const [editRequirements, setEditRequirements] = useState<StatRequirement[]>([]);
+   420→  const [editRequirementOperator, setEditRequirementOperator] = useState<'AND' | 'OR'>('AND');
+   421→
+   422→  // State for expanded modifiers section
+   423→  const [expandedModifiers, setExpandedModifiers] = useState<string | null>(null);
+   424→
+   425→  // State for expanded conditions section
+   426→  const [expandedConditions, setExpandedConditions] = useState<string | null>(null);
+   427→
+   428→  // State for sprite activation in new reply
+   429→  const [newSpriteActivation, setNewSpriteActivation] = useState<QuickReplySpriteActivation | undefined>(undefined);
+   430→
+   431→  // State for sprite activation in editing reply
+   432→  const [editSpriteActivation, setEditSpriteActivation] = useState<QuickReplySpriteActivation | undefined>(undefined);
+   433→
+   434→  // State for expanded sprite activation section
+   435→  const [expandedSpriteActivation, setExpandedSpriteActivation] = useState<string | null>(null);
+   436→
+   437→  // Whether sprite activation is available (has packs or collections)
+   438→  const hasSpriteOptions = (spritePacksV2 && spritePacksV2.length > 0) || (triggerCollections && triggerCollections.length > 0);
+   439→
+   440→  const isAdding = newLabel.trim() && newResponse.trim();
+   441→
+   442→  const handleAdd = () => {
+   443→    if (!isAdding) return;
+   444→    const newReply: CharacterQuickReply = {
+   445→      id: generateId(),
+   446→      label: newLabel.trim(),
+   447→      response: newResponse.trim(),
+   448→      modifiers: newModifiers.length > 0 ? newModifiers : undefined,
+   449→      spriteActivation: newSpriteActivation,
+   450→      requirements: newRequirements.length > 0 ? newRequirements : undefined,
+   451→      requirementOperator: newRequirements.length > 1 ? newRequirementOperator : undefined,
+   452→    };
+   453→    onChange([...replies, newReply]);
+   454→    setNewLabel('');
+   455→    setNewResponse('');
+   456→    setNewModifiers([]);
+   457→    setNewSpriteActivation(undefined);
+   458→    setNewRequirements([]);
+   459→    setNewRequirementOperator('AND');
+   460→  };
+   461→
+   462→  const handleDelete = (id: string) => {
+   463→    onChange(replies.filter((r) => r.id !== id));
+   464→  };
+   465→
+   466→  const handleStartEdit = (reply: CharacterQuickReply) => {
+   467→    setEditingId(reply.id);
+   468→    setEditLabel(reply.label);
+   469→    setEditResponse(reply.response);
+   470→    setEditModifiers(reply.modifiers ? [...reply.modifiers] : []);
+   471→    setEditSpriteActivation(reply.spriteActivation ? { ...reply.spriteActivation } : undefined);
+   472→    setEditRequirements(reply.requirements ? reply.requirements.map(r => ({ ...r })) : []);
+   473→    setEditRequirementOperator(reply.requirementOperator || 'AND');
+   474→  };
+   475→
+   476→  const handleSaveEdit = () => {
+   477→    if (!editingId || !editLabel.trim() || !editResponse.trim()) return;
+   478→    onChange(
+   479→      replies.map((r) =>
+   480→        r.id === editingId
+   481→          ? {
+   482→              ...r,
+   483→              label: editLabel.trim(),
+   484→              response: editResponse.trim(),
+   485→              modifiers: editModifiers.length > 0 ? editModifiers : undefined,
+   486→              spriteActivation: editSpriteActivation,
+   487→              requirements: editRequirements.length > 0 ? editRequirements : undefined,
+   488→              requirementOperator: editRequirements.length > 1 ? editRequirementOperator : undefined,
+   489→            }
+   490→          : r
+   491→      )
+   492→    );
+   493→    setEditingId(null);
+   494→    setEditLabel('');
+   495→    setEditResponse('');
+   496→    setEditModifiers([]);
+   497→    setEditSpriteActivation(undefined);
+   498→    setEditRequirements([]);
+   499→    setEditRequirementOperator('AND');
+   500→  };
+   501→
+   502→  const handleCancelEdit = () => {
+   503→    setEditingId(null);
+   504→    setEditLabel('');
+   505→    setEditResponse('');
+   506→    setEditModifiers([]);
+   507→    setEditSpriteActivation(undefined);
+   508→    setEditRequirements([]);
+   509→    setEditRequirementOperator('AND');
+   510→  };
+   511→
+   512→  // Add a modifier to the new reply form
+   513→  const addModifierToNew = () => {
+   514→    if (attributes.length === 0) return;
+   515→    setNewModifiers([
+   516→      ...newModifiers,
+   517→      { attributeKey: attributes[0].key, operation: 'add', value: 1 },
+   518→    ]);
+   519→  };
+   520→
+   521→  const updateNewModifier = (index: number, field: keyof QuickReplyAttributeModifier, value: string | number) => {
+   522→    const updated = [...newModifiers];
+   523→    updated[index] = { ...updated[index], [field]: value };
+   524→    setNewModifiers(updated);
+   525→  };
+   526→
+   527→  const removeNewModifier = (index: number) => {
+   528→    setNewModifiers(newModifiers.filter((_, i) => i !== index));
+   529→  };
+   530→
+   531→  // Add a modifier to the editing reply form
+   532→  const addModifierToEdit = () => {
+   533→    if (attributes.length === 0) return;
+   534→    setEditModifiers([
+   535→      ...editModifiers,
+   536→      { attributeKey: attributes[0].key, operation: 'add', value: 1 },
+   537→    ]);
+   538→  };
+   539→
+   540→  const updateEditModifier = (index: number, field: keyof QuickReplyAttributeModifier, value: string | number) => {
+   541→    const updated = [...editModifiers];
+   542→    updated[index] = { ...updated[index], [field]: value };
+   543→    setEditModifiers(updated);
+   544→  };
+   545→
+   546→  const removeEditModifier = (index: number) => {
+   547→    setEditModifiers(editModifiers.filter((_, i) => i !== index));
+   548→  };
+   549→
+   550→  // Render modifier row
+   551→  const renderModifierRow = (
+   552→    modifier: QuickReplyAttributeModifier,
+   553→    index: number,
+   554→    onUpdate: (index: number, field: keyof QuickReplyAttributeModifier, value: string | number) => void,
+   555→    onRemove: (index: number) => void
+   556→  ) => {
+   557→    const attr = attributes.find((a) => a.key === modifier.attributeKey);
+   558→    const isTextAttr = attr?.type === 'text' || attr?.type === 'keyword';
+   559→    const availableOps: QuickReplyModifierOperation[] = isTextAttr
+   560→      ? ['set']
+   561→      : ['set', 'add', 'subtract', 'multiply', 'divide'];
+   562→
+   563→    return (
+   564→      <div key={index} className="flex items-center gap-1.5">
+   565→        {/* Attribute selector */}
+   566→        <Select
+   567→          value={modifier.attributeKey}
+   568→          onValueChange={(val) => onUpdate(index, 'attributeKey', val)}
+   569→        >
+   570→          <SelectTrigger className="h-7 text-xs flex-1 min-w-[80px]">
+   571→            <SelectValue placeholder="Atributo" />
+   572→          </SelectTrigger>
+   573→          <SelectContent>
+   574→            {attributes.map((attr) => (
+   575→              <SelectItem key={attr.key} value={attr.key}>
+   576→                <span className="text-xs">{attr.icon ? `${attr.icon} ` : ''}{attr.name}</span>
+   577→              </SelectItem>
+   578→            ))}
+   579→          </SelectContent>
+   580→        </Select>
+   581→
+   582→        {/* Operation selector */}
+   583→        <Select
+   584→          value={modifier.operation}
+   585→          onValueChange={(val) => onUpdate(index, 'operation', val as QuickReplyModifierOperation)}
+   586→        >
+   587→          <SelectTrigger className="h-7 text-xs w-[90px]">
+   588→            <SelectValue />
+   589→          </SelectTrigger>
+   590→          <SelectContent>
+   591→            {availableOps.map((op) => (
+   592→              <SelectItem key={op} value={op}>
+   593→                <span className="text-xs">
+   594→                  {OPERATION_LABELS[op].symbol} {OPERATION_LABELS[op].label}
+   595→                </span>
+   596→              </SelectItem>
+   597→            ))}
+   598→          </SelectContent>
+   599→        </Select>
+   600→
+   601→        {/* Value input */}
+   602→        <Input
+   603→          type={isTextAttr ? 'text' : 'number'}
+   604→          value={String(modifier.value)}
+   605→          onChange={(e) => {
+   606→            const val = isTextAttr ? e.target.value : (parseFloat(e.target.value) || 0);
+   607→            onUpdate(index, 'value', val);
+   608→          }}
+   609→          className="h-7 text-xs w-[70px]"
+   610→          placeholder="Valor"
+   611→        />
+   612→
+   613→        {/* Remove button */}
+   614→        <Button
+   615→          variant="ghost"
+   616→          size="sm"
+   617→          className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400 flex-shrink-0"
+   618→          onClick={() => onRemove(index)}
+   619→        >
+   620→          <X className="w-3 h-3" />
+   621→        </Button>
+   622→      </div>
+   623→    );
+   624→  };
+   625→
+   626→  // Render sprite activation section
+   627→  const renderSpriteActivation = (
+   628→    activation: QuickReplySpriteActivation | undefined,
+   629→    setActivation: (a: QuickReplySpriteActivation | undefined) => void,
+   630→    sectionKey: string,
+   631→  ) => {
+   632→    const isExpanded = expandedSpriteActivation === sectionKey;
+   633→    const isActive = !!activation;
+   634→
+   635→    return (
+   636→      <div className="space-y-2">
+   637→        <button
+   638→          type="button"
+   639→          onClick={() => {
+   640→            setExpandedSpriteActivation(isExpanded ? null : sectionKey);
+   641→            if (!isActive && !isExpanded) {
+   642→              // Pre-populate with defaults
+   643→              setActivation({
+   644→                mode: 'sprite_pack',
+   645→                targetId: '',
+   646→                fallbackMode: 'idle_collection',
+   647→                fallbackDelayMs: 3000,
+   648→              });
+   649→            }
+   650→          }}
+   651→          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+   652→        >
+   653→          <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
+   654→          <span>Activación de Sprite</span>
+   655→          {isActive && (
+   656→            <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-emerald-500/20 text-emerald-400">
+   657→              {activation?.mode === 'trigger_collection' ? 'Trigger' : 'Pack'}
+   658→            </Badge>
+   659→          )}
+   660→          {isExpanded ? (
+   661→            <ChevronUp className="w-3 h-3" />
+   662→          ) : (
+   663→            <ChevronDown className="w-3 h-3" />
+   664→          )}
+   665→        </button>
+   666→
+   667→        {(isExpanded || isActive) && (
+   668→          <div className="ml-5 space-y-2 border-l-2 border-emerald-500/20 pl-3">
+   669→            {/* Enable/Disable toggle */}
+   670→            <div className="flex items-center gap-2">
+   671→              <label className="text-[10px] text-muted-foreground">Activar sprite:</label>
+   672→              <button
+   673→                type="button"
+   674→                onClick={() => {
+   675→                  if (isActive) {
+   676→                    setActivation(undefined);
+   677→                  } else {
+   678→                    setActivation({
+   679→                      mode: 'sprite_pack',
+   680→                      targetId: '',
+   681→                      fallbackMode: 'idle_collection',
+   682→                      fallbackDelayMs: 3000,
+   683→                    });
+   684→                  }
+   685→                }}
+   686→                className={cn(
+   687→                  "text-[10px] px-2 py-0.5 rounded-full transition-colors",
+   688→                  isActive ? "bg-emerald-500/20 text-emerald-400" : "bg-muted text-muted-foreground"
+   689→                )}
+   690→              >
+   691→                {isActive ? 'Activado' : 'Desactivado'}
+   692→              </button>
+   693→            </div>
+   694→
+   695→            {isActive && activation && (
+   696→              <>
+   697→                {/* Mode selector */}
+   698→                <div className="flex items-center gap-2">
+   699→                  <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Modo</Label>
+   700→                  <Select
+   701→                    value={activation.mode}
+   702→                    onValueChange={(val) => setActivation({ ...activation, mode: val as 'trigger_collection' | 'sprite_pack', targetId: '' })}
+   703→                  >
+   704→                    <SelectTrigger className="h-7 text-xs flex-1">
+   705→                      <SelectValue />
+   706→                    </SelectTrigger>
+   707→                    <SelectContent>
+   708→                      <SelectItem value="sprite_pack">
+   709→                        <span className="text-xs">📦 Sprite Pack (condicional)</span>
+   710→                      </SelectItem>
+   711→                      <SelectItem value="trigger_collection">
+   712→                        <span className="text-xs">🎯 Colección de Triggers</span>
+   713→                      </SelectItem>
+   714→                    </SelectContent>
+   715→                  </Select>
+   716→                </div>
+   717→
+   718→                {/* Target selector */}
+   719→                <div className="flex items-center gap-2">
+   720→                  <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Objetivo</Label>
+   721→                  <Select
+   722→                    value={activation.targetId}
+   723→                    onValueChange={(val) => setActivation({ ...activation, targetId: val })}
+   724→                  >
+   725→                    <SelectTrigger className="h-7 text-xs flex-1">
+   726→                      <SelectValue placeholder={activation.mode === 'trigger_collection' ? 'Seleccionar trigger...' : 'Seleccionar pack...'} />
+   727→                    </SelectTrigger>
+   728→                    <SelectContent>
+   729→                      {activation.mode === 'trigger_collection' ? (
+   730→                        (triggerCollections || []).map((tc) => (
+   731→                          <SelectItem key={tc.id} value={tc.id}>
+   732→                            <span className="text-xs">🎯 {tc.name} (Prioridad: {tc.priority})</span>
+   733→                          </SelectItem>
+   734→                        ))
+   735→                      ) : (
+   736→                        (spritePacksV2 || []).map((pack) => (
+   737→                          <SelectItem key={pack.id} value={pack.id}>
+   738→                            <span className="text-xs">📦 {pack.name} {pack.conditionalMode ? '(condicional)' : ''}</span>
+   739→                          </SelectItem>
+   740→                        ))
+   741→                      )}
+   742→                    </SelectContent>
+   743→                  </Select>
+   744→                </div>
+   745→
+   746→                {/* Fallback mode */}
+   747→                <div className="flex items-center gap-2">
+   748→                  <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Al terminar</Label>
+   749→                  <Select
+   750→                    value={activation.fallbackMode}
+   751→                    onValueChange={(val) => setActivation({ ...activation, fallbackMode: val as QuickReplySpriteFallbackMode })}
+   752→                  >
+   753→                    <SelectTrigger className="h-7 text-xs flex-1">
+   754→                      <SelectValue />
+   755→                    </SelectTrigger>
+   756→                    <SelectContent>
+   757→                      <SelectItem value="idle_collection">
+   758→                        <span className="text-xs">🔄 Volver al estado normal</span>
+   759→                      </SelectItem>
+   760→                      <SelectItem value="collection_default">
+   761→                        <span className="text-xs">🖼️ Sprite principal del pack</span>
+   762→                      </SelectItem>
+   763→                      <SelectItem value="custom_sprite">
+   764→                        <span className="text-xs">✨ Sprite personalizado</span>
+   765→                      </SelectItem>
+   766→                    </SelectContent>
+   767→                  </Select>
+   768→                </div>
+   769→
+   770→                {/* Fallback delay */}
+   771→                <div className="flex items-center gap-2">
+   772→                  <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">
+   773→                    <Timer className="w-3 h-3 inline mr-1" />
+   774→                    Duración
+   775→                  </Label>
+   776→                  <Input
+   777→                    type="number"
+   778→                    value={activation.fallbackDelayMs}
+   779→                    onChange={(e) => setActivation({ ...activation, fallbackDelayMs: parseInt(e.target.value) || 0 })}
+   780→                    className="h-7 text-xs w-[80px]"
+   781→                    min={0}
+   782→                    step={500}
+   783→                  />
+   784→                  <span className="text-[10px] text-muted-foreground">ms (0 = persistir)</span>
+   785→                </div>
+   786→
+   787→                {/* Custom sprite for fallback (only when mode is custom_sprite) */}
+   788→                {activation.fallbackMode === 'custom_sprite' && (
+   789→                  <div className="flex items-center gap-2">
+   790→                    <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Sprite fall.</Label>
+   791→                    <Select
+   792→                      value={activation.fallbackSpriteId || ''}
+   793→                      onValueChange={(val) => setActivation({ ...activation, fallbackSpriteId: val })}
+   794→                    >
+   795→                      <SelectTrigger className="h-7 text-xs flex-1">
+   796→                        <SelectValue placeholder="Seleccionar sprite..." />
+   797→                      </SelectTrigger>
+   798→                      <SelectContent>
+   799→                        {(spritePacksV2 || []).flatMap((pack) =>
+   800→                          pack.sprites.map((sprite) => (
+   801→                            <SelectItem key={sprite.id} value={sprite.id}>
+   802→                              <span className="text-xs">{pack.name} / {sprite.label}</span>
+   803→                            </SelectItem>
+   804→                          ))
+   805→                        )}
+   806→                      </SelectContent>
+   807→                    </Select>
+   808→                  </div>
+   809→                )}
+   810→              </>
+   811→            )}
+   812→          </div>
+   813→        )}
+   814→      </div>
+   815→    );
+   816→  };
+   817→
+   818→  // Render condition section for a quick reply (new or editing)
+   819→  const renderConditionSection = (
+   820→    requirements: StatRequirement[],
+   821→    requirementOperator: 'AND' | 'OR',
+   822→    setRequirements: (r: StatRequirement[]) => void,
+   823→    setRequirementOperator: (op: 'AND' | 'OR') => void,
+   824→    sectionKey: string,
+   825→  ) => {
+   826→    const isExpanded = expandedConditions === sectionKey;
+   827→    const hasRequirements = requirements.length > 0;
+   828→
+   829→    return (
+   830→      <TooltipProvider>
+   831→        <div className="space-y-2">
+   832→          <button
+   833→            type="button"
+   834→            onClick={() => setExpandedConditions(isExpanded ? null : sectionKey)}
+   835→            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+   836→          >
+   837→            <Filter className="w-3.5 h-3.5 text-orange-400" />
+   838→            <span>Condiciones de visibilidad</span>
+   839→            {hasRequirements && (
+   840→              <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-orange-500/20 text-orange-400">
+   841→                {requirements.length}
+   842→              </Badge>
+   843→            )}
+   844→            {isExpanded ? (
+   845→              <ChevronUp className="w-3 h-3" />
+   846→            ) : (
+   847→              <ChevronDown className="w-3 h-3" />
+   848→            )}
+   849→          </button>
+   850→
+   851→          {(isExpanded || hasRequirements) && (
+   852→            <div className="ml-5 space-y-2 border-l-2 border-orange-500/20 pl-3">
+   853→              {/* Existing requirements */}
+   854→              {requirements.map((req, idx) => (
+   855→                <RequirementEditor
+   856→                  key={idx}
+   857→                  requirement={req}
+   858→                  availableAttributes={attributes}
+   859→                  availableTargets={availableTargets}
+   860→                  onChange={(updates) => {
+   861→                    const updated = [...requirements];
+   862→                    updated[idx] = { ...updated[idx], ...updates };
+   863→                    setRequirements(updated);
+   864→                  }}
+   865→                  onDelete={() => {
+   866→                    const updated = requirements.filter((_, i) => i !== idx);
+   867→                    setRequirements(updated);
+   868→                  }}
+   869→                />
+   870→              ))}
+   871→
+   872→              {/* AND/OR toggle */}
+   873→              <RequirementOperatorToggle
+   874→                operator={requirementOperator}
+   875→                onChange={setRequirementOperator}
+   876→                requirementCount={requirements.length}
+   877→              />
+   878→
+   879→              {/* Add condition button */}
+   880→              <Button
+   881→                variant="ghost"
+   882→                size="sm"
+   883→                className="h-7 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-500/10"
+   884→                onClick={() => {
+   885→                  const newReq: StatRequirement = { attributeKey: '', operator: '>=', value: 0 };
+   886→                  setRequirements([...requirements, newReq]);
+   887→                }}
+   888→              >
+   889→                <Plus className="w-3 h-3 mr-1" />
+   890→                Agregar Condición
+   891→              </Button>
+   892→            </div>
+   893→          )}
+   894→        </div>
+   895→      </TooltipProvider>
+   896→    );
+   897→  };
+   898→
+   899→  // DnD sensors
+   900→  const sensors = useSensors(
+   901→    useSensor(PointerSensor, {
+   902→      activationConstraint: {
+   903→        distance: 5,
+   904→      },
+   905→    }),
+   906→    useSensor(KeyboardSensor, {
+   907→      coordinateGetter: sortableKeyboardCoordinates,
+   908→    })
+   909→  );
+   910→
+   911→  const handleDragEnd = (event: DragEndEvent) => {
+   912→    const { active, over } = event;
+   913→    if (over && active.id !== over.id) {
+   914→      const oldIndex = replies.findIndex((r) => r.id === active.id);
+   915→      const newIndex = replies.findIndex((r) => r.id === over.id);
+   916→      if (oldIndex !== -1 && newIndex !== -1) {
+   917→        onChange(arrayMove(replies, oldIndex, newIndex));
+   918→      }
+   919→    }
+   920→  };
+   921→
+   922→  return (
+   923→    <div className="space-y-6">
+   924→      {/* Header */}
+   925→      <div className="bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-500/20 rounded-lg p-3">
+   926→        <div className="flex items-start gap-3">
+   927→          <div className="p-2 bg-violet-500/20 rounded-lg">
+   928→            <MessageSquare className="w-5 h-5 text-violet-500" />
+   929→          </div>
+   930→          <div className="flex-1">
+   931→            <h4 className="text-sm font-medium text-violet-600">Respuestas Rápidas</h4>
+   932→            <p className="text-xs text-muted-foreground mt-1">
+   933→              Botones de acceso rápido personalizados para este personaje.{' '}
+   934→              <strong>Etiqueta</strong> es lo que se ve, <strong>Respuesta</strong> es lo que se envía.{' '}
+   935→              Puedes usar <code className="text-[10px] bg-muted px-1 rounded">{'{{char}}'}</code> y{' '}
+   936→              <code className="text-[10px] bg-muted px-1 rounded">{'{{user}}'}</code> para insertar nombres.
+   937→            </p>
+   938→            {attributes.length > 0 && (
+   939→              <p className="text-xs text-muted-foreground mt-1">
+   940→                Opcionalmente puedes agregar <Zap className="w-3 h-3 inline text-amber-400" /> modificadores de atributos que se aplican al usar la respuesta,{' '}
+   941→                <Filter className="w-3 h-3 inline text-orange-400" /> condiciones de visibilidad para controlar cuándo se muestra.
+   942→              </p>
+   943→            )}
+   944→            {attributes.length === 0 && (
+   945→              <p className="text-xs text-muted-foreground mt-1">
+   946→                Puedes agregar <Filter className="w-3 h-3 inline text-orange-400" /> condiciones de visibilidad para controlar cuándo se muestra cada respuesta.
+   947→              </p>
+   948→            )}
+   949→            {hasSpriteOptions && (
+   950→              <p className="text-xs text-muted-foreground mt-1">
+   951→                También puedes activar <ImageIcon className="w-3 h-3 inline text-emerald-400" /> sprites al usar la respuesta.
+   952→              </p>
+   953→            )}
+   954→            {replies.length > 1 && (
+   955→              <p className="text-xs text-muted-foreground mt-1">
+   956→                <GripVertical className="w-3 h-3 inline text-muted-foreground" /> Arrastra para reordenar las respuestas.
+   957→              </p>
+   958→            )}
+   959→          </div>
+   960→        </div>
+   961→      </div>
+   962→
+   963→      {/* Existing replies */}
+   964→      {replies.length > 0 && (
+   965→        <DndContext
+   966→          sensors={sensors}
+   967→          collisionDetection={closestCenter}
+   968→          onDragEnd={handleDragEnd}
+   969→        >
+   970→          <SortableContext
+   971→            items={replies.map((r) => r.id)}
+   972→            strategy={verticalListSortingStrategy}
+   973→          >
+   974→            <div className="space-y-2">
+   975→              {replies.map((reply) => (
+   976→                <SortableQuickReplyItem
+   977→                  key={reply.id}
+   978→                  reply={reply}
+   979→                  editingId={editingId}
+   980→                  editLabel={editLabel}
+   981→                  editResponse={editResponse}
+   982→                  editModifiers={editModifiers}
+   983→                  editRequirements={editRequirements}
+   984→                  editRequirementOperator={editRequirementOperator}
+   985→                  editSpriteActivation={editSpriteActivation}
+   986→                  expandedModifiers={expandedModifiers}
+   987→                  expandedConditions={expandedConditions}
+   988→                  expandedSpriteActivation={expandedSpriteActivation}
+   989→                  attributes={attributes}
+   990→                  hasSpriteOptions={hasSpriteOptions}
+   991→                  spritePacksV2={spritePacksV2}
+   992→                  triggerCollections={triggerCollections}
+   993→                  availableTargets={availableTargets}
+   994→                  onStartEdit={handleStartEdit}
+   995→                  onSaveEdit={handleSaveEdit}
+   996→                  onCancelEdit={handleCancelEdit}
+   997→                  onDelete={handleDelete}
+   998→                  setEditLabel={setEditLabel}
+   999→                  setEditResponse={setEditResponse}
+  1000→                  setEditModifiers={setEditModifiers}
+  1001→                  setEditRequirements={setEditRequirements}
+  1002→                  setEditRequirementOperator={setEditRequirementOperator}
+  1003→                  setEditSpriteActivation={setEditSpriteActivation}
+  1004→                  setExpandedModifiers={setExpandedModifiers}
+  1005→                  setExpandedConditions={setExpandedConditions}
+  1006→                  setExpandedSpriteActivation={setExpandedSpriteActivation}
+  1007→                  addModifierToEdit={addModifierToEdit}
+  1008→                  updateEditModifier={updateEditModifier}
+  1009→                  removeEditModifier={removeEditModifier}
+  1010→                  renderModifierRow={renderModifierRow}
+  1011→                  renderSpriteActivation={renderSpriteActivation}
+  1012→                  renderConditionSection={renderConditionSection}
+  1013→                />
+  1014→              ))}
+  1015→            </div>
+  1016→          </SortableContext>
+  1017→        </DndContext>
+  1018→      )}
+  1019→
+  1020→      {/* Add new reply form */}
+  1021→      {replies.length < 12 && (
+  1022→        <div className="p-3 rounded-lg border border-dashed space-y-3">
+  1023→          <p className="text-xs text-muted-foreground font-medium">Agregar nueva respuesta rápida</p>
+  1024→          <div className="flex items-center gap-2">
+  1025→            <Label className="text-xs text-muted-foreground w-20 flex-shrink-0">Etiqueta</Label>
+  1026→            <Input
+  1027→              value={newLabel}
+  1028→              onChange={(e) => setNewLabel(e.target.value)}
+  1029→              className="h-8 text-sm flex-1"
+  1030→              placeholder="Ej: Atacar..."
+  1031→              maxLength={20}
+  1032→            />
+  1033→          </div>
+  1034→          <div className="flex items-center gap-2">
+  1035→            <Label className="text-xs text-muted-foreground w-20 flex-shrink-0">Respuesta</Label>
+  1036→            <Input
+  1037→              value={newResponse}
+  1038→              onChange={(e) => setNewResponse(e.target.value)}
+  1039→              onKeyDown={(e) => {
+  1040→                if (e.key === 'Enter' && newLabel.trim() && newResponse.trim()) {
+  1041→                  handleAdd();
+  1042→                }
+  1043→              }}
+  1044→              className="h-8 text-sm flex-1"
+  1045→              placeholder="Mensaje que se envía (usa {{char}}, {{user}})"
+  1046→              maxLength={200}
+  1047→            />
+  1048→          </div>
+  1049→
+  1050→          {/* Modifiers for new reply */}
+  1051→          {attributes.length > 0 && (
+  1052→            <div className="space-y-2">
+  1053→              <button
+  1054→                type="button"
+  1055→                onClick={() =>
+  1056→                  setExpandedModifiers(expandedModifiers === '__new__' ? null : '__new__')
+  1057→                }
+  1058→                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+  1059→              >
+  1060→                <Zap className="w-3.5 h-3.5 text-amber-400" />
+  1061→                <span>Modificadores de atributos</span>
+  1062→                {newModifiers.length > 0 && (
+  1063→                  <Badge variant="secondary" className="h-4 text-[10px] px-1">
+  1064→                    {newModifiers.length}
+  1065→                  </Badge>
+  1066→                )}
+  1067→                {expandedModifiers === '__new__' ? (
+  1068→                  <ChevronUp className="w-3 h-3" />
+  1069→                ) : (
+  1070→                  <ChevronDown className="w-3 h-3" />
+  1071→                )}
+  1072→              </button>
+  1073→
+  1074→              {(expandedModifiers === '__new__' || newModifiers.length > 0) && (
+  1075→                <div className="ml-5 space-y-1.5">
+  1076→                  {newModifiers.map((mod, idx) =>
+  1077→                    renderModifierRow(mod, idx, updateNewModifier, removeNewModifier)
+  1078→                  )}
+  1079→                  <Button
+  1080→                    variant="ghost"
+  1081→                    size="sm"
+  1082→                    className="h-7 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-500/10"
+  1083→                    onClick={addModifierToNew}
+  1084→                  >
+  1085→                    <Plus className="w-3 h-3 mr-1" />
+  1086→                    Agregar modificador
+  1087→                  </Button>
+  1088→                </div>
+  1089→              )}
+  1090→            </div>
+  1091→          )}
+  1092→
+  1093→          {/* Sprite activation for new reply */}
+  1094→          {hasSpriteOptions && (
+  1095→            <div>
+  1096→              {renderSpriteActivation(newSpriteActivation, setNewSpriteActivation, '__new__')}
+  1097→            </div>
+  1098→          )}
+  1099→
+  1100→          {/* Conditions for new reply */}
+  1101→          {attributes.length > 0 && (
+  1102→            <div>
+  1103→              {renderConditionSection(newRequirements, newRequirementOperator, setNewRequirements, setNewRequirementOperator, '__new__')}
+  1104→            </div>
+  1105→          )}
+  1106→          {attributes.length === 0 && availableTargets && availableTargets.length > 0 && (
+  1107→            <div>
+  1108→              {renderConditionSection(newRequirements, newRequirementOperator, setNewRequirements, setNewRequirementOperator, '__new__')}
+  1109→            </div>
+  1110→          )}
+  1111→
+  1112→          <Button
+  1113→            variant="outline"
+  1114→            size="sm"
+  1115→            className="h-8 w-full"
+  1116→            disabled={!isAdding}
+  1117→            onClick={handleAdd}
+  1118→          >
+  1119→            <Plus className="w-4 h-4 mr-1" />
+  1120→            Agregar
+  1121→          </Button>
+  1122→        </div>
+  1123→      )}
+  1124→
+  1125→      {replies.length >= 12 && (
+  1126→        <p className="text-xs text-muted-foreground text-center">
+  1127→          Máximo 12 respuestas rápidas permitidas.
+  1128→        </p>
+  1129→      )}
+  1130→
+  1131→      {replies.length === 0 && (
+  1132→        <div className="text-center py-6 text-muted-foreground">
+  1133→          <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
+  1134→          <p className="text-xs">No hay respuestas rápidas configuradas</p>
+  1135→          <p className="text-xs opacity-60">Agrega respuestas rápidas para acceso directo en el chat</p>
+  1136→        </div>
+  1137→      )}
+  1138→    </div>
+  1139→  );
+  1140→}
+  1141→
+  1142→// ============================================
+  1143→// Sortable Quick Reply Item - DnD wrapper
+  1144→// ============================================
+  1145→
+  1146→interface SortableQuickReplyItemProps {
+  1147→  reply: CharacterQuickReply;
+  1148→  editingId: string | null;
+  1149→  editLabel: string;
+  1150→  editResponse: string;
+  1151→  editModifiers: QuickReplyAttributeModifier[];
+  1152→  editRequirements: StatRequirement[];
+  1153→  editRequirementOperator: 'AND' | 'OR';
+  1154→  editSpriteActivation: QuickReplySpriteActivation | undefined;
+  1155→  expandedModifiers: string | null;
+  1156→  expandedConditions: string | null;
+  1157→  expandedSpriteActivation: string | null;
+  1158→  attributes: AttributeDefinition[];
+  1159→  hasSpriteOptions: boolean;
+  1160→  spritePacksV2?: SpritePackV2[];
+  1161→  triggerCollections?: TriggerCollection[];
+  1162→  availableTargets?: { id: string; name: string; attributes: AttributeDefinition[] }[];
+  1163→  onStartEdit: (reply: CharacterQuickReply) => void;
+  1164→  onSaveEdit: () => void;
+  1165→  onCancelEdit: () => void;
+  1166→  onDelete: (id: string) => void;
+  1167→  setEditLabel: (v: string) => void;
+  1168→  setEditResponse: (v: string) => void;
+  1169→  setEditModifiers: (v: QuickReplyAttributeModifier[]) => void;
+  1170→  setEditRequirements: (v: StatRequirement[]) => void;
+  1171→  setEditRequirementOperator: (v: 'AND' | 'OR') => void;
+  1172→  setEditSpriteActivation: (v: QuickReplySpriteActivation | undefined) => void;
+  1173→  setExpandedModifiers: (v: string | null) => void;
+  1174→  setExpandedConditions: (v: string | null) => void;
+  1175→  setExpandedSpriteActivation: (v: string | null) => void;
+  1176→  addModifierToEdit: () => void;
+  1177→  updateEditModifier: (index: number, field: keyof QuickReplyAttributeModifier, value: string | number) => void;
+  1178→  removeEditModifier: (index: number) => void;
+  1179→  renderModifierRow: (
+  1180→    modifier: QuickReplyAttributeModifier,
+  1181→    index: number,
+  1182→    onUpdate: (index: number, field: keyof QuickReplyAttributeModifier, value: string | number) => void,
+  1183→    onRemove: (index: number) => void
+  1184→  ) => React.ReactNode;
+  1185→  renderSpriteActivation: (
+  1186→    activation: QuickReplySpriteActivation | undefined,
+  1187→    setActivation: (a: QuickReplySpriteActivation | undefined) => void,
+  1188→    sectionKey: string,
+  1189→  ) => React.ReactNode;
+  1190→  renderConditionSection: (
+  1191→    requirements: StatRequirement[],
+  1192→    requirementOperator: 'AND' | 'OR',
+  1193→    setRequirements: (r: StatRequirement[]) => void,
+  1194→    setRequirementOperator: (op: 'AND' | 'OR') => void,
+  1195→    sectionKey: string,
+  1196→  ) => React.ReactNode;
+  1197→}
+  1198→
+  1199→function SortableQuickReplyItem({
+  1200→  reply,
+  1201→  editingId,
+  1202→  editLabel,
+  1203→  editResponse,
+  1204→  editModifiers,
+  1205→  editRequirements,
+  1206→  editRequirementOperator,
+  1207→  editSpriteActivation,
+  1208→  expandedModifiers,
+  1209→  expandedConditions,
+  1210→  expandedSpriteActivation,
+  1211→  attributes,
+  1212→  hasSpriteOptions,
+  1213→  spritePacksV2,
+  1214→  triggerCollections,
+  1215→  availableTargets,
+  1216→  onStartEdit,
+  1217→  onSaveEdit,
+  1218→  onCancelEdit,
+  1219→  onDelete,
+  1220→  setEditLabel,
+  1221→  setEditResponse,
+  1222→  setEditModifiers,
+  1223→  setEditRequirements,
+  1224→  setEditRequirementOperator,
+  1225→  setEditSpriteActivation,
+  1226→  setExpandedModifiers,
+  1227→  setExpandedConditions,
+  1228→  setExpandedSpriteActivation,
+  1229→  addModifierToEdit,
+  1230→  updateEditModifier,
+  1231→  removeEditModifier,
+  1232→  renderModifierRow,
+  1233→  renderSpriteActivation,
+  1234→  renderConditionSection,
+  1235→}: SortableQuickReplyItemProps) {
+  1236→  const {
+  1237→    attributes: dndAttributes,
+  1238→    listeners,
+  1239→    setNodeRef,
+  1240→    transform,
+  1241→    transition,
+  1242→    isDragging,
+  1243→  } = useSortable({ id: reply.id });
+  1244→
+  1245→  const style = {
+  1246→    transform: CSS.Transform.toString(transform),
+  1247→    transition,
+  1248→  };
+  1249→
+  1250→  const isEditing = editingId === reply.id;
+  1251→
+  1252→  return (
+  1253→    <div
+  1254→      ref={setNodeRef}
+  1255→      style={style}
+  1256→      className={cn(
+  1257→        "rounded-lg border group",
+  1258→        isDragging && "z-50 shadow-lg shadow-violet-500/10 border-violet-500/50 opacity-90"
+  1259→      )}
+  1260→    >
+  1261→      {isEditing ? (
+  1262→        /* Edit mode */
+  1263→        <div className="p-3 space-y-3">
+  1264→          <div className="flex items-center gap-2">
+  1265→            <Label className="text-xs text-muted-foreground w-20 flex-shrink-0">Etiqueta</Label>
+  1266→            <Input
+  1267→              value={editLabel}
+  1268→              onChange={(e) => setEditLabel(e.target.value)}
+  1269→              className="h-8 text-sm flex-1"
+  1270→              placeholder="Texto del botón..."
+  1271→              maxLength={20}
+  1272→            />
+  1273→          </div>
+  1274→          <div className="flex items-center gap-2">
+  1275→            <Label className="text-xs text-muted-foreground w-20 flex-shrink-0">Respuesta</Label>
+  1276→            <Input
+  1277→              value={editResponse}
+  1278→              onChange={(e) => setEditResponse(e.target.value)}
+  1279→              className="h-8 text-sm flex-1"
+  1280→              placeholder="Mensaje que se envía..."
+  1281→              maxLength={200}
+  1282→            />
+  1283→          </div>
+  1284→
+  1285→          {/* Modifiers section */}
+  1286→          {attributes.length > 0 && (
+  1287→            <div className="space-y-2">
+  1288→              <button
+  1289→                type="button"
+  1290→                onClick={() =>
+  1291→                  setExpandedModifiers(
+  1292→                    expandedModifiers === reply.id ? null : reply.id
+  1293→                  )
+  1294→                }
+  1295→                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+  1296→              >
+  1297→                <Zap className="w-3.5 h-3.5 text-amber-400" />
+  1298→                <span>Modificadores de atributos</span>
+  1299→                {editModifiers.length > 0 && (
+  1300→                  <Badge variant="secondary" className="h-4 text-[10px] px-1">
+  1301→                    {editModifiers.length}
+  1302→                  </Badge>
+  1303→                )}
+  1304→                {expandedModifiers === reply.id ? (
+  1305→                  <ChevronUp className="w-3 h-3" />
+  1306→                ) : (
+  1307→                  <ChevronDown className="w-3 h-3" />
+  1308→                )}
+  1309→              </button>
+  1310→
+  1311→              {(expandedModifiers === reply.id || editModifiers.length > 0) && (
+  1312→                <div className="ml-5 space-y-1.5">
+  1313→                  {editModifiers.map((mod, idx) =>
+  1314→                    renderModifierRow(mod, idx, updateEditModifier, removeEditModifier)
+  1315→                  )}
+  1316→                  <Button
+  1317→                    variant="ghost"
+  1318→                    size="sm"
+  1319→                    className="h-7 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-500/10"
+  1320→                    onClick={addModifierToEdit}
+  1321→                  >
+  1322→                    <Plus className="w-3 h-3 mr-1" />
+  1323→                    Agregar modificador
+  1324→                  </Button>
+  1325→                </div>
+  1326→              )}
+  1327→            </div>
+  1328→          )}
+  1329→
+  1330→          {/* Sprite activation section for editing */}
+  1331→          {hasSpriteOptions && (
+  1332→            <div className="mt-2">
+  1333→              {renderSpriteActivation(editSpriteActivation, setEditSpriteActivation, `edit-${reply.id}`)}
+  1334→            </div>
+  1335→          )}
+  1336→
+  1337→          {/* Conditions section for editing */}
+  1338→          {(attributes.length > 0 || (availableTargets && availableTargets.length > 0)) && (
+  1339→            <div className="mt-2">
+  1340→              {renderConditionSection(editRequirements, editRequirementOperator, setEditRequirements, setEditRequirementOperator, `edit-${reply.id}`)}
+  1341→            </div>
+  1342→          )}
+  1343→
+  1344→          {/* Save / Cancel */}
+  1345→          <div className="flex justify-end gap-1">
+  1346→            <Button
+  1347→              variant="ghost"
+  1348→              size="sm"
+  1349→              className="h-7 px-2 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-500/10"
+  1350→              disabled={!editLabel.trim() || !editResponse.trim()}
+  1351→              onClick={onSaveEdit}
+  1352→            >
+  1353→              <Check className="w-3.5 h-3.5 mr-1" />
+  1354→              Guardar
+  1355→            </Button>
+  1356→            <Button
+  1357→              variant="ghost"
+  1358→              size="sm"
+  1359→              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+  1360→              onClick={onCancelEdit}
+  1361→            >
+  1362→              <X className="w-3.5 h-3.5 mr-1" />
+  1363→              Cancelar
+  1364→            </Button>
+  1365→          </div>
+  1366→        </div>
+  1367→      ) : (
+  1368→        /* Display mode */
+  1369→        <div className="flex items-center gap-2 p-2">
+  1370→          {/* Drag handle */}
+  1371→          <button
+  1372→            type="button"
+  1373→            className={cn(
+  1374→              "p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 transition-colors flex-shrink-0",
+  1375→              isDragging && "cursor-grabbing"
+  1376→            )}
+  1377→            {...dndAttributes}
+  1378→            {...listeners}
+  1379→          >
+  1380→            <GripVertical className="w-4 h-4" />
+  1381→          </button>
+  1382→
+  1383→          <div className="flex-1 min-w-0">
+  1384→            <div className="flex items-center gap-1.5">
+  1385→              <span className="text-sm font-medium">{reply.label}</span>
+  1386→              {reply.modifiers && reply.modifiers.length > 0 && (
+  1387→                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5">
+  1388→                  <Zap className="w-2.5 h-2.5 text-amber-400" />
+  1389→                  {reply.modifiers.length}
+  1390→                </Badge>
+  1391→              )}
+  1392→              {reply.spriteActivation && (
+  1393→                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-emerald-500/20 text-emerald-400">
+  1394→                  <ImageIcon className="w-2.5 h-2.5" />
+  1395→                  {reply.spriteActivation.mode === 'trigger_collection' ? 'Trigger' : 'Sprite'}
+  1396→                </Badge>
+  1397→              )}
+  1398→              {reply.requirements && reply.requirements.length > 0 && (
+  1399→                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-orange-500/20 text-orange-400">
+  1400→                  <Filter className="w-2.5 h-2.5" />
+  1401→                  {reply.requirements.length}
+  1402→                </Badge>
+  1403→              )}
+  1404→            </div>
+  1405→            {reply.response !== reply.label && (
+  1406→              <p className="text-xs text-muted-foreground truncate mt-0.5">
+  1407→                {reply.response}
+  1408→              </p>
+  1409→            )}
+  1410→            {reply.modifiers && reply.modifiers.length > 0 && (
+  1411→              <div className="flex flex-wrap gap-1 mt-1">
+  1412→                {reply.modifiers.map((mod, idx) => {
+  1413→                  const attr = attributes.find((a) => a.key === mod.attributeKey);
+  1414→                  const op = OPERATION_LABELS[mod.operation];
+  1415→                  return (
+  1416→                    <span
+  1417→                      key={idx}
+  1418→                      className="text-[10px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded"
+  1419→                    >
+  1420→                      {attr?.icon ? `${attr.icon} ` : ''}{attr?.name || mod.attributeKey} {op.symbol} {mod.value}
+  1421→                    </span>
+  1422→                  );
+  1423→                })}
+  1424→              </div>
+  1425→            )}
+  1426→            {reply.requirements && reply.requirements.length > 0 && (
+  1427→              <div className="flex flex-wrap gap-1 mt-1">
+  1428→                {reply.requirements.map((req, idx) => {
+  1429→                  const attr = attributes.find((a) => a.key === req.attributeKey);
+  1430→                  const isTarget = !!req.targetCharacterId;
+  1431→                  const operatorSymbol = (() => {
+  1432→                    const allOps = [...NUMERIC_OPERATOR_OPTIONS, ...TEXT_OPERATOR_OPTIONS];
+  1433→                    return allOps.find(o => o.value === req.operator)?.label || req.operator;
+  1434→                  })();
+  1435→                  return (
+  1436→                    <span
+  1437→                      key={idx}
+  1438→                      className="text-[10px] bg-orange-500/10 text-orange-600 px-1.5 py-0.5 rounded"
+  1439→                    >
+  1440→                      {isTarget ? '🎯 ' : ''}{attr?.icon ? `${attr.icon} ` : ''}{attr?.name || req.attributeKey} {operatorSymbol} {req.value}{req.operator === 'between' && req.valueMax != null ? `─${req.valueMax}` : ''}
+  1441→                    </span>
+  1442→                  );
+  1443→                })}
+  1444→                {reply.requirements.length > 1 && (
+  1445→                  <span className="text-[10px] text-muted-foreground px-1">
+  1446→                    ({reply.requirementOperator === 'OR' ? 'O' : 'Y'})
+  1447→                  </span>
+  1448→                )}
+  1449→              </div>
+  1450→            )}
+  1451→          </div>
+  1452→          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+  1453→            <Button
+  1454→              variant="ghost"
+  1455→              size="sm"
+  1456→              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+  1457→              onClick={() => onStartEdit(reply)}
+  1458→            >
+  1459→              <Settings2 className="w-3.5 h-3.5" />
+  1460→            </Button>
+  1461→            <Button
+  1462→              variant="ghost"
+  1463→              size="sm"
+  1464→              className="h-7 w-7 p-0 text-red-400 hover:text-red-500 hover:bg-red-500/10"
+  1465→              onClick={() => onDelete(reply.id)}
+  1466→            >
+  1467→              <Trash2 className="w-3.5 h-3.5" />
+  1468→            </Button>
+  1469→          </div>
+  1470→        </div>
+  1471→      )}
+  1472→    </div>
+  1473→  );
+  1474→}
+  1475→

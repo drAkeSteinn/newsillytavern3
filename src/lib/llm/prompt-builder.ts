@@ -43,6 +43,7 @@ import {
   resolveStats,
   type StatsResolutionContext,
 } from '@/lib/stats';
+import { isWardrobeAvailable, getWardrobeInfo } from '@/lib/wardrobe';
 import {
   resolveAllKeys,
   resolveSectionsKeys,
@@ -672,6 +673,85 @@ export function buildSystemPrompt(
       content: character.characterNote,
       color: SECTION_COLORS.character_note
     });
+  }
+
+  // Attribute Management Section — tells the LLM which attributes exist, their current
+  // values, which is the main attribute, and how to use the modify_stat tool to change them.
+  // This is critical for native tool calling: without this, the LLM doesn't know it can
+  // modify attributes or which attribute names to use.
+  if (resolvedStats?.attributes && character.statsConfig?.enabled) {
+    const attrDefs = character.statsConfig.attributes || [];
+    if (attrDefs.length > 0) {
+      const attrLines = attrDefs.map(a => {
+        const formatted = resolvedStats.attributes[a.key] || `${a.defaultValue}`;
+        const mainTag = a.isMain ? ' 👑 PRINCIPAL' : '';
+        return `  - ${a.name} (key: ${a.key}): ${formatted}${mainTag}`;
+      });
+
+      const mainAttr = attrDefs.find(a => a.isMain === true);
+      const mainLine = mainAttr
+        ? `\n\nEl atributo PRINCIPAL de este personaje es "${mainAttr.name}" (key: ${mainAttr.key}). Los cambios en este atributo afectan significativamente el comportamiento y la narrativa del personaje.`
+        : '';
+
+      const attrManagementContent = `[GESTIÓN DE ATRIBUTOS]\n` +
+        `Atributos actuales del personaje:\n${attrLines.join('\n')}${mainLine}\n\n` +
+        `INSTRUCCIONES PARA GESTIONAR ATRIBUTOS:\n` +
+        `- USA la herramienta "modify_stat" cuando un evento narrativo deba cambiar un atributo (ej: ganar experiencia, perder vida, recibir daño, cambiar de estado emocional, progresar una relación).\n` +
+        `- Para atributos numéricos usa operadores: "+10" suma, "-5" resta, "=50" establece un valor exacto.\n` +
+        `- Para atributos de texto/estado (keyword), pasa el nuevo valor directamente (ej: "envenenado", "armado").\n` +
+        `- Modifica atributos ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.\n` +
+        `- Proporciona siempre una "reason" narrativa para el cambio.`;
+
+      sections.push({
+        type: 'character_note',
+        label: 'Gestión de Atributos',
+        content: attrManagementContent,
+        color: SECTION_COLORS.character_note
+      });
+    }
+  }
+
+  // FASE 12: Wardrobe Management Section — tells the LLM about the wardrobe system
+  // and how to use the manage_wardrobe tool. Only injected if the character has
+  // a wardrobeConfig with levels + a main attribute.
+  {
+    if (isWardrobeAvailable(character)) {
+      const wardrobeInfo = getWardrobeInfo(character, sessionStats, character.id);
+      if (wardrobeInfo) {
+        const wardrobeLines: string[] = [
+          `[SISTEMA DE VESTUARIO]`,
+          `El personaje tiene un sistema de vestuario vinculado al atributo principal.`,
+          ``,
+          `Nivel actual: "${wardrobeInfo.current?.name}" (nivel ${wardrobeInfo.effectiveIndex + 1}/${wardrobeInfo.totalLevels}, offset: ${wardrobeInfo.offset >= 0 ? '+' : ''}${wardrobeInfo.offset})`,
+        ];
+        if (wardrobeInfo.above) {
+          wardrobeLines.push(`Nivel superior disponible: "${wardrobeInfo.above.name}"`);
+        } else {
+          wardrobeLines.push(`No hay nivel superior disponible (ya está al máximo).`);
+        }
+        if (wardrobeInfo.below) {
+          wardrobeLines.push(`Nivel inferior disponible: "${wardrobeInfo.below.name}"`);
+        } else {
+          wardrobeLines.push(`No hay nivel inferior disponible (ya está al mínimo).`);
+        }
+        wardrobeLines.push(``);
+        wardrobeLines.push(`INSTRUCCIONES PARA GESTIONAR EL VESTUARIO:`);
+        wardrobeLines.push(`- USA la herramienta "manage_wardrobe" cuando el personaje deba cambiarse de ropa (ej: se quita una prenda, se pone algo más cómodo, se desnuda, etc.).`);
+        wardrobeLines.push(`- Primero usa "get_info" para ver los niveles disponibles, luego "escalate" (subir un nivel) o "regress" (bajar un nivel).`);
+        wardrobeLines.push(`- "escalate" sube un nivel del vestuario (ej: de "ropa casual" a "ropa interior").`);
+        wardrobeLines.push(`- "regress" baja un nivel del vestuario (ej: de "desnuda" a "ropa interior").`);
+        wardrobeLines.push(`- "reset" vuelve al nivel base determinado por el atributo principal.`);
+        wardrobeLines.push(`- Usa el vestuario ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
+        wardrobeLines.push(`- El contenido del vestuario actual se inyecta via {{wardrobe}} en el prompt.`);
+
+        sections.push({
+          type: 'character_note',
+          label: 'Sistema de Vestuario',
+          content: wardrobeLines.join('\n'),
+          color: SECTION_COLORS.character_note
+        });
+      }
+    }
   }
 
   // Example Dialogue: Format as numbered [EJEMPLO N] text section
@@ -1340,6 +1420,80 @@ export function buildGroupSystemPrompt(
       content: character.characterNote,
       color: SECTION_COLORS.character_note
     });
+  }
+
+  // Attribute Management Section (group chat variant) — same as 1-to-1 chat.
+  // Tells the LLM which attributes exist, their current values, which is the main
+  // attribute, and how to use the modify_stat tool to change them.
+  if (resolvedStats?.attributes && character.statsConfig?.enabled) {
+    const attrDefs = character.statsConfig.attributes || [];
+    if (attrDefs.length > 0) {
+      const attrLines = attrDefs.map(a => {
+        const formatted = resolvedStats.attributes[a.key] || `${a.defaultValue}`;
+        const mainTag = a.isMain ? ' 👑 PRINCIPAL' : '';
+        return `  - ${a.name} (key: ${a.key}): ${formatted}${mainTag}`;
+      });
+
+      const mainAttr = attrDefs.find(a => a.isMain === true);
+      const mainLine = mainAttr
+        ? `\n\nEl atributo PRINCIPAL de este personaje es "${mainAttr.name}" (key: ${mainAttr.key}). Los cambios en este atributo afectan significativamente el comportamiento y la narrativa del personaje.`
+        : '';
+
+      const attrManagementContent = `[GESTIÓN DE ATRIBUTOS]\n` +
+        `Atributos actuales del personaje:\n${attrLines.join('\n')}${mainLine}\n\n` +
+        `INSTRUCCIONES PARA GESTIONAR ATRIBUTOS:\n` +
+        `- USA la herramienta "modify_stat" cuando un evento narrativo deba cambiar un atributo (ej: ganar experiencia, perder vida, recibir daño, cambiar de estado emocional, progresar una relación).\n` +
+        `- Para atributos numéricos usa operadores: "+10" suma, "-5" resta, "=50" establece un valor exacto.\n` +
+        `- Para atributos de texto/estado (keyword), pasa el nuevo valor directamente (ej: "envenenado", "armado").\n` +
+        `- Modifica atributos ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.\n` +
+        `- Proporciona siempre una "reason" narrativa para el cambio.`;
+
+      sections.push({
+        type: 'character_note',
+        label: `${character.name} - Gestión de Atributos`,
+        content: attrManagementContent,
+        color: SECTION_COLORS.character_note
+      });
+    }
+  }
+
+  // FASE 12: Wardrobe Management Section (group chat variant) — same as 1-to-1 chat.
+  // Only injected if the character has a wardrobeConfig with levels + a main attribute.
+  {
+    if (isWardrobeAvailable(character)) {
+      const wardrobeInfo = getWardrobeInfo(character, sessionStats, character.id);
+      if (wardrobeInfo) {
+        const wardrobeLines: string[] = [
+          `[SISTEMA DE VESTUARIO]`,
+          `El personaje tiene un sistema de vestuario vinculado al atributo principal.`,
+          ``,
+          `Nivel actual: "${wardrobeInfo.current?.name}" (nivel ${wardrobeInfo.effectiveIndex + 1}/${wardrobeInfo.totalLevels}, offset: ${wardrobeInfo.offset >= 0 ? '+' : ''}${wardrobeInfo.offset})`,
+        ];
+        if (wardrobeInfo.above) {
+          wardrobeLines.push(`Nivel superior disponible: "${wardrobeInfo.above.name}"`);
+        } else {
+          wardrobeLines.push(`No hay nivel superior disponible (ya está al máximo).`);
+        }
+        if (wardrobeInfo.below) {
+          wardrobeLines.push(`Nivel inferior disponible: "${wardrobeInfo.below.name}"`);
+        } else {
+          wardrobeLines.push(`No hay nivel inferior disponible (ya está al mínimo).`);
+        }
+        wardrobeLines.push(``);
+        wardrobeLines.push(`INSTRUCCIONES PARA GESTIONAR EL VESTUARIO:`);
+        wardrobeLines.push(`- USA la herramienta "manage_wardrobe" cuando el personaje deba cambiarse de ropa (ej: se quita una prenda, se pone algo más cómodo, se desnuda, etc.).`);
+        wardrobeLines.push(`- Primero usa "get_info" para ver los niveles disponibles, luego "escalate" (subir un nivel) o "regress" (bajar un nivel).`);
+        wardrobeLines.push(`- Usa el vestuario ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
+        wardrobeLines.push(`- El contenido del vestuario actual se inyecta via {{wardrobe}} en el prompt.`);
+
+        sections.push({
+          type: 'character_note',
+          label: `${character.name} - Sistema de Vestuario`,
+          content: wardrobeLines.join('\n'),
+          color: SECTION_COLORS.character_note
+        });
+      }
+    }
   }
 
   // Example Dialogue: Format as numbered [EJEMPLO N] text section (group chat variant)

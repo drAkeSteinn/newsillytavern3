@@ -4,7 +4,8 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useTavernStore } from '@/store/tavern-store';
 
 // Debounce time for auto-save (in milliseconds)
-const DEBOUNCE_TIME = 2000;
+// PERF FIX: Increased from 2000ms to 3000ms to reduce save frequency during streaming.
+const DEBOUNCE_TIME = 3000;
 
 // Data types that should be persisted to files
 const PERSIST_KEYS = [
@@ -202,6 +203,9 @@ export function usePersistenceSync() {
           if (data.inventory.activeConsumableEffects) {
             updates.activeConsumableEffects = data.inventory.activeConsumableEffects;
           }
+          if (data.inventory.dynamicEquipmentState) {
+            updates.dynamicEquipmentState = data.inventory.dynamicEquipmentState;
+          }
           if (data.inventory.containers) {
             updates.containers = data.inventory.containers;
           }
@@ -290,6 +294,17 @@ export function usePersistenceSync() {
 
       const state = useTavernStore.getState();
 
+      // PERF FIX: Skip saving during active generation — streaming updates the store
+      // every token, triggering many debounced saves that would serialize ~1.86MB each.
+      // The save will fire again when generation completes (the store changes again).
+      if ((state as { ui?: { isGenerating?: boolean } }).ui?.isGenerating) {
+        isSaving.current = false;
+        // Schedule a retry shortly after — by then generation may be done
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => { saveToServer(); }, DEBOUNCE_TIME);
+        return;
+      }
+
       const dataToSave: Record<string, unknown> = {
         // Core data
         characters: state.characters,
@@ -341,6 +356,7 @@ export function usePersistenceSync() {
         inventory: {
           items: state.items,
           activeConsumableEffects: state.activeConsumableEffects,
+          dynamicEquipmentState: state.dynamicEquipmentState,
           containers: state.containers,
           currencies: state.currencies,
           inventorySettings: state.inventorySettings,
@@ -425,9 +441,12 @@ export function usePersistenceSync() {
   // Subscribe to store changes and auto-save
   useEffect(() => {
     const unsubscribe = useTavernStore.subscribe((state, prevState) => {
-      // Check if any persistent data has changed
+      // PERF FIX: Use reference equality instead of JSON.stringify comparison.
+      // Zustand updates are immutable (new objects on every change), so reference
+      // equality is sufficient and avoids 40+ JSON.stringify calls per store change
+      // (each of which serialized ~1.86MB of data).
       const hasChanges = PERSIST_KEYS.some(key => {
-        return JSON.stringify(state[key as PersistKey]) !== JSON.stringify(prevState[key as PersistKey]);
+        return state[key as PersistKey] !== prevState[key as PersistKey];
       });
 
       if (hasChanges) {

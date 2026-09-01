@@ -1,0 +1,2002 @@
+     1→// ============================================
+     2→// Stats Slice - Character stats management
+     3→// ============================================
+     4→
+     5→import type {
+     6→  SessionStats,
+     7→  CharacterSessionStats,
+     8→  StatChangeLogEntry,
+     9→  CharacterStatsConfig,
+    10→  AttributeDefinition,
+    11→  SkillDefinition,
+    12→  IntentionDefinition,
+    13→  InvitationDefinition,
+    14→  StatRequirement,
+    15→  SolicitudInstance,
+    16→  SessionSolicitudes,
+    17→  ThresholdEffect,
+    18→} from '@/types';
+    19→import { evaluateTimerTicks, hasActiveTimers, type TimerEvaluationResult } from '@/lib/stats/timer-processor';
+    20→import { evaluateThresholdEffects } from '@/lib/sprites/condition-evaluator';
+    21→import { appendEventLogEntry } from '@/lib/stats/event-log';
+    22→import {
+    23→  relationshipPairKey,
+    24→  clampRelationshipPoints,
+    25→  computeRelationshipStage,
+    26→  DEFAULT_RELATIONSHIP_POINTS,
+    27→  RELATIONSHIP_MIRROR_KEY,
+    28→  RELATIONSHIP_STAGE_KEY,
+    29→} from '@/lib/relationships';
+    30→import {
+    31→  createDefaultWorldClock,
+    32→  advanceMinutes as worldAdvanceMinutes,
+    33→  catchUpRealTime,
+    34→  setToHour,
+    35→  worldClockAttributes,
+    36→  computeHour,
+    37→  computeMoment,
+    38→  formatWorldClock,
+    39→  type WorldClock,
+    40→} from '@/lib/world/time';
+    41→
+    42→// ============================================
+    43→// Types
+    44→// ============================================
+    45→
+    46→export interface ThresholdReachedInfo {
+    47→  attributeKey: string;
+    48→  attributeName: string;
+    49→  thresholdType: 'min' | 'max' | 'custom';  // 'custom' = new thresholdEffects system
+    50→  thresholdValue?: number;                    // Only for legacy min/max
+    51→  effectName?: string;                        // Name of the matching ThresholdEffect
+    52→  effectId?: string;                          // ID of the matching ThresholdEffect
+    53→  priority?: number;                          // Priority of the matching ThresholdEffect
+    54→  rewards: import('@/types').QuestReward[];
+    55→}
+    56→
+    57→export interface UpdateCharacterStatResult {
+    58→  oldValue: number | string | undefined;
+    59→  newValue: number | string;
+    60→  clamped: boolean;
+    61→  thresholdsReached: ThresholdReachedInfo[];
+    62→}
+    63→
+    64→export interface StatsSlice {
+    65→  // Session stats state (values per session)
+    66→  sessionStats: SessionStats | null;
+    67→  
+    68→  // Session Stats Actions
+    69→  initializeSessionStats: (
+    70→    sessionId: string,
+    71→    characters: Array<{ id: string; statsConfig?: CharacterStatsConfig; emotionalConfig?: import('@/types').EmotionalStateConfig }>
+    72→  ) => void;
+    73→  
+    74→  updateCharacterStat: (
+    75→    sessionId: string,
+    76→    characterId: string,
+    77→    attributeKey: string,
+    78→    value: number | string,
+    79→    reason?: 'llm_detection' | 'manual' | 'trigger' | 'initialization' | 'timer'
+    80→  ) => UpdateCharacterStatResult;
+    81→  
+    82→  batchUpdateCharacterStats: (
+    83→    sessionId: string,
+    84→    characterId: string,
+    85→    updates: Array<{ attributeKey: string; value: number | string }>,
+    86→    reason?: 'llm_detection' | 'manual' | 'trigger' | 'timer' | 'initialization'
+    87→  ) => void;
+    88→  
+    89→  resetCharacterStats: (
+    90→    sessionId: string,
+    91→    characterId: string,
+    92→    statsConfig?: CharacterStatsConfig
+    93→  ) => void;
+    94→  
+    95→  clearSessionStats: (sessionId: string) => void;
+    96→  
+    97→  // Getters
+    98→  getCharacterStats: (sessionId: string, characterId: string) => CharacterSessionStats | null;
+    99→  getAttributeValue: (sessionId: string, characterId: string, attributeKey: string) => number | string | null;
+   100→
+   101→  // Solicitud Management (Peticiones/Solicitudes system)
+   102→  createSolicitud: (
+   103→    sessionId: string,
+   104→    targetCharacterId: string,
+   105→    solicitud: Omit<SolicitudInstance, 'id' | 'createdAt' | 'status'>
+   106→  ) => SolicitudInstance | null;
+   107→  
+   108→  completeSolicitud: (
+   109→    sessionId: string,
+   110→    characterId: string,
+   111→    solicitudKey: string
+   112→  ) => SolicitudInstance | null;
+   113→  
+   114→  getPendingSolicitudes: (
+   115→    sessionId: string,
+   116→    characterId: string
+   117→  ) => SolicitudInstance[];
+   118→
+   119→  // User Peticiones/Solicitudes Actions (for {{user}})
+   120→  // These work without injecting anything into the chat
+   121→  activateUserPeticion: (
+   122→    sessionId: string,
+   123→    targetCharacterId: string,
+   124→    solicitudKey: string,
+   125→    description: string,
+   126→    completionDescription: string | undefined,
+   127→    userName: string,
+   128→    expirationTurns?: number,
+   129→    expirationMinutes?: number
+   130→  ) => SolicitudInstance | null;
+   131→  
+   132→  acceptUserSolicitud: (
+   133→    sessionId: string,
+   134→    solicitudId: string
+   135→  ) => SolicitudInstance | null;
+   136→  
+   137→  rejectUserSolicitud: (
+   138→    sessionId: string,
+   139→    solicitudId: string
+   140→  ) => boolean;
+   141→  
+   142→  getPendingUserSolicitudes: (
+   143→    sessionId: string
+   144→  ) => SolicitudInstance[];
+   145→
+   146→  // Solicitud Expiration
+   147→  expireSolicitudes: (
+   148→    sessionId: string,
+   149→    currentTurn?: number
+   150→  ) => SolicitudInstance[];
+   151→
+   152→  // Session Events (for {{eventos}} key)
+   153→  // These track recent important events in the session
+   154→  updateSessionEvent: (
+   155→    sessionId: string,
+   156→    eventType: 'ultimo_objetivo_completado' | 'ultima_solicitud_completada' | 'ultima_solicitud_realizada' | 'ultima_accion_realizada' | 'ultima_accion_character',
+   157→    description: string
+   158→  ) => void;
+   159→
+   160→  // Push a custom entry into the session event log ({{eventos}} ring buffer).
+   161→  // Used for scene changes (enter/leave/focus) and future event sources.
+   162→  pushSessionEvent: (
+   163→    sessionId: string,
+   164→    entry: {
+   165→      type: import('@/types').SessionEventLogType;
+   166→      description: string;
+   167→      characterId?: string;
+   168→      characterName?: string;
+   169→      targetName?: string;
+   170→    }
+   171→  ) => void;
+   172→
+   173→  // Relationships (bonds between entities). Updates points, mirrors
+   174→  // `relacion`/`relacion_etapa` into both parties' attributeValues and
+   175→  // pushes an event-log entry so other characters can react.
+   176→  updateRelationship: (
+   177→    sessionId: string,
+   178→    aId: string,
+   179→    bId: string,
+   180→    updates: { delta?: number; set?: number; reason?: string },
+   181→    names?: { aName?: string; bName?: string }
+   182→  ) => { points: number; stageKey: string; stageLabel: string; pairKey: string } | null;
+   183→
+   184→  // World time — advance by N turns (minutesPerTurn each), mirror hora/momento/dia/estacion
+   185→  advanceWorldTime: (sessionId: string, turns?: number) => WorldClock | null;
+   186→  // World time — set/override clock values (hour, minutes, season, config)
+   187→  setWorldTime: (
+   188→    sessionId: string,
+   189→    updates: { hour?: number; minute?: number; minutes?: number; season?: string; realTimeSync?: boolean; minutesPerTurn?: number; enabled?: boolean }
+   190→  ) => WorldClock | null;
+   191→  getWorldClock: (sessionId: string) => WorldClock | null;
+   192→
+   193→  // Timer System (automatic attribute changes over time)
+   194→  processTimerTicks: (
+   195→    sessionId: string,
+   196→    characterId: string,
+   197→    statsConfig: CharacterStatsConfig
+   198→  ) => import('@/lib/stats/timer-processor').TimerEvaluationResult | null;
+   199→
+   200→  startSessionTimer: (sessionId: string, characterId: string, statsConfig: CharacterStatsConfig) => void;
+   201→  stopSessionTimer: (sessionId: string) => void;
+   202→  getTimerRunning: (sessionId: string) => boolean;
+   203→
+   204→  // FASE 5: Emotional State Management
+   205→  updateEmotionalState: (
+   206→    sessionId: string,
+   207→    characterId: string,
+   208→    newState: string,
+   209→    previousState?: string
+   210→  ) => void;
+   211→
+   212→  getEmotionalState: (
+   213→    sessionId: string,
+   214→    characterId: string
+   215→  ) => string | null;
+   216→}
+   217→
+   218→// ============================================
+   219→// Helper Functions
+   220→// ============================================
+   221→
+   222→/**
+   223→ * Clamp a numeric value to the attribute's min/max bounds
+   224→ * Returns the clamped value, or the original value if not numeric or no bounds defined
+   225→ */
+   226→function clampAttributeValue(
+   227→  value: number | string,
+   228→  attributeDef: AttributeDefinition | undefined
+   229→): number | string {
+   230→  // Only clamp numeric values
+   231→  if (typeof value !== 'number') {
+   232→    return value;
+   233→  }
+   234→
+   235→  // If no attribute definition, return as-is
+   236→  if (!attributeDef) {
+   237→    return value;
+   238→  }
+   239→
+   240→  let clampedValue = value;
+   241→
+   242→  // Apply min bound - handle both number and string min values
+   243→  if (attributeDef.min !== undefined) {
+   244→    const minVal = typeof attributeDef.min === 'number'
+   245→      ? attributeDef.min
+   246→      : parseFloat(String(attributeDef.min));
+   247→
+   248→    if (!isNaN(minVal)) {
+   249→      clampedValue = Math.max(clampedValue, minVal);
+   250→    }
+   251→  }
+   252→
+   253→  // Apply max bound - handle both number and string max values
+   254→  if (attributeDef.max !== undefined) {
+   255→    const maxVal = typeof attributeDef.max === 'number'
+   256→      ? attributeDef.max
+   257→      : parseFloat(String(attributeDef.max));
+   258→
+   259→    if (!isNaN(maxVal)) {
+   260→      clampedValue = Math.min(clampedValue, maxVal);
+   261→    }
+   262→  }
+   263→
+   264→  return clampedValue;
+   265→}
+   266→
+   267→/**
+   268→ * Create default character stats from config
+   269→ */
+   270→function createDefaultCharacterStats(
+   271→  statsConfig?: CharacterStatsConfig
+   272→): CharacterSessionStats {
+   273→  const attributeValues: Record<string, number | string> = {};
+   274→  const lastUpdated: Record<string, number> = {};
+   275→  const now = Date.now();
+   276→  
+   277→  if (statsConfig?.attributes) {
+   278→    for (const attr of statsConfig.attributes) {
+   279→      attributeValues[attr.key] = attr.defaultValue;
+   280→      lastUpdated[attr.key] = now;
+   281→    }
+   282→  }
+   283→  
+   284→  return {
+   285→    attributeValues,
+   286→    lastUpdated,
+   287→    changeLog: [],
+   288→  };
+   289→}
+   290→
+   291→/**
+   292→ * Add entry to change log
+   293→ */
+   294→function addChangeLogEntry(
+   295→  stats: CharacterSessionStats,
+   296→  attribute: AttributeDefinition | undefined,
+   297→  attributeKey: string,
+   298→  oldValue: number | string | undefined,
+   299→  newValue: number | string,
+   300→  reason: StatChangeLogEntry['reason']
+   301→): void {
+   302→  if (!stats.changeLog) {
+   303→    stats.changeLog = [];
+   304→  }
+   305→  
+   306→  stats.changeLog.push({
+   307→    attributeId: attribute?.id || attributeKey,
+   308→    attributeKey,
+   309→    attributeName: attribute?.name || attributeKey,
+   310→    oldValue: oldValue ?? '',
+   311→    newValue,
+   312→    reason,
+   313→    timestamp: Date.now(),
+   314→  });
+   315→  
+   316→  // Keep only last 100 entries
+   317→  if (stats.changeLog.length > 100) {
+   318→    stats.changeLog = stats.changeLog.slice(-100);
+   319→  }
+   320→}
+   321→
+   322→// ============================================
+   323→// Slice Factory
+   324→// ============================================
+   325→
+   326→export const createStatsSlice = (set: any, get: any): StatsSlice => ({
+   327→  // Initial State
+   328→  sessionStats: null,
+   329→
+   330→  // ============================================
+   331→  // Session Stats Actions
+   332→  // ============================================
+   333→
+   334→  initializeSessionStats: (sessionId, characters) => {
+   335→    const state = get();
+   336→    const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+   337→    const session = sessions.find(s => s.id === sessionId);
+   338→    
+   339→    if (!session) return;
+   340→    
+   341→    // Check if already initialized
+   342→    if (session.sessionStats?.initialized) return;
+   343→    
+   344→    const now = Date.now();
+   345→    const characterStats: Record<string, CharacterSessionStats> = {};
+   346→    
+   347→    // Initialize stats for each character
+   348→    for (const char of characters) {
+   349→      const stats = createDefaultCharacterStats(char.statsConfig);
+   350→      // FASE 5: Initialize emotional state if emotional config is present
+   351→      if (char.emotionalConfig?.enabled && char.emotionalConfig.initialState) {
+   352→        stats.emotionalState = char.emotionalConfig.initialState;
+   353→        stats.emotionalStateLastEval = now;
+   354→        stats.emotionalStateTurnCount = 0;
+   355→        // Also set as attribute value for {{emocion}} key resolution
+   356→        stats.attributeValues['emocion'] = char.emotionalConfig.initialState;
+   357→      }
+   358→      characterStats[char.id] = stats;
+   359→    }
+   360→    
+   361→    const newSessionStats: SessionStats = {
+   362→      characterStats,
+   363→      solicitudes: {
+   364→        characterSolicitudes: {},
+   365→        lastModified: now,
+   366→      },
+   367→      initialized: true,
+   368→      lastModified: now,
+   369→      // Initialize timer state
+   370→      lastTimerUpdate: now,
+   371→      keywordCycleIndex: {},
+   372→    };
+   373→    
+   374→    // Update session with new stats
+   375→    set((state: any) => ({
+   376→      sessions: state.sessions.map((s: any) =>
+   377→        s.id === sessionId 
+   378→          ? { ...s, sessionStats: newSessionStats, updatedAt: new Date().toISOString() }
+   379→          : s
+   380→      ),
+   381→    }));
+   382→  },
+   383→
+   384→  updateCharacterStat: (sessionId, characterId, attributeKey, value, reason = 'manual') => {
+   385→    // Default result
+   386→    const defaultResult: UpdateCharacterStatResult = {
+   387→      oldValue: undefined,
+   388→      newValue: typeof value === 'number' ? value : value,
+   389→      clamped: false,
+   390→      thresholdsReached: [],
+   391→    };
+   392→
+   393→    // Read current state
+   394→    const state = get();
+   395→    const sessions = state.sessions as Array<{ 
+   396→      id: string; 
+   397→      sessionStats?: SessionStats;
+   398→      characterId?: string;
+   399→      groupId?: string;
+   400→    }>;
+   401→    const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+   402→    
+   403→    if (sessionIndex === -1) return defaultResult;
+   404→    
+   405→    const session = sessions[sessionIndex];
+   406→    let sessionStats = session.sessionStats;
+   407→    
+   408→    // Auto-initialize sessionStats if missing
+   409→    if (!sessionStats) {
+   410→      sessionStats = {
+   411→        characterStats: {},
+   412→        solicitudes: {
+   413→          characterSolicitudes: {},
+   414→          lastModified: Date.now(),
+   415→        },
+   416→        ultimo_objetivo_completado: undefined,
+   417→        ultima_solicitud_completada: undefined,
+   418→        ultima_solicitud_realizada: undefined,
+   419→        ultima_accion_realizada: undefined,
+   420→        initialized: true,
+   421→        lastModified: Date.now(),
+   422→      };
+   423→    }
+   424→    
+   425→    // Auto-initialize character stats if missing
+   426→    if (!sessionStats.characterStats[characterId]) {
+   427→      let statsConfig: CharacterStatsConfig | undefined;
+   428→      if (characterId === '__user__') {
+   429→        // Look up active persona's statsConfig for __user__
+   430→        const activePersonaId = (state as any).activePersonaId;
+   431→        const personas: any[] = (state as any).personas || [];
+   432→        const activePersona = personas.find((p: any) => p.id === activePersonaId);
+   433→        statsConfig = activePersona?.statsConfig;
+   434→      } else {
+   435→        const character = state.characters.find((c: any) => c.id === characterId);
+   436→        statsConfig = character?.statsConfig;
+   437→      }
+   438→      let newStats = createDefaultCharacterStats(statsConfig);
+   439→      // For persona (__user__), also initialize equipment slot values
+   440→      if (characterId === '__user__') {
+   441→        const equipmentSlots = (state as any).inventorySettings?.equipmentSlots;
+   442→        if (equipmentSlots && equipmentSlots.length > 0) {
+   443→          for (const slot of equipmentSlots) {
+   444→            if (!(slot.key in newStats.attributeValues)) {
+   445→              newStats.attributeValues[slot.key] = '';
+   446→              newStats.lastUpdated[slot.key] = Date.now();
+   447→            }
+   448→          }
+   449→        }
+   450→      }
+   451→      sessionStats = {
+   452→        ...sessionStats,
+   453→        characterStats: {
+   454→          ...sessionStats.characterStats,
+   455→          [characterId]: newStats,
+   456→        },
+   457→      };
+   458→    }
+   459→    
+   460→    const stats = sessionStats.characterStats[characterId];
+   461→    if (!stats) return defaultResult;
+   462→
+   463→    const oldValue = stats.attributeValues[attributeKey];
+   464→
+   465→    // Find attribute definition for logging and clamping
+   466→    let attributeDef: AttributeDefinition | undefined;
+   467→    if (characterId === '__user__') {
+   468→      // Look up active persona's statsConfig for __user__
+   469→      const activePersonaId = (state as any).activePersonaId;
+   470→      const personas: any[] = (state as any).personas || [];
+   471→      const activePersona = personas.find((p: any) => p.id === activePersonaId);
+   472→      attributeDef = activePersona?.statsConfig?.attributes?.find(
+   473→        (a: AttributeDefinition) => a.key === attributeKey
+   474→      );
+   475→    } else {
+   476→      const character = state.characters.find((c: any) => c.id === characterId);
+   477→      attributeDef = character?.statsConfig?.attributes?.find(
+   478→        (a: AttributeDefinition) => a.key === attributeKey
+   479→      );
+   480→    }
+   481→
+   482→    // Clamp value to min/max bounds
+   483→    const clampedValue = clampAttributeValue(value, attributeDef);
+   484→    const clamped = clampedValue !== value;
+   485→
+   486→    // Log if clamping occurred
+   487→    if (clamped) {
+   488→      console.log(`[StatsSlice] Clamped ${attributeKey}: ${value} → ${clampedValue} (min: ${attributeDef?.min}, max: ${attributeDef?.max})`);
+   489→    }
+   490→
+   491→    // Detect threshold reached
+   492→    const thresholdsReached: ThresholdReachedInfo[] = [];
+   493→    
+   494→    if (attributeDef) {
+   495→      // V2: Evaluate new thresholdEffects (flexible conditions with priority)
+   496→      if (attributeDef.thresholdEffects && attributeDef.thresholdEffects.length > 0) {
+   497→        // Build a temporary session stats with the new value for evaluation
+   498→        const tempSessionStats: SessionStats = {
+   499→          ...sessionStats,
+   500→          characterStats: {
+   501→            ...sessionStats.characterStats,
+   502→            [characterId]: {
+   503→              ...stats,
+   504→              attributeValues: {
+   505→                ...stats.attributeValues,
+   506→                [attributeKey]: clampedValue,
+   507→              },
+   508→            },
+   509→          },
+   510→        };
+   511→        
+   512→        const matchingEffects = evaluateThresholdEffects(
+   513→          attributeDef.thresholdEffects,
+   514→          tempSessionStats,
+   515→          characterId
+   516→        );
+   517→        
+   518→        for (const effect of matchingEffects) {
+   519→          thresholdsReached.push({
+   520→            attributeKey: attributeDef.key,
+   521→            attributeName: attributeDef.name,
+   522→            thresholdType: 'custom',
+   523→            effectName: effect.name,
+   524→            effectId: effect.id,
+   525→            priority: effect.priority,
+   526→            rewards: effect.rewards,
+   527→          });
+   528→          console.log(`[StatsSlice] Threshold effect "${effect.name}" triggered for ${attributeDef.name} (priority: ${effect.priority})`);
+   529→        }
+   530→      }
+   531→      
+   532→      // Legacy: Check old onMinReached/onMaxReached (only if no thresholdEffects defined)
+   533→      if (!attributeDef.thresholdEffects || attributeDef.thresholdEffects.length === 0) {
+   534→        if (typeof clampedValue === 'number') {
+   535→          // Check if reached minimum
+   536→          if (attributeDef.min !== undefined && clampedValue === attributeDef.min) {
+   537→            if (attributeDef.onMinReached?.enabled && attributeDef.onMinReached.rewards.length > 0) {
+   538→              thresholdsReached.push({
+   539→                attributeKey: attributeDef.key,
+   540→                attributeName: attributeDef.name,
+   541→                thresholdType: 'min',
+   542→                thresholdValue: attributeDef.min,
+   543→                rewards: attributeDef.onMinReached.rewards,
+   544→              });
+   545→              console.log(`[StatsSlice] Threshold reached: ${attributeDef.name} hit minimum (${attributeDef.min})`);
+   546→            }
+   547→          }
+   548→          
+   549→          // Check if reached maximum
+   550→          if (attributeDef.max !== undefined && clampedValue === attributeDef.max) {
+   551→            if (attributeDef.onMaxReached?.enabled && attributeDef.onMaxReached.rewards.length > 0) {
+   552→              thresholdsReached.push({
+   553→                attributeKey: attributeDef.key,
+   554→                attributeName: attributeDef.name,
+   555→                thresholdType: 'max',
+   556→                thresholdValue: attributeDef.max,
+   557→                rewards: attributeDef.onMaxReached.rewards,
+   558→              });
+   559→              console.log(`[StatsSlice] Threshold reached: ${attributeDef.name} hit maximum (${attributeDef.max})`);
+   560→            }
+   561→          }
+   562→        }
+   563→      }
+   564→    }
+   565→
+   566→    // Build the updated state
+   567→    const updatedCharacterStats = {
+   568→      ...sessionStats.characterStats,
+   569→      [characterId]: {
+   570→        ...stats,
+   571→        attributeValues: {
+   572→          ...stats.attributeValues,
+   573→          [attributeKey]: clampedValue,
+   574→        },
+   575→        lastUpdated: {
+   576→          ...stats.lastUpdated,
+   577→          [attributeKey]: Date.now(),
+   578→        },
+   579→      },
+   580→    };
+   581→
+   582→    // Add to change log
+   583→    addChangeLogEntry(
+   584→      updatedCharacterStats[characterId],
+   585→      attributeDef,
+   586→      attributeKey,
+   587→      oldValue,
+   588→      clampedValue,
+   589→      reason
+   590→    );
+   591→    
+   592→    const newSessionStats: SessionStats = {
+   593→      ...sessionStats,
+   594→      characterStats: updatedCharacterStats,
+   595→      lastModified: Date.now(),
+   596→    };
+   597→    
+   598→    // Update the store
+   599→    set({
+   600→      sessions: state.sessions.map((s: any) =>
+   601→        s.id === sessionId
+   602→          ? { 
+   603→              ...s, 
+   604→              sessionStats: newSessionStats,
+   605→              updatedAt: new Date().toISOString() 
+   606→            }
+   607→          : s
+   608→      ),
+   609→    });
+   610→
+   611→    // Sync currency changes to persona (Inventory V2)
+   612→    // When currency is updated via quest rewards/triggers on __user__,
+   613→    // also update persona.currency so the InventoryPanel/HUD stay in sync
+   614→    if (characterId === '__user__' && attributeKey === 'currency' && typeof clampedValue === 'number') {
+   615→      try {
+   616→        const activePersonaId = (get() as any).activePersonaId;
+   617→        if (activePersonaId) {
+   618→          (get() as any).updatePersona?.(activePersonaId, { currency: clampedValue });
+   619→        }
+   620→      } catch { /* non-critical sync */ }
+   621→    }
+   622→
+   623→    // Refresh objective visibility since attribute conditions may have changed
+   624→    try {
+   625→      (get() as any).refreshAllObjectiveVisibility?.(sessionId);
+   626→    } catch { /* non-critical */ }
+   627→
+   628→    // Refresh activation conditions since attribute conditions may have changed
+   629→    try {
+   630→      (get() as any).refreshAllActivationConditions?.(sessionId);
+   631→    } catch { /* non-critical */ }
+   632→
+   633→    // Return result with threshold info
+   634→    return {
+   635→      oldValue,
+   636→      newValue: clampedValue,
+   637→      clamped,
+   638→      thresholdsReached,
+   639→    };
+   640→  },
+   641→
+   642→  batchUpdateCharacterStats: (sessionId, characterId, updates, reason = 'llm_detection') => {
+   643→    set((state: any) => {
+   644→      const sessions = state.sessions as Array<{
+   645→        id: string; 
+   646→        sessionStats?: SessionStats;
+   647→      }>;
+   648→      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+   649→      
+   650→      if (sessionIndex === -1) return state;
+   651→      
+   652→      const session = sessions[sessionIndex];
+   653→      let sessionStats = session.sessionStats;
+   654→      
+   655→      // Auto-initialize sessionStats if missing (includes event fields reset)
+   656→      if (!sessionStats) {
+   657→        sessionStats = {
+   658→          characterStats: {},
+   659→          solicitudes: {
+   660→            characterSolicitudes: {},
+   661→            lastModified: Date.now(),
+   662→          },
+   663→          ultimo_objetivo_completado: undefined,
+   664→          ultima_solicitud_completada: undefined,
+   665→          ultima_solicitud_realizada: undefined,
+   666→          ultima_accion_realizada: undefined,
+   667→          initialized: true,
+   668→          lastModified: Date.now(),
+   669→        };
+   670→      }
+   671→      
+   672→      // Auto-initialize character stats if missing
+   673→      if (!sessionStats.characterStats[characterId]) {
+   674→        let statsConfig: CharacterStatsConfig | undefined;
+   675→        if (characterId === '__user__') {
+   676→          // Look up active persona's statsConfig for __user__
+   677→          const activePersonaId = (state as any).activePersonaId;
+   678→          const personas: any[] = (state as any).personas || [];
+   679→          const activePersona = personas.find((p: any) => p.id === activePersonaId);
+   680→          statsConfig = activePersona?.statsConfig;
+   681→        } else {
+   682→          const character = state.characters.find((c: any) => c.id === characterId);
+   683→          statsConfig = character?.statsConfig;
+   684→        }
+   685→        let autoStats = createDefaultCharacterStats(statsConfig);
+   686→        // For persona (__user__), also initialize equipment slot values
+   687→        if (characterId === '__user__') {
+   688→          const equipmentSlots = (state as any).inventorySettings?.equipmentSlots;
+   689→          if (equipmentSlots && equipmentSlots.length > 0) {
+   690→            for (const slot of equipmentSlots) {
+   691→              if (!(slot.key in autoStats.attributeValues)) {
+   692→                autoStats.attributeValues[slot.key] = '';
+   693→                autoStats.lastUpdated[slot.key] = Date.now();
+   694→              }
+   695→            }
+   696→          }
+   697→        }
+   698→        sessionStats = {
+   699→          ...sessionStats,
+   700→          characterStats: {
+   701→            ...sessionStats.characterStats,
+   702→            [characterId]: autoStats,
+   703→          },
+   704→        };
+   705→      }
+   706→      
+   707→      const stats = sessionStats.characterStats[characterId];
+   708→      if (!stats) return state;
+   709→      
+   710→      // Look up statsConfig for the character (or persona for __user__)
+   711→      let statsConfig: CharacterStatsConfig | undefined;
+   712→      if (characterId === '__user__') {
+   713→        const activePersonaId = (state as any).activePersonaId;
+   714→        const personas: any[] = (state as any).personas || [];
+   715→        const activePersona = personas.find((p: any) => p.id === activePersonaId);
+   716→        statsConfig = activePersona?.statsConfig;
+   717→      } else {
+   718→        const character = state.characters.find((c: any) => c.id === characterId);
+   719→        statsConfig = character?.statsConfig;
+   720→      }
+   721→      const now = Date.now();
+   722→      
+   723→      // Apply all updates
+   724→      const newAttributeValues = { ...stats.attributeValues };
+   725→      const newLastUpdated = { ...stats.lastUpdated };
+   726→      const newChangeLog = [...(stats.changeLog || [])];
+   727→
+   728→      for (const update of updates) {
+   729→        const oldValue = newAttributeValues[update.attributeKey];
+   730→        const attributeDef = statsConfig?.attributes?.find(
+   731→          (a: AttributeDefinition) => a.key === update.attributeKey
+   732→        );
+   733→
+   734→        // Clamp value to min/max bounds
+   735→        const clampedValue = clampAttributeValue(update.value, attributeDef);
+   736→
+   737→        // Log if clamping occurred
+   738→        if (clampedValue !== update.value) {
+   739→          console.log(`[StatsSlice] Clamped ${update.attributeKey}: ${update.value} → ${clampedValue} (min: ${attributeDef?.min}, max: ${attributeDef?.max})`);
+   740→        }
+   741→
+   742→        newAttributeValues[update.attributeKey] = clampedValue;
+   743→        newLastUpdated[update.attributeKey] = now;
+   744→
+   745→        newChangeLog.push({
+   746→          attributeId: attributeDef?.id || update.attributeKey,
+   747→          attributeKey: update.attributeKey,
+   748→          attributeName: attributeDef?.name || update.attributeKey,
+   749→          oldValue: oldValue ?? '',
+   750→          newValue: clampedValue,
+   751→          reason,
+   752→          timestamp: now,
+   753→        });
+   754→      }
+   755→      
+   756→      // Keep only last 100 entries
+   757→      const trimmedChangeLog = newChangeLog.slice(-100);
+   758→      
+   759→      const updatedCharacterStats = {
+   760→        ...sessionStats.characterStats,
+   761→        [characterId]: {
+   762→          ...stats,
+   763→          attributeValues: newAttributeValues,
+   764→          lastUpdated: newLastUpdated,
+   765→          changeLog: trimmedChangeLog,
+   766→        },
+   767→      };
+   768→      
+   769→      const newSessionStats: SessionStats = {
+   770→        ...sessionStats,
+   771→        characterStats: updatedCharacterStats,
+   772→        lastModified: now,
+   773→      };
+   774→      
+   775→      return {
+   776→        sessions: state.sessions.map((s: any) =>
+   777→          s.id === sessionId
+   778→            ? { 
+   779→                ...s, 
+   780→                sessionStats: newSessionStats,
+   781→                updatedAt: new Date().toISOString() 
+   782→              }
+   783→            : s
+   784→        ),
+   785→      };
+   786→    });
+   787→
+   788→    // Refresh objective visibility since attribute conditions may have changed
+   789→    try {
+   790→      (get() as any).refreshAllObjectiveVisibility?.(sessionId);
+   791→    } catch { /* non-critical */ }
+   792→
+   793→    // Refresh activation conditions since attribute conditions may have changed
+   794→    try {
+   795→      (get() as any).refreshAllActivationConditions?.(sessionId);
+   796→    } catch { /* non-critical */ }
+   797→  },
+   798→
+   799→  resetCharacterStats: (sessionId, characterId, statsConfig) => {
+   800→    set((state: any) => {
+   801→      const sessions = state.sessions as Array<{ 
+   802→        id: string; 
+   803→        sessionStats?: SessionStats;
+   804→      }>;
+   805→      const session = sessions.find(s => s.id === sessionId);
+   806→      
+   807→      if (!session?.sessionStats) return state;
+   808→      
+   809→      const character = state.characters.find((c: any) => c.id === characterId);
+   810→      const newStats = createDefaultCharacterStats(statsConfig || character?.statsConfig);
+   811→      // For persona (__user__), also initialize equipment slot values
+   812→      if (characterId === '__user__') {
+   813→        const equipmentSlots = (state as any).inventorySettings?.equipmentSlots;
+   814→        if (equipmentSlots && equipmentSlots.length > 0) {
+   815→          for (const slot of equipmentSlots) {
+   816→            if (!(slot.key in newStats.attributeValues)) {
+   817→              newStats.attributeValues[slot.key] = '';
+   818→              newStats.lastUpdated[slot.key] = Date.now();
+   819→            }
+   820→          }
+   821→        }
+   822→      }
+   823→      
+   824→      const updatedCharacterStats = {
+   825→        ...session.sessionStats.characterStats,
+   826→        [characterId]: newStats,
+   827→      };
+   828→      
+   829→      const newSessionStats: SessionStats = {
+   830→        ...session.sessionStats,
+   831→        characterStats: updatedCharacterStats,
+   832→        lastModified: Date.now(),
+   833→      };
+   834→      
+   835→      return {
+   836→        sessions: state.sessions.map((s: any) =>
+   837→          s.id === sessionId
+   838→            ? { 
+   839→                ...s, 
+   840→                sessionStats: newSessionStats,
+   841→                updatedAt: new Date().toISOString() 
+   842→              }
+   843→            : s
+   844→        ),
+   845→      };
+   846→    });
+   847→
+   848→    // Refresh objective visibility since attribute values changed
+   849→    try {
+   850→      (get() as any).refreshAllObjectiveVisibility?.(sessionId);
+   851→    } catch { /* non-critical */ }
+   852→
+   853→    // Refresh activation conditions since attribute values changed
+   854→    try {
+   855→      (get() as any).refreshAllActivationConditions?.(sessionId);
+   856→    } catch { /* non-critical */ }
+   857→  },
+   858→
+   859→  clearSessionStats: (sessionId) => {
+   860→    set((state: any) => ({
+   861→      sessions: state.sessions.map((s: any) =>
+   862→        s.id === sessionId
+   863→          ? { 
+   864→              ...s, 
+   865→              sessionStats: undefined,
+   866→              updatedAt: new Date().toISOString() 
+   867→            }
+   868→          : s
+   869→      ),
+   870→    }));
+   871→  },
+   872→
+   873→  // ============================================
+   874→  // Getters
+   875→  // ============================================
+   876→
+   877→  getCharacterStats: (sessionId, characterId) => {
+   878→    const state = get();
+   879→    const sessions = state.sessions as Array<{ 
+   880→      id: string; 
+   881→      sessionStats?: SessionStats;
+   882→    }>;
+   883→    const session = sessions.find(s => s.id === sessionId);
+   884→    
+   885→    if (!session?.sessionStats) return null;
+   886→    
+   887→    return session.sessionStats.characterStats[characterId] || null;
+   888→  },
+   889→
+   890→  getAttributeValue: (sessionId, characterId, attributeKey) => {
+   891→    const state = get();
+   892→    const sessions = state.sessions as Array<{ 
+   893→      id: string; 
+   894→      sessionStats?: SessionStats;
+   895→    }>;
+   896→    const session = sessions.find(s => s.id === sessionId);
+   897→    
+   898→    if (!session?.sessionStats) return null;
+   899→    
+   900→    const stats = session.sessionStats.characterStats[characterId];
+   901→    if (!stats) return null;
+   902→    
+   903→    return stats.attributeValues[attributeKey] ?? null;
+   904→  },
+   905→
+   906→  // ============================================
+   907→  // Solicitud Management (Peticiones/Solicitudes)
+   908→  // ============================================
+   909→
+   910→  createSolicitud: (sessionId, targetCharacterId, solicitudData) => {
+   911→    const state = get();
+   912→    const sessions = state.sessions as Array<{ 
+   913→      id: string; 
+   914→      sessionStats?: SessionStats;
+   915→    }>;
+   916→    const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+   917→    
+   918→    if (sessionIndex === -1) return null;
+   919→    
+   920→    const session = sessions[sessionIndex];
+   921→    let sessionStats = session.sessionStats;
+   922→    
+   923→    // Auto-initialize sessionStats if missing (includes event fields)
+   924→    if (!sessionStats) {
+   925→      sessionStats = {
+   926→        characterStats: {},
+   927→        solicitudes: {
+   928→          characterSolicitudes: {},
+   929→          lastModified: Date.now(),
+   930→        },
+   931→        ultimo_objetivo_completado: undefined,
+   932→        ultima_solicitud_completada: undefined,
+   933→        ultima_solicitud_realizada: undefined,
+   934→        ultima_accion_realizada: undefined,
+   935→        initialized: true,
+   936→        lastModified: Date.now(),
+   937→      };
+   938→    }
+   939→    
+   940→    // Auto-initialize solicitudes if missing
+   941→    if (!sessionStats.solicitudes) {
+   942→      sessionStats = {
+   943→        ...sessionStats,
+   944→        solicitudes: {
+   945→          characterSolicitudes: {},
+   946→          lastModified: Date.now(),
+   947→        },
+   948→      };
+   949→    }
+   950→    
+   951→    // Create the new solicitud instance
+   952→    const newSolicitud: SolicitudInstance = {
+   953→      ...solicitudData,
+   954→      id: `solicitud-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+   955→      status: 'pending',
+   956→      createdAt: Date.now(),
+   957→    };
+   958→    
+   959→    console.log(`[createSolicitud] Creating solicitud with data:`, {
+   960→      key: solicitudData.key,
+   961→      peticionKey: solicitudData.peticionKey,
+   962→      fromCharacterId: solicitudData.fromCharacterId,
+   963→      targetCharacterId,
+   964→    });
+   965→    
+   966→    // Add to target character's solicitudes
+   967→    const currentSolicitudes = sessionStats.solicitudes.characterSolicitudes[targetCharacterId] || [];
+   968→    const updatedSolicitudes = [...currentSolicitudes, newSolicitud];
+   969→    const targetCharacterName = (get() as any).characters?.find(
+   970→      (c: { id: string }) => c.id === targetCharacterId
+   971→    )?.name;
+   972→    
+   973→    const newSessionStats: SessionStats = appendEventLogEntry({
+   974→      ...sessionStats,
+   975→      solicitudes: {
+   976→        characterSolicitudes: {
+   977→          ...sessionStats.solicitudes.characterSolicitudes,
+   978→          [targetCharacterId]: updatedSolicitudes,
+   979→        },
+   980→        lastModified: Date.now(),
+   981→      },
+   982→      // Save event for {{eventos}} key - peticion was activated
+   983→      ultima_solicitud_realizada: solicitudData.description,
+   984→      lastModified: Date.now(),
+   985→    }, {
+   986→      type: 'solicitud_created',
+   987→      description: solicitudData.description,
+   988→      characterId: solicitudData.fromCharacterId,
+   989→      characterName: solicitudData.fromCharacterName,
+   990→      targetName: targetCharacterName,
+   991→    });
+   992→    
+   993→    set((state: any) => ({
+   994→      sessions: state.sessions.map((s: any) =>
+   995→        s.id === sessionId
+   996→          ? { 
+   997→              ...s, 
+   998→              sessionStats: newSessionStats,
+   999→              updatedAt: new Date().toISOString() 
+  1000→            }
+  1001→          : s
+  1002→      ),
+  1003→    }));
+  1004→    
+  1005→    console.log(`[Solicitud] Created solicitud "${solicitudData.key}" for character ${targetCharacterId} from ${solicitudData.fromCharacterName}`);
+  1006→    return newSolicitud;
+  1007→  },
+  1008→
+  1009→  completeSolicitud: (sessionId, characterId, solicitudKey) => {
+  1010→    const state = get();
+  1011→    const sessions = state.sessions as Array<{ 
+  1012→      id: string; 
+  1013→      sessionStats?: SessionStats;
+  1014→    }>;
+  1015→    const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+  1016→    
+  1017→    if (sessionIndex === -1) return null;
+  1018→    
+  1019→    const session = sessions[sessionIndex];
+  1020→    const sessionStats = session.sessionStats;
+  1021→    
+  1022→    if (!sessionStats?.solicitudes?.characterSolicitudes?.[characterId]) {
+  1023→      return null;
+  1024→    }
+  1025→    
+  1026→    const solicitudes = sessionStats.solicitudes.characterSolicitudes[characterId];
+  1027→    const solicitudIndex = solicitudes.findIndex(
+  1028→      s => s.key === solicitudKey && s.status === 'pending'
+  1029→    );
+  1030→    
+  1031→    if (solicitudIndex === -1) {
+  1032→      console.log(`[Solicitud] No pending solicitud found with key "${solicitudKey}" for character ${characterId}`);
+  1033→      return null;
+  1034→    }
+  1035→    
+  1036→    // Mark as completed
+  1037→    const updatedSolicitudes = [...solicitudes];
+  1038→    const completedSolicitud = {
+  1039→      ...updatedSolicitudes[solicitudIndex],
+  1040→      status: 'completed' as const,
+  1041→      completedAt: Date.now(),
+  1042→    };
+  1043→    updatedSolicitudes[solicitudIndex] = completedSolicitud;
+  1044→    
+  1045→    const newSessionStats: SessionStats = appendEventLogEntry({
+  1046→      ...sessionStats,
+  1047→      solicitudes: {
+  1048→        characterSolicitudes: {
+  1049→          ...sessionStats.solicitudes.characterSolicitudes,
+  1050→          [characterId]: updatedSolicitudes,
+  1051→        },
+  1052→        lastModified: Date.now(),
+  1053→      },
+  1054→      // Save event for {{eventos}} key
+  1055→      ultima_solicitud_completada: completedSolicitud.completionDescription || 
+  1056→        `Solicitud "${solicitudKey}" completada por ${completedSolicitud.fromCharacterName}`,
+  1057→      lastModified: Date.now(),
+  1058→    }, {
+  1059→      type: 'solicitud_completed',
+  1060→      description: completedSolicitud.completionDescription ||
+  1061→        `Solicitud "${solicitudKey}" completada por ${completedSolicitud.fromCharacterName}`,
+  1062→      characterId,
+  1063→    });
+  1064→    
+  1065→    set((state: any) => ({
+  1066→      sessions: state.sessions.map((s: any) =>
+  1067→        s.id === sessionId
+  1068→          ? { 
+  1069→              ...s, 
+  1070→              sessionStats: newSessionStats,
+  1071→              updatedAt: new Date().toISOString() 
+  1072→            }
+  1073→          : s
+  1074→      ),
+  1075→    }));
+  1076→    
+  1077→    console.log(`[Solicitud] Completed solicitud "${solicitudKey}" for character ${characterId}`);
+  1078→    return completedSolicitud;
+  1079→  },
+  1080→
+  1081→  getPendingSolicitudes: (sessionId, characterId) => {
+  1082→    const state = get();
+  1083→    const sessions = state.sessions as Array<{ 
+  1084→      id: string; 
+  1085→      sessionStats?: SessionStats;
+  1086→    }>;
+  1087→    const session = sessions.find(s => s.id === sessionId);
+  1088→    
+  1089→    if (!session?.sessionStats?.solicitudes?.characterSolicitudes?.[characterId]) {
+  1090→      return [];
+  1091→    }
+  1092→    
+  1093→    return session.sessionStats.solicitudes.characterSolicitudes[characterId].filter(
+  1094→      s => s.status === 'pending'
+  1095→    );
+  1096→  },
+  1097→
+  1098→  // ============================================
+  1099→  // User Peticiones/Solicitudes Actions ({{user}})
+  1100→  // ============================================
+  1101→  // These actions allow the user to make peticiones and accept/reject solicitudes
+  1102→  // without injecting anything into the chat history.
+  1103→  // User ID is stored as '__user__' in the session stats.
+  1104→
+  1105→  /**
+  1106→   * Activate a peticion for the user
+  1107→   * Creates a SolicitudInstance for the target character directly
+  1108→   * (No chat message injection)
+  1109→   * 
+  1110→   * Returns null if a pending solicitud with the same key already exists for this target.
+  1111→   */
+  1112→  activateUserPeticion: (
+  1113→    sessionId: string,
+  1114→    targetCharacterId: string,
+  1115→    solicitudKey: string,
+  1116→    description: string,
+  1117→    completionDescription: string | undefined,
+  1118→    userName: string,
+  1119→    expirationTurns?: number,
+  1120→    expirationMinutes?: number
+  1121→  ) => {
+  1122→    const state = get();
+  1123→    const sessions = state.sessions as Array<{ 
+  1124→      id: string; 
+  1125→      sessionStats?: SessionStats;
+  1126→    }>;
+  1127→    const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+  1128→    
+  1129→    if (sessionIndex === -1) return null;
+  1130→    
+  1131→    const session = sessions[sessionIndex];
+  1132→    let sessionStats = session.sessionStats;
+  1133→    
+  1134→    // Auto-initialize sessionStats if missing (includes event fields)
+  1135→    if (!sessionStats) {
+  1136→      sessionStats = {
+  1137→        characterStats: {},
+  1138→        solicitudes: {
+  1139→          characterSolicitudes: {},
+  1140→          lastModified: Date.now(),
+  1141→        },
+  1142→        ultimo_objetivo_completado: undefined,
+  1143→        ultima_solicitud_completada: undefined,
+  1144→        ultima_solicitud_realizada: undefined,
+  1145→        ultima_accion_realizada: undefined,
+  1146→        initialized: true,
+  1147→        lastModified: Date.now(),
+  1148→      };
+  1149→    }
+  1150→    
+  1151→    // Auto-initialize solicitudes if missing
+  1152→    if (!sessionStats.solicitudes) {
+  1153→      sessionStats = {
+  1154→        ...sessionStats,
+  1155→        solicitudes: {
+  1156→          characterSolicitudes: {},
+  1157→          lastModified: Date.now(),
+  1158→        },
+  1159→      };
+  1160→    }
+  1161→    
+  1162→    // Check for duplicate pending solicitud with same key for same target
+  1163→    const existingSolicitudes = sessionStats.solicitudes.characterSolicitudes[targetCharacterId] || [];
+  1164→    const duplicateExists = existingSolicitudes.some(
+  1165→      s => s.key === solicitudKey && s.status === 'pending' && s.fromCharacterId === '__user__'
+  1166→    );
+  1167→    
+  1168→    if (duplicateExists) {
+  1169→      console.log(`[UserPeticion] Duplicate solicitud "${solicitudKey}" already exists for character ${targetCharacterId}`);
+  1170→      return null;
+  1171→    }
+  1172→    
+  1173→    // Create the new solicitud instance
+  1174→    const now = Date.now();
+  1175→    const currentTurn = get().getTurnCount?.(sessionId) || 0;
+  1176→    const newSolicitud: SolicitudInstance = {
+  1177→      id: `solicitud-user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+  1178→      key: solicitudKey,
+  1179→      fromCharacterId: '__user__',
+  1180→      fromCharacterName: userName || 'Usuario',
+  1181→      description,
+  1182→      completionDescription,
+  1183→      status: 'pending',
+  1184→      createdAt: now,
+  1185→      expiresAt: expirationMinutes && expirationMinutes > 0 ? now + expirationMinutes * 60 * 1000 : undefined,
+  1186→      expiresAtTurn: expirationTurns && expirationTurns > 0 ? currentTurn + expirationTurns : undefined,
+  1187→    };
+  1188→    
+  1189→    // Add to target character's solicitudes
+  1190→    const currentSolicitudes = sessionStats.solicitudes.characterSolicitudes[targetCharacterId] || [];
+  1191→    const updatedSolicitudes = [...currentSolicitudes, newSolicitud];
+  1192→    const targetCharacterName = (get() as any).characters?.find(
+  1193→      (c: { id: string }) => c.id === targetCharacterId
+  1194→    )?.name;
+  1195→    
+  1196→    const newSessionStats: SessionStats = appendEventLogEntry({
+  1197→      ...sessionStats,
+  1198→      solicitudes: {
+  1199→        characterSolicitudes: {
+  1200→          ...sessionStats.solicitudes.characterSolicitudes,
+  1201→          [targetCharacterId]: updatedSolicitudes,
+  1202→        },
+  1203→        lastModified: Date.now(),
+  1204→      },
+  1205→      // Save event for {{eventos}} key - user made a peticion to a character
+  1206→      ultima_solicitud_realizada: description,
+  1207→      lastModified: Date.now(),
+  1208→    }, {
+  1209→      type: 'solicitud_user',
+  1210→      description,
+  1211→      characterId: '__user__',
+  1212→      characterName: userName || 'Usuario',
+  1213→      targetName: targetCharacterName,
+  1214→    });
+  1215→    
+  1216→    set((state: any) => ({
+  1217→      sessions: state.sessions.map((s: any) =>
+  1218→        s.id === sessionId
+  1219→          ? { 
+  1220→              ...s, 
+  1221→              sessionStats: newSessionStats,
+  1222→              updatedAt: new Date().toISOString() 
+  1223→            }
+  1224→          : s
+  1225→      ),
+  1226→    }));
+  1227→    
+  1228→    console.log(`[UserPeticion] Created solicitud "${solicitudKey}" for character ${targetCharacterId}`);
+  1229→    return newSolicitud;
+  1230→  },
+  1231→
+  1232→  /**
+  1233→   * Accept a solicitud received by the user
+  1234→   * Marks the solicitud as completed directly (no chat injection)
+  1235→   */
+  1236→  acceptUserSolicitud: (sessionId, solicitudId) => {
+  1237→    const state = get();
+  1238→    const sessions = state.sessions as Array<{ 
+  1239→      id: string; 
+  1240→      sessionStats?: SessionStats;
+  1241→    }>;
+  1242→    const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+  1243→    
+  1244→    if (sessionIndex === -1) return null;
+  1245→    
+  1246→    const session = sessions[sessionIndex];
+  1247→    const sessionStats = session.sessionStats;
+  1248→    
+  1249→    // User's solicitudes are stored under '__user__'
+  1250→    if (!sessionStats?.solicitudes?.characterSolicitudes?.['__user__']) {
+  1251→      return null;
+  1252→    }
+  1253→    
+  1254→    const solicitudes = sessionStats.solicitudes.characterSolicitudes['__user__'];
+  1255→    const solicitudIndex = solicitudes.findIndex(
+  1256→      s => s.id === solicitudId && s.status === 'pending'
+  1257→    );
+  1258→    
+  1259→    if (solicitudIndex === -1) {
+  1260→      console.log(`[UserSolicitud] No pending solicitud found with id "${solicitudId}"`);
+  1261→      return null;
+  1262→    }
+  1263→    
+  1264→    // Mark as completed
+  1265→    const updatedSolicitudes = [...solicitudes];
+  1266→    const completedSolicitud = {
+  1267→      ...updatedSolicitudes[solicitudIndex],
+  1268→      status: 'completed' as const,
+  1269→      completedAt: Date.now(),
+  1270→    };
+  1271→    updatedSolicitudes[solicitudIndex] = completedSolicitud;
+  1272→    
+  1273→    const newSessionStats: SessionStats = {
+  1274→      ...sessionStats,
+  1275→      solicitudes: {
+  1276→        characterSolicitudes: {
+  1277→          ...sessionStats.solicitudes.characterSolicitudes,
+  1278→          ['__user__']: updatedSolicitudes,
+  1279→        },
+  1280→        lastModified: Date.now(),
+  1281→      },
+  1282→      // Save event for {{eventos}} key - use completionDescription if available
+  1283→      ultima_solicitud_completada: completedSolicitud.completionDescription || 
+  1284→        `${completedSolicitud.fromCharacterName} recibió respuesta del usuario`,
+  1285→      lastModified: Date.now(),
+  1286→    };
+  1287→    
+  1288→    set((state: any) => ({
+  1289→      sessions: state.sessions.map((s: any) =>
+  1290→        s.id === sessionId
+  1291→          ? { 
+  1292→              ...s, 
+  1293→              sessionStats: newSessionStats,
+  1294→              updatedAt: new Date().toISOString() 
+  1295→            }
+  1296→          : s
+  1297→      ),
+  1298→    }));
+  1299→    
+  1300→    console.log(`[UserSolicitud] Accepted solicitud "${completedSolicitud.key}"`);
+  1301→    return completedSolicitud;
+  1302→  },
+  1303→
+  1304→  /**
+  1305→   * Reject a solicitud received by the user
+  1306→   * Removes it from the list
+  1307→   */
+  1308→  rejectUserSolicitud: (sessionId, solicitudId) => {
+  1309→    const state = get();
+  1310→    const sessions = state.sessions as Array<{ 
+  1311→      id: string; 
+  1312→      sessionStats?: SessionStats;
+  1313→    }>;
+  1314→    const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+  1315→    
+  1316→    if (sessionIndex === -1) return false;
+  1317→    
+  1318→    const session = sessions[sessionIndex];
+  1319→    const sessionStats = session.sessionStats;
+  1320→    
+  1321→    // User's solicitudes are stored under '__user__'
+  1322→    if (!sessionStats?.solicitudes?.characterSolicitudes?.['__user__']) {
+  1323→      return false;
+  1324→    }
+  1325→    
+  1326→    const solicitudes = sessionStats.solicitudes.characterSolicitudes['__user__'];
+  1327→    const solicitud = solicitudes.find(s => s.id === solicitudId);
+  1328→    
+  1329→    if (!solicitud) {
+  1330→      return false;
+  1331→    }
+  1332→    
+  1333→    // Remove from list (mark as rejected by filtering out)
+  1334→    const updatedSolicitudes = solicitudes.filter(s => s.id !== solicitudId);
+  1335→    
+  1336→    const newSessionStats: SessionStats = {
+  1337→      ...sessionStats,
+  1338→      solicitudes: {
+  1339→        characterSolicitudes: {
+  1340→          ...sessionStats.solicitudes.characterSolicitudes,
+  1341→          ['__user__']: updatedSolicitudes,
+  1342→        },
+  1343→        lastModified: Date.now(),
+  1344→      },
+  1345→      lastModified: Date.now(),
+  1346→    };
+  1347→    
+  1348→    set((state: any) => ({
+  1349→      sessions: state.sessions.map((s: any) =>
+  1350→        s.id === sessionId
+  1351→          ? { 
+  1352→              ...s, 
+  1353→              sessionStats: newSessionStats,
+  1354→              updatedAt: new Date().toISOString() 
+  1355→            }
+  1356→          : s
+  1357→      ),
+  1358→    }));
+  1359→    
+  1360→    console.log(`[UserSolicitud] Rejected solicitud "${solicitud.key}"`);
+  1361→    return true;
+  1362→  },
+  1363→
+  1364→  /**
+  1365→   * Get pending solicitudes for the user
+  1366→   */
+  1367→  getPendingUserSolicitudes: (sessionId) => {
+  1368→    const state = get();
+  1369→    const sessions = state.sessions as Array<{ 
+  1370→      id: string; 
+  1371→      sessionStats?: SessionStats;
+  1372→    }>;
+  1373→    const session = sessions.find(s => s.id === sessionId);
+  1374→    
+  1375→    if (!session?.sessionStats?.solicitudes?.characterSolicitudes?.['__user__']) {
+  1376→      return [];
+  1377→    }
+  1378→    
+  1379→    return session.sessionStats.solicitudes.characterSolicitudes['__user__'].filter(
+  1380→      s => s.status === 'pending'
+  1381→    );
+  1382→  },
+  1383→
+  1384→  /**
+  1385→   * Expire solicitudes that have passed their expiration time or turn.
+  1386→   * Returns the list of solicitudes that were expired.
+  1387→   * Should be called after each LLM turn or on a timer.
+  1388→   */
+  1389→  expireSolicitudes: (sessionId, currentTurn) => {
+  1390→    const state = get();
+  1391→    const sessions = state.sessions as Array<{ 
+  1392→      id: string; 
+  1393→      sessionStats?: SessionStats;
+  1394→    }>;
+  1395→    const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+  1396→    
+  1397→    if (sessionIndex === -1) return [];
+  1398→    
+  1399→    const session = sessions[sessionIndex];
+  1400→    const sessionStats = session.sessionStats;
+  1401→    
+  1402→    if (!sessionStats?.solicitudes?.characterSolicitudes) return [];
+  1403→    
+  1404→    const now = Date.now();
+  1405→    const expiredSolicitudes: SolicitudInstance[] = [];
+  1406→    let hasChanges = false;
+  1407→    
+  1408→    const updatedCharacterSolicitudes: Record<string, SolicitudInstance[]> = {};
+  1409→    
+  1410→    for (const [charId, solicitudes] of Object.entries(sessionStats.solicitudes.characterSolicitudes)) {
+  1411→      const updatedSolicitudes = solicitudes.map(solicitud => {
+  1412→        if (solicitud.status !== 'pending') return solicitud;
+  1413→        
+  1414→        let isExpired = false;
+  1415→        
+  1416→        // Check time-based expiration
+  1417→        if (solicitud.expiresAt && now >= solicitud.expiresAt) {
+  1418→          isExpired = true;
+  1419→        }
+  1420→        
+  1421→        // Check turn-based expiration
+  1422→        if (solicitud.expiresAtTurn && currentTurn !== undefined && currentTurn >= solicitud.expiresAtTurn) {
+  1423→          isExpired = true;
+  1424→        }
+  1425→        
+  1426→        if (isExpired) {
+  1427→          hasChanges = true;
+  1428→          const expired = {
+  1429→            ...solicitud,
+  1430→            status: 'expired' as const,
+  1431→            completedAt: now,
+  1432→          };
+  1433→          expiredSolicitudes.push(expired);
+  1434→          return expired;
+  1435→        }
+  1436→        
+  1437→        return solicitud;
+  1438→      });
+  1439→      
+  1440→      updatedCharacterSolicitudes[charId] = updatedSolicitudes;
+  1441→    }
+  1442→    
+  1443→    if (!hasChanges) return [];
+  1444→    
+  1445→    const newSessionStats: SessionStats = {
+  1446→      ...sessionStats,
+  1447→      solicitudes: {
+  1448→        characterSolicitudes: updatedCharacterSolicitudes,
+  1449→        lastModified: now,
+  1450→      },
+  1451→      lastModified: now,
+  1452→    };
+  1453→    
+  1454→    set((state: any) => ({
+  1455→      sessions: state.sessions.map((s: any) =>
+  1456→        s.id === sessionId
+  1457→          ? { 
+  1458→              ...s, 
+  1459→              sessionStats: newSessionStats,
+  1460→              updatedAt: new Date().toISOString() 
+  1461→            }
+  1462→          : s
+  1463→      ),
+  1464→    }));
+  1465→    
+  1466→    if (expiredSolicitudes.length > 0) {
+  1467→      console.log(`[Solicitud] Expired ${expiredSolicitudes.length} solicitudes in session ${sessionId}`);
+  1468→    }
+  1469→    
+  1470→    return expiredSolicitudes;
+  1471→  },
+  1472→
+  1473→  /**
+  1474→   * Update session event (for {{eventos}} key)
+  1475→   * Saves recent important events to session stats
+  1476→   */
+  1477→  updateSessionEvent: (sessionId, eventType, description) => {
+  1478→    set((state: any) => {
+  1479→      const sessions = state.sessions as Array<{ 
+  1480→        id: string; 
+  1481→        sessionStats?: SessionStats;
+  1482→      }>;
+  1483→      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+  1484→      
+  1485→      if (sessionIndex === -1) return state;
+  1486→      
+  1487→      const session = sessions[sessionIndex];
+  1488→      let sessionStats = session.sessionStats;
+  1489→      
+  1490→      // Auto-initialize sessionStats if missing (includes event fields)
+  1491→      if (!sessionStats) {
+  1492→        sessionStats = {
+  1493→          characterStats: {},
+  1494→          solicitudes: {
+  1495→            characterSolicitudes: {},
+  1496→            lastModified: Date.now(),
+  1497→          },
+  1498→          ultimo_objetivo_completado: undefined,
+  1499→          ultima_solicitud_completada: undefined,
+  1500→          ultima_solicitud_realizada: undefined,
+  1501→          ultima_accion_realizada: undefined,
+  1502→          ultima_accion_character: undefined,
+  1503→          initialized: true,
+  1504→          lastModified: Date.now(),
+  1505→        };
+  1506→      }
+  1507→      
+  1508→      // Update the specific event field
+  1509→      let newSessionStats: SessionStats = {
+  1510→        ...sessionStats,
+  1511→        [eventType]: description,
+  1512→        lastModified: Date.now(),
+  1513→      };
+  1514→
+  1515→      // Push to the event log ring buffer ({{eventos}} history)
+  1516→      try {
+  1517→        const turn = get().getTurnCount?.(sessionId) || undefined;
+  1518→        if (eventType === 'ultimo_objetivo_completado') {
+  1519→          newSessionStats = appendEventLogEntry(newSessionStats, {
+  1520→            type: 'quest_objective', description, turn,
+  1521→          });
+  1522→        } else if (eventType === 'ultima_solicitud_realizada') {
+  1523→          newSessionStats = appendEventLogEntry(newSessionStats, {
+  1524→            type: 'solicitud_created', description, turn,
+  1525→          });
+  1526→        } else if (eventType === 'ultima_solicitud_completada') {
+  1527→          newSessionStats = appendEventLogEntry(newSessionStats, {
+  1528→            type: 'solicitud_completed', description, turn,
+  1529→          });
+  1530→        } else if (eventType === 'ultima_accion_character') {
+  1531→          // Arrives right after 'ultima_accion_realizada' — build the full entry here
+  1532→          const actionDesc = sessionStats.ultima_accion_realizada || newSessionStats.ultima_accion_realizada;
+  1533→          if (actionDesc) {
+  1534→            newSessionStats = appendEventLogEntry(newSessionStats, {
+  1535→              type: 'action',
+  1536→              description: actionDesc,
+  1537→              characterName: description, // description param carries the author name here
+  1538→              turn,
+  1539→            });
+  1540→          }
+  1541→        }
+  1542→      } catch (e) {
+  1543→        console.warn('[SessionEvent] Failed to append event log entry:', e);
+  1544→      }
+  1545→      
+  1546→      return {
+  1547→        sessions: state.sessions.map((s: any) =>
+  1548→          s.id === sessionId
+  1549→            ? { 
+  1550→                ...s, 
+  1551→                sessionStats: newSessionStats,
+  1552→                updatedAt: new Date().toISOString() 
+  1553→              }
+  1554→            : s
+  1555→        ),
+  1556→      };
+  1557→    });
+  1558→    
+  1559→    console.log(`[SessionEvent] Updated ${eventType}: ${description}`);
+  1560→  },
+  1561→
+  1562→  /**
+  1563→   * Push a custom entry into the session event log ({{eventos}} ring buffer).
+  1564→   */
+  1565→  pushSessionEvent: (sessionId, entry) => {
+  1566→    set((state: any) => {
+  1567→      const sessions = state.sessions as Array<{
+  1568→        id: string;
+  1569→        sessionStats?: SessionStats;
+  1570→      }>;
+  1571→      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+  1572→      if (sessionIndex === -1) return state;
+  1573→
+  1574→      const session = sessions[sessionIndex];
+  1575→      if (!session.sessionStats) return state; // events require initialized stats
+  1576→
+  1577→      const turn = get().getTurnCount?.(sessionId) || undefined;
+  1578→      const newSessionStats = appendEventLogEntry(session.sessionStats, { ...entry, turn });
+  1579→
+  1580→      return {
+  1581→        sessions: state.sessions.map((s: any) =>
+  1582→          s.id === sessionId
+  1583→            ? {
+  1584→                ...s,
+  1585→                sessionStats: newSessionStats,
+  1586→                updatedAt: new Date().toISOString(),
+  1587→              }
+  1588→            : s
+  1589→        ),
+  1590→      };
+  1591→    });
+  1592→
+  1593→    console.log(`[SessionEvent] Pushed ${entry.type}: ${entry.description}`);
+  1594→  },
+  1595→
+  1596→  /**
+  1597→   * Update a relationship bond (a↔b), mirror it into both parties'
+  1598→   * attributeValues and log the event.
+  1599→   */
+  1600→  updateRelationship: (sessionId, aId, bId, updates, names) => {
+  1601→    const result = ((): { points: number; stageKey: string; stageLabel: string; pairKey: string; prevPoints: number } | null => {
+  1602→      const state = get();
+  1603→      const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+  1604→      const session = sessions.find(s => s.id === sessionId);
+  1605→      if (!session?.sessionStats) return null;
+  1606→
+  1607→      const sessionStats = session.sessionStats;
+  1608→      const pairKey = relationshipPairKey(aId, bId);
+  1609→      const prev = (sessionStats.relationships?.[pairKey]?.points) ?? DEFAULT_RELATIONSHIP_POINTS;
+  1610→      const raw = typeof updates.set === 'number' ? updates.set : prev + (updates.delta ?? 0);
+  1611→      const points = clampRelationshipPoints(raw);
+  1612→      const stage = computeRelationshipStage(points);
+  1613→
+  1614→      const bond: import('@/types').SessionRelationship = {
+  1615→        pairKey,
+  1616→        aId,
+  1617→        bId,
+  1618→        points,
+  1619→        lastChangedAt: Date.now(),
+  1620→        lastReason: updates.reason,
+  1621→      };
+  1622→
+  1623→      // Mirror into both parties' attributeValues (creates CharacterSessionStats if missing)
+  1624→      const characterStats: SessionStats['characterStats'] = { ...sessionStats.characterStats };
+  1625→      for (const id of [aId, bId]) {
+  1626→        const existing = characterStats[id] || { attributeValues: {}, lastUpdated: {} };
+  1627→        characterStats[id] = {
+  1628→          ...existing,
+  1629→          attributeValues: {
+  1630→            ...existing.attributeValues,
+  1631→            [RELATIONSHIP_MIRROR_KEY]: points,
+  1632→            [RELATIONSHIP_STAGE_KEY]: stage.label,
+  1633→          },
+  1634→          lastUpdated: {
+  1635→            ...existing.lastUpdated,
+  1636→            [RELATIONSHIP_MIRROR_KEY]: Date.now(),
+  1637→            [RELATIONSHIP_STAGE_KEY]: Date.now(),
+  1638→          },
+  1639→        };
+  1640→      }
+  1641→
+  1642→      const aName = names?.aName || (state as any).characters?.find((c: any) => c.id === aId)?.name || aId;
+  1643→      const bName = names?.bName || (state as any).characters?.find((c: any) => c.id === bId)?.name || (bId === '__user__' ? (get() as any).personas?.find?.((p: any) => p.isActive)?.name || 'Usuario' : bId);
+  1644→      const direction = points > prev ? 'mejoró' : points < prev ? 'empeoró' : 'se mantuvo';
+  1645→      const eventDesc = `La relación entre ${aName} y ${bName} ${direction}: ${stage.label} (${points}/100)${updates.reason ? ` — ${updates.reason}` : ''}`;
+  1646→
+  1647→      let newSessionStats: SessionStats = {
+  1648→        ...sessionStats,
+  1649→        characterStats,
+  1650→        relationships: { ...(sessionStats.relationships || {}), [pairKey]: bond },
+  1651→      };
+  1652→      newSessionStats = appendEventLogEntry(newSessionStats, {
+  1653→        type: 'relationship',
+  1654→        description: eventDesc,
+  1655→        characterId: aId,
+  1656→        characterName: aName,
+  1657→        targetName: bName,
+  1658→      });
+  1659→
+  1660→      set((state: any) => ({
+  1661→        sessions: state.sessions.map((s: any) =>
+  1662→          s.id === sessionId
+  1663→            ? { ...s, sessionStats: newSessionStats, updatedAt: new Date().toISOString() }
+  1664→            : s
+  1665→        ),
+  1666→      }));
+  1667→
+  1668→      console.log(`[Relationship] ${aName} ↔ ${bName}: ${prev} → ${points} (${stage.label})`);
+  1669→      return { points, stageKey: stage.key, stageLabel: stage.label, pairKey, prevPoints: prev };
+  1670→    })();
+  1671→
+  1672→    return result;
+  1673→  },
+  1674→
+  1675→  // ============================================
+  1676→  // World Time
+  1677→  // ============================================
+  1678→  advanceWorldTime: (sessionId, turns = 1) => {
+  1679→    const result = ((): WorldClock | null => {
+  1680→      const state = get();
+  1681→      const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+  1682→      const session = sessions.find(s => s.id === sessionId);
+  1683→      if (!session?.sessionStats) return null;
+  1684→
+  1685→      const prevClock = session.sessionStats.worldClock || createDefaultWorldClock();
+  1686→      if (!prevClock.enabled) return prevClock;
+  1687→
+  1688→      // Real-time catch-up first (if enabled), then turn advance
+  1689→      let nextClock = catchUpRealTime(prevClock);
+  1690→      const prevMoment = computeMoment(computeHour(prevClock.totalMinutes));
+  1691→      nextClock = worldAdvanceMinutes(nextClock, (turns || 1) * (prevClock.minutesPerTurn || 20));
+  1692→      const nextMoment = computeMoment(computeHour(nextClock.totalMinutes));
+  1693→
+  1694→      // Mirror into __user__ stats (single source for lorebook/sprite gating)
+  1695→      const userStats = session.sessionStats.characterStats['__user__'] || { attributeValues: {}, lastUpdated: {} };
+  1696→      const characterStats: SessionStats['characterStats'] = {
+  1697→        ...session.sessionStats.characterStats,
+  1698→        '__user__': {
+  1699→          ...userStats,
+  1700→          attributeValues: { ...userStats.attributeValues, ...worldClockAttributes(nextClock) },
+  1701→          lastUpdated: { ...userStats.lastUpdated },
+  1702→        },
+  1703→      };
+  1704→
+  1705→      let newSessionStats: SessionStats = {
+  1706→        ...session.sessionStats,
+  1707→        characterStats,
+  1708→        worldClock: nextClock,
+  1709→      };
+  1710→
+  1711→      // Log moment transitions only (avoids event-log spam every turn)
+  1712→      if (prevMoment !== nextMoment) {
+  1713→        newSessionStats = appendEventLogEntry(newSessionStats, {
+  1714→          type: 'custom',
+  1715→          description: `El tiempo pasa: ahora es ${nextMoment} (${formatWorldClock(nextClock)})`,
+  1716→        });
+  1717→      }
+  1718→
+  1719→      set((state: any) => ({
+  1720→        sessions: state.sessions.map((s: any) =>
+  1721→          s.id === sessionId ? { ...s, sessionStats: newSessionStats, updatedAt: new Date().toISOString() } : s
+  1722→        ),
+  1723→      }));
+  1724→
+  1725→      return nextClock;
+  1726→    })();
+  1727→
+  1728→    return result;
+  1729→  },
+  1730→
+  1731→  setWorldTime: (sessionId, updates) => {
+  1732→    const result = ((): WorldClock | null => {
+  1733→      const state = get();
+  1734→      const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+  1735→      const session = sessions.find(s => s.id === sessionId);
+  1736→      if (!session?.sessionStats) return null;
+  1737→
+  1738→      const prevClock = session.sessionStats.worldClock || createDefaultWorldClock();
+  1739→      let nextClock: WorldClock = { ...prevClock };
+  1740→
+  1741→      if (typeof updates.minutes === 'number' && updates.minutes > 0) {
+  1742→        nextClock = worldAdvanceMinutes(nextClock, updates.minutes);
+  1743→      }
+  1744→      if (typeof updates.hour === 'number') {
+  1745→        nextClock = setToHour(nextClock, updates.hour, updates.minute ?? 0);
+  1746→      }
+  1747→      if (typeof updates.season === 'string' && updates.season.trim()) {
+  1748→        nextClock.season = updates.season.trim().toLowerCase();
+  1749→      }
+  1750→      if (typeof updates.realTimeSync === 'boolean') {
+  1751→        nextClock.realTimeSync = updates.realTimeSync;
+  1752→        nextClock.lastRealSync = Date.now();
+  1753→      }
+  1754→      if (typeof updates.minutesPerTurn === 'number' && updates.minutesPerTurn > 0) {
+  1755→        nextClock.minutesPerTurn = updates.minutesPerTurn;
+  1756→      }
+  1757→      if (typeof updates.enabled === 'boolean') {
+  1758→        nextClock.enabled = updates.enabled;
+  1759→      }
+  1760→
+  1761→      const userStats = session.sessionStats.characterStats['__user__'] || { attributeValues: {}, lastUpdated: {} };
+  1762→      const characterStats: SessionStats['characterStats'] = {
+  1763→        ...session.sessionStats.characterStats,
+  1764→        '__user__': {
+  1765→          ...userStats,
+  1766→          attributeValues: { ...userStats.attributeValues, ...worldClockAttributes(nextClock) },
+  1767→          lastUpdated: { ...userStats.lastUpdated },
+  1768→        },
+  1769→      };
+  1770→
+  1771→      let newSessionStats: SessionStats = {
+  1772→        ...session.sessionStats,
+  1773→        characterStats,
+  1774→        worldClock: nextClock,
+  1775→      };
+  1776→      newSessionStats = appendEventLogEntry(newSessionStats, {
+  1777→        type: 'custom',
+  1778→        description: `El tiempo del mundo cambia: ${formatWorldClock(nextClock)}`,
+  1779→      });
+  1780→
+  1781→      set((state: any) => ({
+  1782→        sessions: state.sessions.map((s: any) =>
+  1783→          s.id === sessionId ? { ...s, sessionStats: newSessionStats, updatedAt: new Date().toISOString() } : s
+  1784→        ),
+  1785→      }));
+  1786→
+  1787→      return nextClock;
+  1788→    })();
+  1789→
+  1790→    return result;
+  1791→  },
+  1792→
+  1793→  getWorldClock: (sessionId) => {
+  1794→    const state = get();
+  1795→    const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+  1796→    const session = sessions.find(s => s.id === sessionId);
+  1797→    return session?.sessionStats?.worldClock || null;
+  1798→  },
+  1799→
+  1800→  // ============================================
+  1801→  // Timer System (automatic attribute changes over time)
+  1802→  // ============================================
+  1803→
+  1804→  processTimerTicks: (sessionId, characterId, statsConfig) => {
+  1805→    const state = get();
+  1806→    const sessions = state.sessions as Array<{
+  1807→      id: string;
+  1808→      sessionStats?: SessionStats;
+  1809→    }>;
+  1810→    const session = sessions.find(s => s.id === sessionId);
+  1811→
+  1812→    if (!session?.sessionStats) return null;
+  1813→
+  1814→    // Check if timer is enabled
+  1815→    if (!statsConfig.timerEnabled) return null;
+  1816→
+  1817→    // Evaluate timer ticks
+  1818→    const result = evaluateTimerTicks(statsConfig, session.sessionStats, characterId);
+  1819→
+  1820→    if (result.updates.length === 0) {
+  1821→      // No updates needed — preserve lastTimerUpdate for fractional progress
+  1822→      // Only update if timer state changed (e.g., newLastTimerUpdate advanced from consumed ticks)
+  1823→      const currentLastTimerUpdate = session.sessionStats.lastTimerUpdate;
+  1824→      if (result.newLastTimerUpdate !== currentLastTimerUpdate) {
+  1825→        set((state: any) => ({
+  1826→          sessions: state.sessions.map((s: any) =>
+  1827→            s.id === sessionId
+  1828→              ? {
+  1829→                  ...s,
+  1830→                  sessionStats: {
+  1831→                    ...s.sessionStats,
+  1832→                    lastTimerUpdate: result.newLastTimerUpdate,
+  1833→                    keywordCycleIndex: {
+  1834→                      ...s.sessionStats?.keywordCycleIndex,
+  1835→                      ...result.newCycleIndex,
+  1836→                    },
+  1837→                  },
+  1838→                  updatedAt: new Date().toISOString(),
+  1839→                }
+  1840→              : s
+  1841→          ),
+  1842→        }));
+  1843→      }
+  1844→      return result;
+  1845→    }
+  1846→
+  1847→    // Apply all updates via batchUpdateCharacterStats
+  1848→    const storeActions = {
+  1849→      updateCharacterStat: get().updateCharacterStat,
+  1850→    };
+  1851→
+  1852→    // Apply each update individually to get proper clamping, logging, and threshold detection
+  1853→    for (const update of result.updates) {
+  1854→      storeActions.updateCharacterStat(
+  1855→        sessionId,
+  1856→        characterId,
+  1857→        update.attributeKey,
+  1858→        update.value,
+  1859→        'timer'
+  1860→      );
+  1861→    }
+  1862→
+  1863→    // Update timer state (lastTimerUpdate + keywordCycleIndex)
+  1864→    set((state: any) => {
+  1865→      const sessions = state.sessions as Array<{
+  1866→        id: string;
+  1867→        sessionStats?: SessionStats;
+  1868→      }>;
+  1869→      const session = sessions.find(s => s.id === sessionId);
+  1870→      if (!session?.sessionStats) return state;
+  1871→
+  1872→      const newSessionStats: SessionStats = {
+  1873→        ...session.sessionStats,
+  1874→        lastTimerUpdate: result.newLastTimerUpdate,
+  1875→        keywordCycleIndex: {
+  1876→          ...session.sessionStats.keywordCycleIndex,
+  1877→          ...result.newCycleIndex,
+  1878→        },
+  1879→        lastModified: Date.now(),
+  1880→      };
+  1881→
+  1882→      return {
+  1883→        sessions: state.sessions.map((s: any) =>
+  1884→          s.id === sessionId
+  1885→            ? {
+  1886→                ...s,
+  1887→                sessionStats: newSessionStats,
+  1888→                updatedAt: new Date().toISOString(),
+  1889→              }
+  1890→            : s
+  1891→        ),
+  1892→      };
+  1893→    });
+  1894→
+  1895→    // Log timer results
+  1896→    if (result.details.length > 0) {
+  1897→      console.log(`[Timer] Processed ${result.details.length} timer updates for character ${characterId}:`);
+  1898→      for (const detail of result.details) {
+  1899→        console.log(`  ${detail.attributeName}: ${detail.oldValue} → ${detail.newValue} (${detail.operation})`);
+  1900→      }
+  1901→    }
+  1902→
+  1903→    return result;
+  1904→  },
+  1905→
+  1906→  startSessionTimer: (sessionId, characterId, statsConfig) => {
+  1907→    // First, process any accumulated ticks from offline time for this character
+  1908→    get().processTimerTicks(sessionId, characterId, statsConfig);
+  1909→
+  1910→    // Check if timer should run
+  1911→    if (!hasActiveTimers(statsConfig)) {
+  1912→      console.log(`[Timer] No active timers for character ${characterId}, not starting periodic timer`);
+  1913→      return;
+  1914→    }
+  1915→
+  1916→    // Get tick interval from config (default 60 seconds)
+  1917→    const tickSeconds = statsConfig.timerTickSeconds || 60;
+  1918→
+  1919→    // Store timer reference
+  1920→    const timerKey = `timer_${sessionId}`;
+  1921→    const existingInterval = (get() as any)._timerIntervals?.[timerKey];
+  1922→    if (existingInterval) {
+  1923→      // Timer already running for this session - check if we need a faster interval
+  1924→      const existingTickSeconds = (get() as any)._timerTickSeconds?.[timerKey] || 60;
+  1925→      if (tickSeconds < existingTickSeconds) {
+  1926→        // Restart with the faster interval to honor this character's requirement
+  1927→        clearInterval(existingInterval);
+  1928→        console.log(`[Timer] Restarting timer for session ${sessionId} with faster interval: ${existingTickSeconds}s → ${tickSeconds}s`);
+  1929→      } else {
+  1930→        // Existing interval is fast enough, no need to restart
+  1931→        console.log(`[Timer] Timer already running for session ${sessionId} at ${existingTickSeconds}s, requested ${tickSeconds}s is slower or equal`);
+  1932→        return;
+  1933→      }
+  1934→    }
+  1935→
+  1936→    const intervalId = setInterval(() => {
+  1937→      // Process timer ticks for ALL characters in this session that have timerEnabled
+  1938→      const currentState = get();
+  1939→      const currentSession = (currentState.sessions as any[])?.find((s: any) => s.id === sessionId);
+  1940→      if (!currentSession) {
+  1941→        get().stopSessionTimer(sessionId);
+  1942→        return;
+  1943→      }
+  1944→
+  1945→      let anyTimerActive = false;
+  1946→
+  1947→      // Collect all character IDs that have stats in this session
+  1948→      const charIds = Object.keys(currentSession.sessionStats?.characterStats || {});
+  1949→      for (const charId of charIds) {
+  1950→        if (charId === '__user__') continue; // Skip persona
+  1951→        const charStatsConfig = currentState.characters?.find((c: any) => c.id === charId)?.statsConfig;
+  1952→        if (charStatsConfig?.timerEnabled && hasActiveTimers(charStatsConfig)) {
+  1953→          get().processTimerTicks(sessionId, charId, charStatsConfig);
+  1954→          anyTimerActive = true;
+  1955→        }
+  1956→      }
+  1957→
+  1958→      // If no timers are active anymore, stop the interval
+  1959→      if (!anyTimerActive) {
+  1960→        console.log(`[Timer] No active timers remaining for session ${sessionId}, stopping`);
+  1961→        get().stopSessionTimer(sessionId);
+  1962→      }
+  1963→    }, tickSeconds * 1000);
+  1964→
+  1965→    // Store interval reference
+  1966→    set((state: any) => ({
+  1967→      ...state,
+  1968→      _timerIntervals: {
+  1969→        ...(state._timerIntervals || {}),
+  1970→        [timerKey]: intervalId,
+  1971→      },
+  1972→      _timerTickSeconds: {
+  1973→        ...(state._timerTickSeconds || {}),
+  1974→        [timerKey]: tickSeconds,
+  1975→      },
+  1976→      _timerRunning: {
+  1977→        ...(state._timerRunning || {}),
+  1978→        [sessionId]: true,
+  1979→      },
+  1980→    }));
+  1981→
+  1982→    console.log(`[Timer] Started session timer for ${sessionId} (tick: ${tickSeconds}s)`);
+  1983→  },
+  1984→
+  1985→  stopSessionTimer: (sessionId) => {
+  1986→    const timerKey = `timer_${sessionId}`;
+  1987→    const state = get();
+  1988→    const intervalId = (state as any)._timerIntervals?.[timerKey];
+  1989→
+  1990→    if (intervalId) {
+  1991→      clearInterval(intervalId);
+  1992→      set((state: any) => {
+  1993→        const newIntervals = { ...(state._timerIntervals || {}) };
+  1994→        delete newIntervals[timerKey];
+  1995→        const newTickSeconds = { ...(state._timerTickSeconds || {}) };
+  1996→        delete newTickSeconds[timerKey];
+  1997→        const newRunning = { ...(state._timerRunning || {}) };
+  1998→        delete newRunning[sessionId];
+  1999→        return {
+  2000→          _timerIntervals: newIntervals,
+
+[showing lines 1-2000 of 2168; use offset=2001 with limit to continue reading]

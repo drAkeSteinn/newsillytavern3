@@ -1,5 +1,5 @@
 {
-  "activeAtmospherePresetId": "snowy-wonderland",
+  "activeAtmospherePresetId": "clear",
   "atmosphereSettings": {
     "enabled": true,
     "intensity": 0.5,

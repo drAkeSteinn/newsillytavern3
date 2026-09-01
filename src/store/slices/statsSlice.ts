@@ -213,6 +213,12 @@ export interface StatsSlice {
     sessionId: string,
     characterId: string
   ) => string | null;
+
+  // FASE 12: Wardrobe System — manage wardrobe offset per character
+  /** Update the wardrobe offset for a character (called by manage_wardrobe tool SSE handler). */
+  updateWardrobeOffset: (sessionId: string, characterId: string, newOffset: number) => void;
+  /** Get the current wardrobe offset for a character (default: 0). */
+  getWardrobeOffset: (sessionId: string, characterId: string) => number;
 }
 
 // ============================================
@@ -2055,6 +2061,45 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     if (!session?.sessionStats) return null;
 
     return session.sessionStats.characterStats?.[characterId]?.emotionalState || null;
+  },
+
+  // FASE 12: Update wardrobe offset for a character (manage_wardrobe tool)
+  updateWardrobeOffset: (sessionId, characterId, newOffset) => {
+    const state = get();
+    const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session?.sessionStats) return;
+
+    const charStats = session.sessionStats.characterStats?.[characterId];
+    if (!charStats) {
+      // Character not in session stats — initialize wardrobe offset
+      console.warn(`[Wardrobe] Character ${characterId} not found in session stats, cannot update offset`);
+      return;
+    }
+
+    const previousOffset = charStats.wardrobeOffset ?? 0;
+    if (previousOffset === newOffset) return; // No change
+
+    charStats.wardrobeOffset = newOffset;
+    session.sessionStats.lastModified = Date.now();
+
+    set((state: any) => ({
+      sessions: state.sessions.map((s: any) =>
+        s.id === sessionId
+          ? { ...s, sessionStats: session.sessionStats, updatedAt: new Date().toISOString() }
+          : s
+      ),
+    }));
+
+    console.log(`[Wardrobe] ${characterId}: offset ${previousOffset >= 0 ? '+' : ''}${previousOffset} → ${newOffset >= 0 ? '+' : ''}${newOffset}`);
+  },
+
+  // FASE 12: Get wardrobe offset for a character
+  getWardrobeOffset: (sessionId, characterId) => {
+    const state = get();
+    const session = state.sessions?.[sessionId];
+    if (!session?.sessionStats) return 0;
+    return session.sessionStats.characterStats?.[characterId]?.wardrobeOffset ?? 0;
   },
 });
 

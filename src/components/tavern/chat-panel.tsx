@@ -102,16 +102,27 @@ export function ChatPanel() {
 
   // Ensure memory namespaces exist when session is restored from localStorage
   // setActiveSession calls ensure-namespace, but on app restore the session is already
-  // active without calling setActiveSession, so we ensure namespaces here
+  // active without calling setActiveSession, so we ensure namespaces here.
+  //
+  // PERF FIX: Only call ensure-namespace when embeddings are actually enabled.
+  // Previously this fired on every session restore regardless of the embeddings setting,
+  // which loaded the 267MB LanceDB native binary into the Node process for no reason
+  // (embeddings default to OFF).
   useEffect(() => {
     if (!activeSessionId) return;
 
     const ensureNamespaces = async () => {
       try {
-        const session = useTavernStore.getState().getSessionById(activeSessionId);
+        const state = useTavernStore.getState();
+        const embeddingsEnabled = (state.settings as any)?.embeddingsChat?.enabled === true;
+        if (!embeddingsEnabled) {
+          // Embeddings are disabled — skip loading LanceDB entirely
+          return;
+        }
+
+        const session = state.getSessionById(activeSessionId);
         if (!session) return;
 
-        const state = useTavernStore.getState();
         let memberIds: string[] = [];
         let memberNames: string[] = [];
 
@@ -153,11 +164,17 @@ export function ChatPanel() {
   }, [activeSessionId]);
 
   // Garbage collection: Clean up orphaned memory namespaces on mount
-  // Orphaned = memory-* namespaces whose session no longer exists in the store
+  // Orphaned = memory-* namespaces whose session no longer exists in the store.
+  //
+  // PERF FIX: Only run cleanup when embeddings are enabled — otherwise this also
+  // loads the LanceDB native binary (267MB) for no benefit.
   useEffect(() => {
     const cleanupOrphanedNamespaces = async () => {
       try {
         const state = useTavernStore.getState();
+        const embeddingsEnabled = (state.settings as any)?.embeddingsChat?.enabled === true;
+        if (!embeddingsEnabled) return;
+
         const sessions = state.sessions || [];
         const activeSessionIds = sessions.map((s: any) => s.id);
 
@@ -1174,6 +1191,19 @@ export function ChatPanel() {
                     store.setCharacterNotes(parsed.characterId, 
                       existingMemory?.notes ? `${existingMemory.notes}\n${parsed.noteContent}` : parsed.noteContent);
                   }
+                } else if (parsed.type === 'wardrobe_activation') {
+                  // FASE 12: Wardrobe tool activation - update session stats wardrobeOffset
+                  console.log('[ChatPanel] Wardrobe activation from tool:', parsed.toolName, parsed.action, 'offset:', parsed.previousOffset, '→', parsed.newOffset);
+                  const store = useTavernStore.getState();
+                  if (parsed.changed && parsed.characterId) {
+                    // Update the wardrobe offset in session stats
+                    store.updateWardrobeOffset?.(activeSessionId, parsed.characterId, parsed.newOffset);
+                    const actionLabel = parsed.action === 'escalate' ? '⬆️' : parsed.action === 'regress' ? '⬇️' : '🔄';
+                    toast.success(`👗 ${actionLabel} Vestuario: ${parsed.newLevelName}`);
+                  } else if (parsed.action === 'get_info') {
+                    // get_info is silent — no toast, just console log
+                    console.log('[ChatPanel] Wardrobe info:', parsed.newLevelName, '(offset:', parsed.newOffset, ')');
+                  }
                 } else if (parsed.type === 'character_start') {
                   currentCharacterContent = '';
                   const char = groupCharacters.find(c => c.id === parsed.characterId);
@@ -1976,6 +2006,17 @@ export function ChatPanel() {
                     const existingMemory = store.getCharacterMemory(parsed.characterId);
                     store.setCharacterNotes(parsed.characterId, 
                       existingMemory?.notes ? `${existingMemory.notes}\n${parsed.noteContent}` : parsed.noteContent);
+                  }
+                } else if (parsed.type === 'wardrobe_activation') {
+                  // FASE 12: Wardrobe tool activation - update session stats wardrobeOffset
+                  console.log('[ChatPanel] Wardrobe activation from tool:', parsed.toolName, parsed.action, 'offset:', parsed.previousOffset, '→', parsed.newOffset);
+                  const store = useTavernStore.getState();
+                  if (parsed.changed && parsed.characterId) {
+                    store.updateWardrobeOffset?.(activeSessionId, parsed.characterId, parsed.newOffset);
+                    const actionLabel = parsed.action === 'escalate' ? '⬆️' : parsed.action === 'regress' ? '⬇️' : '🔄';
+                    toast.success(`👗 ${actionLabel} Vestuario: ${parsed.newLevelName}`);
+                  } else if (parsed.action === 'get_info') {
+                    console.log('[ChatPanel] Wardrobe info:', parsed.newLevelName, '(offset:', parsed.newOffset, ')');
                   }
                 } else if (parsed.type === 'token' && parsed.content) {
                   accumulatedContent += parsed.content;
@@ -3060,6 +3101,9 @@ export function ChatPanel() {
         onForceProactive={triggerProactiveNow}
         proactiveEnabled={!!activeCharacter?.proactiveMessages?.enabled}
         proactiveAvailable={!!activeCharacter?.proactiveMessages?.proactiveAttribute?.enabled}
+        proactiveNextIn={proactiveNextIn}
+        proactiveInactiveReason={proactiveInactiveReason}
+        proactiveSessionCount={proactiveSessionCount}
         onToggleProactive={(enabled) => {
           if (!activeCharacter) return;
           updateCharacter(activeCharacter.id, {

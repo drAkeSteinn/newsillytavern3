@@ -941,7 +941,7 @@ export function AppearanceSettingsPanel() {
                   
                   <div className="space-y-2">
                     <div className="flex justify-between text-xs">
-                      <span>Transparencia</span>
+                      <span>Transparencia (fondo)</span>
                       <span className="text-muted-foreground">{Math.round(safeAppearance.bubbles.transparency * 100)}%</span>
                     </div>
                     <Slider
@@ -950,6 +950,21 @@ export function AppearanceSettingsPanel() {
                       max={100}
                       step={5}
                       onValueChange={([v]) => updateMessageBubbles({ transparency: v / 100 })}
+                    />
+                  </div>
+
+                  {/* FASE 17: Text opacity slider — separate from background transparency */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span>Opacidad del texto</span>
+                      <span className="text-muted-foreground">{Math.round((safeAppearance.bubbles.textOpacity ?? 1) * 100)}%</span>
+                    </div>
+                    <Slider
+                      value={[(safeAppearance.bubbles.textOpacity ?? 1) * 100]}
+                      min={10}
+                      max={100}
+                      step={5}
+                      onValueChange={([v]) => updateMessageBubbles({ textOpacity: v / 100 })}
                     />
                   </div>
                   

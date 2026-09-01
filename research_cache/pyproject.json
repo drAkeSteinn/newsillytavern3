@@ -1,0 +1,20 @@
+{
+  "code": 200,
+  "data": {
+    "description": "",
+    "html": "<html><head><meta name=\"color-scheme\" content=\"light dark\"></head><body><pre style=\"word-wrap: break-word; white-space: pre-wrap;\">[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"voicemem\"\nversion = \"0.2.3\"\ndescription = \"Left-brain/right-brain memory framework with an audio-native perception layer (scene/speaker/emotion).\"\nreadme = \"README.md\"\nrequires-python = \">=3.10\"\nlicense = { text = \"Apache-2.0\" }\nauthors = [{ name = \"Lang Jiaqi\" }]\nkeywords = [\"memory\", \"voice\", \"agent\", \"llm\", \"speech\", \"rag\"]\nclassifiers = [\n    \"Programming Language :: Python :: 3\",\n    \"License :: OSI Approved :: Apache Software License\",\n    \"Operating System :: OS Independent\",\n    \"Topic :: Scientific/Engineering :: Artificial Intelligence\",\n    \"Topic :: Multimedia :: Sound/Audio :: Speech\",\n]\n\n# `pip install voicemem` 一条命令装齐所有内置组件：ASR、VAD、声纹、场景、情绪、\n# 本地 embedding，外加 web demo 和 examples/ 的运行依赖。\n#\n# 之前把这些拆在 [slm] extra 里，用户按 README 装完基础包仍然\n# ModuleNotFoundError: funasr —— 名字叫 slm，没人想得到 ASR 在里面。\ndependencies = [\n    \"numpy\",\n    \"openai\",\n    \"mem0ai\",\n    # ── 音频链路 ──\n    \"torch\",\n    \"torchaudio\",         # funasr 内部 import 它，但自己没声明\n    \"torchvision\",        # transformers 加载 Qwen2.5-Omni 要 Qwen2VLVideoProcessor，\n                          # 它 import torchvision。缺了不报错，只是情绪归因器**静默**\n                          # 退回纯声学象限——\"我喜欢草莓\"会判成悲伤，右脑整个不准。\n    \"transformers==4.52.3\",\n    \"accelerate\",         # 情绪归因 from_pretrained(device_map=\"auto\") 要它，\n                          # 缺了同样是静默退化，不是报错。\n    \"funasr\",             # 流式 ASR（默认）\n    \"modelscope\",         # funasr 取模型用\n    \"sherpa-onnx\",        # VAD + 声纹 + 回退 ASR（纯 onnx）\n    \"sentence-transformers\",   # 本地 E5（记忆向量 / slot 分类）\n    \"soundfile\",          # 读 mp3/m4a/flac；缺了会退回标准库 wave，只认 PCM wav\n    \"scipy\",\n    # ── web demo（web/run.py）和 examples/ ──\n    \"fastapi\",\n    \"uvicorn\",\n    \"pydantic\",           # web/utils.py 顶层就 import 了（fastapi 带得进来，但别靠它）\n    \"websockets>=14\",     # uvicorn 跑 WebSocket；examples/05 接 realtime 也用\n    \"sounddevice\",        # examples 里的语音 agent：麦克风 + 扬声器\n    \"pywebrtc-audio\",     # 回声消除（外放时能打断）\n]\n\n[project.optional-dependencies]\n# 跑我们微调的 Qwen 回复模型（Qwen3.6-35B-A3B + QLoRA adapter）。\n# 权重不在 wheel 里，用 `bash scripts/download_models.sh --reply-adapter` 拉。\nslm = [\n    \"peft\",               # 加载 QLoRA adapter\n    \"qwen-omni-utils\",    # Qwen-Omni 的多模态输入预处理\n    \"audioread\",          # qwen-omni-utils 顶层就 import 它，但自己没声明；\n                          # 缺了 `import qwen_omni_utils` 直接 ModuleNotFoundError。\n]\n\n# 只有这两条命令。其余场景各自 pip，不再单开 extra——名字对不上内容的 extra\n# 正是之前那个坑的成因（[slm] 里装着 ASR，谁也想不到）：\n#   本地 TTS（TTS_BACKEND=local）  pip install piper-tts   或   pip install voxcpm\n#   跑 finetune/ 的训练脚本         pip install ms-swift==4.5.2 bitsandbytes\n\n[project.urls]\nHomepage = \"https://github.com/lang-jiaqi/Voicemem_open\"\nRepository = \"https://github.com/lang-jiaqi/Voicemem_open\"\nIssues = \"https://github.com/lang-jiaqi/Voicemem_open/issues\"\n\n[tool.setuptools.packages.find]\ninclude = [\"voicemem*\"]\n\n# data/ 下的 prompt 文本是运行时读的（见 leftbrain/mem0_additive_prompt_build.py），\n# 不显式声明的话 wheel 里不会有，装完一调用就 FileNotFoundError。\n[tool.setuptools.package-data]\n# data/ 下的 prompt 文本是运行时读的（见 leftbrain/mem0_additive_prompt_build.py），\n# 不显式声明的话 wheel 里不会有，装完一调用就 FileNotFoundError。\n#\n# assets/*.wav 是 README 和 examples 里用的示例音频（一共 1MB）。不打进包的话，\n# pip 装完照 README 跑第一个例子就是 LibsndfileError——那是别人对这个项目的\n# 第一印象。voicemem.sample_audio() 会先找仓库里的 assets/，没有再回落到这份。\n\"*\" = [\"data/*.txt\", \"*.txt\", \"assets/*.wav\"]\n</pre></body></html>",
+    "httpStatus": 200,
+    "httpStatusText": "",
+    "title": "",
+    "url": "https://raw.githubusercontent.com/xzf-thu/VoiceMem/main/pyproject.toml",
+    "usage": {
+      "tokens": 1440
+    }
+  },
+  "meta": {
+    "usage": {
+      "tokens": 1440
+    }
+  },
+  "status": 20000
+}

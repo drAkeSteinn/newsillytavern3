@@ -70,7 +70,9 @@ import type {
   StatRequirement,
   RequirementOperator,
   GroupQuickReply,
+  ThresholdEffect,
 } from '@/types';
+import { ThresholdEffectDialog } from './stats-editor';
 
 // ============================================
 // Numeric and Text operator options (same as stats-editor)
@@ -431,6 +433,14 @@ export function QuickRepliesPanel({
   // State for sprite activation in editing reply
   const [editSpriteActivation, setEditSpriteActivation] = useState<QuickReplySpriteActivation | undefined>(undefined);
 
+  // FASE 18: Threshold effects state for editing
+  const [editThresholdEffects, setEditThresholdEffects] = useState<ThresholdEffect[]>([]);
+  const [editingThresholdEffect, setEditingThresholdEffect] = useState<ThresholdEffect | null>(null);
+  const [thresholdDialogOpen, setThresholdDialogOpen] = useState(false);
+
+  // State for expanded threshold effects section
+  const [expandedThresholdEffects, setExpandedThresholdEffects] = useState<string | null>(null);
+
   // State for expanded sprite activation section
   const [expandedSpriteActivation, setExpandedSpriteActivation] = useState<string | null>(null);
 
@@ -471,6 +481,8 @@ export function QuickRepliesPanel({
     setEditSpriteActivation(reply.spriteActivation ? { ...reply.spriteActivation } : undefined);
     setEditRequirements(reply.requirements ? reply.requirements.map(r => ({ ...r })) : []);
     setEditRequirementOperator(reply.requirementOperator || 'AND');
+    // FASE 18: Load threshold effects
+    setEditThresholdEffects(reply.thresholdEffects ? reply.thresholdEffects.map(e => ({ ...e })) : []);
   };
 
   const handleSaveEdit = () => {
@@ -486,6 +498,7 @@ export function QuickRepliesPanel({
               spriteActivation: editSpriteActivation,
               requirements: editRequirements.length > 0 ? editRequirements : undefined,
               requirementOperator: editRequirements.length > 1 ? editRequirementOperator : undefined,
+              thresholdEffects: editThresholdEffects.length > 0 ? editThresholdEffects : undefined,
             }
           : r
       )
@@ -983,6 +996,10 @@ export function QuickRepliesPanel({
                   editRequirements={editRequirements}
                   editRequirementOperator={editRequirementOperator}
                   editSpriteActivation={editSpriteActivation}
+                  editThresholdEffects={editThresholdEffects}
+                  setEditThresholdEffects={setEditThresholdEffects}
+                  expandedThresholdEffects={expandedThresholdEffects}
+                  setExpandedThresholdEffects={setExpandedThresholdEffects}
                   expandedModifiers={expandedModifiers}
                   expandedConditions={expandedConditions}
                   expandedSpriteActivation={expandedSpriteActivation}
@@ -1170,6 +1187,11 @@ interface SortableQuickReplyItemProps {
   setEditRequirements: (v: StatRequirement[]) => void;
   setEditRequirementOperator: (v: 'AND' | 'OR') => void;
   setEditSpriteActivation: (v: QuickReplySpriteActivation | undefined) => void;
+  // FASE 18: Threshold effects props
+  editThresholdEffects: ThresholdEffect[];
+  setEditThresholdEffects: (v: ThresholdEffect[]) => void;
+  expandedThresholdEffects: string | null;
+  setExpandedThresholdEffects: (v: string | null) => void;
   setExpandedModifiers: (v: string | null) => void;
   setExpandedConditions: (v: string | null) => void;
   setExpandedSpriteActivation: (v: string | null) => void;
@@ -1223,6 +1245,11 @@ function SortableQuickReplyItem({
   setEditRequirements,
   setEditRequirementOperator,
   setEditSpriteActivation,
+  // FASE 18: Threshold effects
+  editThresholdEffects,
+  setEditThresholdEffects,
+  expandedThresholdEffects,
+  setExpandedThresholdEffects,
   setExpandedModifiers,
   setExpandedConditions,
   setExpandedSpriteActivation,
@@ -1338,6 +1365,143 @@ function SortableQuickReplyItem({
           {(attributes.length > 0 || (availableTargets && availableTargets.length > 0)) && (
             <div className="mt-2">
               {renderConditionSection(editRequirements, editRequirementOperator, setEditRequirements, setEditRequirementOperator, `edit-${reply.id}`)}
+            </div>
+          )}
+
+          {/* FASE 18: Threshold Effects section */}
+          {attributes.length > 0 && (
+            <div className="mt-2">
+              {/* Collapsible header */}
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground"
+                  onClick={() => setExpandedThresholdEffects(expandedThresholdEffects === reply.id ? null : reply.id)}
+                >
+                  {expandedThresholdEffects === reply.id ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
+                  Efectos de Umbral
+                </Button>
+                {editThresholdEffects.length > 0 && (
+                  <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-rose-500/20 text-rose-400">
+                    {editThresholdEffects.length}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Expanded threshold effects editor */}
+              {expandedThresholdEffects === reply.id && (
+                <div className="mt-1.5 space-y-1.5 pl-2">
+                  {editThresholdEffects.map((effect, effIdx) => (
+                    <div key={effect.id} className="flex items-center gap-1.5 p-1.5 rounded-md border bg-muted/20">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs font-medium truncate">{effect.name || `Efecto ${effIdx + 1}`}</span>
+                          <Badge variant="outline" className="text-[9px] h-3 px-1">
+                            P:{effect.priority}
+                          </Badge>
+                          {!effect.enabled && (
+                            <Badge variant="outline" className="text-[9px] h-3 px-1 text-muted-foreground">Off</Badge>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                          {effect.conditions.length} condiciones · {effect.rewards.length} recompensas
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => {
+                            setEditThresholdEffects(editThresholdEffects.map(e =>
+                              e.id === effect.id ? { ...e, enabled: !e.enabled } : e
+                            ));
+                          }}
+                        >
+                          <Check className={cn("w-3 h-3", effect.enabled ? "text-emerald-500" : "text-muted-foreground/40")} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => {
+                            setEditingThresholdEffect({ ...effect });
+                            setThresholdDialogOpen(true);
+                          }}
+                        >
+                          <Settings2 className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => {
+                            setEditThresholdEffects(editThresholdEffects.filter(e => e.id !== effect.id));
+                          }}
+                        >
+                          <Trash2 className="w-3 h-3 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Add new threshold effect */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-xs w-full"
+                    onClick={() => {
+                      const newEffect: ThresholdEffect = {
+                        id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                        name: 'Nuevo efecto',
+                        enabled: true,
+                        priority: 0,
+                        conditions: [],
+                        conditionOperator: 'AND',
+                        rewards: [],
+                      };
+                      setEditingThresholdEffect(newEffect);
+                      setThresholdDialogOpen(true);
+                    }}
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    Añadir efecto de umbral
+                  </Button>
+
+                  {/* Threshold effect dialog */}
+                  {editingThresholdEffect && (
+                    <ThresholdEffectDialog
+                      effect={editingThresholdEffect}
+                      open={thresholdDialogOpen}
+                      onOpenChange={(open) => {
+                        setThresholdDialogOpen(open);
+                        if (!open) setEditingThresholdEffect(null);
+                      }}
+                      onSave={(saved) => {
+                        const existing = editThresholdEffects.find(e => e.id === saved.id);
+                        if (existing) {
+                          setEditThresholdEffects(editThresholdEffects.map(e => e.id === saved.id ? saved : e));
+                        } else {
+                          setEditThresholdEffects([...editThresholdEffects, saved]);
+                        }
+                        setThresholdDialogOpen(false);
+                        setEditingThresholdEffect(null);
+                      }}
+                      allAttributes={attributes}
+                      availableTargets={availableTargets}
+                      spritePacksV2={spritePacksV2}
+                      attributeKey={attributes[0]?.key || ''}
+                    />
+                  )}
+
+                  {editThresholdEffects.length === 0 && (
+                    <p className="text-[10px] text-muted-foreground italic pl-1">
+                      Los efectos de umbral evalúan condiciones cuando se hace clic en esta respuesta rápida y ejecutan recompensas (cambiar atributos, sprites, etc.) según la prioridad.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

@@ -52,10 +52,10 @@
   },
   "chatLayout": {
     "novelMode": true,
-    "chatWidth": 72.0436507936508,
-    "chatHeight": 63.740245828841836,
-    "chatX": 63.9781746031746,
-    "chatY": 57.19237708557908,
+    "chatWidth": 66.19047619047619,
+    "chatHeight": 44.480986569582576,
+    "chatX": 48.79960317460316,
+    "chatY": 77.75950671520872,
     "chatOpacity": 0.95,
     "blurBackground": false,
     "showCharacterSprite": true
@@ -71,9 +71,9 @@
   "chatboxAppearance": {
     "theme": "midnight",
     "background": {
-      "transparency": 0.95,
-      "blur": 10,
-      "useGlassEffect": true,
+      "transparency": 0.85,
+      "blur": 9,
+      "useGlassEffect": false,
       "customBackgroundColor": "#000000"
     },
     "font": {
@@ -87,7 +87,7 @@
       "enableMarkdown": true,
       "enableCodeHighlight": true,
       "enableQuotes": true,
-      "codeBlockTheme": "auto"
+      "codeBlockTheme": "dark"
     },
     "textColors": {
       "userMessage": "#3b82f6",
@@ -99,7 +99,7 @@
     },
     "bubbles": {
       "style": "neon",
-      "transparency": 0.1,
+      "transparency": 0.45,
       "borderRadius": 16,
       "shadowEnabled": true,
       "shadowIntensity": "soft",
@@ -157,7 +157,7 @@
     "namespaceStrategy": "character",
     "showInPromptViewer": true,
     "memoryExtractionEnabled": true,
-    "memoryExtractionFrequency": 3,
+    "memoryExtractionFrequency": 2,
     "memoryExtractionMinImportance": 3,
     "memoryConsolidationEnabled": true,
     "memoryConsolidationThreshold": 50,
@@ -166,7 +166,7 @@
     "memoryExtractionPrompt": "Eres un analista de memoria para un personaje de rol. Tu ÚNICA tarea es extraer hechos memorables del mensaje de un personaje.\n\nReglas estrictas:\n- Solo extrae información NUEVA y RELEVANTE sobre el jugador, relaciones, eventos importantes, secretos o preferencias\n- Ignora saludos, descripciones genéricas, acciones rutinarias y narrativa decorativa\n- Ignora información que ya es conocimiento general del personaje\n- Cada hecho debe ser una FRASE concisa (máximo 50 palabras) en tercera persona\n- Si NO hay nada memorable, responde EXACTAMENTE: []\n\nResponde SOLO con un JSON array, sin explicaciones, sin markdown, sin texto adicional.\n\nEjemplos:\n\nMensaje del personaje:\n\"*mira con recelo* No confío en ti desde que robaste las gemas del templo. Y sé que le debes dinero a Claudec.\"\n\nRespuesta correcta:\n[{\"contenido\":\"El personaje no confía en el jugador desde que robó las gemas del templo\",\"tipo\":\"relacion\",\"importancia\":4},{\"contenido\":\"El jugador le debe dinero a Claudec\",\"tipo\":\"hecho\",\"importancia\":3}]\n\nMensaje del personaje:\n\"¡Buenos días! ¿En qué puedo ayudarte hoy?\"\n\nRespuesta correcta:\n[]\n\nAhora analiza este mensaje:\n\nNombre del personaje: {characterName}\n{lastMessage}",
     "groupMemoryExtractionPrompt": "Eres un analista de memoria para una conversación grupal de rol. Tu ÚNICA tarea es extraer hechos memorables del mensaje de un personaje dentro de un grupo.\n\nReglas estrictas:\n- Solo extrae información NUEVA y RELEVANTE sobre el jugador, otros personajes, relaciones interpersonales, eventos compartidos, secretos o preferencias\n- PRESTA ESPECIAL ATENCIÓN a: reacciones hacia otros personajes, opiniones sobre otros, acuerdos o desacuerdos, mención de nombres de otros personajes\n- Usa el contexto para entender QUIÉN dijo qué y las relaciones entre los personajes mencionados\n- Ignora saludos, descripciones genéricas, acciones rutinarias y narrativa decorativa\n- Ignora información que ya es conocimiento general del personaje\n- Cada hecho debe ser una FRASE concisa (máximo 50 palabras) en tercera persona que incluya nombres específicos cuando sea relevante\n- Para cada hecho, indica quién es el sujeto: \"usuario\" si el hecho es sobre el jugador/usuario ({userName}), \"personaje\" si es sobre {characterName} mismo, o \"otro\" si es sobre otro personaje del grupo o entidad mencionada\n- Si NO hay nada memorable, responde EXACTAMENTE: []\n\nResponde SOLO con un JSON array, sin explicaciones, sin markdown, sin texto adicional.\n\nEjemplos:\n\nContexto reciente:\n  {userName}: \"¿Qué opinan del plan de Luna?\"\n  Luna: \"Yo creo que deberíamos ir por la ruta norte, es más segura.\"\n  Rex: \"No me fío, la última vez que fuimos por ahí casi nos atrapan.\"\n\nMensaje del personaje:\n\"Rex tiene razón en desconfiar, pero yo prefiero arriesgarme. Además, Kai tiene contactos en el norte que podrían ayudarnos.\"\n\nRespuesta correcta:\n[{\"contenido\":\"El personaje confía en los contactos de Kai en el norte para la ruta\",\"tipo\":\"relacion\",\"importancia\":3,\"sujeto\":\"otro\"},{\"contenido\":\"Rex desconfía de la ruta norte por una experiencia previa donde casi los atraparon\",\"tipo\":\"evento\",\"importancia\":4,\"sujeto\":\"otro\"}]\n\nMensaje del personaje:\n\"¡Hola a todos! ¿Cómo están?\"\n\nRespuesta correcta:\n[]\n\nAhora analiza este mensaje:\n{chatContext}\nNombre del personaje: {characterName}\nNombre del usuario: {userName}\n{lastMessage}",
     "memoryExtractionContextDepth": 3,
-    "searchContextDepth": 1,
+    "searchContextDepth": 2,
     "groupDynamicsExtraction": true,
     "memoryReinforcementEnabled": true,
     "memoryReinforcementThreshold": 0.7,
@@ -196,12 +196,9 @@
     "characterConfigs": [],
     "usePromptBasedFallback": false,
     "disabledTools": [
-      "roll_dice",
       "get_weather",
       "search_web",
       "set_reminder",
-      "modify_stat",
-      "check_stat",
       "manage_quest",
       "manage_solicitud"
     ]

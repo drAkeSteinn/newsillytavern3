@@ -1,0 +1,1023 @@
+     1→'use client';
+     2→
+     3→import { useTavernStore } from '@/store/tavern-store';
+     4→import { Button } from '@/components/ui/button';
+     5→import { Input } from '@/components/ui/input';
+     6→import { Label } from '@/components/ui/label';
+     7→import { Switch } from '@/components/ui/switch';
+     8→import { Slider } from '@/components/ui/slider';
+     9→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+    10→import {
+    11→  Select,
+    12→  SelectContent,
+    13→  SelectItem,
+    14→  SelectTrigger,
+    15→  SelectValue,
+    16→} from '@/components/ui/select';
+    17→import {
+    18→  Collapsible,
+    19→  CollapsibleContent,
+    20→  CollapsibleTrigger,
+    21→} from '@/components/ui/collapsible';
+    22→import {
+    23→  Tabs,
+    24→  TabsContent,
+    25→  TabsList,
+    26→  TabsTrigger,
+    27→} from '@/components/ui/tabs';
+    28→import {
+    29→  MessageSquare,
+    30→  Type,
+    31→  Palette,
+    32→  Sparkles,
+    33→  ChevronDown,
+    34→  Info,
+    35→  RotateCcw,
+    36→  Settings2,
+    37→  TextCursorInput,
+    38→  Paintbrush
+    39→} from 'lucide-react';
+    40→import { useState, useCallback } from 'react';
+    41→import { cn } from '@/lib/utils';
+    42→import { DEFAULT_DIALOGUE_SETTINGS, DEFAULT_TYPOGRAPHY_SETTINGS, DEFAULT_CONTENT_STYLE_SETTINGS } from '@/types';
+    43→
+    44→// ============================================
+    45→// Dialogue Settings Panel
+    46→// ============================================
+    47→
+    48→// Default typewriter settings for fallback
+    49→const DEFAULT_TYPEWRITER = {
+    50→  enabled: true,
+    51→  speed: 50,
+    52→  startDelay: 0,
+    53→  pauseOnPunctuation: true,
+    54→  punctuationPauseMs: 100,
+    55→  cursorChar: '▋',
+    56→  showCursor: true,
+    57→  cursorBlinkMs: 530,
+    58→};
+    59→
+    60→// Color presets for content styles
+    61→const COLOR_PRESETS = [
+    62→  { value: 'text-foreground', label: 'Por defecto', color: 'bg-foreground' },
+    63→  { value: 'text-muted-foreground', label: 'Gris', color: 'bg-muted-foreground' },
+    64→  { value: 'text-purple-600 dark:text-purple-400', label: 'Púrpura', color: 'bg-purple-500' },
+    65→  { value: 'text-blue-600 dark:text-blue-400', label: 'Azul', color: 'bg-blue-500' },
+    66→  { value: 'text-green-600 dark:text-green-400', label: 'Verde', color: 'bg-green-500' },
+    67→  { value: 'text-amber-600 dark:text-amber-400', label: 'Ámbar', color: 'bg-amber-500' },
+    68→  { value: 'text-red-600 dark:text-red-400', label: 'Rojo', color: 'bg-red-500' },
+    69→  { value: 'text-pink-600 dark:text-pink-400', label: 'Rosa', color: 'bg-pink-500' },
+    70→  { value: 'text-cyan-600 dark:text-cyan-400', label: 'Cian', color: 'bg-cyan-500' },
+    71→];
+    72→
+    73→// Font family options
+    74→const FONT_FAMILY_OPTIONS = [
+    75→  { value: 'system', label: 'Sistema', preview: 'font-sans' },
+    76→  { value: 'serif', label: 'Serif', preview: 'font-serif' },
+    77→  { value: 'sans', label: 'Sans Serif', preview: 'font-sans' },
+    78→  { value: 'mono', label: 'Monoespaciado', preview: 'font-mono' },
+    79→  { value: 'custom', label: 'Personalizado', preview: '' },
+    80→];
+    81→
+    82→// Font size options
+    83→const FONT_SIZE_OPTIONS = [
+    84→  { value: 'xs', label: 'Muy pequeño', class: 'text-xs' },
+    85→  { value: 'sm', label: 'Pequeño', class: 'text-sm' },
+    86→  { value: 'base', label: 'Normal', class: 'text-base' },
+    87→  { value: 'lg', label: 'Grande', class: 'text-lg' },
+    88→  { value: 'xl', label: 'Muy grande', class: 'text-xl' },
+    89→];
+    90→
+    91→export function DialogueSettingsPanel() {
+    92→  const {
+    93→    dialogueSettings,
+    94→    setDialogueSettings,
+    95→    setTypewriterSettings,
+    96→    setTypographySettings,
+    97→    setDialogueStyle,
+    98→    setActionStyle,
+    99→    setThoughtStyle,
+   100→    setWhisperStyle,
+   101→    setNarrationStyle,
+   102→    setEmotionStyle,
+   103→  } = useTavernStore();
+   104→
+   105→  const [advancedOpen, setAdvancedOpen] = useState(false);
+   106→  const [contentStylesOpen, setContentStylesOpen] = useState(false);
+   107→
+   108→  // Ensure typewriter settings exist with defaults
+   109→  const typewriter = dialogueSettings.typewriter ?? DEFAULT_TYPEWRITER;
+   110→
+   111→  // Ensure typography settings exist with defaults
+   112→  const typography = dialogueSettings.typography ?? DEFAULT_TYPOGRAPHY_SETTINGS;
+   113→
+   114→  // Ensure content styles exist with defaults
+   115→  const contentStyles = dialogueSettings.contentStyles ?? DEFAULT_CONTENT_STYLE_SETTINGS;
+   116→
+   117→  return (
+   118→    <div className="space-y-4">
+   119→      {/* Main Toggle */}
+   120→      <Card className="border-2">
+   121→        <CardHeader className="pb-3">
+   122→          <CardTitle className="flex items-center gap-2 text-base">
+   123→            <MessageSquare className="w-4 h-4 text-purple-500" />
+   124→            Sistema de Diálogos
+   125→          </CardTitle>
+   126→          <CardDescription className="text-xs">
+   127→            Mejora la presentación visual de mensajes con speech bubbles, typewriter y formateo automático.
+   128→          </CardDescription>
+   129→        </CardHeader>
+   130→        <CardContent>
+   131→          <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+   132→            <div className="space-y-0.5">
+   133→              <Label className="text-sm font-medium">Activar Formateo de Diálogos</Label>
+   134→              <p className="text-xs text-muted-foreground">
+   135→                Detecta automáticamente diálogos, acciones y pensamientos.
+   136→              </p>
+   137→            </div>
+   138→            <Switch
+   139→              checked={dialogueSettings.enabled}
+   140→              onCheckedChange={(enabled) => setDialogueSettings({ enabled })}
+   141→            />
+   142→          </div>
+   143→        </CardContent>
+   144→      </Card>
+   145→
+   146→      {/* Tabs for different settings categories */}
+   147→      <Tabs defaultValue="typography" className="w-full">
+   148→        <TabsList className="grid w-full grid-cols-3 h-9">
+   149→          <TabsTrigger value="typography" className="text-xs gap-1">
+   150→            <TextCursorInput className="w-3 h-3" />
+   151→            Tipografía
+   152→          </TabsTrigger>
+   153→          <TabsTrigger value="styles" className="text-xs gap-1">
+   154→            <Paintbrush className="w-3 h-3" />
+   155→            Estilos
+   156→          </TabsTrigger>
+   157→          <TabsTrigger value="effects" className="text-xs gap-1">
+   158→            <Sparkles className="w-3 h-3" />
+   159→            Efectos
+   160→          </TabsTrigger>
+   161→        </TabsList>
+   162→
+   163→        {/* Typography Tab */}
+   164→        <TabsContent value="typography" className="mt-4 space-y-4">
+   165→          {/* Font Family */}
+   166→          <Card>
+   167→            <CardHeader className="pb-3">
+   168→              <CardTitle className="flex items-center gap-2 text-sm">
+   169→                <Type className="w-4 h-4 text-blue-500" />
+   170→                Familia de Fuente
+   171→              </CardTitle>
+   172→            </CardHeader>
+   173→            <CardContent className="space-y-3">
+   174→              <div className="grid grid-cols-5 gap-2">
+   175→                {FONT_FAMILY_OPTIONS.map((option) => (
+   176→                  <button
+   177→                    key={option.value}
+   178→                    onClick={() => setTypographySettings({ fontFamily: option.value as typeof typography.fontFamily })}
+   179→                    disabled={!dialogueSettings.enabled}
+   180→                    className={cn(
+   181→                      'p-2 rounded-lg border text-xs transition-all',
+   182→                      typography.fontFamily === option.value
+   183→                        ? 'border-primary bg-primary/10 text-primary'
+   184→                        : 'hover:bg-muted/50'
+   185→                    )}
+   186→                  >
+   187→                    <span className={cn(option.preview, 'block')}>{option.label}</span>
+   188→                  </button>
+   189→                ))}
+   190→              </div>
+   191→
+   192→              {typography.fontFamily === 'custom' && (
+   193→                <div className="space-y-1">
+   194→                  <Label className="text-xs">Fuente personalizada</Label>
+   195→                  <Input
+   196→                    value={typography.customFontFamily ?? ''}
+   197→                    onChange={(e) => setTypographySettings({ customFontFamily: e.target.value })}
+   198→                    disabled={!dialogueSettings.enabled}
+   199→                    placeholder="ej: 'Roboto', 'Open Sans', sans-serif"
+   200→                    className="h-8 text-xs"
+   201→                  />
+   202→                </div>
+   203→              )}
+   204→            </CardContent>
+   205→          </Card>
+   206→
+   207→          {/* Font Size & Weight */}
+   208→          <Card>
+   209→            <CardHeader className="pb-3">
+   210→              <CardTitle className="text-sm">Tamaño y Peso</CardTitle>
+   211→            </CardHeader>
+   212→            <CardContent className="space-y-4">
+   213→              <div className="space-y-2">
+   214→                <Label className="text-xs">Tamaño de Fuente</Label>
+   215→                <Select
+   216→                  value={typography.fontSize}
+   217→                  onValueChange={(v) => setTypographySettings({ fontSize: v as typeof typography.fontSize })}
+   218→                  disabled={!dialogueSettings.enabled}
+   219→                >
+   220→                  <SelectTrigger className="h-9">
+   221→                    <SelectValue />
+   222→                  </SelectTrigger>
+   223→                  <SelectContent>
+   224→                    {FONT_SIZE_OPTIONS.map((option) => (
+   225→                      <SelectItem key={option.value} value={option.value}>
+   226→                        <span className={option.class}>{option.label}</span>
+   227→                      </SelectItem>
+   228→                    ))}
+   229→                  </SelectContent>
+   230→                </Select>
+   231→              </div>
+   232→
+   233→              <div className="space-y-2">
+   234→                <Label className="text-xs">Peso de Fuente</Label>
+   235→                <Select
+   236→                  value={typography.fontWeight}
+   237→                  onValueChange={(v) => setTypographySettings({ fontWeight: v as typeof typography.fontWeight })}
+   238→                  disabled={!dialogueSettings.enabled}
+   239→                >
+   240→                  <SelectTrigger className="h-9">
+   241→                    <SelectValue />
+   242→                  </SelectTrigger>
+   243→                  <SelectContent>
+   244→                    <SelectItem value="normal">Normal</SelectItem>
+   245→                    <SelectItem value="medium">Medio</SelectItem>
+   246→                    <SelectItem value="semibold">Semi-negrita</SelectItem>
+   247→                    <SelectItem value="bold">Negrita</SelectItem>
+   248→                  </SelectContent>
+   249→                </Select>
+   250→              </div>
+   251→
+   252→              <div className="grid grid-cols-2 gap-3">
+   253→                <div className="space-y-2">
+   254→                  <Label className="text-xs">Altura de Línea</Label>
+   255→                  <Select
+   256→                    value={typography.lineHeight}
+   257→                    onValueChange={(v) => setTypographySettings({ lineHeight: v as typeof typography.lineHeight })}
+   258→                    disabled={!dialogueSettings.enabled}
+   259→                  >
+   260→                    <SelectTrigger className="h-8 text-xs">
+   261→                      <SelectValue />
+   262→                    </SelectTrigger>
+   263→                    <SelectContent>
+   264→                      <SelectItem value="tight">Compacta</SelectItem>
+   265→                      <SelectItem value="normal">Normal</SelectItem>
+   266→                      <SelectItem value="relaxed">Relajada</SelectItem>
+   267→                      <SelectItem value="loose">Amplia</SelectItem>
+   268→                    </SelectContent>
+   269→                  </Select>
+   270→                </div>
+   271→
+   272→                <div className="space-y-2">
+   273→                  <Label className="text-xs">Espaciado</Label>
+   274→                  <Select
+   275→                    value={typography.letterSpacing}
+   276→                    onValueChange={(v) => setTypographySettings({ letterSpacing: v as typeof typography.letterSpacing })}
+   277→                    disabled={!dialogueSettings.enabled}
+   278→                  >
+   279→                    <SelectTrigger className="h-8 text-xs">
+   280→                      <SelectValue />
+   281→                    </SelectTrigger>
+   282→                    <SelectContent>
+   283→                      <SelectItem value="tighter">Muy compacto</SelectItem>
+   284→                      <SelectItem value="tight">Compacto</SelectItem>
+   285→                      <SelectItem value="normal">Normal</SelectItem>
+   286→                      <SelectItem value="wide">Amplio</SelectItem>
+   287→                      <SelectItem value="wider">Muy amplio</SelectItem>
+   288→                    </SelectContent>
+   289→                  </Select>
+   290→                </div>
+   291→              </div>
+   292→            </CardContent>
+   293→          </Card>
+   294→
+   295→          {/* Preview */}
+   296→          <Card className="bg-muted/30">
+   297→            <CardHeader className="pb-2">
+   298→              <CardTitle className="text-xs">Vista Previa</CardTitle>
+   299→            </CardHeader>
+   300→            <CardContent>
+   301→              <div
+   302→                className={cn(
+   303→                  'p-3 rounded-lg border bg-background',
+   304→                  typography.fontFamily === 'system' && 'font-sans',
+   305→                  typography.fontFamily === 'serif' && 'font-serif',
+   306→                  typography.fontFamily === 'sans' && 'font-sans',
+   307→                  typography.fontFamily === 'mono' && 'font-mono',
+   308→                  typography.fontFamily === 'custom' && typography.customFontFamily,
+   309→                  `text-${typography.fontSize}`,
+   310→                  `font-${typography.fontWeight}`,
+   311→                  `leading-${typography.lineHeight}`,
+   312→                  `tracking-${typography.letterSpacing}`
+   313→                )}
+   314→                style={typography.fontFamily === 'custom' && typography.customFontFamily ? {
+   315→                  fontFamily: typography.customFontFamily
+   316→                } : undefined}
+   317→              >
+   318→                <p className={contentStyles.narration.color}>
+   319→                  El viajero llegó al pueblo al atardecer.
+   320→                </p>
+   321→                <p className={cn(contentStyles.dialogue.color, 'mt-1')}>
+   322→                  "¿Hay alguna posada cerca?"
+   323→                </p>
+   324→                <p className={cn(contentStyles.action.color, 'mt-1')}>
+   325→                  *preguntó mirando a su alrededor*
+   326→                </p>
+   327→              </div>
+   328→            </CardContent>
+   329→          </Card>
+   330→        </TabsContent>
+   331→
+   332→        {/* Content Styles Tab */}
+   333→        <TabsContent value="styles" className="mt-4 space-y-4">
+   334→          {/* Dialogue Style */}
+   335→          <Card>
+   336→            <CardHeader className="pb-3">
+   337→              <CardTitle className="text-sm flex items-center gap-2">
+   338→                <span className="w-3 h-3 rounded-full bg-foreground"></span>
+   339→                Diálogo <code className="text-xs text-muted-foreground">"texto"</code>
+   340→              </CardTitle>
+   341→            </CardHeader>
+   342→            <CardContent className="space-y-3">
+   343→              <div className="grid grid-cols-2 gap-3">
+   344→                <div className="space-y-1">
+   345→                  <Label className="text-xs">Color</Label>
+   346→                  <Select
+   347→                    value={contentStyles.dialogue.color}
+   348→                    onValueChange={(v) => setDialogueStyle({ color: v })}
+   349→                    disabled={!dialogueSettings.enabled}
+   350→                  >
+   351→                    <SelectTrigger className="h-8 text-xs">
+   352→                      <SelectValue />
+   353→                    </SelectTrigger>
+   354→                    <SelectContent>
+   355→                      {COLOR_PRESETS.map((preset) => (
+   356→                        <SelectItem key={preset.value} value={preset.value}>
+   357→                          <div className="flex items-center gap-2">
+   358→                            <span className={cn('w-3 h-3 rounded-full', preset.color)}></span>
+   359→                            {preset.label}
+   360→                          </div>
+   361→                        </SelectItem>
+   362→                      ))}
+   363→                    </SelectContent>
+   364→                  </Select>
+   365→                </div>
+   366→
+   367→                <div className="space-y-1">
+   368→                  <Label className="text-xs">Peso</Label>
+   369→                  <Select
+   370→                    value={contentStyles.dialogue.fontWeight}
+   371→                    onValueChange={(v) => setDialogueStyle({ fontWeight: v as typeof contentStyles.dialogue.fontWeight })}
+   372→                    disabled={!dialogueSettings.enabled}
+   373→                  >
+   374→                    <SelectTrigger className="h-8 text-xs">
+   375→                      <SelectValue />
+   376→                    </SelectTrigger>
+   377→                    <SelectContent>
+   378→                      <SelectItem value="normal">Normal</SelectItem>
+   379→                      <SelectItem value="medium">Medio</SelectItem>
+   380→                      <SelectItem value="semibold">Semi-negrita</SelectItem>
+   381→                      <SelectItem value="bold">Negrita</SelectItem>
+   382→                    </SelectContent>
+   383→                  </Select>
+   384→                </div>
+   385→              </div>
+   386→
+   387→              <div className="grid grid-cols-2 gap-3">
+   388→                <div className="space-y-1">
+   389→                  <Label className="text-xs">Estilo</Label>
+   390→                  <Select
+   391→                    value={contentStyles.dialogue.fontStyle}
+   392→                    onValueChange={(v) => setDialogueStyle({ fontStyle: v as typeof contentStyles.dialogue.fontStyle })}
+   393→                    disabled={!dialogueSettings.enabled}
+   394→                  >
+   395→                    <SelectTrigger className="h-8 text-xs">
+   396→                      <SelectValue />
+   397→                    </SelectTrigger>
+   398→                    <SelectContent>
+   399→                      <SelectItem value="normal">Normal</SelectItem>
+   400→                      <SelectItem value="italic">Cursiva</SelectItem>
+   401→                    </SelectContent>
+   402→                  </Select>
+   403→                </div>
+   404→
+   405→                <div className="space-y-1">
+   406→                  <Label className="text-xs">Decoración</Label>
+   407→                  <Select
+   408→                    value={contentStyles.dialogue.textDecoration}
+   409→                    onValueChange={(v) => setDialogueStyle({ textDecoration: v as typeof contentStyles.dialogue.textDecoration })}
+   410→                    disabled={!dialogueSettings.enabled}
+   411→                  >
+   412→                    <SelectTrigger className="h-8 text-xs">
+   413→                      <SelectValue />
+   414→                    </SelectTrigger>
+   415→                    <SelectContent>
+   416→                      <SelectItem value="none">Ninguna</SelectItem>
+   417→                      <SelectItem value="underline">Subrayado</SelectItem>
+   418→                    </SelectContent>
+   419→                  </Select>
+   420→                </div>
+   421→              </div>
+   422→            </CardContent>
+   423→          </Card>
+   424→
+   425→          {/* Action Style */}
+   426→          <Card>
+   427→            <CardHeader className="pb-3">
+   428→              <CardTitle className="text-sm flex items-center gap-2">
+   429→                <span className="w-3 h-3 rounded-full bg-purple-500"></span>
+   430→                Acción <code className="text-xs text-muted-foreground">*texto*</code>
+   431→              </CardTitle>
+   432→            </CardHeader>
+   433→            <CardContent className="space-y-3">
+   434→              <div className="grid grid-cols-2 gap-3">
+   435→                <div className="space-y-1">
+   436→                  <Label className="text-xs">Color</Label>
+   437→                  <Select
+   438→                    value={contentStyles.action.color}
+   439→                    onValueChange={(v) => setActionStyle({ color: v })}
+   440→                    disabled={!dialogueSettings.enabled}
+   441→                  >
+   442→                    <SelectTrigger className="h-8 text-xs">
+   443→                      <SelectValue />
+   444→                    </SelectTrigger>
+   445→                    <SelectContent>
+   446→                      {COLOR_PRESETS.map((preset) => (
+   447→                        <SelectItem key={preset.value} value={preset.value}>
+   448→                          <div className="flex items-center gap-2">
+   449→                            <span className={cn('w-3 h-3 rounded-full', preset.color)}></span>
+   450→                            {preset.label}
+   451→                          </div>
+   452→                        </SelectItem>
+   453→                      ))}
+   454→                    </SelectContent>
+   455→                  </Select>
+   456→                </div>
+   457→
+   458→                <div className="space-y-1">
+   459→                  <Label className="text-xs">Estilo</Label>
+   460→                  <Select
+   461→                    value={contentStyles.action.fontStyle}
+   462→                    onValueChange={(v) => setActionStyle({ fontStyle: v as typeof contentStyles.action.fontStyle })}
+   463→                    disabled={!dialogueSettings.enabled}
+   464→                  >
+   465→                    <SelectTrigger className="h-8 text-xs">
+   466→                      <SelectValue />
+   467→                    </SelectTrigger>
+   468→                    <SelectContent>
+   469→                      <SelectItem value="normal">Normal</SelectItem>
+   470→                      <SelectItem value="italic">Cursiva</SelectItem>
+   471→                    </SelectContent>
+   472→                  </Select>
+   473→                </div>
+   474→              </div>
+   475→            </CardContent>
+   476→          </Card>
+   477→
+   478→          {/* Thought Style */}
+   479→          <Card>
+   480→            <CardHeader className="pb-3">
+   481→              <CardTitle className="text-sm flex items-center gap-2">
+   482→                <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+   483→                Pensamiento <code className="text-xs text-muted-foreground">(texto)</code>
+   484→              </CardTitle>
+   485→            </CardHeader>
+   486→            <CardContent className="space-y-3">
+   487→              <div className="grid grid-cols-2 gap-3">
+   488→                <div className="space-y-1">
+   489→                  <Label className="text-xs">Color</Label>
+   490→                  <Select
+   491→                    value={contentStyles.thought.color}
+   492→                    onValueChange={(v) => setThoughtStyle({ color: v })}
+   493→                    disabled={!dialogueSettings.enabled}
+   494→                  >
+   495→                    <SelectTrigger className="h-8 text-xs">
+   496→                      <SelectValue />
+   497→                    </SelectTrigger>
+   498→                    <SelectContent>
+   499→                      {COLOR_PRESETS.map((preset) => (
+   500→                        <SelectItem key={preset.value} value={preset.value}>
+   501→                          <div className="flex items-center gap-2">
+   502→                            <span className={cn('w-3 h-3 rounded-full', preset.color)}></span>
+   503→                            {preset.label}
+   504→                          </div>
+   505→                        </SelectItem>
+   506→                      ))}
+   507→                    </SelectContent>
+   508→                  </Select>
+   509→                </div>
+   510→
+   511→                <div className="space-y-1">
+   512→                  <Label className="text-xs">Estilo</Label>
+   513→                  <Select
+   514→                    value={contentStyles.thought.fontStyle}
+   515→                    onValueChange={(v) => setThoughtStyle({ fontStyle: v as typeof contentStyles.thought.fontStyle })}
+   516→                    disabled={!dialogueSettings.enabled}
+   517→                  >
+   518→                    <SelectTrigger className="h-8 text-xs">
+   519→                      <SelectValue />
+   520→                    </SelectTrigger>
+   521→                    <SelectContent>
+   522→                      <SelectItem value="normal">Normal</SelectItem>
+   523→                      <SelectItem value="italic">Cursiva</SelectItem>
+   524→                    </SelectContent>
+   525→                  </Select>
+   526→                </div>
+   527→              </div>
+   528→            </CardContent>
+   529→          </Card>
+   530→
+   531→          {/* Whisper Style */}
+   532→          <Card>
+   533→            <CardHeader className="pb-3">
+   534→              <CardTitle className="text-sm flex items-center gap-2">
+   535→                <span className="w-3 h-3 rounded-full bg-muted-foreground opacity-60"></span>
+   536→                Susurro <code className="text-xs text-muted-foreground">~texto~</code>
+   537→              </CardTitle>
+   538→            </CardHeader>
+   539→            <CardContent className="space-y-3">
+   540→              <div className="grid grid-cols-2 gap-3">
+   541→                <div className="space-y-1">
+   542→                  <Label className="text-xs">Color</Label>
+   543→                  <Select
+   544→                    value={contentStyles.whisper.color}
+   545→                    onValueChange={(v) => setWhisperStyle({ color: v })}
+   546→                    disabled={!dialogueSettings.enabled}
+   547→                  >
+   548→                    <SelectTrigger className="h-8 text-xs">
+   549→                      <SelectValue />
+   550→                    </SelectTrigger>
+   551→                    <SelectContent>
+   552→                      {COLOR_PRESETS.map((preset) => (
+   553→                        <SelectItem key={preset.value} value={preset.value}>
+   554→                          <div className="flex items-center gap-2">
+   555→                            <span className={cn('w-3 h-3 rounded-full', preset.color)}></span>
+   556→                            {preset.label}
+   557→                          </div>
+   558→                        </SelectItem>
+   559→                      ))}
+   560→                    </SelectContent>
+   561→                  </Select>
+   562→                </div>
+   563→
+   564→                <div className="space-y-1">
+   565→                  <Label className="text-xs">Opacidad</Label>
+   566→                  <div className="flex items-center gap-2">
+   567→                    <Slider
+   568→                      value={[contentStyles.whisper.opacity]}
+   569→                      min={30}
+   570→                      max={100}
+   571→                      step={5}
+   572→                      onValueChange={([opacity]) => setWhisperStyle({ opacity })}
+   573→                      disabled={!dialogueSettings.enabled}
+   574→                      className="flex-1"
+   575→                    />
+   576→                    <span className="text-xs text-muted-foreground w-8">{contentStyles.whisper.opacity}%</span>
+   577→                  </div>
+   578→                </div>
+   579→              </div>
+   580→            </CardContent>
+   581→          </Card>
+   582→
+   583→          {/* Narration Style */}
+   584→          <Card>
+   585→            <CardHeader className="pb-3">
+   586→              <CardTitle className="text-sm flex items-center gap-2">
+   587→                <span className="w-3 h-3 rounded-full bg-muted-foreground"></span>
+   588→                Narración <code className="text-xs text-muted-foreground">texto normal</code>
+   589→              </CardTitle>
+   590→            </CardHeader>
+   591→            <CardContent className="space-y-3">
+   592→              <div className="grid grid-cols-2 gap-3">
+   593→                <div className="space-y-1">
+   594→                  <Label className="text-xs">Color</Label>
+   595→                  <Select
+   596→                    value={contentStyles.narration.color}
+   597→                    onValueChange={(v) => setNarrationStyle({ color: v })}
+   598→                    disabled={!dialogueSettings.enabled}
+   599→                  >
+   600→                    <SelectTrigger className="h-8 text-xs">
+   601→                      <SelectValue />
+   602→                    </SelectTrigger>
+   603→                    <SelectContent>
+   604→                      {COLOR_PRESETS.map((preset) => (
+   605→                        <SelectItem key={preset.value} value={preset.value}>
+   606→                          <div className="flex items-center gap-2">
+   607→                            <span className={cn('w-3 h-3 rounded-full', preset.color)}></span>
+   608→                            {preset.label}
+   609→                          </div>
+   610→                        </SelectItem>
+   611→                      ))}
+   612→                    </SelectContent>
+   613→                  </Select>
+   614→                </div>
+   615→
+   616→                <div className="space-y-1">
+   617→                  <Label className="text-xs">Estilo</Label>
+   618→                  <Select
+   619→                    value={contentStyles.narration.fontStyle}
+   620→                    onValueChange={(v) => setNarrationStyle({ fontStyle: v as typeof contentStyles.narration.fontStyle })}
+   621→                    disabled={!dialogueSettings.enabled}
+   622→                  >
+   623→                    <SelectTrigger className="h-8 text-xs">
+   624→                      <SelectValue />
+   625→                    </SelectTrigger>
+   626→                    <SelectContent>
+   627→                      <SelectItem value="normal">Normal</SelectItem>
+   628→                      <SelectItem value="italic">Cursiva</SelectItem>
+   629→                    </SelectContent>
+   630→                  </Select>
+   631→                </div>
+   632→              </div>
+   633→            </CardContent>
+   634→          </Card>
+   635→        </TabsContent>
+   636→
+   637→        {/* Effects Tab */}
+   638→        <TabsContent value="effects" className="mt-4 space-y-4">
+   639→          {/* Bubble Style */}
+   640→          <Card>
+   641→            <CardHeader className="pb-3">
+   642→              <CardTitle className="flex items-center gap-2 text-sm">
+   643→                <Palette className="w-4 h-4 text-pink-500" />
+   644→                Estilo de Burbujas
+   645→              </CardTitle>
+   646→            </CardHeader>
+   647→            <CardContent className="space-y-4">
+   648→              <div className="space-y-2">
+   649→                <Label className="text-xs">Estilo Visual</Label>
+   650→                <Select
+   651→                  value={dialogueSettings.bubbleStyle}
+   652→                  onValueChange={(v) => setDialogueSettings({ bubbleStyle: v as typeof dialogueSettings.bubbleStyle })}
+   653→                  disabled={!dialogueSettings.enabled}
+   654→                >
+   655→                  <SelectTrigger className="h-9">
+   656→                    <SelectValue />
+   657→                  </SelectTrigger>
+   658→                  <SelectContent>
+   659→                    <SelectItem value="modern">Modern - Limpio y redondeado</SelectItem>
+   660→                    <SelectItem value="classic">Classic - Estilo cómic</SelectItem>
+   661→                    <SelectItem value="minimal">Minimal - Borde simple</SelectItem>
+   662→                    <SelectItem value="neon">Neon - Efecto brillante</SelectItem>
+   663→                    <SelectItem value="elegant">Elegant - Decorativo</SelectItem>
+   664→                    <SelectItem value="dark">Dark - Modo oscuro</SelectItem>
+   665→                  </SelectContent>
+   666→                </Select>
+   667→              </div>
+   668→
+   669→              <div className="grid grid-cols-3 gap-3">
+   670→                <label className="flex flex-col items-center justify-between p-2.5 rounded-lg border cursor-pointer hover:bg-muted/50">
+   671→                  <span className="text-xs mb-1">Avatar</span>
+   672→                  <Switch
+   673→                    checked={dialogueSettings.showCharacterAvatar}
+   674→                    onCheckedChange={(showCharacterAvatar) => setDialogueSettings({ showCharacterAvatar })}
+   675→                    disabled={!dialogueSettings.enabled}
+   676→                    className="scale-75"
+   677→                  />
+   678→                </label>
+   679→                <div className="space-y-1">
+   680→                  <Label className="text-xs">Posición</Label>
+   681→                  <Select
+   682→                    value={dialogueSettings.avatarPosition}
+   683→                    onValueChange={(v) => setDialogueSettings({ avatarPosition: v as typeof dialogueSettings.avatarPosition })}
+   684→                    disabled={!dialogueSettings.enabled || !dialogueSettings.showCharacterAvatar}
+   685→                  >
+   686→                    <SelectTrigger className="h-8 text-xs">
+   687→                      <SelectValue />
+   688→                    </SelectTrigger>
+   689→                    <SelectContent>
+   690→                      <SelectItem value="left">Izquierda</SelectItem>
+   691→                      <SelectItem value="right">Derecha</SelectItem>
+   692→                      <SelectItem value="hidden">Oculto</SelectItem>
+   693→                    </SelectContent>
+   694→                  </Select>
+   695→                </div>
+   696→                <div className="space-y-1">
+   697→                  <Label className="text-xs">Tamaño</Label>
+   698→                  <Select
+   699→                    value={dialogueSettings.avatarSize}
+   700→                    onValueChange={(v) => setDialogueSettings({ avatarSize: v as typeof dialogueSettings.avatarSize })}
+   701→                    disabled={!dialogueSettings.enabled}
+   702→                  >
+   703→                    <SelectTrigger className="h-8 text-xs">
+   704→                      <SelectValue />
+   705→                    </SelectTrigger>
+   706→                    <SelectContent>
+   707→                      <SelectItem value="sm">Pequeño</SelectItem>
+   708→                      <SelectItem value="md">Mediano</SelectItem>
+   709→                      <SelectItem value="lg">Grande</SelectItem>
+   710→                    </SelectContent>
+   711→                  </Select>
+   712→                </div>
+   713→              </div>
+   714→
+   715→              <div className="space-y-2">
+   716→                <div className="flex justify-between text-xs">
+   717→                  <span>Ancho máximo</span>
+   718→                  <span className="text-muted-foreground">{dialogueSettings.bubbleMaxWidth}%</span>
+   719→                </div>
+   720→                <Slider
+   721→                  value={[dialogueSettings.bubbleMaxWidth]}
+   722→                  min={50}
+   723→                  max={100}
+   724→                  step={5}
+   725→                  disabled={!dialogueSettings.enabled}
+   726→                  onValueChange={([bubbleMaxWidth]) => setDialogueSettings({ bubbleMaxWidth })}
+   727→                />
+   728→              </div>
+   729→            </CardContent>
+   730→          </Card>
+   731→
+   732→          {/* Typewriter */}
+   733→          <Card>
+   734→            <CardHeader className="pb-3">
+   735→              <CardTitle className="flex items-center gap-2 text-sm">
+   736→                <Type className="w-4 h-4 text-blue-500" />
+   737→                Efecto Typewriter
+   738→              </CardTitle>
+   739→              <CardDescription className="text-xs">
+   740→                Efecto de escritura progresiva del texto.
+   741→              </CardDescription>
+   742→            </CardHeader>
+   743→            <CardContent className="space-y-3">
+   744→              <label className="flex items-center justify-between p-2.5 rounded-lg border cursor-pointer hover:bg-muted/50">
+   745→                <div className="space-y-0.5">
+   746→                  <Label className="text-xs">Activar efecto</Label>
+   747→                </div>
+   748→                <Switch
+   749→                  checked={typewriter.enabled}
+   750→                  onCheckedChange={(enabled) => setTypewriterSettings({ enabled })}
+   751→                  disabled={!dialogueSettings.enabled}
+   752→                  className="scale-75"
+   753→                />
+   754→              </label>
+   755→
+   756→              <div className="grid grid-cols-2 gap-3">
+   757→                <div className="space-y-1">
+   758→                  <div className="flex justify-between text-xs">
+   759→                    <span>Velocidad</span>
+   760→                    <span className="text-muted-foreground">{typewriter.speed} c/s</span>
+   761→                  </div>
+   762→                  <Slider
+   763→                    value={[typewriter.speed]}
+   764→                    min={10}
+   765→                    max={200}
+   766→                    step={10}
+   767→                    disabled={!dialogueSettings.enabled || !typewriter.enabled}
+   768→                    onValueChange={([speed]) => setTypewriterSettings({ speed })}
+   769→                  />
+   770→                </div>
+   771→
+   772→                <label className="flex items-center justify-between p-2.5 rounded-lg border cursor-pointer hover:bg-muted/50">
+   773→                  <div className="space-y-0.5">
+   774→                    <Label className="text-xs">Pausa en puntuación</Label>
+   775→                  </div>
+   776→                  <Switch
+   777→                    checked={typewriter.pauseOnPunctuation}
+   778→                    onCheckedChange={(pauseOnPunctuation) => setTypewriterSettings({ pauseOnPunctuation })}
+   779→                    disabled={!dialogueSettings.enabled || !typewriter.enabled}
+   780→                    className="scale-75"
+   781→                  />
+   782→                </label>
+   783→              </div>
+   784→
+   785→              <div className="grid grid-cols-2 gap-3">
+   786→                <label className="flex items-center justify-between p-2.5 rounded-lg border cursor-pointer hover:bg-muted/50">
+   787→                  <div className="space-y-0.5">
+   788→                    <Label className="text-xs">Mostrar cursor</Label>
+   789→                  </div>
+   790→                  <Switch
+   791→                    checked={typewriter.showCursor}
+   792→                    onCheckedChange={(showCursor) => setTypewriterSettings({ showCursor })}
+   793→                    disabled={!dialogueSettings.enabled || !typewriter.enabled}
+   794→                    className="scale-75"
+   795→                  />
+   796→                </label>
+   797→
+   798→                <div className="space-y-1">
+   799→                  <Label className="text-xs">Cursor</Label>
+   800→                  <Input
+   801→                    value={typewriter.cursorChar}
+   802→                    onChange={(e) => setTypewriterSettings({ cursorChar: e.target.value })}
+   803→                    disabled={!dialogueSettings.enabled || !typewriter.enabled}
+   804→                    className="h-8 text-xs"
+   805→                  />
+   806→                </div>
+   807→              </div>
+   808→            </CardContent>
+   809→          </Card>
+   810→
+   811→          {/* Format Detection */}
+   812→          <Card>
+   813→            <CardHeader className="pb-3">
+   814→              <CardTitle className="flex items-center gap-2 text-sm">
+   815→                <Sparkles className="w-4 h-4 text-amber-500" />
+   816→                Detección de Formato
+   817→              </CardTitle>
+   818→              <CardDescription className="text-xs">
+   819→                El sistema detecta automáticamente diferentes tipos de contenido.
+   820→              </CardDescription>
+   821→            </CardHeader>
+   822→            <CardContent className="space-y-3">
+   823→              <div className="grid grid-cols-2 gap-3">
+   824→                <label className="flex items-center justify-between p-2.5 rounded-lg border cursor-pointer hover:bg-muted/50">
+   825→                  <div className="space-y-0.5">
+   826→                    <Label className="text-xs">Emociones</Label>
+   827→                  </div>
+   828→                  <Switch
+   829→                    checked={dialogueSettings.parseEmotions}
+   830→                    onCheckedChange={(parseEmotions) => setDialogueSettings({ parseEmotions })}
+   831→                    disabled={!dialogueSettings.enabled}
+   832→                    className="scale-75"
+   833→                  />
+   834→                </label>
+   835→
+   836→                <label className="flex items-center justify-between p-2.5 rounded-lg border cursor-pointer hover:bg-muted/50">
+   837→                  <div className="space-y-0.5">
+   838→                    <Label className="text-xs">Acciones</Label>
+   839→                  </div>
+   840→                  <Switch
+   841→                    checked={dialogueSettings.highlightActions}
+   842→                    onCheckedChange={(highlightActions) => setDialogueSettings({ highlightActions })}
+   843→                    disabled={!dialogueSettings.enabled}
+   844→                    className="scale-75"
+   845→                  />
+   846→                </label>
+   847→              </div>
+   848→
+   849→              {/* Emotion Settings */}
+   850→              {dialogueSettings.parseEmotions && (
+   851→                <div className="grid grid-cols-2 gap-3 p-2 rounded-lg bg-muted/30">
+   852→                  <label className="flex items-center justify-between cursor-pointer">
+   853→                    <div className="space-y-0.5">
+   854→                      <Label className="text-xs">Mostrar indicador</Label>
+   855→                    </div>
+   856→                    <Switch
+   857→                      checked={contentStyles.emotion.showIndicator}
+   858→                      onCheckedChange={(showIndicator) => setEmotionStyle({ showIndicator })}
+   859→                      disabled={!dialogueSettings.enabled}
+   860→                      className="scale-75"
+   861→                    />
+   862→                  </label>
+   863→                  <label className="flex items-center justify-between cursor-pointer">
+   864→                    <div className="space-y-0.5">
+   865→                      <Label className="text-xs">Resaltar texto</Label>
+   866→                    </div>
+   867→                    <Switch
+   868→                      checked={contentStyles.emotion.highlightText}
+   869→                      onCheckedChange={(highlightText) => setEmotionStyle({ highlightText })}
+   870→                      disabled={!dialogueSettings.enabled}
+   871→                      className="scale-75"
+   872→                    />
+   873→                  </label>
+   874→                </div>
+   875→              )}
+   876→
+   877→              {/* Format Legend */}
+   878→              <div className="p-3 rounded-lg bg-muted/30 space-y-2">
+   879→                <Label className="text-xs font-medium">Formatos detectados:</Label>
+   880→                <div className="grid grid-cols-2 gap-2 text-xs">
+   881→                  <div className="flex items-center gap-2">
+   882→                    <span className="text-muted-foreground">Diálogo:</span>
+   883→                    <code className="bg-muted px-1 rounded">"texto"</code>
+   884→                  </div>
+   885→                  <div className="flex items-center gap-2">
+   886→                    <span className="text-muted-foreground">Acción:</span>
+   887→                    <code className="bg-muted px-1 rounded">*texto*</code>
+   888→                  </div>
+   889→                  <div className="flex items-center gap-2">
+   890→                    <span className="text-muted-foreground">Pensamiento:</span>
+   891→                    <code className="bg-muted px-1 rounded">(texto)</code>
+   892→                  </div>
+   893→                  <div className="flex items-center gap-2">
+   894→                    <span className="text-muted-foreground">Susurro:</span>
+   895→                    <code className="bg-muted px-1 rounded">~texto~</code>
+   896→                  </div>
+   897→                </div>
+   898→              </div>
+   899→            </CardContent>
+   900→          </Card>
+   901→
+   902→          {/* Advanced Settings */}
+   903→          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+   904→            <CollapsibleTrigger asChild>
+   905→              <Button
+   906→                variant="outline"
+   907→                className="w-full justify-between h-9"
+   908→                disabled={!dialogueSettings.enabled}
+   909→              >
+   910→                <span className="flex items-center gap-2 text-xs">
+   911→                  <Settings2 className="w-3.5 h-3.5" />
+   912→                  Configuración Avanzada
+   913→                </span>
+   914→                <ChevronDown className={cn(
+   915→                  "w-4 h-4 transition-transform",
+   916→                  advancedOpen && "rotate-180"
+   917→                )} />
+   918→              </Button>
+   919→            </CollapsibleTrigger>
+   920→            <CollapsibleContent className="mt-4 space-y-4">
+   921→              {/* Animation */}
+   922→              <Card>
+   923→                <CardHeader className="pb-3">
+   924→                  <CardTitle className="text-sm">Animaciones</CardTitle>
+   925→                </CardHeader>
+   926→                <CardContent className="space-y-3">
+   927→                  <label className="flex items-center justify-between p-2.5 rounded-lg border cursor-pointer hover:bg-muted/50">
+   928→                    <div className="space-y-0.5">
+   929→                      <Label className="text-xs">Animar entrada</Label>
+   930→                    </div>
+   931→                    <Switch
+   932→                      checked={dialogueSettings.animateEntry}
+   933→                      onCheckedChange={(animateEntry) => setDialogueSettings({ animateEntry })}
+   934→                      disabled={!dialogueSettings.enabled}
+   935→                      className="scale-75"
+   936→                    />
+   937→                  </label>
+   938→
+   939→                  <div className="grid grid-cols-2 gap-3">
+   940→                    <div className="space-y-1">
+   941→                      <Label className="text-xs">Tipo</Label>
+   942→                      <Select
+   943→                        value={dialogueSettings.entryAnimation}
+   944→                        onValueChange={(v) => setDialogueSettings({ entryAnimation: v as typeof dialogueSettings.entryAnimation })}
+   945→                        disabled={!dialogueSettings.enabled || !dialogueSettings.animateEntry}
+   946→                      >
+   947→                        <SelectTrigger className="h-8 text-xs">
+   948→                          <SelectValue />
+   949→                        </SelectTrigger>
+   950→                        <SelectContent>
+   951→                          <SelectItem value="fade">Fade</SelectItem>
+   952→                          <SelectItem value="slide">Slide</SelectItem>
+   953→                          <SelectItem value="scale">Scale</SelectItem>
+   954→                          <SelectItem value="none">Ninguno</SelectItem>
+   955→                        </SelectContent>
+   956→                      </Select>
+   957→                    </div>
+   958→
+   959→                    <div className="space-y-1">
+   960→                      <div className="flex justify-between text-xs">
+   961→                        <span>Duración</span>
+   962→                        <span className="text-muted-foreground">{dialogueSettings.animationDurationMs}ms</span>
+   963→                      </div>
+   964→                      <Slider
+   965→                        value={[dialogueSettings.animationDurationMs]}
+   966→                        min={50}
+   967→                        max={500}
+   968→                        step={50}
+   969→                        disabled={!dialogueSettings.enabled || !dialogueSettings.animateEntry}
+   970→                        onValueChange={([animationDurationMs]) => setDialogueSettings({ animationDurationMs })}
+   971→                      />
+   972→                    </div>
+   973→                  </div>
+   974→                </CardContent>
+   975→              </Card>
+   976→
+   977→              {/* Spacing */}
+   978→              <Card>
+   979→                <CardHeader className="pb-3">
+   980→                  <CardTitle className="text-sm">Espaciado</CardTitle>
+   981→                </CardHeader>
+   982→                <CardContent>
+   983→                  <div className="space-y-1">
+   984→                    <Label className="text-xs">Espaciado de mensajes</Label>
+   985→                    <Select
+   986→                      value={dialogueSettings.messageSpacing}
+   987→                      onValueChange={(v) => setDialogueSettings({ messageSpacing: v as typeof dialogueSettings.messageSpacing })}
+   988→                      disabled={!dialogueSettings.enabled}
+   989→                    >
+   990→                      <SelectTrigger className="h-8 text-xs">
+   991→                        <SelectValue />
+   992→                      </SelectTrigger>
+   993→                      <SelectContent>
+   994→                        <SelectItem value="compact">Compacto</SelectItem>
+   995→                        <SelectItem value="normal">Normal</SelectItem>
+   996→                        <SelectItem value="spacious">Espacioso</SelectItem>
+   997→                      </SelectContent>
+   998→                    </Select>
+   999→                  </div>
+  1000→                </CardContent>
+  1001→              </Card>
+  1002→
+  1003→              {/* Reset */}
+  1004→              <Button
+  1005→                variant="outline"
+  1006→                size="sm"
+  1007→                className="w-full"
+  1008→                onClick={() => setDialogueSettings(DEFAULT_DIALOGUE_SETTINGS)}
+  1009→                disabled={!dialogueSettings.enabled}
+  1010→              >
+  1011→                <RotateCcw className="w-3.5 h-3.5 mr-2" />
+  1012→                Restaurar valores por defecto
+  1013→              </Button>
+  1014→            </CollapsibleContent>
+  1015→          </Collapsible>
+  1016→        </TabsContent>
+  1017→      </Tabs>
+  1018→    </div>
+  1019→  );
+  1020→}
+  1021→
+  1022→export default DialogueSettingsPanel;
+  1023→

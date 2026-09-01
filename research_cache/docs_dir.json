@@ -1,0 +1,21 @@
+{
+  "code": 200,
+  "data": {
+    "description": "",
+    "html": "<html><head><meta name=\"color-scheme\" content=\"light dark\"></head><body><pre style=\"word-wrap: break-word; white-space: pre-wrap;\">[\n  {\n    \"name\": \"images\",\n    \"path\": \"docs/images\",\n    \"sha\": \"df40f5e9c4b40989d2e91f7494a9dee8c7ebc4d6\",\n    \"size\": 0,\n    \"url\": \"https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs/images?ref=main\",\n    \"html_url\": \"https://github.com/xzf-thu/VoiceMem/tree/main/docs/images\",\n    \"git_url\": \"https://api.github.com/repos/xzf-thu/VoiceMem/git/trees/df40f5e9c4b40989d2e91f7494a9dee8c7ebc4d6\",\n    \"download_url\": null,\n    \"type\": \"dir\",\n    \"_links\": {\n      \"self\": \"https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs/images?ref=main\",\n      \"git\": \"https://api.github.com/repos/xzf-thu/VoiceMem/git/trees/df40f5e9c4b40989d2e91f7494a9dee8c7ebc4d6\",\n      \"html\": \"https://github.com/xzf-thu/VoiceMem/tree/main/docs/images\"\n    }\n  },\n  {\n    \"name\": \"index.html\",\n    \"path\": \"docs/index.html\",\n    \"sha\": \"003d93f263c084756d4fddb5f53a7bff330656f6\",\n    \"size\": 288587,\n    \"url\": \"https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs/index.html?ref=main\",\n    \"html_url\": \"https://github.com/xzf-thu/VoiceMem/blob/main/docs/index.html\",\n    \"git_url\": \"https://api.github.com/repos/xzf-thu/VoiceMem/git/blobs/003d93f263c084756d4fddb5f53a7bff330656f6\",\n    \"download_url\": \"https://raw.githubusercontent.com/xzf-thu/VoiceMem/main/docs/index.html\",\n    \"type\": \"file\",\n    \"_links\": {\n      \"self\": \"https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs/index.html?ref=main\",\n      \"git\": \"https://api.github.com/repos/xzf-thu/VoiceMem/git/blobs/003d93f263c084756d4fddb5f53a7bff330656f6\",\n      \"html\": \"https://github.com/xzf-thu/VoiceMem/blob/main/docs/index.html\"\n    }\n  },\n  {\n    \"name\": \"old_version\",\n    \"path\": \"docs/old_version\",\n    \"sha\": \"4925166c039bfca88861bc952a71ef6fd3ce4205\",\n    \"size\": 0,\n    \"url\": \"https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs/old_version?ref=main\",\n    \"html_url\": \"https://github.com/xzf-thu/VoiceMem/tree/main/docs/old_version\",\n    \"git_url\": \"https://api.github.com/repos/xzf-thu/VoiceMem/git/trees/4925166c039bfca88861bc952a71ef6fd3ce4205\",\n    \"download_url\": null,\n    \"type\": \"dir\",\n    \"_links\": {\n      \"self\": \"https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs/old_version?ref=main\",\n      \"git\": \"https://api.github.com/repos/xzf-thu/VoiceMem/git/trees/4925166c039bfca88861bc952a71ef6fd3ce4205\",\n      \"html\": \"https://github.com/xzf-thu/VoiceMem/tree/main/docs/old_version\"\n    }\n  },\n  {\n    \"name\": \"output_normal.mp4\",\n    \"path\": \"docs/output_normal.mp4\",\n    \"sha\": \"491642eb0442ea9e63de6d6919a0eee2c8bfffb2\",\n    \"size\": 4358781,\n    \"url\": \"https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs/output_normal.mp4?ref=main\",\n    \"html_url\": \"https://github.com/xzf-thu/VoiceMem/blob/main/docs/output_normal.mp4\",\n    \"git_url\": \"https://api.github.com/repos/xzf-thu/VoiceMem/git/blobs/491642eb0442ea9e63de6d6919a0eee2c8bfffb2\",\n    \"download_url\": \"https://raw.githubusercontent.com/xzf-thu/VoiceMem/main/docs/output_normal.mp4\",\n    \"type\": \"file\",\n    \"_links\": {\n      \"self\": \"https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs/output_normal.mp4?ref=main\",\n      \"git\": \"https://api.github.com/repos/xzf-thu/VoiceMem/git/blobs/491642eb0442ea9e63de6d6919a0eee2c8bfffb2\",\n      \"html\": \"https://github.com/xzf-thu/VoiceMem/blob/main/docs/output_normal.mp4\"\n    }\n  }\n]\n</pre></body></html>",
+    "httpStatus": 200,
+    "httpStatusText": "",
+    "publishedTime": "Mon, 31 Aug 2026 02:43:47 GMT",
+    "title": "",
+    "url": "https://api.github.com/repos/xzf-thu/VoiceMem/contents/docs",
+    "usage": {
+      "tokens": 1186
+    }
+  },
+  "meta": {
+    "usage": {
+      "tokens": 1186
+    }
+  },
+  "status": 20000
+}

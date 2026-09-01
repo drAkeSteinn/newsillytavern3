@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { EmojiPicker } from './emoji-picker';
 import { StreamingText } from './streaming-text';
+import { evaluateThresholdEffects } from '@/lib/sprites/condition-evaluator';
 import { useHotkeys, formatHotkey } from '@/hooks/use-hotkeys';
 import {
   Send,
@@ -120,6 +121,12 @@ interface NovelChatBoxProps {
   onToggleProactive?: (enabled: boolean) => void;
   /** FASE 11 v2: Whether proactive is available (character has proactiveAttribute configured). */
   proactiveAvailable?: boolean;
+  /** Seconds until the next proactive message fires (null when inactive/not configured). */
+  proactiveNextIn?: number | null;
+  /** Why proactive is not active (null when active). */
+  proactiveInactiveReason?: 'no_character' | 'not_configured' | 'group_chat' | 'no_session' | 'no_llm' | null;
+  /** How many proactive messages have been sent this session. */
+  proactiveSessionCount?: number;
   onStopGeneration?: () => void;
   onResetChat?: () => void;
   onClearChat?: () => void;
@@ -253,6 +260,9 @@ export function NovelChatBox({
   proactiveEnabled = false,
   onToggleProactive,
   proactiveAvailable = false,
+  proactiveNextIn = null,
+  proactiveInactiveReason = null,
+  proactiveSessionCount = 0,
   onStopGeneration,
   onResetChat,
   onClearChat,
@@ -1101,6 +1111,107 @@ export function NovelChatBox({
     if (item.spriteActivation) {
       activateQuickReplySprite(item.spriteActivation);
     }
+
+    // FASE 18: Evaluate threshold effects if configured
+    if (item.thresholdEffects && item.thresholdEffects.length > 0 && activeSessionId) {
+      try {
+        const store = useTavernStore.getState();
+        const session = store.sessions?.find((s: any) => s.id === activeSessionId);
+        const sessionStats = session?.sessionStats;
+        const characterId = activeCharacter?.id || '__user__';
+
+        // Evaluate threshold effects against current session stats
+        const matchingEffects = evaluateThresholdEffects(item.thresholdEffects, sessionStats, characterId);
+
+        if (matchingEffects.length > 0) {
+          console.log(`[QuickReply] ${matchingEffects.length} threshold effects matched for "${item.label}"`);
+
+          // Execute rewards for each matching effect (in priority order)
+          for (const effect of matchingEffects) {
+            for (const reward of effect.rewards) {
+              try {
+                // Handle attribute modifications directly
+                if (reward.type === 'attribute' && reward.attribute) {
+                  const attr = reward.attribute;
+                  const targetId = characterId;
+                  const currentValue = sessionStats?.characterStats?.[targetId]?.attributeValues?.[attr.key];
+                  const currentNum = typeof currentValue === 'number' ? currentValue : parseFloat(String(currentValue || 0)) || 0;
+                  let newValue: number;
+
+                  switch (attr.action) {
+                    case 'add': newValue = currentNum + (typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 0); break;
+                    case 'subtract': newValue = currentNum - (typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 0); break;
+                    case 'set': newValue = typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 0; break;
+                    case 'multiply': newValue = currentNum * (typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 1); break;
+                    case 'divide': newValue = currentNum / (typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 1); break;
+                    default: newValue = typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 0;
+                  }
+
+                  store.updateCharacterStat?.(activeSessionId, targetId, attr.key, newValue, 'quick_reply_threshold');
+                  console.log(`[QuickReply] Threshold reward: ${attr.key} ${attr.action} ${attr.value} → ${newValue}`);
+                }
+                // Handle target_attribute modifications (modify another character's stat)
+                else if (reward.type === 'target_attribute' && reward.target_attribute) {
+                  const ta = reward.target_attribute;
+                  const targetId = ta.targetId || '__user__';
+                  const sessionStats2 = store.sessions?.find((s: any) => s.id === activeSessionId)?.sessionStats;
+                  const currentValue = sessionStats2?.characterStats?.[targetId]?.attributeValues?.[ta.key];
+                  const currentNum = typeof currentValue === 'number' ? currentValue : parseFloat(String(currentValue || 0)) || 0;
+                  let newValue: number;
+
+                  switch (ta.action) {
+                    case 'add': newValue = currentNum + (typeof ta.value === 'number' ? ta.value : parseFloat(String(ta.value)) || 0); break;
+                    case 'subtract': newValue = currentNum - (typeof ta.value === 'number' ? ta.value : parseFloat(String(ta.value)) || 0); break;
+                    case 'set': newValue = typeof ta.value === 'number' ? ta.value : parseFloat(String(ta.value)) || 0; break;
+                    default: newValue = typeof ta.value === 'number' ? ta.value : parseFloat(String(ta.value)) || 0;
+                  }
+
+                  store.updateCharacterStat?.(activeSessionId, targetId, ta.key, newValue, 'quick_reply_threshold');
+                  console.log(`[QuickReply] Target threshold reward: ${targetId} ${ta.key} → ${newValue}`);
+                }
+                // Handle activate_sprite_pack rewards
+                else if (reward.type === 'activate_sprite_pack' && reward.activate_sprite_pack) {
+                  const asp = reward.activate_sprite_pack;
+                  store.applyTriggerForCharacter?.(activeSessionId, characterId, {
+                    type: 'sprite',
+                    spriteUrl: asp.spriteId,
+                    label: asp.spriteId,
+                    duration: asp.returnToIdleMs || 3000,
+                  });
+                  console.log(`[QuickReply] Sprite pack activated: ${asp.spriteId}`);
+                }
+                // Handle trigger rewards
+                else if (reward.type === 'trigger' && reward.trigger) {
+                  const tr = reward.trigger;
+                  store.applyTriggerForCharacter?.(activeSessionId, characterId, {
+                    type: tr.triggerType || 'sprite',
+                    spriteUrl: tr.spriteUrl,
+                    label: tr.spriteUrl || 'Trigger',
+                    duration: tr.returnToIdleMs || 3000,
+                  });
+                  console.log(`[QuickReply] Trigger activated: ${tr.triggerType}`);
+                }
+                // Handle currency rewards
+                else if (reward.type === 'currency' && reward.currency) {
+                  const currentCurrency = sessionStats?.characterStats?.['__user__']?.attributeValues?.['currency'] || 0;
+                  const newCurrency = (typeof currentCurrency === 'number' ? currentCurrency : 0) + reward.currency.amount;
+                  store.updateCharacterStat?.(activeSessionId, '__user__', 'currency', newCurrency, 'quick_reply_threshold');
+                  console.log(`[QuickReply] Currency: +${reward.currency.amount} → ${newCurrency}`);
+                }
+                else {
+                  console.log(`[QuickReply] Threshold reward type "${reward.type}" not handled yet (skipped)`);
+                }
+              } catch (rewardErr) {
+                console.warn(`[QuickReply] Failed to execute threshold reward:`, rewardErr);
+              }
+            }
+          }
+        }
+      } catch (thresholdErr) {
+        console.warn('[QuickReply] Threshold effects evaluation failed:', thresholdErr);
+      }
+    }
+
     onSendMessage(resolvedResponse);
     setInput('');
   };
@@ -1658,6 +1769,19 @@ export function NovelChatBox({
                           disabled={!proactiveAvailable}
                           className="scale-75 origin-center"
                         />
+                        {/* Discreet countdown indicator — shows time remaining until next proactive message */}
+                        {proactiveEnabled && proactiveAvailable && !isGeneratingProactive && proactiveNextIn !== null && (
+                          <span className={cn(
+                            "text-[10px] font-mono tabular-nums select-none",
+                            proactiveNextIn === 0
+                              ? "text-amber-500 animate-pulse"
+                              : "text-amber-400/70"
+                          )}>
+                            {proactiveNextIn === 0
+                              ? '● Listo'
+                              : `⏱ ${Math.floor(proactiveNextIn / 60)}:${String(proactiveNextIn % 60).padStart(2, '0')}`}
+                          </span>
+                        )}
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="text-xs">
@@ -1666,9 +1790,20 @@ export function NovelChatBox({
                         {!proactiveAvailable
                           ? 'Configura "Proactivo Condicional por Atributo" en el editor del personaje'
                           : proactiveEnabled
-                            ? 'Activado — el personaje tomará la iniciativa según el timer'
+                            ? isGeneratingProactive
+                              ? 'Generando mensaje proactivo...'
+                              : (proactiveNextIn !== null && proactiveNextIn > 0
+                                  ? `Próximo mensaje en ~${Math.floor(proactiveNextIn / 60)}:${String(proactiveNextIn % 60).padStart(2, '0')}`
+                                  : proactiveNextIn === 0
+                                    ? 'Listo para lanzar — esperando próxima verificación del timer'
+                                    : 'Activado — el personaje tomará la iniciativa según el timer')
                             : 'Desactivado — el personaje no enviará mensajes automáticos'}
                       </p>
+                      {proactiveEnabled && proactiveAvailable && proactiveSessionCount !== undefined && proactiveSessionCount > 0 && (
+                        <p className="text-muted-foreground/70 mt-1">
+                          {proactiveSessionCount} mensaje{proactiveSessionCount !== 1 ? 's' : ''} proactivo{proactiveSessionCount !== 1 ? 's' : ''} enviado{proactiveSessionCount !== 1 ? 's' : ''} esta sesión
+                        </p>
+                      )}
                     </TooltipContent>
                   </Tooltip>
                   {/* Force proactive button */}
@@ -2300,24 +2435,13 @@ export function NovelChatBox({
                           }}
                         >
                           {streamingContent ? (
-                            <div 
+                            <StreamingText
+                              content={streamingContent}
+                              isStreaming={true}
+                              isUser={false}
                               className="text-xs"
-                              style={{ 
-                                color: safeAppearance.bubbles.characterBubbleTextColor,
-                              }}
-                            >
-                              {streamingContent}
-                              {safeAppearance.streaming.showCursor && (
-                                <span 
-                                  className="inline-block ml-0.5 animate-pulse"
-                                  style={{ color: safeAppearance.streaming.cursorColor }}
-                                >
-                                  {safeAppearance.streaming.cursorStyle === 'block' ? '▋' :
-                                   safeAppearance.streaming.cursorStyle === 'line' ? '|' :
-                                   safeAppearance.streaming.cursorStyle === 'underscore' ? '_' : '●'}
-                                </span>
-                              )}
-                            </div>
+                              style={{ color: safeAppearance.bubbles.characterBubbleTextColor }}
+                            />
                           ) : (
                             <div className="flex items-center gap-1">
                               <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
