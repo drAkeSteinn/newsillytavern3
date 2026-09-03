@@ -357,7 +357,7 @@ export const useTavernStore = create<TavernState>()(
 
         // Ensure inventorySettings has all fields with proper defaults (migration)
         const persistedInventorySettings = persisted.inventorySettings as Record<string, unknown> | undefined;
-        const mergedInventorySettings: Record<string, unknown> = {
+        let mergedInventorySettings: Record<string, unknown> = {
           ...currentState.inventorySettings,
           ...(persistedInventorySettings || {}),
           // Deep-merge equipmentSlots: always ensure it exists and is an array
@@ -365,6 +365,29 @@ export const useTavernStore = create<TavernState>()(
             ? persistedInventorySettings!.equipmentSlots
             : currentState.inventorySettings.equipmentSlots || [],
         };
+
+        // MIGRATION (global slots → persona slots): global equipment slots were
+        // removed from the Inventory UI; slots are managed in Persona/Character
+        // config. Migrate any persisted legacy global slots to the active persona
+        // so this survives regardless of the order in which localStorage
+        // rehydration and loadFromServer() resolve (prevents a race that lost
+        // the slots). Mirrors the migration in use-persistence-sync.ts.
+        const legacyGlobalSlots = mergedInventorySettings.equipmentSlots as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(legacyGlobalSlots) && legacyGlobalSlots.length > 0) {
+          const activePid = (persisted.activePersonaId as string | undefined)
+            ?? (currentState as { activePersonaId?: string }).activePersonaId;
+          const targetIdx = mergedPersonas.findIndex(p => p.id === activePid);
+          if (targetIdx !== -1) {
+            const target = mergedPersonas[targetIdx] as unknown as { equipmentSlots?: unknown[] };
+            if (!target.equipmentSlots || target.equipmentSlots.length === 0) {
+              (mergedPersonas as unknown as Array<Record<string, unknown>>)[targetIdx] = {
+                ...mergedPersonas[targetIdx],
+                equipmentSlots: legacyGlobalSlots,
+              };
+            }
+            mergedInventorySettings = { ...mergedInventorySettings, equipmentSlots: [] };
+          }
+        }
 
         // Re-derive activeAtmosphereLayers from the persisted preset ID.
         // The layers themselves are not persisted (only the preset ID is), so on reload

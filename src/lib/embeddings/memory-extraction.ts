@@ -337,6 +337,16 @@ function clampImportance(val: number): number {
 }
 
 // ============================================
+// Persona Name Sanitization ({{user}} personalization)
+// ============================================
+// Moved to the dependency-free module src/lib/memory/personalize.ts so that
+// prompt-builder, manage-memory tool and UI components can share the exact
+// same sanitization without pulling the embeddings stack into their bundles.
+// Re-exported here for backward compatibility with existing imports.
+
+export { personalizeMemoryContent } from '@/lib/memory/personalize';
+
+// ============================================
 // Core: Extract Memory via LLM
 // ============================================
 
@@ -405,8 +415,12 @@ export async function extractMemories(
     );
 
     const facts = extractFactsFromLLMOutput(result.message || '');
-    console.log(`[Memory] Extracted ${facts.length} facts from ${characterName}'s message`);
-    return facts;
+    // Sanitize: replace "el jugador" / "el usuario" with the persona's real name
+    const sanitizedFacts = userName
+      ? facts.map(f => ({ ...f, contenido: personalizeMemoryContent(f.contenido, userName) }))
+      : facts;
+    console.log(`[Memory] Extracted ${sanitizedFacts.length} facts from ${characterName}'s message`);
+    return sanitizedFacts;
   } catch (error) {
     console.warn('[Memory] LLM extraction failed:', error);
     return [];
@@ -521,6 +535,7 @@ export async function saveMemoriesAsEmbeddings(
 export async function extractGroupDynamics(
   turnContext: string,
   llmConfig: LLMConfig,
+  userName?: string,
 ): Promise<MemoryFact[]> {
   if (!turnContext?.trim() || turnContext.length < 50) {
     return [];
@@ -552,8 +567,12 @@ export async function extractGroupDynamics(
     );
 
     const facts = extractFactsFromLLMOutput(result.message || '');
-    console.log(`[Memory] Extracted ${facts.length} group dynamics facts`);
-    return facts;
+    // Sanitize: replace "el jugador" / "el usuario" with the persona's real name
+    const sanitizedDynamics = userName
+      ? facts.map(f => ({ ...f, contenido: personalizeMemoryContent(f.contenido, userName) }))
+      : facts;
+    console.log(`[Memory] Extracted ${sanitizedDynamics.length} group dynamics facts`);
+    return sanitizedDynamics;
   } catch (error) {
     console.warn('[Memory] Group dynamics extraction failed:', error);
     return [];

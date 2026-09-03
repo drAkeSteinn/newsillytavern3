@@ -1,0 +1,715 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo, useCallback } from 'react';
+     4→import {
+     5→  Dialog,
+     6→  DialogContent,
+     7→  DialogHeader,
+     8→  DialogTitle,
+     9→  DialogFooter,
+    10→  DialogDescription,
+    11→} from '@/components/ui/dialog';
+    12→import { Button } from '@/components/ui/button';
+    13→import { Input } from '@/components/ui/input';
+    14→import { Label } from '@/components/ui/label';
+    15→import { Textarea } from '@/components/ui/textarea';
+    16→import {
+    17→  Select,
+    18→  SelectContent,
+    19→  SelectItem,
+    20→  SelectTrigger,
+    21→  SelectValue,
+    22→} from '@/components/ui/select';
+    23→import { Switch } from '@/components/ui/switch';
+    24→import { Separator } from '@/components/ui/separator';
+    25→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    26→import { Badge } from '@/components/ui/badge';
+    27→import { Plus, Trash2, AlertTriangle } from 'lucide-react';
+    28→import { useTavernStore } from '@/store/tavern-store';
+    29→import type {
+    30→  Item,
+    31→  ItemRarity,
+    32→  ItemAttributeEffect,
+    33→  ItemSlotEffect,
+    34→  EquipmentSlotDefinition,
+    35→  InventoryItemType,
+    36→} from '@/types';
+    37→import {
+    38→  getRarityColor,
+    39→  createConsumableItem,
+    40→  createEquipmentItem,
+    41→} from '@/store/slices/inventorySlice';
+    42→
+    43→// ============================================
+    44→// Constants
+    45→// ============================================
+    46→
+    47→const RARITIES: ItemRarity[] = [
+    48→  'common',
+    49→  'uncommon',
+    50→  'rare',
+    51→  'epic',
+    52→  'legendary',
+    53→  'unique',
+    54→  'cursed',
+    55→];
+    56→
+    57→const RARITY_LABELS: Record<ItemRarity, string> = {
+    58→  common: 'Común',
+    59→  uncommon: 'Poco común',
+    60→  rare: 'Raro',
+    61→  epic: 'Épico',
+    62→  legendary: 'Legendario',
+    63→  unique: 'Único',
+    64→  cursed: 'Maldito',
+    65→};
+    66→
+    67→const ITEM_TYPES: { value: InventoryItemType; label: string }[] = [
+    68→  { value: 'consumable', label: 'Consumible' },
+    69→  { value: 'equipment', label: 'Equipo' },
+    70→];
+    71→
+    72→// Common emojis for the emoji picker
+    73→const COMMON_EMOJIS = [
+    74→  '⚔️', '🛡️', '🧪', '📜', '🗡️', '🏹', '💎', '🔥', '❄️', '⚡',
+    75→  '💊', '🧲', '🎯', '🎪', '🪄', '🧬', '💰', '🗝️', '🛡️', '👑',
+    76→  '🧥', '🥾', '🧤', '💍', '📿', '🎸', '🔮', '🍷', '🍖', '🍞',
+    77→];
+    78→
+    79→// ============================================
+    80→// Get initial state from item
+    81→// ============================================
+    82→
+    83→interface EditorState {
+    84→  name: string;
+    85→  description: string;
+    86→  type: InventoryItemType;
+    87→  rarity: ItemRarity;
+    88→  icon: string;
+    89→  price: string;
+    90→  attributeEffects: ItemAttributeEffect[]; // Kept for backward compatibility
+    91→  slotEffects: ItemSlotEffect[];
+    92→  consumableEffect: string;               // Free-text effect for consumables
+    93→  useMessage: string;
+    94→  expireMessage: string;
+    95→  unequipMessage: string;
+    96→  duration: string;
+    97→  slot: string; // Slot ID (references EquipmentSlotDefinition.id or legacy ItemSlot)
+    98→  stackable: boolean;
+    99→  maxStack: string;
+   100→  triggerKeywords: string;
+   101→  contextKeys: string;
+   102→  tags: string;
+   103→}
+   104→
+   105→function getInitialState(item: Item | null | undefined): EditorState {
+   106→  return {
+   107→    name: item?.name ?? '',
+   108→    description: item?.description ?? '',
+   109→    type: item?.type ?? 'consumable',
+   110→    rarity: item?.rarity ?? 'common',
+   111→    icon: item?.icon ?? (item?.type === 'equipment' ? '⚔️' : '🧪'),
+   112→    price: item?.price?.toString() ?? '',
+   113→    attributeEffects: item?.attributeEffects ?? [],
+   114→    slotEffects: item?.slotEffects ?? [],
+   115→    consumableEffect: item?.consumableEffect ?? '',
+   116→    useMessage: item?.useMessage ?? '',
+   117→    expireMessage: item?.expireMessage ?? '',
+   118→    unequipMessage: item?.unequipMessage ?? '',
+   119→    duration: item?.duration?.toString() ?? '1',
+   120→    slot: item?.slot ?? 'main_hand',
+   121→    stackable: item?.stackable ?? (item?.type === 'consumable'),
+   122→    maxStack: item?.maxStack?.toString() ?? (item?.type === 'consumable' ? '99' : '1'),
+   123→    triggerKeywords: item?.triggerKeywords?.join(', ') ?? '',
+   124→    contextKeys: item?.contextKeys?.join(', ') ?? '',
+   125→    tags: item?.tags?.join(', ') ?? '',
+   126→  };
+   127→}
+   128→
+   129→// ============================================
+   130→// Stable empty array to avoid infinite re-render
+   131→// (must be outside component so reference is stable)
+   132→// ============================================
+   133→
+   134→const EMPTY_EQUIPMENT_SLOTS: EquipmentSlotDefinition[] = [];
+   135→
+   136→// ============================================
+   137→// Item Editor Component
+   138→// ============================================
+   139→
+   140→interface ItemEditorProps {
+   141→  open: boolean;
+   142→  onOpenChange: (open: boolean) => void;
+   143→  item?: Item | null;
+   144→  onSave: (item: Item) => void;
+   145→  onDelete?: () => void;
+   146→}
+   147→
+   148→export function ItemEditor({ open, onOpenChange, item, onSave, onDelete }: ItemEditorProps) {
+   149→  const initialState = useMemo(() => getInitialState(item), [item]);
+   150→  const [state, setState] = useState<EditorState>(initialState);
+   151→
+   152→  // User-defined equipment slots from store
+   153→  // IMPORTANT: Use stable empty array outside selector to avoid getSnapshot infinite loop
+   154→  const equipmentSlots = useTavernStore(state => state.inventorySettings.equipmentSlots) ?? EMPTY_EQUIPMENT_SLOTS;
+   155→
+   156→  // Available slots (not already used in slotEffects)
+   157→  const availableSlots = useMemo(() => {
+   158→    const usedSlotIds = new Set(state.slotEffects.map(se => se.slotId));
+   159→    return equipmentSlots.filter((s: EquipmentSlotDefinition) => !usedSlotIds.has(s.id));
+   160→  }, [equipmentSlots, state.slotEffects]);
+   161→
+   162→  // Handle dialog open/close changes from user interactions
+   163→  const handleOpenChange = useCallback((isOpen: boolean) => {
+   164→    onOpenChange(isOpen);
+   165→  }, [onOpenChange]);
+   166→
+   167→  const update = <K extends keyof EditorState>(key: K, value: EditorState[K]) => {
+   168→    setState(prev => ({ ...prev, [key]: value }));
+   169→  };
+   170→
+   171→  const handleTypeChange = (newType: InventoryItemType) => {
+   172→    setState(prev => ({
+   173→      ...prev,
+   174→      type: newType,
+   175→      icon: newType === 'consumable' ? '🧪' : '⚔️',
+   176→      stackable: newType === 'consumable',
+   177→      maxStack: newType === 'consumable' ? '99' : '1',
+   178→      duration: newType === 'consumable' ? '1' : '',
+   179→      // Clear type-specific fields when switching types
+   180→      slotEffects: newType === 'consumable' ? [] : prev.slotEffects,
+   181→      consumableEffect: newType === 'equipment' ? '' : prev.consumableEffect,
+   182→      unequipMessage: newType === 'consumable' ? '' : prev.unequipMessage,
+   183→      expireMessage: newType === 'equipment' ? '' : prev.expireMessage,
+   184→    }));
+   185→  };
+   186→
+   187→  // Slot effect management
+   188→  const addSlotEffect = () => {
+   189→    if (availableSlots.length === 0) return;
+   190→    const firstSlot = availableSlots[0];
+   191→    setState(prev => ({
+   192→      ...prev,
+   193→      slotEffects: [
+   194→        ...prev.slotEffects,
+   195→        {
+   196→          slotId: firstSlot.id,
+   197→          slotName: firstSlot.name,
+   198→          effectText: '',
+   199→        },
+   200→      ],
+   201→    }));
+   202→  };
+   203→
+   204→  const updateSlotEffect = (index: number, updates: Partial<ItemSlotEffect>) => {
+   205→    setState(prev => ({
+   206→      ...prev,
+   207→      slotEffects: prev.slotEffects.map((se, i) =>
+   208→        i === index ? { ...se, ...updates } : se
+   209→      ),
+   210→    }));
+   211→  };
+   212→
+   213→  const removeSlotEffect = (index: number) => {
+   214→    setState(prev => ({
+   215→      ...prev,
+   216→      slotEffects: prev.slotEffects.filter((_, i) => i !== index),
+   217→    }));
+   218→  };
+   219→
+   220→  // Save handler - use factory functions
+   221→  const handleSave = () => {
+   222→    if (!state.name.trim()) return;
+   223→
+   224→    const triggerKeywordsList = state.triggerKeywords.trim()
+   225→      ? state.triggerKeywords.split(',').map(k => k.trim()).filter(Boolean)
+   226→      : undefined;
+   227→
+   228→    const contextKeysList = state.contextKeys.trim()
+   229→      ? state.contextKeys.split(',').map(k => k.trim()).filter(Boolean)
+   230→      : undefined;
+   231→
+   232→    const tagsList = state.tags.trim()
+   233→      ? state.tags.split(',').map(t => t.trim()).filter(Boolean)
+   234→      : undefined;
+   235→
+   236→    const price = state.price ? parseInt(state.price) : undefined;
+   237→
+   238→    if (state.type === 'consumable') {
+   239→      const newItem = createConsumableItem(state.name.trim(), {
+   240→        description: state.description.trim(),
+   241→        rarity: state.rarity,
+   242→        icon: state.icon || undefined,
+   243→        duration: parseInt(state.duration) || 1,
+   244→        attributeEffects: state.attributeEffects,
+   245→        slotEffects: state.slotEffects,
+   246→        consumableEffect: state.consumableEffect.trim() || undefined,
+   247→        useMessage: state.useMessage.trim() || undefined,
+   248→        expireMessage: state.expireMessage.trim() || undefined,
+   249→        price,
+   250→        triggerKeywords: triggerKeywordsList,
+   251→        contextKeys: contextKeysList,
+   252→        tags: tagsList,
+   253→        stackable: state.stackable,
+   254→        maxStack: parseInt(state.maxStack) || 99,
+   255→      });
+   256→      // If editing, preserve the id and timestamps
+   257→      if (item) {
+   258→        onSave({ ...newItem, id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt });
+   259→      } else {
+   260→        onSave(newItem);
+   261→      }
+   262→    } else {
+   263→      const newItem = createEquipmentItem(state.name.trim(), {
+   264→        description: state.description.trim(),
+   265→        rarity: state.rarity,
+   266→        icon: state.icon || undefined,
+   267→        slot: state.slot || undefined,
+   268→        attributeEffects: state.attributeEffects,
+   269→        slotEffects: state.slotEffects,
+   270→        useMessage: state.useMessage.trim() || undefined,
+   271→        unequipMessage: state.unequipMessage.trim() || undefined,
+   272→        price,
+   273→        triggerKeywords: triggerKeywordsList,
+   274→        contextKeys: contextKeysList,
+   275→        tags: tagsList,
+   276→      });
+   277→      if (item) {
+   278→        onSave({ ...newItem, id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt });
+   279→      } else {
+   280→        onSave(newItem);
+   281→      }
+   282→    }
+   283→
+   284→    onOpenChange(false);
+   285→  };
+   286→
+   287→  return (
+   288→    <Dialog open={open} onOpenChange={handleOpenChange}>
+   289→      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+   290→        <DialogHeader>
+   291→          <DialogTitle>
+   292→            {item ? 'Editar Item' : 'Crear Nuevo Item'}
+   293→          </DialogTitle>
+   294→          <DialogDescription>
+   295→            Define las propiedades del item para el sistema de inventario.
+   296→          </DialogDescription>
+   297→        </DialogHeader>
+   298→
+   299→        <Tabs defaultValue="basic" className="w-full flex-1 flex flex-col overflow-hidden">
+   300→          <TabsList className="grid grid-cols-4 w-full shrink-0">
+   301→            <TabsTrigger value="basic">Básico</TabsTrigger>
+   302→            <TabsTrigger value="effects">Efectos</TabsTrigger>
+   303→            <TabsTrigger value="messages">Mensajes</TabsTrigger>
+   304→            <TabsTrigger value="config">Config</TabsTrigger>
+   305→          </TabsList>
+   306→
+   307→          <div className="flex-1 overflow-y-auto mt-4">
+   308→            {/* ===== Basic Tab ===== */}
+   309→            <TabsContent value="basic" className="space-y-4 mt-0">
+   310→              {/* Name */}
+   311→              <div className="space-y-2">
+   312→                <Label htmlFor="item-name">Nombre *</Label>
+   313→                <Input
+   314→                  id="item-name"
+   315→                  value={state.name}
+   316→                  onChange={(e) => update('name', e.target.value)}
+   317→                  placeholder="Espada del Destino"
+   318→                />
+   319→              </div>
+   320→
+   321→              {/* Description */}
+   322→              <div className="space-y-2">
+   323→                <Label htmlFor="item-description">Descripción</Label>
+   324→                <Textarea
+   325→                  id="item-description"
+   326→                  value={state.description}
+   327→                  onChange={(e) => update('description', e.target.value)}
+   328→                  placeholder="Una espada legendaria forjada en los fuegos del monte destino..."
+   329→                  rows={3}
+   330→                />
+   331→              </div>
+   332→
+   333→              {/* Type & Rarity */}
+   334→              <div className="grid grid-cols-2 gap-4">
+   335→                <div className="space-y-2">
+   336→                  <Label>Tipo</Label>
+   337→                  <Select value={state.type} onValueChange={(v) => handleTypeChange(v as InventoryItemType)}>
+   338→                    <SelectTrigger>
+   339→                      <SelectValue />
+   340→                    </SelectTrigger>
+   341→                    <SelectContent>
+   342→                      {ITEM_TYPES.map(t => (
+   343→                        <SelectItem key={t.value} value={t.value}>
+   344→                          {t.value === 'consumable' ? '🧪' : '⚔️'} {t.label}
+   345→                        </SelectItem>
+   346→                      ))}
+   347→                    </SelectContent>
+   348→                  </Select>
+   349→                </div>
+   350→
+   351→                <div className="space-y-2">
+   352→                  <Label>Rareza</Label>
+   353→                  <Select value={state.rarity} onValueChange={(v) => update('rarity', v as ItemRarity)}>
+   354→                    <SelectTrigger>
+   355→                      <SelectValue />
+   356→                    </SelectTrigger>
+   357→                    <SelectContent>
+   358→                      {RARITIES.map(r => (
+   359→                        <SelectItem key={r} value={r}>
+   360→                          <span className={getRarityColor(r)}>{RARITY_LABELS[r]}</span>
+   361→                        </SelectItem>
+   362→                      ))}
+   363→                    </SelectContent>
+   364→                  </Select>
+   365→                </div>
+   366→              </div>
+   367→
+   368→              {/* Icon & Price */}
+   369→              <div className="grid grid-cols-2 gap-4">
+   370→                <div className="space-y-2">
+   371→                  <Label>Icono (emoji)</Label>
+   372→                  <div className="flex gap-2 items-center">
+   373→                    <Input
+   374→                      value={state.icon}
+   375→                      onChange={(e) => update('icon', e.target.value)}
+   376→                      placeholder="⚔️"
+   377→                      className="w-16 text-center text-xl"
+   378→                      maxLength={4}
+   379→                    />
+   380→                    <div className="flex flex-wrap gap-1">
+   381→                      {COMMON_EMOJIS.slice(0, 8).map(emoji => (
+   382→                        <Button
+   383→                          key={emoji}
+   384→                          variant="ghost"
+   385→                          size="sm"
+   386→                          className="h-7 w-7 p-0 text-base"
+   387→                          onClick={() => update('icon', emoji)}
+   388→                        >
+   389→                          {emoji}
+   390→                        </Button>
+   391→                      ))}
+   392→                    </div>
+   393→                  </div>
+   394→                </div>
+   395→
+   396→                <div className="space-y-2">
+   397→                  <Label htmlFor="item-price">Precio (tienda)</Label>
+   398→                  <Input
+   399→                    id="item-price"
+   400→                    type="number"
+   401→                    value={state.price}
+   402→                    onChange={(e) => update('price', e.target.value)}
+   403→                    placeholder="0 = no vendible"
+   404→                    min="0"
+   405→                  />
+   406→                </div>
+   407→              </div>
+   408→            </TabsContent>
+   409→
+   410→            {/* ===== Effects Tab ===== */}
+   411→            <TabsContent value="effects" className="space-y-4 mt-0">
+   412→
+   413→              {/* ---- Consumable: simple effect text ---- */}
+   414→              {state.type === 'consumable' && (
+   415→                <div className="space-y-3">
+   416→                  <div>
+   417→                    <h4 className="font-semibold text-sm">Efecto del Consumible</h4>
+   418→                    <p className="text-xs text-muted-foreground">
+   419→                      Describe qué efecto causa al usar este consumible
+   420→                    </p>
+   421→                  </div>
+   422→                  <div className="space-y-2">
+   423→                    <Label htmlFor="consumable-effect">Efecto</Label>
+   424→                    <Textarea
+   425→                      id="consumable-effect"
+   426→                      value={state.consumableEffect}
+   427→                      onChange={(e) => update('consumableEffect', e.target.value)}
+   428→                      placeholder="Describe el efecto del consumible... (ej: +10 vida, restaura 20 de maná, curación de veneno)"
+   429→                      rows={4}
+   430→                      className="resize-none"
+   431→                    />
+   432→                    <p className="text-xs text-muted-foreground">
+   433→                      Este texto se incluirá en el contexto cuando el consumible esté activo.
+   434→                    </p>
+   435→                  </div>
+   436→
+   437→                  {/* Info about old effects for backward compat */}
+   438→                  {state.attributeEffects && state.attributeEffects.length > 0 && (
+   439→                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
+   440→                      <div className="flex items-start gap-2">
+   441→                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+   442→                        <span className="text-muted-foreground">
+   443→                          Este item tiene efectos heredados del sistema anterior. El nuevo campo de efecto reemplaza el sistema de objetivo+atributo.
+   444→                        </span>
+   445→                      </div>
+   446→                    </div>
+   447→                  )}
+   448→                </div>
+   449→              )}
+   450→
+   451→              {/* ---- Equipment: slot-based effects ---- */}
+   452→              {state.type === 'equipment' && (
+   453→                <>
+   454→                  <div className="flex justify-between items-center">
+   455→                    <div>
+   456→                      <h4 className="font-semibold text-sm">Efectos por Slot</h4>
+   457→                      <p className="text-xs text-muted-foreground">
+   458→                        Define qué efecto causa el item según el slot donde se equipe
+   459→                      </p>
+   460→                    </div>
+   461→                    <Button variant="outline" size="sm" onClick={addSlotEffect} disabled={availableSlots.length === 0}>
+   462→                      <Plus className="w-4 h-4 mr-1" />
+   463→                      Agregar Slot
+   464→                    </Button>
+   465→                  </div>
+   466→
+   467→                  {equipmentSlots.length === 0 ? (
+   468→                    <div className="text-center py-6 space-y-2">
+   469→                      <p className="text-sm text-amber-600">No hay slots de equipo configurados</p>
+   470→                      <p className="text-xs text-muted-foreground">
+   471→                        Ve a la sección de Inventario → Slots para crear slots de equipo primero.
+   472→                      </p>
+   473→                    </div>
+   474→                  ) : state.slotEffects.length === 0 ? (
+   475→                    <p className="text-sm text-muted-foreground text-center py-6">
+   476→                      Sin efectos definidos. Agrega slots para definir los efectos del item.
+   477→                    </p>
+   478→                  ) : (
+   479→                    <div className="space-y-3">
+   480→                      {state.slotEffects.map((slotEffect, index) => {
+   481→                        const slotDef = equipmentSlots.find((s: EquipmentSlotDefinition) => s.id === slotEffect.slotId);
+   482→                        if (!slotDef) return null; // Slot was deleted
+   483→
+   484→                        return (
+   485→                          <div key={index} className="rounded-lg border overflow-hidden">
+   486→                            {/* Header with slot info */}
+   487→                            <div className="flex items-center justify-between px-3 py-1.5 bg-orange-500/10 border-b border-orange-500/20">
+   488→                              <div className="flex items-center gap-2">
+   489→                                <span className="text-base">{slotDef.icon || '📦'}</span>
+   490→                                <span className="text-xs font-medium text-orange-700">{slotDef.name}</span>
+   491→                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-mono">
+   492→                                  {'{{'}{slotDef.key}{'}}'}
+   493→                                </Badge>
+   494→                              </div>
+   495→                              <Button variant="ghost" size="icon" className="shrink-0 h-6 w-6" onClick={() => removeSlotEffect(index)}>
+   496→                                <Trash2 className="w-3.5 h-3.5 text-destructive" />
+   497→                              </Button>
+   498→                            </div>
+   499→
+   500→                            <div className="p-3 space-y-3 bg-muted/30">
+   501→                              {/* Slot selector (in case user wants to change the slot) */}
+   502→                              <Select
+   503→                                value={slotEffect.slotId}
+   504→                                onValueChange={(v) => {
+   505→                                  const newSlot = equipmentSlots.find((s: EquipmentSlotDefinition) => s.id === v);
+   506→                                  updateSlotEffect(index, { slotId: v, slotName: newSlot?.name || v });
+   507→                                }}
+   508→                              >
+   509→                                <SelectTrigger>
+   510→                                  <SelectValue placeholder="Seleccionar slot..." />
+   511→                                </SelectTrigger>
+   512→                                <SelectContent>
+   513→                                  {equipmentSlots.map((s: EquipmentSlotDefinition) => (
+   514→                                    <SelectItem key={s.id} value={s.id}>
+   515→                                      {s.icon || '📦'} {s.name} ({`{{${s.key}}}`})
+   516→                                    </SelectItem>
+   517→                                  ))}
+   518→                                </SelectContent>
+   519→                              </Select>
+   520→
+   521→                              {/* Effect text - the main content */}
+   522→                              <div className="space-y-1">
+   523→                                <Label className="text-xs text-muted-foreground">Efecto</Label>
+   524→                                <Textarea
+   525→                                  value={slotEffect.effectText}
+   526→                                  onChange={(e) => updateSlotEffect(index, { effectText: e.target.value })}
+   527→                                  placeholder="Describe el efecto cuando se equipa en este slot... (ej: +10 ataque, Maldición: -5 vida por turno)"
+   528→                                  rows={2}
+   529→                                  className="resize-none"
+   530→                                />
+   531→                              </div>
+   532→                            </div>
+   533→                          </div>
+   534→                        );
+   535→                      })}
+   536→                    </div>
+   537→                  )}
+   538→
+   539→                  {/* Info about old effects for backward compat */}
+   540→                  {state.attributeEffects && state.attributeEffects.length > 0 && (
+   541→                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
+   542→                      <div className="flex items-start gap-2">
+   543→                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+   544→                        <span className="text-muted-foreground">
+   545→                          Este item tiene efectos heredados del sistema anterior. Los nuevos efectos por slot reemplazan el sistema de objetivo+atributo.
+   546→                        </span>
+   547→                      </div>
+   548→                    </div>
+   549→                  )}
+   550→                </>
+   551→              )}
+   552→            </TabsContent>
+   553→
+   554→            {/* ===== Messages Tab ===== */}
+   555→            <TabsContent value="messages" className="space-y-4 mt-0">
+   556→              <div className="space-y-2">
+   557→                <Label htmlFor="use-message">Mensaje al usar</Label>
+   558→                <p className="text-xs text-muted-foreground">
+   559→                  Texto mostrado cuando se usa o equipa el item
+   560→                  {state.type === 'equipment' && (
+   561→                    <> — usa <code className="text-primary font-mono text-[10px] bg-primary/10 px-1 rounded">{'{{slot}}'}</code> para insertar el nombre del slot</>
+   562→                  )}
+   563→                </p>
+   564→                <Textarea
+   565→                  id="use-message"
+   566→                  value={state.useMessage}
+   567→                  onChange={(e) => update('useMessage', e.target.value)}
+   568→                  placeholder="Equipaste la Espada del Destino"
+   569→                  rows={2}
+   570→                />
+   571→              </div>
+   572→
+   573→              <Separator />
+   574→
+   575→              {state.type === 'consumable' && (
+   576→                <div className="space-y-2">
+   577→                  <Label htmlFor="expire-message">Mensaje al expirar</Label>
+   578→                  <p className="text-xs text-muted-foreground">
+   579→                    Texto mostrado cuando el efecto del consumible expira
+   580→                  </p>
+   581→                  <Textarea
+   582→                    id="expire-message"
+   583→                    value={state.expireMessage}
+   584→                    onChange={(e) => update('expireMessage', e.target.value)}
+   585→                    placeholder="El efecto de la poción ha expirado"
+   586→                    rows={2}
+   587→                  />
+   588→                </div>
+   589→              )}
+   590→
+   591→              {state.type === 'equipment' && (
+   592→                <div className="space-y-2">
+   593→                  <Label htmlFor="unequip-message">Mensaje al desequipar</Label>
+   594→                  <p className="text-xs text-muted-foreground">
+   595→                    Texto mostrado cuando se desequipa el item — usa <code className="text-primary font-mono text-[10px] bg-primary/10 px-1 rounded">{'{{slot}}'}</code> para insertar el nombre del slot
+   596→                  </p>
+   597→                  <Textarea
+   598→                    id="unequip-message"
+   599→                    value={state.unequipMessage}
+   600→                    onChange={(e) => update('unequipMessage', e.target.value)}
+   601→                    placeholder="Desequipaste la Espada del Destino"
+   602→                    rows={2}
+   603→                  />
+   604→                </div>
+   605→              )}
+   606→            </TabsContent>
+   607→
+   608→            {/* ===== Config Tab ===== */}
+   609→            <TabsContent value="config" className="space-y-4 mt-0">
+   610→              {state.type === 'consumable' && (
+   611→                <>
+   612→                  <div className="space-y-2">
+   613→                    <Label htmlFor="duration">Duración (turnos)</Label>
+   614→                    <p className="text-xs text-muted-foreground">
+   615→                      Cuántos turnos dura el efecto del consumible
+   616→                    </p>
+   617→                    <Input
+   618→                      id="duration"
+   619→                      type="number"
+   620→                      value={state.duration}
+   621→                      onChange={(e) => update('duration', e.target.value)}
+   622→                      min="1"
+   623→                      className="w-32"
+   624→                    />
+   625→                  </div>
+   626→
+   627→                  <Separator />
+   628→
+   629→                  <div className="space-y-3">
+   630→                    <div className="flex items-center gap-2">
+   631→                      <Switch
+   632→                        checked={state.stackable}
+   633→                        onCheckedChange={(v) => update('stackable', v)}
+   634→                      />
+   635→                      <Label>Apilable</Label>
+   636→                    </div>
+   637→
+   638→                    {state.stackable && (
+   639→                      <div className="flex items-center gap-2 ml-6">
+   640→                        <Label className="text-muted-foreground text-sm">Máximo:</Label>
+   641→                        <Input
+   642→                          type="number"
+   643→                          value={state.maxStack}
+   644→                          onChange={(e) => update('maxStack', e.target.value)}
+   645→                          className="w-20"
+   646→                          min="1"
+   647→                        />
+   648→                      </div>
+   649→                    )}
+   650→                  </div>
+   651→                </>
+   652→              )}
+   653→
+   654→              <Separator />
+   655→
+   656→              {/* Trigger Keywords */}
+   657→              <div className="space-y-2">
+   658→                <Label>Keywords de Trigger</Label>
+   659→                <p className="text-xs text-muted-foreground">
+   660→                  Palabras clave que detectan este item en los mensajes (separadas por coma)
+   661→                </p>
+   662→                <Input
+   663→                  value={state.triggerKeywords}
+   664→                  onChange={(e) => update('triggerKeywords', e.target.value)}
+   665→                  placeholder="espada del destino, legendary sword"
+   666→                />
+   667→              </div>
+   668→
+   669→              <div className="space-y-2">
+   670→                <Label>Keywords de Contexto</Label>
+   671→                <p className="text-xs text-muted-foreground">
+   672→                  Keywords adicionales que TAMBIÉN deben estar presentes (separadas por coma)
+   673→                </p>
+   674→                <Input
+   675→                  value={state.contextKeys}
+   676→                  onChange={(e) => update('contextKeys', e.target.value)}
+   677→                  placeholder="encuentras, obtienes"
+   678→                />
+   679→              </div>
+   680→
+   681→              <div className="space-y-2">
+   682→                <Label>Tags</Label>
+   683→                <p className="text-xs text-muted-foreground">
+   684→                  Tags para organización y búsqueda (separados por coma)
+   685→                </p>
+   686→                <Input
+   687→                  value={state.tags}
+   688→                  onChange={(e) => update('tags', e.target.value)}
+   689→                  placeholder="arma, legendario, fuego"
+   690→                />
+   691→              </div>
+   692→            </TabsContent>
+   693→          </div>
+   694→        </Tabs>
+   695→
+   696→        <DialogFooter className="gap-2 mt-auto pt-4 border-t shrink-0">
+   697→          {item && onDelete && (
+   698→            <Button variant="destructive" onClick={onDelete}>
+   699→              Eliminar
+   700→            </Button>
+   701→          )}
+   702→          <Button variant="outline" onClick={() => onOpenChange(false)}>
+   703→            Cancelar
+   704→          </Button>
+   705→          <Button onClick={handleSave} disabled={!state.name.trim()}>
+   706→            {item ? 'Guardar' : 'Crear'}
+   707→          </Button>
+   708→        </DialogFooter>
+   709→      </DialogContent>
+   710→    </Dialog>
+   711→  );
+   712→}
+   713→
+   714→export default ItemEditor;
+   715→

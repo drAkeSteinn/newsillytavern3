@@ -198,7 +198,9 @@ export async function retrieveEmbeddingsContext(
     }
 
     // Search each namespace (with deduplication)
-    const maxResults = config.maxResults || 5;
+    // FASE 17: maxResults can be overridden from the Memoria settings UI
+    // (embeddingsChat.memoryMaxResults) — falls back to the embeddings config file.
+    const maxResults = Math.max(1, settings.memoryMaxResults || config.maxResults || 5);
     const threshold = config.similarityThreshold || 0.5;
     const maxBudget = settings.maxTokenBudget || 1024;
 
@@ -312,7 +314,20 @@ export async function retrieveEmbeddingsContext(
       const isLatest = (r.metadata as Record<string, any>)?.is_latest;
       return !isLatest; // Exclude latest summary (injected directly), keep old ones
     });
-    let trimmed = nonLatestSummaryResults.slice(0, maxResults);
+
+    // Content-level dedup for memory-type results: the same memory may exist in
+    // BOTH the cross-session and session-suffixed namespaces (legacy saves via
+    // manage_memory tool / manual-memory / summary routes). Keep the first
+    // occurrence (highest similarity after sort above).
+    const seenMemoryContents = new Set<string>();
+    const dedupedResults = nonLatestSummaryResults.filter(r => {
+      if (r.source_type !== 'memory') return true;
+      const key = r.content.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (seenMemoryContents.has(key)) return false;
+      seenMemoryContents.add(key);
+      return true;
+    });
+    let trimmed = dedupedResults.slice(0, maxResults);
 
     // If we hit the max results limit, prefer higher importance memories
     if (trimmed.length >= maxResults) {
@@ -573,8 +588,22 @@ function getNamespacesForStrategy(
       const sessionSuffix = (!useCrossSession && sessionId) ? `-${sessionId}` : '';
 
       // Cross-session MEMORY namespace (memories extracted from chat)
-      if (characterId) ns.push(`memory-character-${characterId}${sessionSuffix}`);
-      if (groupId) ns.push(`memory-group-${groupId}${sessionSuffix}`);
+      if (characterId) {
+        ns.push(`memory-character-${characterId}${sessionSuffix}`);
+        // ALSO search the session-suffixed variant even in cross-session mode:
+        // the manage_memory tool, manual-memory route and summary route save with
+        // the session suffix. Without this, those memories are invisible to retrieval.
+        // (Results are deduplicated below, so dual-matching is harmless.)
+        if (useCrossSession && sessionId) {
+          ns.push(`memory-character-${characterId}-${sessionId}`);
+        }
+      }
+      if (groupId) {
+        ns.push(`memory-group-${groupId}${sessionSuffix}`);
+        if (useCrossSession && sessionId) {
+          ns.push(`memory-group-${groupId}-${sessionId}`);
+        }
+      }
 
       // ALWAYS include: character/group lore namespace (manually created content)
       if (characterId) ns.push(`character-${characterId}`);

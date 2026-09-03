@@ -8,6 +8,7 @@
 import type { ToolDefinition, ToolContext, ToolExecutionResult } from '../types';
 import { getEmbeddingClient } from '@/lib/embeddings/client';
 import type { MemoryType } from '@/lib/embeddings/memory-extraction';
+import { personalizeMemoryContent } from '@/lib/memory/personalize';
 
 export const manageMemoryTool: ToolDefinition = {
   id: 'manage_memory',
@@ -111,7 +112,9 @@ export async function manageMemoryExecutor(
           };
         }
 
-        const memoryContent = content || narrative;
+        // Sanitize: LLMs sometimes write "el Jugador"/"el usuario" in tool calls.
+        // Replace generic player references with the persona's real name ({{user}}).
+        const memoryContent = personalizeMemoryContent(content || narrative, context.userName);
         
         // Determine namespace: use session-specific memory namespace
         const sessionId = context.sessionId || 'unknown';
@@ -241,9 +244,12 @@ export async function manageMemoryExecutor(
           : 'enemigo';
         
         const sentimentChange = sentiment > 0 ? `+${sentiment}` : `${sentiment}`;
-        
-        const relationshipContent = narrative 
-          ? `Relación con ${subject}: ${narrative} (sentimiento: ${sentimentChange})`
+
+        // Sanitize narrative so relationships also reference the persona by name
+        const sanitizedNarrative = personalizeMemoryContent(narrative, context.userName);
+
+        const relationshipContent = sanitizedNarrative
+          ? `Relación con ${subject}: ${sanitizedNarrative} (sentimiento: ${sentimentChange})`
           : `Relación con ${subject}: cambio de ${sentimentChange} puntos`;
 
         try {
@@ -293,7 +299,7 @@ export async function manageMemoryExecutor(
               targetName: subject,
               relationship: sentimentLabel,
               sentiment: sentiment,
-              notes: narrative || '',
+              notes: sanitizedNarrative || '',
             },
           };
         } catch (embedErr) {

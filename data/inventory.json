@@ -2762,100 +2762,423 @@
     "autoDetect": true,
     "currencyName": "Puntos",
     "currencyIcon": "💰",
-    "equipmentSlots": [
-      {
-        "id": "slot-1780243589021-wpam34n",
-        "name": "Ano",
-        "key": "ano"
-      },
-      {
-        "id": "slot-1780243594672-h7lvhsf",
-        "name": "vagina",
-        "key": "vagina"
-      },
-      {
-        "id": "slot-1780243601682-1bc5vzh",
-        "name": "garganta",
-        "key": "garganta"
-      },
-      {
-        "id": "slot-1780243606357-qu4ccd0",
-        "name": "boca",
-        "key": "boca"
-      },
-      {
-        "id": "slot-1780243609566-rggw29a",
-        "name": "cara",
-        "key": "cara"
-      },
-      {
-        "id": "slot-1780243615399-8152pih",
-        "name": "pezones",
-        "key": "pezones"
-      }
-    ],
+    "equipmentSlots": [],
     "maxItems": 100,
     "autoAdd": false
   },
   "inventoryNotifications": [
     {
-      "type": "item_removed",
-      "itemId": "past-003",
-      "itemName": "Pastilla Orgasmica",
+      "type": "add",
+      "itemName": "Item",
       "quantity": 1,
-      "message": "El efecto de Pastilla Orgasmica ha expirado",
-      "id": "notif-1788190499604-mvl3rro",
-      "timestamp": "2026-08-31T15:34:59.604Z",
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el efecto de la pastilla, gluc",
+      "id": "notif-1788341844002-teoxmtj",
+      "timestamp": "2026-09-02T09:37:24.002Z",
       "read": false
     },
     {
-      "type": "item_equipped",
-      "itemId": "cum-002",
-      "itemName": "Dildo Eyaculador Masivo",
+      "type": "add",
+      "itemName": "Item",
       "quantity": 1,
-      "message": "{{user}} te metio un dildo que te llena de semen hasta hincharte el estomago, cada senton que te das te eyacula dentro",
-      "id": "notif-1788190489628-of54ld1",
-      "timestamp": "2026-08-31T15:34:49.628Z",
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el efecto de la pastilla",
+      "id": "notif-1788341843982-2tsf322",
+      "timestamp": "2026-09-02T09:37:23.982Z",
       "read": false
     },
     {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
+      "type": "add",
+      "itemName": "Item",
       "quantity": 1,
-      "message": "{{user}} te metio un dildo inflable que se esta expandiendo dentro de tu vagina",
-      "id": "notif-1788188165641-cugscmh",
-      "timestamp": "2026-08-31T14:56:05.641Z",
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el efecto de la pasti",
+      "id": "notif-1788341843962-a98vqv2",
+      "timestamp": "2026-09-02T09:37:23.962Z",
       "read": false
     },
     {
-      "type": "item_used",
-      "itemId": "past-003",
-      "itemName": "Pastilla Orgasmica",
+      "type": "add",
+      "itemName": "Item",
       "quantity": 1,
-      "message": "{{user}} te dio una pastilla que te proboca orgasmos",
-      "id": "notif-1788187990517-enz2ctc",
-      "timestamp": "2026-08-31T14:53:10.517Z",
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el efecto de la pa",
+      "id": "notif-1788341843941-9r8aey8",
+      "timestamp": "2026-09-02T09:37:23.941Z",
       "read": false
     },
     {
-      "type": "item_equipped",
-      "itemId": "plug-001",
-      "itemName": "Dildo Inflable",
+      "type": "add",
+      "itemName": "Item",
       "quantity": 1,
-      "message": "Desequipaste Dildo Inflable",
-      "id": "notif-1788187943124-ttlavse",
-      "timestamp": "2026-08-31T14:52:23.124Z",
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el efecto de la",
+      "id": "notif-1788341843920-0snt6lk",
+      "timestamp": "2026-09-02T09:37:23.920Z",
       "read": false
     },
     {
-      "type": "item_equipped",
-      "itemId": "cum-001",
-      "itemName": "Plug Inflador de Semen",
+      "type": "add",
+      "itemName": "Item",
       "quantity": 1,
-      "message": "{{user}} te saco el plug inflador de semen",
-      "id": "notif-1788187942423-2xdcrqw",
-      "timestamp": "2026-08-31T14:52:22.423Z",
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el efecto de",
+      "id": "notif-1788341843899-jxvls0k",
+      "timestamp": "2026-09-02T09:37:23.899Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el efecto",
+      "id": "notif-1788341843878-q2e9bab",
+      "timestamp": "2026-09-02T09:37:23.878Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el efe",
+      "id": "notif-1788341843855-2rup6sd",
+      "timestamp": "2026-09-02T09:37:23.855Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por el",
+      "id": "notif-1788341843834-kevbjca",
+      "timestamp": "2026-09-02T09:37:23.834Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreando por",
+      "id": "notif-1788341843811-174kr6g",
+      "timestamp": "2026-09-02T09:37:23.811Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorreand",
+      "id": "notif-1788341843792-y7qt0lp",
+      "timestamp": "2026-09-02T09:37:23.792Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue chorre",
+      "id": "notif-1788341843770-ejov6vq",
+      "timestamp": "2026-09-02T09:37:23.770Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue cho",
+      "id": "notif-1788341843749-fl4llxf",
+      "timestamp": "2026-09-02T09:37:23.749Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sigue",
+      "id": "notif-1788341843727-j41jfjx",
+      "timestamp": "2026-09-02T09:37:23.727Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha sig",
+      "id": "notif-1788341843707-mw3hpoo",
+      "timestamp": "2026-09-02T09:37:23.707Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panocha",
+      "id": "notif-1788341843688-1tyzui3",
+      "timestamp": "2026-09-02T09:37:23.688Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su panoc",
+      "id": "notif-1788341843667-9azi2qm",
+      "timestamp": "2026-09-02T09:37:23.667Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su pa",
+      "id": "notif-1788341843647-6x8iti3",
+      "timestamp": "2026-09-02T09:37:23.647Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras su",
+      "id": "notif-1788341843624-gp2kap3",
+      "timestamp": "2026-09-02T09:37:23.624Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mientras",
+      "id": "notif-1788341843603-1whigqh",
+      "timestamp": "2026-09-02T09:37:23.603Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mient",
+      "id": "notif-1788341843583-vqd4kcl",
+      "timestamp": "2026-09-02T09:37:23.583Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote mi",
+      "id": "notif-1788341843562-3oev3do",
+      "timestamp": "2026-09-02T09:37:23.562Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pitote",
+      "id": "notif-1788341843540-04zh1mw",
+      "timestamp": "2026-09-02T09:37:23.540Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu pit",
+      "id": "notif-1788341843518-czfyla8",
+      "timestamp": "2026-09-02T09:37:23.518Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por tu",
+      "id": "notif-1788341843493-end6b03",
+      "timestamp": "2026-09-02T09:37:23.493Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajando por",
+      "id": "notif-1788341843470-6x904b2",
+      "timestamp": "2026-09-02T09:37:23.470Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y bajand",
+      "id": "notif-1788341843444-hldjl83",
+      "timestamp": "2026-09-02T09:37:23.444Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo y baj",
+      "id": "notif-1788341843424-axfvhyq",
+      "timestamp": "2026-09-02T09:37:23.424Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subiendo",
+      "id": "notif-1788341843400-1utaez2",
+      "timestamp": "2026-09-02T09:37:23.400Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda subie",
+      "id": "notif-1788341843373-buhkpsx",
+      "timestamp": "2026-09-02T09:37:23.373Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda su",
+      "id": "notif-1788341843353-2iyuxit",
+      "timestamp": "2026-09-02T09:37:23.353Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húmeda",
+      "id": "notif-1788341843325-brcaxef",
+      "timestamp": "2026-09-02T09:37:23.325Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente y húm",
+      "id": "notif-1788341843306-p6v6vvp",
+      "timestamp": "2026-09-02T09:37:23.306Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca caliente",
+      "id": "notif-1788341843283-yg4fhrq",
+      "timestamp": "2026-09-02T09:37:23.283Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca calie",
+      "id": "notif-1788341843262-6sc5xxs",
+      "timestamp": "2026-09-02T09:37:23.262Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca ca",
+      "id": "notif-1788341843243-9ho8mlc",
+      "timestamp": "2026-09-02T09:37:23.243Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae, la boca",
+      "id": "notif-1788341843220-h0frjdr",
+      "timestamp": "2026-09-02T09:37:23.220Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la distrae",
+      "id": "notif-1788341843200-qicbp0i",
+      "timestamp": "2026-09-02T09:37:23.200Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentáculo ya no la dist",
+      "id": "notif-1788341843179-9v16k46",
+      "timestamp": "2026-09-02T09:37:23.179Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentácul",
+      "id": "notif-1788341843157-tjv8ca9",
+      "timestamp": "2026-09-02T09:37:23.157Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el tentá",
+      "id": "notif-1788341843136-7mhvdue",
+      "timestamp": "2026-09-02T09:37:23.136Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el te",
+      "id": "notif-1788341843115-xuej189",
+      "timestamp": "2026-09-02T09:37:23.115Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que el",
+      "id": "notif-1788341843093-u3fe89n",
+      "timestamp": "2026-09-02T09:37:23.093Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora que",
+      "id": "notif-1788341843072-u441v4z",
+      "timestamp": "2026-09-02T09:37:23.072Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: ahora",
+      "id": "notif-1788341843050-qxibwql",
+      "timestamp": "2026-09-02T09:37:23.050Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: aho",
+      "id": "notif-1788341843036-hj3v6yk",
+      "timestamp": "2026-09-02T09:37:23.036Z",
       "read": false
     },
     {
@@ -2864,400 +3187,37 @@
       "itemName": "Dildo Tentaculo",
       "quantity": 1,
       "message": "{{user}} te saco el dildo tentaculo",
-      "id": "notif-1788187941134-ogio5hf",
-      "timestamp": "2026-08-31T14:52:21.134Z",
+      "id": "notif-1788341832496-usujdbc",
+      "timestamp": "2026-09-02T09:37:12.496Z",
       "read": false
     },
     {
-      "type": "item_added",
+      "type": "item_equipped",
+      "itemId": "dildo-002",
+      "itemName": "Dildo Tentaculo",
+      "quantity": 1,
+      "message": "{{user}} te metio un dildo tentaculo que se mueve solo dentro de tu ano",
+      "id": "notif-1788341269999-ofrne5l",
+      "timestamp": "2026-09-02T09:27:49.999Z",
+      "read": false
+    },
+    {
+      "type": "item_removed",
       "itemId": "past-003",
       "itemName": "Pastilla Orgasmica",
       "quantity": 1,
-      "message": "Compraste Pastilla Orgasmica por 35 divisas",
-      "id": "notif-1788187934661-7wf5qoe",
-      "timestamp": "2026-08-31T14:52:14.661Z",
-      "read": false
-    },
-    {
-      "type": "item_added",
-      "itemId": "past-003",
-      "itemName": "Pastilla Orgasmica",
-      "quantity": 1,
-      "message": "Obtuviste Pastilla Orgasmica",
-      "id": "notif-1788187934649-bswdfwi",
-      "timestamp": "2026-08-31T14:52:14.649Z",
-      "read": false
-    },
-    {
-      "type": "currency_changed",
-      "itemName": "Puntos",
-      "quantity": -35,
-      "message": "Puntos: -35 (Total: 86)",
-      "id": "notif-1788187934625-8gc3qbv",
-      "timestamp": "2026-08-31T14:52:14.625Z",
+      "message": "El efecto de Pastilla Orgasmica ha expirado",
+      "id": "notif-1788341165309-sztekpl",
+      "timestamp": "2026-09-02T09:26:05.309Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: de probar qué se siente ser tu cogelona de verda",
-      "id": "notif-1788185037738-6i7sida",
-      "timestamp": "2026-08-31T14:03:57.738Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se siente ser tu cogelona de ve",
-      "id": "notif-1788185037724-p2camtb",
-      "timestamp": "2026-08-31T14:03:57.724Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se siente ser tu cogelona de",
-      "id": "notif-1788185037710-zcwvyox",
-      "timestamp": "2026-08-31T14:03:57.710Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se siente ser tu cogelona",
-      "id": "notif-1788185037698-p3uyq9u",
-      "timestamp": "2026-08-31T14:03:57.698Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se siente ser tu cogel",
-      "id": "notif-1788185037685-gx146qa",
-      "timestamp": "2026-08-31T14:03:57.685Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se siente ser tu co",
-      "id": "notif-1788185037672-u9todzn",
-      "timestamp": "2026-08-31T14:03:57.672Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se siente ser tu",
-      "id": "notif-1788185037660-rrja4eu",
-      "timestamp": "2026-08-31T14:03:57.660Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se siente ser",
-      "id": "notif-1788185037647-44bzoqw",
-      "timestamp": "2026-08-31T14:03:57.647Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se siente",
-      "id": "notif-1788185037635-8vbuctd",
-      "timestamp": "2026-08-31T14:03:57.635Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qué se sien",
-      "id": "notif-1788185037623-cnjoxwv",
-      "timestamp": "2026-08-31T14:03:57.623Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar qu",
-      "id": "notif-1788185037610-ltoyyxt",
-      "timestamp": "2026-08-31T14:03:57.610Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de probar",
-      "id": "notif-1788185037597-97ozui1",
-      "timestamp": "2026-08-31T14:03:57.597Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de pro",
-      "id": "notif-1788185037586-kkjmowi",
-      "timestamp": "2026-08-31T14:03:57.586Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Plug Inflador de Semen",
-      "quantity": 1,
-      "message": "Obtained: de",
-      "id": "notif-1788185037573-2faac5p",
-      "timestamp": "2026-08-31T14:03:57.573Z",
-      "read": false
-    },
-    {
-      "type": "item_added",
-      "itemId": "cum-001",
-      "itemName": "Plug Inflador de Semen",
-      "quantity": 1,
-      "message": "Obtuviste Plug Inflador de Semen",
-      "id": "notif-1788185037560-nvl4ivs",
-      "timestamp": "2026-08-31T14:03:57.560Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de tragar",
-      "id": "notif-1788184799917-dcongcs",
-      "timestamp": "2026-08-31T13:59:59.917Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: de tra",
-      "id": "notif-1788184799904-rx7bn2e",
-      "timestamp": "2026-08-31T13:59:59.904Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Plug Inflador de Semen",
-      "quantity": 1,
-      "message": "Obtained: de",
-      "id": "notif-1788184799892-hbafg9f",
-      "timestamp": "2026-08-31T13:59:59.892Z",
-      "read": false
-    },
-    {
-      "type": "item_added",
-      "itemId": "cum-001",
-      "itemName": "Plug Inflador de Semen",
-      "quantity": 1,
-      "message": "Obtuviste Plug Inflador de Semen",
-      "id": "notif-1788184799882-tbhwu24",
-      "timestamp": "2026-08-31T13:59:59.882Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a dar un empujoncito para que me atreva más",
-      "id": "notif-1788175568303-f6tp931",
-      "timestamp": "2026-08-31T11:26:08.303Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a dar un empujoncito para que me atreva",
-      "id": "notif-1788175568293-ll25ko1",
-      "timestamp": "2026-08-31T11:26:08.293Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a dar un empujoncito para que me atre",
-      "id": "notif-1788175568281-437yeo7",
-      "timestamp": "2026-08-31T11:26:08.281Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a dar un empujoncito para qu",
-      "id": "notif-1788175568270-u7b510i",
-      "timestamp": "2026-08-31T11:26:08.270Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a dar un empujoncito para",
-      "id": "notif-1788175568255-z5s5dlw",
-      "timestamp": "2026-08-31T11:26:08.255Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a dar un empujoncit",
-      "id": "notif-1788175568243-zjvj1qn",
-      "timestamp": "2026-08-31T11:26:08.243Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a dar un empujon",
-      "id": "notif-1788175568231-dz6cmqw",
-      "timestamp": "2026-08-31T11:26:08.231Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a dar un empu",
-      "id": "notif-1788175568218-na39tmn",
-      "timestamp": "2026-08-31T11:26:08.218Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me vas a da",
-      "id": "notif-1788175568204-nvyeov5",
-      "timestamp": "2026-08-31T11:26:08.204Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me va",
-      "id": "notif-1788175568192-diuuino",
-      "timestamp": "2026-08-31T11:26:08.192Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: o me",
-      "id": "notif-1788175568182-h51qt5s",
-      "timestamp": "2026-08-31T11:26:08.182Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: y el techo",
-      "id": "notif-1787723937065-e38wic1",
-      "timestamp": "2026-08-26T05:58:57.065Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: y el tec",
-      "id": "notif-1787723937052-wql4zsi",
-      "timestamp": "2026-08-26T05:58:57.052Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Pinzas Succionadoras Leche y Electro",
-      "quantity": 1,
-      "message": "Obtained: y el",
-      "id": "notif-1787723937041-gtuzl9a",
-      "timestamp": "2026-08-26T05:58:57.041Z",
-      "read": false
-    },
-    {
-      "type": "item_added",
-      "itemId": "leche-010",
-      "itemName": "Pinzas Succionadoras Leche y Electro",
-      "quantity": 1,
-      "message": "Obtuviste Pinzas Succionadoras Leche y Electro",
-      "id": "notif-1787723937031-as7g3fj",
-      "timestamp": "2026-08-26T05:58:57.031Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: y te voy a decir qué se sient",
-      "id": "notif-1787703393640-2hxdcmk",
-      "timestamp": "2026-08-26T00:16:33.640Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: y te voy a decir qué se si",
-      "id": "notif-1787703393626-jd5fryn",
-      "timestamp": "2026-08-26T00:16:33.626Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: y te voy a decir qué se",
-      "id": "notif-1787703393614-ud0171h",
-      "timestamp": "2026-08-26T00:16:33.614Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: y te voy a decir qué",
-      "id": "notif-1787703393602-7xuvz57",
-      "timestamp": "2026-08-26T00:16:33.602Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: y te voy a decir",
-      "id": "notif-1787703393589-4n3dalb",
-      "timestamp": "2026-08-26T00:16:33.589Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: y te voy a dec",
-      "id": "notif-1787703393576-3wyduh0",
-      "timestamp": "2026-08-26T00:16:33.576Z",
+      "message": "Obtained: de tocarme aquí mismo pero no quiero que me veas tan fácil, aunque se me escapan los gemidos y se me moja todo el shor",
+      "id": "notif-1788341036972-oz36lms",
+      "timestamp": "2026-09-02T09:23:56.972Z",
       "read": false
     }
   ]

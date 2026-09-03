@@ -99,6 +99,7 @@ import { pauseAllTimelines, resumeAllTimelines } from '@/hooks/use-timeline-spri
 import { stopAllSoundTriggers } from '@/hooks/use-sound-triggers';
 import { ttsService } from '@/lib/tts';
 import { resolveTemplateVariables } from '@/lib/key-resolver';
+import { personalizeMemoryContent } from '@/lib/memory/personalize';
 import type { CharacterQuickReply, GroupQuickReply, QuickReplyAttributeModifier, QuickReplySpriteActivation, SpritePackV2, TriggerCollection } from '@/types';
 import { evaluatePackConditionalSprites, evaluateConditionalEntries } from '@/lib/sprites/condition-evaluator';
 import { evaluateRequirements } from '@/store/slices/statsSlice';
@@ -1426,10 +1427,12 @@ export function NovelChatBox({
     }
     const mem = getCharacterMemory(activeCharacter.id);
     if (mem) {
+      // Personalize at display time so stored memories never show "el Jugador"
+      const personaName = activePersona?.name || '';
       setCharacterMemList(mem.events.map(e => ({
         id: e.id,
         type: e.type,
-        content: e.content,
+        content: personaName ? personalizeMemoryContent(e.content, personaName) : e.content,
         importance: e.importance,
         timestamp: e.timestamp,
         characterId: e.characterId,
@@ -1440,7 +1443,7 @@ export function NovelChatBox({
         targetName: r.targetName,
         relationship: r.relationship,
         sentiment: r.sentiment,
-        notes: r.notes,
+        notes: personaName && r.notes ? personalizeMemoryContent(r.notes, personaName) : r.notes,
       })));
       setCharacterNotes(mem.notes);
     } else {
@@ -1448,7 +1451,7 @@ export function NovelChatBox({
       setCharacterRelationships([]);
       setCharacterNotes('');
     }
-  }, [activeCharacter, getCharacterMemory]);
+  }, [activeCharacter, getCharacterMemory, activePersona]);
 
   // Check embeddings / Ollama status
   const checkEmbeddingsStatus = useCallback(async () => {
@@ -1555,11 +1558,16 @@ export function NovelChatBox({
       // Build namespace: memory-character-{id}-{session}
       const namespace = `memory-character-${targetCharacterId}${sessionId ? `-${sessionId}` : ''}`;
       
+      // Personalize: replace "el Jugador"/"el usuario" with the persona's name ({{user}})
+      const personalizedContent = activePersona?.name
+        ? personalizeMemoryContent(addMemoryContent.trim(), activePersona.name)
+        : addMemoryContent.trim();
+      
       const response = await fetch('/api/embeddings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: addMemoryContent.trim(),
+          content: personalizedContent,
           namespace,
           source_type: 'memory',
           source_id: sessionId || 'unknown',
@@ -1595,7 +1603,7 @@ export function NovelChatBox({
     } finally {
       setAddingMemory(false);
     }
-  }, [addMemoryContent, addMemoryType, addMemoryImportance, addMemorySubject, addMemoryCharacterId, activeCharacter, isGroupMode, sessionId, characters, loadMemories]);
+  }, [addMemoryContent, addMemoryType, addMemoryImportance, addMemorySubject, addMemoryCharacterId, activeCharacter, isGroupMode, sessionId, characters, loadMemories, activePersona]);
 
   const deleteMemory = useCallback(async (memoryId: string) => {
     try {
@@ -3617,6 +3625,8 @@ export function NovelChatBox({
                               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Eventos</span>
                               <span className="text-[10px] text-muted-foreground">({characterMemList.length})</span>
                             </div>
+                            {/* Scrollable list so many events never overflow the tab */}
+                            <div className="max-h-72 overflow-y-auto scrollbar-thin pr-1 space-y-1.5">
                             {characterMemList.map(event => {
                               const typeConfig = CHARACTER_MEM_EVENT_TYPE_CONFIG[event.type] || CHARACTER_MEM_EVENT_TYPE_CONFIG.default;
                               return (
@@ -3653,6 +3663,7 @@ export function NovelChatBox({
                                 </div>
                               );
                             })}
+                            </div>
                           </div>
                         )}
 
@@ -3663,6 +3674,7 @@ export function NovelChatBox({
                               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Relaciones</span>
                               <span className="text-[10px] text-muted-foreground">({characterRelationships.length})</span>
                             </div>
+                            <div className="max-h-56 overflow-y-auto scrollbar-thin pr-1 space-y-1.5">
                             {characterRelationships.map((rel, idx) => {
                               const sentimentColor = rel.sentiment > 30 ? 'text-green-400' : rel.sentiment < -30 ? 'text-red-400' : 'text-yellow-400';
                               const sentimentBg = rel.sentiment > 30 ? 'bg-green-500/20' : rel.sentiment < -30 ? 'bg-red-500/20' : 'bg-yellow-500/20';
@@ -3683,6 +3695,7 @@ export function NovelChatBox({
                                 </div>
                               );
                             })}
+                            </div>
                           </div>
                         )}
 

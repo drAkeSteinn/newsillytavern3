@@ -76,13 +76,13 @@ import { SummaryViewer } from '@/components/memory/summary-viewer';
 
 const NORMAL_PREVIEW = {
   characterName: 'Alvar',
-  chatContext: 'Contexto reciente de la conversación:\n  Jugador: "Me acabo de mudar a la costa, tengo un gato llamado Milo"\n  Personaje: "¡Qué genial! ¿Y cómo te va adaptando?"\n',
+  chatContext: 'Contexto reciente de la conversación:\n  Alex: "Me acabo de mudar a la costa, tengo un gato llamado Milo"\n  Alvar: "¡Qué genial! ¿Y cómo te va adaptando?"\n',
   lastMessage: '"Milo se lleva súper bien con los vecinos."',
 };
 
 const GROUP_PREVIEW = {
   characterName: 'Kai',
-  chatContext: 'Contexto reciente del grupo:\n  Jugador: "¿Qué opinan del plan de Luna?"\n  Luna: "Yo creo que deberíamos ir por la ruta norte, es más segura."\n  Rex: "No me fío, la última vez que fuimos por ahí casi nos atrapan."\n',
+  chatContext: 'Contexto reciente del grupo:\n  Alex: "¿Qué opinan del plan de Luna?"\n  Luna: "Yo creo que deberíamos ir por la ruta norte, es más segura."\n  Rex: "No me fío, la última vez que fuimos por ahí casi nos atrapan."\n',
   lastMessage: '"Rex tiene razón en desconfiar, pero yo prefiero arriesgarme. Además, Kai tiene contactos en el norte que podrían ayudarnos."',
 };
 
@@ -1240,13 +1240,14 @@ function ExtraccionTab() {
             </div>
             <Slider
               value={[contextSettings.maxMessages]}
-              min={10}
+              min={2}
               max={200}
-              step={5}
+              step={1}
               onValueChange={([maxMessages]) => updateContextSettings({ maxMessages })}
             />
             <p className="text-xs text-muted-foreground">
-              Ventana deslizante de mensajes. Los mensajes más antiguos se excluyen.
+              Ventana deslizante de mensajes (mínimo 2). Los mensajes más antiguos se excluyen.
+              Este es el límite duro: se envían como máximo esta cantidad de mensajes al LLM.
             </p>
           </div>
 
@@ -1288,11 +1289,11 @@ function ExtraccionTab() {
                 type="number"
                 value={contextSettings.keepLastN}
                 onChange={(e) => updateContextSettings({ keepLastN: parseInt(e.target.value) || 20 })}
-                min={5}
+                min={2}
                 max={50}
                 className="h-9"
               />
-              <p className="text-xs text-muted-foreground">Mensajes recientes</p>
+              <p className="text-xs text-muted-foreground">Mensajes recientes (mínimo 2)</p>
             </div>
           </div>
 
@@ -1300,10 +1301,85 @@ function ExtraccionTab() {
           <div className="p-3 rounded-lg bg-muted/30 text-xs space-y-1">
             <p className="font-medium">¿Cómo funciona la ventana deslizante?</p>
             <ul className="text-muted-foreground space-y-1">
+              <li>• «Máximo de Mensajes» es un límite duro: nunca se envían más mensajes que ese número.</li>
               <li>• Los mensajes se excluyen del centro cuando exceden el límite.</li>
-              <li>• El mensaje de saludo siempre se conserva.</li>
-              <li>• Los últimos N mensajes recientes siempre se incluyen.</li>
+              <li>• El mensaje de saludo se conserva solo si hay espacio (los recientes tienen prioridad).</li>
+              <li>• Los últimos N mensajes recientes siempre se incluyen (se ajustan al límite).</li>
               <li>• El límite de tokens tiene prioridad sobre el conteo de mensajes.</li>
+            </ul>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Límites de Memoria Enviada — controls how many memories reach the LLM */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Brain className="w-4 h-4 text-violet-500" />
+            Límites de Memoria Enviada
+          </CardTitle>
+          <CardDescription>
+            Controla cuántas memorias se inyectan en el prompt del LLM en cada mensaje.
+            Las memorias se seleccionan por relevancia (similitud con el mensaje actual),
+            importancia y recencia — nunca se envían todas.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Max memories retrieved via embeddings search */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <Label>Memorias Relevantes Inyectadas</Label>
+              <span className="text-muted-foreground">{embeddingsChat.memoryMaxResults ?? 5}</span>
+            </div>
+            <Slider
+              value={[embeddingsChat.memoryMaxResults ?? 5]}
+              min={2}
+              max={20}
+              step={1}
+              onValueChange={([v]) => {
+                updateSettings({
+                  embeddingsChat: { ...embeddingsChat, memoryMaxResults: v },
+                });
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Máximo de memorias recuperadas por búsqueda semántica e inyectadas como
+              [MEMORIA RELEVANTE]. Se eligen las más relevantes al contexto del mensaje actual
+              (reranking por similitud + decaimiento temporal + importancia + calor).
+            </p>
+          </div>
+
+          {/* Max character memory events injected */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <Label>Eventos de Memoria del Personaje</Label>
+              <span className="text-muted-foreground">{embeddingsChat.memoryMaxEventsInPrompt ?? 20}</span>
+            </div>
+            <Slider
+              value={[embeddingsChat.memoryMaxEventsInPrompt ?? 20]}
+              min={2}
+              max={50}
+              step={1}
+              onValueChange={([v]) => {
+                updateSettings({
+                  embeddingsChat: { ...embeddingsChat, memoryMaxEventsInPrompt: v },
+                });
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Máximo de eventos de la lista «Eventos Recordados» (pestaña Personaje) que se
+              inyectan en el prompt. Se eligen por importancia y recencia. Estos eventos solo se
+              inyectan cuando la búsqueda semántica no encuentra memorias relevantes.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-lg bg-violet-500/5 border border-violet-500/20 text-xs space-y-1">
+            <p className="font-medium text-violet-600 dark:text-violet-400">Prioridad de selección</p>
+            <ul className="text-muted-foreground space-y-1">
+              <li>• 1º: Similitud con el mensaje actual (búsqueda vectorial en LanceDB)</li>
+              <li>• 2º: Importancia (1-5, configurada al extraer o crear la memoria)</li>
+              <li>• 3º: Recencia y «calor» (memorias usadas recientemente suben de prioridad)</li>
+              <li>• 4º: Decaimiento temporal (memorias antiguas pierden relevancia gradualmente)</li>
             </ul>
           </div>
         </CardContent>

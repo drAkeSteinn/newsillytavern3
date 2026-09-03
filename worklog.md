@@ -3535,3 +3535,115 @@ Stage Summary:
 - Point 5: Persona has same equipmentSlots + slotDefinitions fields ✓
 - Backward compatible: if character has no slots, global InventoryV2Settings.equipmentSlots are used
 - Character card import/export preserves the new fields
+
+---
+Task ID: 1
+Agent: Z.ai Code (principal)
+Task: Clonar repositorio drAkeSteinn/newsillytavern3 al directorio principal e instalar la app (TavernFlow) para continuar editándola
+
+Work Log:
+- Clonado https://github.com/drAkeSteinn/newsillytavern3.git a /tmp para análisis (Next.js 16 + TS + Tailwind 4 + shadcn + Prisma, mismo scaffold del sandbox)
+- Detenido el dev server del scaffold anterior (kill PIDs 1150/1153/1155/1171/1201)
+- Limpieza del scaffold base: eliminados src/, public/, prisma/, db/, tests/, examples/, download/, node_modules/, .next/ y configs raíz
+- Migrados los 2507 archivos del repo a /home/z/my-project vía rsync (excluyendo .zscripts del sandbox); .git del repo preservado con historial completo y remote origin a GitHub
+- Nota: /home/z/my-project/upload es un montaje FUSE/ossfs — rsync da error de timestamps pero los archivos SÍ se copian (verificado)
+- bun install: 833 paquetes OK (@lancedb/lancedb incluido, binario linux descargado)
+- bunx prisma generate + db push OK (db/custom.db ya sincronizada con datos del repo)
+- Dev server iniciado con setsid (desacoplado). Diagnóstico: los primeros 2 intentos murieron por OOM kill durante la compilación inicial de webpack (pico 2.8GB RSS en máquina de 4.1GB). El tercer arranque con compilación monitoreada sobrevivió y quedó estable
+- Verificación con agent-browser: página renderiza (título "TavernFlow - AI Character Chat Platform"), sesión "Ximena la Cogelona" abre con historial de mensajes y HUD de stats, panel Ajustes/Configuración de LLM funcional, todas las rutas API devuelven 200 (TTS, persistence, quest-templates, backgrounds, embeddings LanceDB, director), 16 herramientas registradas, sin errores de consola ni de página
+
+Stage Summary:
+- TavernFlow instalado y OPERATIVO en /home/z/my-project como app principal, dev server corriendo en puerto 3000 (next dev --webpack)
+- Historial git preservado (remote: https://github.com/drAkeSteinn/newsillytavern3.git) para seguir editando/committeando
+- ADVERTENCIA memoria: el server usa ~2.8GB RSS de 4.1GB disponibles. Si muere por OOM al compilar rutas nuevas, reiniciar con: cd /home/z/my-project && bun run dev (arrancar y esperar a que compile la primera request)
+- data/settings.json conserva disabledTools con modify_stat/check_stat deshabilitados por defecto (hallazgo previo del Task 8)
+- LLM/TTS dependen de endpoints externos configurados por el usuario (llm-configs.json, TTS omnivoice en localhost:3900 no existe en esta máquina)
+
+---
+Task ID: 1 (addendum)
+Agent: Z.ai Code (principal)
+Task: Estabilización del dev server (OOM recurrente con webpack)
+
+Work Log:
+- Diagnóstico: next dev --webpack consumía 2.8GB RSS durante compilaciones y el OOM killer mataba el proceso silenciosamente (sin error en logs) en máquina de 4.1GB
+- Confirmado que next.config.ts NO tiene config custom de webpack → turbopack viable
+- package.json: script "dev" ahora usa turbopack (next dev -p 3000), script "dev:webpack" conserva el modo original como fallback
+- Limpiado .next (caché webpack) y reiniciado con turbopack
+- Resultado: RSS bajó de 2.8GB → 1.6-1.8GB, compilaciones de rutas pasaron de segundos → milisegundos, margen de memoria 1.7GB
+- Re-verificación completa con agent-browser: página renderiza, chat con historial abre, ajustes funcionan, 9 rutas API responden 200, cero errores de página/consola
+- Proceso sobrevive entre sesiones de terminal (verificado múltiples veces)
+
+Stage Summary:
+- TavernFlow operativo y ESTABLE con turbopack en puerto 3000
+- Si el usuario prefiere webpack: bun run dev:webpack (riesgo de OOM en esta máquina)
+- Para reiniciar si algo falla: cd /home/z/my-project && bun run dev
+
+---
+Task ID: 2
+Agent: Z.ai Code (principal)
+Task: Modificar UI de Inventario — (1) editor de Items solo Básico+Config, (2) eliminar sección de Slots globales (solo Persona/Personaje)
+
+Work Log:
+- ITEM EDITOR (item-editor.tsx): eliminadas pestañas "Efectos" y "Mensajes" (tabs grid-cols-4→2); eliminados estado/handlers de attributeEffects, slotEffects, consumableEffect, useMessage, expireMessage, unequipMessage, addSlotEffect/updateSlotEffect/removeSlotEffect, selector equipmentSlots, EMPTY_EQUIPMENT_SLOTS, imports muertos (Badge, Plus, Trash2, AlertTriangle, useTavernStore, tipos)
+- COMPATIBILIDAD DE DATOS: al EDITAR un item existente, handleSave preserva los campos legacy del item original (spread de item.attributeEffects/slotEffects/consumableEffect/useMessage/expireMessage/unequipMessage) para no destruir datos invisibles; los items NUEVOS se crean limpios sin esos campos. Verificado en navegador: edit+save de "Pastilla Babeadora" conservó sus mensajes/efectos
+- INVENTORY PANEL (inventory-panel.tsx): eliminada pestaña "Slots" + Slot Editor Dialog + estado (editingSlot/slotEditorOpen/slotForm) + handlers (handleSaveSlot/handleDeleteSlot/generateKeyFromName/copyToClipboard/keyManuallyEditedRef) + SLOT_EMOJIS + selectores add/update/deleteEquipmentSlot + iconos Shirt/Pencil/Copy. Quedan 4 tabs: Inventario, Registro, Tienda, Config
+- NUEVA FUENTE DE SLOTS: equipmentSlots del panel ahora se resuelve del selector personas.find(activePersonaId)?.equipmentSlots (estable) — el slot picker de equipado y ItemCard usan slots de persona
+- STORE (inventorySlice.ts): eliminadas acciones globales addEquipmentSlot/updateEquipmentSlot/deleteEquipmentSlot/getEquipmentSlotById/getEquipmentSlots; getEquipmentSlotsForCharacter/ForPersona SIN fallback a globals (acepta personaId opcional); los 4 flujos de equipado (equipItem, equipItemToSlot, unequipItem, executeEquipWithTarget) resuelven slots desde persona.equipmentSlots del personaId que equipa
+- STATS/SESSION: statsSlice (3 sitios) usa helper getPersonaEquipmentSlots(state) para init de slots en stats __user__; sessionSlice (3 sitios) usa activePersona.equipmentSlots
+- CHAT-PANEL: los 2 constructores de inventoryData inyectan equipmentSlots de persona en inventorySettings (spread {...invSettings, equipmentSlots: personaSlots}) — key-resolver {{slots}} y prompt-builder consumen slots de persona sin cambios
+- PERSONA PANEL (persona-panel.tsx): AÑADIDA sección "Slots de Equipo" con CharacterSlotsEditor (mismo editor que personajes) — editForm/handleStartEdit/handleSaveEdit manejan equipmentSlots+slotDefinitions
+- MIGRACIÓN DE DATOS: (a) use-persistence-sync.ts loadFromServer: mueve legacy globals → persona activa y limpia el campo global; (b) store/index.ts persist merge: misma migración para localStorage (blindar carrera de rehidratación). El campo InventoryV2Settings.equipmentSlots marcado @deprecated en types (se conserva para compat de exports)
+- INCIDENTE DURANTE DESARROLLO: una página residual (navegador zombie de verificación previa) recibió HMR con la migración a medias y una carrera persist-merge/loadFromServer vació los slots SIN migrarlos a la persona. Restaurados manualmente desde git (6 slots ano/vagina/garganta/boca/cara/pezones → persona 'default' drAke; slotEffects del "Dildo Inflable" restaurados). Se mataron los browsers residuales
+- VERIFICACIÓN (agent-browser): panel Inventario sin tab Slots; editor crear/editar solo Básico+Config; item nuevo se crea limpio; edición preserva legacy; persona drAke muestra sección "Slots de Equipo" con 6 slots (expandido: nombre/key correctos); flujo equipar/quitar funciona; slot picker multi-slot (Dildo Inflable) muestra slots de persona con efectos; sessionEquipment persiste slotId de persona; 0 errores de página/consola; tsc sin errores nuevos (42=42); eslint limpio
+
+Stage Summary:
+- Slots globales ELIMINADOS de UI y runtime; slots solo en Persona (nueva sección) y Personajes (CharacterSlotsEditor existente)
+- Editor de Items simplificado a Básico+Config con preservación no destructiva de datos legacy
+- Migración automática globals→persona activa en 2 capas (loadFromServer + persist merge), idempotente
+- Datos verificados: persona drAke=6 slots, globals=[], 94 items intactos, 0 equipados
+
+---
+Task ID: 3
+Agent: Z.ai Code (principal)
+Task: Rediseñar slots de personajes — reemplazar efectos legacy por sistema de condiciones estilo lorebook (atributo a evaluar, modo estático/dinámico, prioridad/comomparador/valor, mensajes de activación/fin, efectos de atributo/sprite con fallback)
+
+Work Log:
+- TIPOS (src/types/index.ts): nuevos tipos SlotItemRule, SlotItemCondition (priority+comparator+value+activationMessage+endMessage+effects), SlotAttributeEffect, SlotSpriteEffect, SlotConditionEffect, ActiveSlotRuleState (snapshot de activación persistido). CharacterSlotDefinition extendido con itemRules (campos legacy effects/effectText/effectMode/allowed* marcados @deprecated, datos existentes intactos). SessionEquipmentEntry y ActiveConsumableEffect extendidos con ruleState
+- LIB PURA (src/lib/inventory/slot-item-rules.ts NUEVO): evaluateSlotItemRule (usa evaluateCondition compartido de condition-evaluator; ordena por prioridad; resolución 'concat-all'|'first-match'), getWinnerCondition, resolveSlotItemRule (personaje objetivo primero → persona), resolveSlotItemRuleAnySlot (consumibles), resolveRuleFromRuleState (re-resolución viva en tick/desactivación), matching de slot por id Y por key (fallback para slots legacy tipo item.slot='mano'), getCharacterSprites (aplanado de spritePacksV2), factories para el editor
+- UI (character-slots-editor.tsx REESCRITO ~1240 líneas): slot conserva nombre/key/icono; sección "Lista de items" con selector de items del inventario (badge consumible/equipo); por regla: Atributo a evaluar (dropdown atributos del dueño), Modo de comparación Estático/Dinámico, Resolución (Aplicar todas / Solo mayor prioridad); por condición (colapsable): Prioridad, Comparador (filtrado por tipo numérico/texto con COMPARATOR_LABELS compartidos), Valor (input numérico o texto), Mensaje de activación/equipo (textarea), Mensaje de finalización/desequipar (textarea), efectos múltiples: botones Atributo/Sprite; efecto atributo: Objetivo (Dueño del slot '__self__'/Persona '__user__'/personajes) + atributo del target + operador (+ - = × ÷ min máx) + valor + switch Fallback con valor de retorno; efecto sprite: Personaje (badge con conteo de sprites) + dropdown de sprites agrupados por pack (mensaje "Este personaje no tiene sprites configurados" si aplica) + switch Fallback con sprite de retorno (opción "Volver al sprite normal"); los selects usan shadcn Select; old effects UI eliminada
+- RUNTIME (inventorySlice.ts): helpers activateSlotItemRule (resuelve regla → lee atributo del dueño con getAttributeValue → evalúa → aplica efectos → devuelve ruleState+activationMessage), deactivateSlotItemRule (revierte fallbacks vía applyFallbackToSessionStats + sprites vía applyTriggerForCharacter con fallback o clear → devuelve endMessage), applySlotConditionEffects ('__self__' resuelto a ownerStatId), revertSlotRuleEffects. Integrado en: equipItemToSlot (activa regla + desactiva reemplazados + entry con ruleState + mensaje de regla tiene precedencia sobre useMessage legacy), unequipItem (desactiva ANTES de remover + endMessage tiene precedencia sobre unequipMessage), executeEquipWithTarget (NUEVO: también actualiza sessionEquipment con ruleState — antes no tocaba session; desactiva reemplazados; regla del personaje objetivo primero), tickEffects (paso 2.5: re-evaluación de reglas dinámicas por turno contra valor ACTUAL del atributo, aplica efectos y actualiza snapshot matchedConditionIds/appliedEffects), useConsumable/executeUseWithTarget (activación any-slot para consumibles, ruleState en ActiveConsumableEffect), removeExpiredEffects (desactiva regla: fallbacks + endMessage en cola como mensaje de usuario), removeEffect/clearAllEffects (desactivación manual)
+- SPRITES: applySlotSpriteEffect usa applyTriggerForCharacter (sistema de prioridad de triggers respetado — un trigger nuevo reemplaza el anterior); sin fallback se limpia el trigger (spriteUrl '')
+- VERIFICACIÓN (agent-browser): UI persona (drAke/pecho): regla programática con 2 condiciones renderiza completa (atributo, modo, resolución, P:10/P:0, comparadores, mensajes, efectos atributo+sprite con Rick, fallbacks); editor de personaje (Ximena/mano) renderiza con "Sin items"; RUNTIME probado end-to-end en la sesión activa de Ximena: (A) equip estático con orgasmo=0 → condición prioridad 0 matchea, orgasmo +1, pendingItemMessage=msg activación, ruleState persistido; unequip → fallback orgasmo=0 + msg fin; (B) orgasmo=90 → condición prioridad 10, +5, sprite de Rick cambia (/sprites/Rick/gixtfl.webp), unequip → sprite vuelve al fallback (kghc2p) + orgasmo fallback 0 + msg fin correcto; (C) modo dinámico: equip con orgasmo=0 → tick con orgasmo=85 → RE-EVALÚA (cambia a condición alta, +5, sprite cambia, snapshot actualizado); (D) consumible (Pastilla Babeadora): use → activación con msg en cola, expire → fallback + endMessage como mensaje de usuario; (E) equip con objetivo personaje: regla en slotDefinitions de XIMENA, item.slot='mano' (key match) → lujuria de Ximena +10 con ownerStatId=ximena, desequipar → fallback 55 + msg fin
+- DATOS: todos los datos de prueba eliminados y restaurados (persona defs=0, item slot='main_hand', Ximena defs=1 sin itemRules, items eliminados del inventario, sessionEquipment vacío, orgasmo/lujuria restaurados, sprite trigger de Rick limpiado). Exposición temporal window.__TAVERN_STORE__ usada para pruebas E2E y ELIMINADA del código final
+- CALIDAD: eslint limpio; tsc 857 errores = mismos preexistentes (baseline 865, sin errores nuevos en archivos tocados: slot-item-rules y character-slots-editor con 0); server reiniciado dos veces (muerte espontánea del proceso, no relacionada con cambios) y re-verificado
+- QUIRK DE AUTOMATIZACIÓN: los clicks del agent-browser sobre SelectItem de Radix no registran selección vía UI (limitación de automatización, no bug de la app); la selección por teclado (ArrowDown+Enter) y los clicks reales de usuario funcionan; verificación de runtime hecha vía store directo
+
+Stage Summary:
+- Sistema de reglas de items por slot COMPLETO y funcional: lorebook-style (atributo del dueño + modo estático/dinámico + condiciones con prioridad/comparador/valor) con mensajes de activación/fin enviados al chat como mensajes de usuario y efectos de atributo/sprite con fallback
+- Las reglas viven en persona.slotDefinitions y character.slotDefinitions; resolución: personaje objetivo → persona (con matching por key para slots legacy)
+- Activation snapshot (ActiveSlotRuleState) persistido en sessionEquipment/activeConsumableEffects para reversión correcta al desactivar
+- Flujo dinámico re-evalúa cada turno contra el valor actual del atributo (ediciones de reglas aplican de inmediato)
+- Legacy effects/useMessage/etc. intactos y con menor precedencia que los mensajes de regla
+- Slots globales siguen eliminados; editor de items sigue solo Básico+Config (Task 2)
+---
+Task ID: 4
+Agent: Z.ai Code (principal)
+Task: Revisión del sistema de Memoria — (1) verificar límite de mensajes de historial al LLM + config + mínimo 2, (2) configuración de cuántas memorias se envían, (3) scrollbar para eventos recordados desbordados, (4) bug "Jugador" en eventos → nombre de persona ({{user}}), (5) explicar el sistema completo
+
+Work Log:
+- Exploración profunda (agente Explore) del sistema de memoria completo: context-manager.ts (ventana deslizante), chat-context.ts (recuperación LanceDB), memory-extraction.ts, memory-settings-panel.tsx (4 tabs), character-memory-editor.tsx, novel-chat-box.tsx (cajón Memorias), prompt-builder.ts, manage-memory.ts, routes stream/generate/group-stream
+- Verificación de datos reales: data/settings.json (context.maxMessages=10, embeddingsChat.memoryMaxResults=5, memoryMaxEventsInPrompt=20), data/memory.json (3 characterMemories huérfanos, sin Ximena), LanceDB tabla embeddings = 0 filas (solo 2 namespaces de metadatos), sesión Ximena 19 mensajes + summary 726 chars
+- Confirmado que FASE 14-17 (conversación anterior) ya implementó: slider "Máximo de Mensajes" min=2 en Ajustes→Memoria→Extracción y Contexto→"Límites de Contexto", hardCap Math.max(2,...) en applySlidingWindow, cards "Límites de Contexto" y "Límites de Memoria Enviada" (memoryMaxResults 2-20, memoryMaxEventsInPrompt 2-50), cap de eventos en buildMemorySection (importancia→recencia), personalizeMemoryContent en extracción, max-h-80 en Eventos Recordados
+- FALSA ALARMA de corrupción: `(axMessages])` en memory-settings-panel.tsx L1246/L1265 era artefacto de render del terminal ([m interpretado como escape ANSI); od -c confirmó que el archivo en disco contiene `([maxMessages])` correcto
+- NUEVO src/lib/memory/personalize.ts: personalizeMemoryContent movida a módulo puro sin dependencias (para que prompt-builder no arrastre el stack de embeddings); añade patrones inglés (the player/the user/of the player/to the player); memory-extraction.ts ahora re-exporta desde el nuevo módulo (compatibilidad)
+- BUG "Jugador" — 5 rutas de fuga cerradas: (1) manage-memory.ts: sanitize memoryContent y narrative con context.userName en save_memory/save_note/update_relationship; (2) prompt-builder.ts buildMemorySection: nuevo param userName, red de seguridad que sanitiza eventos+notas+relaciones AL INYECTAR (corrige datos ya guardados sin migración); (3) stream/generate/group-stream routes pasan effectiveUserName; (4) character-memory-editor.tsx: sanitize en guardado manual + visualización de lista + sync desde LanceDB (ahora también lee namespace cross-session); (5) novel-chat-box.tsx: sanitize en addMemory + loadCharacterMemory
+- BUG NAMESPACE: getNamespacesForStrategy con crossSessionMemory=true solo buscaba memory-character-{id} (sin sufijo), pero manage_memory/manual-memory/summary guardaban en memory-character-{id}-{sessionId} → memorias invisibles a recuperación. Fix: en modo cross-session también se busca la variante con sufijo + dedup de contenido para memory-type results (evita dobles)
+- SCROLLBAR: novel-chat-box "Memoria del Personaje": lista de Eventos envuelta en max-h-72 overflow-y-auto scrollbar-thin (288px) y Relaciones en max-h-56 (224px) — antes sin límite, empujaba las demás secciones
+- VERIFICACIÓN E2E (agent-browser): server estable tras ciclo de calentamiento de caché Turbopack (OOM mató next-server varias veces al borrar .next/cache; loop de arranque progresivo lo dejó warm y estable); inyectados 28 eventos de prueba con textos "el Jugador/el usuario" via data/memory.json → UI Memorias del chat muestra "drAke" en lugar de "Jugador" (Quiere que drAke le compre lencería ✓, drAke le rompió la confianza ✓); scrollbar funcionando (max-h-72: clientHeight 288 vs scrollHeight 1822, scrollTop 900 OK); Personaje tab de Ajustes→Memoria: max-h-80 (320 vs 2064) + contenido personalizado; sliders: Máximo de Mensajes min=2 v=10 (ArrowRight→11 persistido, restaurado a 10), Límite de Tokens 4096, Memorias Inyectadas min=2 v=5, Eventos en prompt v=20; 0 errores de página/consola; datos de prueba eliminados (memory.json restaurado a 3 entradas originales); unit test personalizeMemoryContent 10/10 (contracciones del/al, artículos, mayúsculas, inglés, textos limpios); eslint limpio
+
+Stage Summary:
+- Q1: Límite de historial YA configurable en Ajustes→Memoria→Extracción y Contexto→"Límites de Contexto" (slider min=2, valor actual 10); funciona y persiste; el mínimo efectivo es 2 por hardCap en applySlidingWindow
+- Q2: Cantidad de memorias configurable en "Límites de Memoria Enviada" (memorias semánticas 2-20, actual 5; eventos de personaje 2-50, actual 20); LanceDB está VACÍO (0 filas) así que hoy no se envían memorias semánticas — solo summary + eventos CharacterMemory; fix de namespace hace visibles las memorias de tools/summary cuando Ollama esté activo
+- Q3: Scrollbars añadidos: Eventos (max-h-72) y Relaciones (max-h-56) en cajón Memorias del chat; Personaje tab ya tenía max-h-80/max-h-64
+- Q4: "Jugador"→nombre de persona en 5 capas: tool manage_memory, inyección al prompt (corrige datos viejos), guardado manual, visualización UI, sync LanceDB
+- Sistema de memoria completo documentado al usuario con arquitectura de 5 capas y qué secciones están activas/muertas

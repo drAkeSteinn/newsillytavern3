@@ -45,9 +45,12 @@ import type {
   CharacterStatsConfig, 
   SolicitudDefinition, 
   Item,
+  EquipmentSlotDefinition,
+  CharacterSlotDefinition,
 } from '@/types';
 import { getLogger } from '@/lib/logger';
 import { StatsEditor } from './stats-editor';
+import { CharacterSlotsEditor } from './character-slots-editor';
 import { 
   getItemTypeIcon, 
   getItemTypeLabel, 
@@ -88,6 +91,8 @@ export function PersonaPanel() {
     currency: number;
     currencyName: string;
     currencyIcon: string;
+    equipmentSlots?: EquipmentSlotDefinition[];
+    slotDefinitions?: CharacterSlotDefinition[];
   }>({
     name: '',
     description: '',
@@ -96,6 +101,8 @@ export function PersonaPanel() {
     currency: 0,
     currencyName: 'Divisa',
     currencyIcon: '💰',
+    equipmentSlots: undefined,
+    slotDefinitions: undefined,
   });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -176,6 +183,8 @@ export function PersonaPanel() {
       currency: 0,
       currencyName: 'Divisa',
       currencyIcon: '💰',
+      equipmentSlots: undefined,
+      slotDefinitions: undefined,
     });
   };
 
@@ -189,6 +198,8 @@ export function PersonaPanel() {
       currency: persona.currency ?? 0,
       currencyName: persona.currencyName ?? 'Divisa',
       currencyIcon: persona.currencyIcon ?? '💰',
+      equipmentSlots: persona.equipmentSlots,
+      slotDefinitions: persona.slotDefinitions,
     });
   };
 
@@ -203,14 +214,16 @@ export function PersonaPanel() {
       currency: editForm.currency,
       currencyName: editForm.currencyName,
       currencyIcon: editForm.currencyIcon,
+      equipmentSlots: editForm.equipmentSlots,
+      slotDefinitions: editForm.slotDefinitions,
     });
     setEditingId(null);
-    setEditForm({ name: '', description: '', avatar: '', statsConfig: undefined, currency: 0, currencyName: 'Divisa', currencyIcon: '💰' });
+    setEditForm({ name: '', description: '', avatar: '', statsConfig: undefined, currency: 0, currencyName: 'Divisa', currencyIcon: '💰', equipmentSlots: undefined, slotDefinitions: undefined });
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
-    setEditForm({ name: '', description: '', avatar: '', statsConfig: undefined, currency: 0, currencyName: 'Divisa', currencyIcon: '💰' });
+    setEditForm({ name: '', description: '', avatar: '', statsConfig: undefined, currency: 0, currencyName: 'Divisa', currencyIcon: '💰', equipmentSlots: undefined, slotDefinitions: undefined });
   };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>, personaId?: string) => {
@@ -500,6 +513,8 @@ interface PersonaEditorPanelProps {
     currency: number;
     currencyName: string;
     currencyIcon: string;
+    equipmentSlots?: EquipmentSlotDefinition[];
+    slotDefinitions?: CharacterSlotDefinition[];
   };
   setEditForm: React.Dispatch<React.SetStateAction<{
     name: string;
@@ -509,6 +524,8 @@ interface PersonaEditorPanelProps {
     currency: number;
     currencyName: string;
     currencyIcon: string;
+    equipmentSlots?: EquipmentSlotDefinition[];
+    slotDefinitions?: CharacterSlotDefinition[];
   }>>;
   uploading: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
@@ -927,6 +944,33 @@ function PersonaEditorPanel({
                 onChange={(statsConfig) => setEditForm(prev => ({ ...prev, statsConfig }))}
                 allCharacters={charactersWithSolicitudes}
                 availableTargets={availableTargets}
+              />
+            </div>
+
+            <Separator className="bg-border/50" />
+
+            {/* Equipment Slots - same editor as characters (global slots removed) */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <div className="p-1.5 rounded-md bg-orange-500/10">
+                  <Settings2 className="w-4 h-4 text-orange-500" />
+                </div>
+                Slots de Equipo
+                {(editForm.equipmentSlots?.length || 0) > 0 && (
+                  <Badge className="bg-orange-500/20 text-orange-400 text-[10px]">
+                    {editForm.equipmentSlots?.length} slots
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Los slots definen las ubicaciones donde la persona puede equipar items (ej: {'{{cabeza}}'}).
+                Ya no existen slots globales: cada persona define los suyos.
+              </p>
+              <CharacterSlotsEditor
+                equipmentSlots={editForm.equipmentSlots}
+                slotDefinitions={editForm.slotDefinitions}
+                attributes={editForm.statsConfig?.attributes || []}
+                onChange={(updates) => setEditForm(prev => ({ ...prev, ...updates }))}
               />
             </div>
           </div>

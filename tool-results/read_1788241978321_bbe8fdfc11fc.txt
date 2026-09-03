@@ -1,0 +1,1477 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo, useCallback, useRef } from 'react';
+     4→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+     5→import { Input } from '@/components/ui/input';
+     6→import { Button } from '@/components/ui/button';
+     7→import { Badge } from '@/components/ui/badge';
+     8→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+     9→import { Switch } from '@/components/ui/switch';
+    10→import { Label } from '@/components/ui/label';
+    11→import { ScrollArea } from '@/components/ui/scroll-area';
+    12→import { Separator } from '@/components/ui/separator';
+    13→import { Textarea } from '@/components/ui/textarea';
+    14→import {
+    15→  Search,
+    16→  Plus,
+    17→  Package,
+    18→  Gem,
+    19→  Settings2,
+    20→  Sparkles,
+    21→  FlaskConical,
+    22→  Shield,
+    23→  ShoppingCart,
+    24→  Coins,
+    25→  Trash2,
+    26→  Clock,
+    27→  X,
+    28→  Target,
+    29→  User,
+    30→  Download,
+    31→  Upload,
+    32→  AlertCircle,
+    33→  CheckCircle,
+    34→  Shirt,
+    35→  Pencil,
+    36→  Copy,
+    37→} from 'lucide-react';
+    38→import { useTavernStore } from '@/store/tavern-store';
+    39→import { ItemCard } from './item-card';
+    40→import { ItemEditor } from './item-editor';
+    41→import {
+    42→  Dialog,
+    43→  DialogContent,
+    44→  DialogHeader,
+    45→  DialogTitle,
+    46→  DialogDescription,
+    47→  DialogFooter,
+    48→} from '@/components/ui/dialog';
+    49→import type {
+    50→  Item,
+    51→  InventoryV2Settings,
+    52→  ActiveConsumableEffect,
+    53→  PersonaInventoryEntry,
+    54→  EquipmentSlotDefinition,
+    55→} from '@/types';
+    56→import {
+    57→  getRarityColor,
+    58→  getRarityBgColor,
+    59→  getItemTypeIcon,
+    60→  getItemTypeLabel,
+    61→} from '@/store/slices/inventorySlice';
+    62→import { cn } from '@/lib/utils';
+    63→import { motion, AnimatePresence } from 'framer-motion';
+    64→import { useToast } from '@/hooks/use-toast';
+    65→
+    66→// ============================================
+    67→// Slot Emoji Quick Picker
+    68→// ============================================
+    69→
+    70→const SLOT_EMOJIS = ['🪖', '🧢', '🧥', '🛡️', '⚔️', '🗡️', '🧤', '🥾', '💍', '📿', '🎒', '👑', '🎭', '💫', '🔮'];
+    71→
+    72→// ============================================
+    73→// Active Effect Badge
+    74→// ============================================
+    75→
+    76→function ActiveEffectBadge({ effect, onRemove }: { effect: ActiveConsumableEffect; onRemove: () => void }) {
+    77→  return (
+    78→    <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-xs">
+    79→      <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+    80→      <span className="truncate font-medium text-amber-600 dark:text-amber-400">
+    81→        {effect.itemName}
+    82→      </span>
+    83→      <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 shrink-0">
+    84→        {effect.remainingTurns}/{effect.totalTurns}
+    85→      </Badge>
+    86→      <Button
+    87→        variant="ghost"
+    88→        size="sm"
+    89→        className="h-4 w-4 p-0 shrink-0"
+    90→        onClick={onRemove}
+    91→      >
+    92→        <X className="w-3 h-3" />
+    93→      </Button>
+    94→    </div>
+    95→  );
+    96→}
+    97→
+    98→// ============================================
+    99→// Shop Item Row
+   100→// ============================================
+   101→
+   102→function ShopItemRow({
+   103→  item,
+   104→  canAfford,
+   105→  currencyIcon,
+   106→  onBuy,
+   107→}: {
+   108→  item: Item;
+   109→  canAfford: boolean;
+   110→  currencyIcon: string;
+   111→  onBuy: () => void;
+   112→}) {
+   113→  const rarityColor = getRarityColor(item.rarity);
+   114→  const typeIcon = item.icon || getItemTypeIcon(item.type || 'consumable');
+   115→  const typeLabel = getItemTypeLabel(item.type || 'consumable');
+   116→
+   117→  return (
+   118→    <div className={cn('flex items-center gap-2.5 p-2.5 rounded-lg border', getRarityBgColor(item.rarity))}>
+   119→      <div className={cn('w-8 h-8 rounded-md flex items-center justify-center text-base shrink-0', getRarityBgColor(item.rarity))}>
+   120→        {typeIcon}
+   121→      </div>
+   122→      <div className="flex-1 min-w-0">
+   123→        <p className={cn('font-medium text-sm truncate', rarityColor)}>{item.name}</p>
+   124→        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   125→          <span>{typeLabel}</span>
+   126→          {item.description && (
+   127→            <>
+   128→              <span>•</span>
+   129→              <span className="truncate">{item.description}</span>
+   130→            </>
+   131→          )}
+   132→        </div>
+   133→      </div>
+   134→      <div className="flex items-center gap-2 shrink-0">
+   135→        <div className="flex items-center gap-1 text-sm font-medium">
+   136→          <span>{item.price}</span>
+   137→          <span>{currencyIcon}</span>
+   138→        </div>
+   139→        <Button
+   140→          size="sm"
+   141→          className="h-7 px-2 text-xs"
+   142→          disabled={!canAfford}
+   143→          onClick={onBuy}
+   144→        >
+   145→          <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+   146→          Comprar
+   147→        </Button>
+   148→      </div>
+   149→    </div>
+   150→  );
+   151→}
+   152→
+   153→// ============================================
+   154→// Inventory Panel Component
+   155→// ============================================
+   156→
+   157→// Stable empty array to avoid creating new references
+   158→const EMPTY_ARRAY: EquipmentSlotDefinition[] = [];
+   159→const EMPTY_ITEMS: Array<{ entry: PersonaInventoryEntry; item: Item }> = [];
+   160→
+   161→export function InventoryPanel() {
+   162→  // ---- State selectors (individual to avoid infinite re-render loops) ----
+   163→  const items = useTavernStore(state => state.items);
+   164→  const activeConsumableEffects = useTavernStore(state => state.activeConsumableEffects);
+   165→  const inventorySettings = useTavernStore(state => state.inventorySettings);
+   166→  const inventoryNotifications = useTavernStore(state => state.inventoryNotifications);
+   167→
+   168→  // ---- Action selectors (stable references in Zustand) ----
+   169→  const addItem = useTavernStore(state => state.addItem);
+   170→  const updateItem = useTavernStore(state => state.updateItem);
+   171→  const deleteItem = useTavernStore(state => state.deleteItem);
+   172→  const addToPersona = useTavernStore(state => state.addToPersona);
+   173→  const removeFromPersona = useTavernStore(state => state.removeFromPersona);
+   174→  const getPersonaItems = useTavernStore(state => state.getPersonaItems);
+   175→  const equipItem = useTavernStore(state => state.equipItem);
+   176→  const equipItemToSlot = useTavernStore(state => state.equipItemToSlot);
+   177→  const unequipItem = useTavernStore(state => state.unequipItem);
+   178→  const getEquippedItems = useTavernStore(state => state.getEquippedItems);
+   179→  const getSessionEquipment = useTavernStore(state => state.getSessionEquipment);
+   180→  const isItemEquippedInSession = useTavernStore(state => state.isItemEquippedInSession);
+   181→  const consumeItem = useTavernStore(state => state.useConsumable);
+   182→  const removeEffect = useTavernStore(state => state.removeEffect);
+   183→  const adjustCurrency = useTavernStore(state => state.adjustCurrency);
+   184→  const canAfford = useTavernStore(state => state.canAfford);
+   185→  const purchaseItem = useTavernStore(state => state.purchaseItem);
+   186→  const getShopItems = useTavernStore(state => state.getShopItems);
+   187→  const setInventorySettings = useTavernStore(state => state.setInventorySettings);
+   188→  const clearInventoryNotifications = useTavernStore(state => state.clearInventoryNotifications);
+   189→  const clearPendingEquipAction = useTavernStore(state => state.clearPendingEquipAction);
+   190→  const executeEquipWithTarget = useTavernStore(state => state.executeEquipWithTarget);
+   191→  const executeUseWithTarget = useTavernStore(state => state.executeUseWithTarget);
+   192→  const exportInventory = useTavernStore(state => state.exportInventory);
+   193→  const importInventory = useTavernStore(state => state.importInventory);
+   194→
+   195→  // Characters for target selection
+   196→  const characters = useTavernStore(state => state.characters);
+   197→  const activeSessionId = useTavernStore(state => state.activeSessionId);
+   198→  const sessions = useTavernStore(state => state.sessions);
+   199→  const getGroupById = useTavernStore(state => state.getGroupById);
+   200→  const getCharacterById = useTavernStore(state => state.getCharacterById);
+   201→
+   202→  // Persona data via selectors (avoid calling getActivePersona() in render)
+   203→  const activePersonaId = useTavernStore(state => state.activePersonaId);
+   204→  const personas = useTavernStore(state => state.personas);
+   205→  const persona = useMemo(() => {
+   206→    if (!activePersonaId) return null;
+   207→    return personas.find(p => p.id === activePersonaId) || null;
+   208→  }, [activePersonaId, personas]);
+   209→  const personaId = persona?.id ?? '';
+   210→
+   211→  // Equipment slots - use stable empty array ref
+   212→  const equipmentSlots = useTavernStore(state => state.inventorySettings.equipmentSlots) ?? EMPTY_ARRAY;
+   213→  const addEquipmentSlot = useTavernStore(state => state.addEquipmentSlot);
+   214→  const updateEquipmentSlot = useTavernStore(state => state.updateEquipmentSlot);
+   215→  const deleteEquipmentSlot = useTavernStore(state => state.deleteEquipmentSlot);
+   216→
+   217→  // Local state
+   218→  const [searchQuery, setSearchQuery] = useState('');
+   219→  const [editorOpen, setEditorOpen] = useState(false);
+   220→  const [editingItem, setEditingItem] = useState<Item | null>(null);
+   221→  const editorNonceRef = useRef(0); // Increments each time the editor opens, to force remount
+   222→  const [activeTab, setActiveTab] = useState<string>('inventory');
+   223→  const [targetPickerOpen, setTargetPickerOpen] = useState(false);
+   224→  const [targetPickerAction, setTargetPickerAction] = useState<'equip' | 'use' | null>(null);
+   225→  const [targetPickerItemId, setTargetPickerItemId] = useState<string>('');
+   226→  const [selectedTargetId, setSelectedTargetId] = useState<string>('__user__');
+   227→  const [editingSlot, setEditingSlot] = useState<EquipmentSlotDefinition | null>(null);
+   228→  const [slotEditorOpen, setSlotEditorOpen] = useState(false);
+   229→  const [slotForm, setSlotForm] = useState({ name: '', key: '', icon: '', description: '' });
+   230→  const [slotPickerOpen, setSlotPickerOpen] = useState(false);
+   231→  const [slotPickerItemId, setSlotPickerItemId] = useState<string>('');
+   232→  const { toast } = useToast();
+   233→  const itemFileInputRef = useRef<HTMLInputElement>(null);
+   234→
+   235→  // Build target options from active session characters
+   236→  const targetOptions = useMemo(() => {
+   237→    const options = [{ value: '__user__', label: 'Persona (usuario)', icon: '👤' }];
+   238→
+   239→    const activeSession = sessions.find(s => s.id === activeSessionId);
+   240→    if (activeSession) {
+   241→      const sessionCharIds: string[] = [];
+   242→
+   243→      if (activeSession.groupId) {
+   244→        const group = getGroupById(activeSession.groupId);
+   245→        if (group?.members) {
+   246→          for (const member of group.members) {
+   247→            sessionCharIds.push(member.characterId);
+   248→          }
+   249→        }
+   250→      } else if (activeSession.characterId) {
+   251→        sessionCharIds.push(activeSession.characterId);
+   252→      }
+   253→
+   254→      for (const charId of sessionCharIds) {
+   255→        const char = getCharacterById(charId);
+   256→        if (char) {
+   257→          options.push({ value: char.id, label: char.name || 'Personaje', icon: '🎭' });
+   258→        }
+   259→      }
+   260→    } else {
+   261→      for (const char of characters) {
+   262→        options.push({ value: char.id, label: char.name || 'Personaje', icon: '🎭' });
+   263→      }
+   264→    }
+   265→
+   266→    return options;
+   267→  }, [characters, activeSessionId, sessions, getGroupById, getCharacterById]);
+   268→
+   269→  // Check if an item needs a target picker dialog
+   270→  const itemNeedsTargetPicker = useCallback((item: Item): boolean => {
+   271→    if (!item.attributeEffects || item.attributeEffects.length === 0) return false;
+   272→    // Show picker if any effect targets a character (not just __user__)
+   273→    return item.attributeEffects.some(e => e.targetId !== '__user__');
+   274→  }, []);
+   275→
+   276→  // Persona items - compute from persona.inventoryItems + items registry
+   277→  const personaInventoryItems = persona?.inventoryItems;
+   278→  const personaItems = useMemo(() => {
+   279→    if (!personaId || !personaInventoryItems) return EMPTY_ITEMS;
+   280→    return personaInventoryItems
+   281→      .map(entry => {
+   282→        const item = items.find(i => i.id === entry.itemId);
+   283→        return item ? { entry, item } : null;
+   284→      })
+   285→      .filter((r): r is { entry: PersonaInventoryEntry; item: Item } => r !== null);
+   286→  }, [personaId, personaInventoryItems, items]);
+   287→
+   288→  // Get session equipment (per-session equipped state)
+   289→  const sessionEquipment = useMemo(
+   290→    () => activeSessionId ? getSessionEquipment(activeSessionId) : [],
+   291→    [activeSessionId, sessions, getSessionEquipment]
+   292→  );
+   293→
+   294→  const equippedItems = useMemo(
+   295→    () => personaItems.filter(({ item }) =>
+   296→      sessionEquipment.some(se => se.itemId === item.id)
+   297→    ),
+   298→    [personaItems, sessionEquipment]
+   299→  );
+   300→
+   301→  // Active effects for this persona
+   302→  const activeEffects = useMemo(
+   303→    () => activeConsumableEffects.filter(e => e.personaId === personaId),
+   304→    [activeConsumableEffects, personaId]
+   305→  );
+   306→
+   307→  // Shop items
+   308→  const shopItems = useMemo(() => items.filter(item => (item.price ?? 0) > 0), [items]);
+   309→
+   310→  // Filter persona items by search
+   311→  const filteredPersonaItems = useMemo(() => {
+   312→    if (!searchQuery) return personaItems;
+   313→    const q = searchQuery.toLowerCase();
+   314→    return personaItems.filter(({ item }) =>
+   315→      item.name.toLowerCase().includes(q) ||
+   316→      item.description.toLowerCase().includes(q) ||
+   317→      item.tags?.some(t => t.toLowerCase().includes(q))
+   318→    );
+   319→  }, [personaItems, searchQuery]);
+   320→
+   321→  // Filter registry items by search
+   322→  const filteredRegistryItems = useMemo(() => {
+   323→    let result = items;
+   324→    if (searchQuery) {
+   325→      const q = searchQuery.toLowerCase();
+   326→      result = result.filter(item =>
+   327→        item.name.toLowerCase().includes(q) ||
+   328→        item.description.toLowerCase().includes(q) ||
+   329→        item.tags?.some(t => t.toLowerCase().includes(q))
+   330→      );
+   331→    }
+   332→    return result;
+   333→  }, [items, searchQuery]);
+   334→
+   335→  // Filter shop items by search
+   336→  const filteredShopItems = useMemo(() => {
+   337→    if (!searchQuery) return shopItems;
+   338→    const q = searchQuery.toLowerCase();
+   339→    return shopItems.filter(item =>
+   340→      item.name.toLowerCase().includes(q) ||
+   341→      item.description.toLowerCase().includes(q)
+   342→    );
+   343→  }, [shopItems, searchQuery]);
+   344→
+   345→  // Stats
+   346→  const totalItems = personaItems.reduce((sum, { entry }) => sum + entry.quantity, 0);
+   347→  const equippedCount = equippedItems.length;
+   348→  const unreadNotifications = inventoryNotifications.filter(n => !n.read).length;
+   349→
+   350→  // Handlers
+   351→  const handleCreateItem = (itemData: Item) => {
+   352→    addItem(itemData);
+   353→    setEditingItem(null);
+   354→  };
+   355→
+   356→  const handleUpdateItem = (itemData: Item) => {
+   357→    if (!editingItem) return;
+   358→    updateItem(editingItem.id, itemData);
+   359→    setEditingItem(null);
+   360→  };
+   361→
+   362→  const handleDeleteItem = () => {
+   363→    if (!editingItem) return;
+   364→    deleteItem(editingItem.id);
+   365→    setEditingItem(null);
+   366→    setEditorOpen(false);
+   367→  };
+   368→
+   369→  const handleUseConsumable = (itemId: string) => {
+   370→    if (!personaId) return;
+   371→    const item = items.find(i => i.id === itemId);
+   372→    if (!item) return;
+   373→
+   374→    if (itemNeedsTargetPicker(item)) {
+   375→      // Show target picker dialog
+   376→      setTargetPickerAction('use');
+   377→      setTargetPickerItemId(itemId);
+   378→      setSelectedTargetId(item.attributeEffects?.[0]?.targetId || '__user__');
+   379→      setTargetPickerOpen(true);
+   380→    } else {
+   381→      consumeItem(personaId, itemId);
+   382→    }
+   383→  };
+   384→
+   385→  const handleEquipItem = (itemId: string) => {
+   386→    if (!personaId) return;
+   387→    const item = items.find(i => i.id === itemId);
+   388→    if (!item) return;
+   389→
+   390→    // If item has multiple slot effects, show slot picker dialog
+   391→    if (item.slotEffects && item.slotEffects.length > 1) {
+   392→      setSlotPickerItemId(itemId);
+   393→      setSlotPickerOpen(true);
+   394→    } else {
+   395→      equipItem(personaId, itemId);
+   396→    }
+   397→  };
+   398→
+   399→  const handleTargetPickerConfirm = () => {
+   400→    if (!personaId || !targetPickerAction) return;
+   401→    if (targetPickerAction === 'equip') {
+   402→      executeEquipWithTarget(personaId, targetPickerItemId, selectedTargetId);
+   403→    } else {
+   404→      executeUseWithTarget(personaId, targetPickerItemId, selectedTargetId);
+   405→    }
+   406→    setTargetPickerOpen(false);
+   407→    setTargetPickerAction(null);
+   408→    setTargetPickerItemId('');
+   409→  };
+   410→
+   411→  const handleTargetPickerCancel = () => {
+   412→    setTargetPickerOpen(false);
+   413→    setTargetPickerAction(null);
+   414→    setTargetPickerItemId('');
+   415→    clearPendingEquipAction();
+   416→  };
+   417→
+   418→  const handleUnequipItem = (itemId: string) => {
+   419→    if (!personaId) return;
+   420→    unequipItem(personaId, itemId);
+   421→  };
+   422→
+   423→  const handleRemoveFromPersona = (itemId: string) => {
+   424→    if (!personaId) return;
+   425→    removeFromPersona(personaId, itemId);
+   426→  };
+   427→
+   428→  const handleBuyItem = (itemId: string) => {
+   429→    if (!personaId) return;
+   430→    purchaseItem(personaId, itemId);
+   431→  };
+   432→
+   433→  const handleAdjustCurrency = (amount: number) => {
+   434→    if (!personaId) return;
+   435→    adjustCurrency(personaId, amount);
+   436→  };
+   437→
+   438→  // Export all items to JSON file
+   439→  const handleExportItems = () => {
+   440→    try {
+   441→      const inventoryData = exportInventory();
+   442→      const exportData = {
+   443→        version: '1.0',
+   444→        exportedAt: new Date().toISOString(),
+   445→        type: 'inventory',
+   446→        data: inventoryData,
+   447→      };
+   448→
+   449→      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+   450→      const url = URL.createObjectURL(blob);
+   451→      const a = document.createElement('a');
+   452→      a.href = url;
+   453→      a.download = `tavernflow-items-${new Date().toISOString().split('T')[0]}.json`;
+   454→      document.body.appendChild(a);
+   455→      a.click();
+   456→      document.body.removeChild(a);
+   457→      URL.revokeObjectURL(url);
+   458→
+   459→      toast({
+   460→        title: 'Items exportados',
+   461→        description: `${inventoryData.items.length} items exportados correctamente.`,
+   462→      });
+   463→    } catch {
+   464→      toast({
+   465→        title: 'Error al exportar',
+   466→        description: 'No se pudieron exportar los items.',
+   467→        variant: 'destructive',
+   468→      });
+   469→    }
+   470→  };
+   471→
+   472→  // Import items from JSON file
+   473→  const handleImportItems = (event: React.ChangeEvent<HTMLInputElement>) => {
+   474→    const file = event.target.files?.[0];
+   475→    if (!file) return;
+   476→
+   477→    const reader = new FileReader();
+   478→    reader.onload = (e) => {
+   479→      try {
+   480→        const content = e.target?.result as string;
+   481→        const imported = JSON.parse(content);
+   482→
+   483→        if (!imported.data) {
+   484→          throw new Error('Formato de archivo inválido');
+   485→        }
+   486→
+   487→        const { data } = imported;
+   488→        importInventory({
+   489→          items: data.items,
+   490→          activeEffects: data.activeEffects,
+   491→          settings: data.settings,
+   492→          dynamicEquipmentState: data.dynamicEquipmentState,
+   493→        });
+   494→
+   495→        const itemCount = data.items?.length ?? 0;
+   496→        toast({
+   497→          title: 'Items importados',
+   498→          description: `${itemCount} items importados correctamente.`,
+   499→        });
+   500→      } catch (err) {
+   501→        const msg = err instanceof Error ? err.message : 'Error desconocido';
+   502→        toast({
+   503→          title: 'Error al importar',
+   504→          description: `No se pudo importar: ${msg}`,
+   505→          variant: 'destructive',
+   506→        });
+   507→      }
+   508→    };
+   509→    reader.readAsText(file);
+   510→
+   511→    if (itemFileInputRef.current) {
+   512→      itemFileInputRef.current.value = '';
+   513→    }
+   514→  };
+   515→
+   516→  // ---- Slot handlers ----
+   517→  const keyManuallyEditedRef = useRef(false);
+   518→
+   519→  const generateKeyFromName = (name: string): string => {
+   520→    return name
+   521→      .toLowerCase()
+   522→      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+   523→      .replace(/[^a-z0-9\s_]/g, '')
+   524→      .replace(/\s+/g, '_')
+   525→      .replace(/_+/g, '_')
+   526→      .replace(/^_|_$/g, '');
+   527→  };
+   528→
+   529→  const copyToClipboard = (text: string) => {
+   530→    navigator.clipboard.writeText(text).catch(() => {
+   531→      // Fallback: use a temporary textarea
+   532→      const textarea = document.createElement('textarea');
+   533→      textarea.value = text;
+   534→      document.body.appendChild(textarea);
+   535→      textarea.select();
+   536→      document.execCommand('copy');
+   537→      document.body.removeChild(textarea);
+   538→    });
+   539→  };
+   540→
+   541→  const handleSaveSlot = () => {
+   542→    if (!slotForm.name.trim() || !slotForm.key.trim()) {
+   543→      toast({
+   544→        title: 'Campos requeridos',
+   545→        description: 'Nombre y Key son obligatorios.',
+   546→        variant: 'destructive',
+   547→      });
+   548→      return;
+   549→    }
+   550→
+   551→    // Validate key format
+   552→    if (!/^[a-z][a-z0-9_]*$/.test(slotForm.key)) {
+   553→      toast({
+   554→        title: 'Key inválida',
+   555→        description: 'La key debe empezar con letra y solo contener letras minúsculas, números y guiones bajos.',
+   556→        variant: 'destructive',
+   557→      });
+   558→      return;
+   559→    }
+   560→
+   561→    // Check for duplicate keys (excluding current editing slot)
+   562→    const duplicateKey = equipmentSlots.some(
+   563→      s => s.key === slotForm.key && (!editingSlot || s.id !== editingSlot.id)
+   564→    );
+   565→    if (duplicateKey) {
+   566→      toast({
+   567→        title: 'Key duplicada',
+   568→        description: `Ya existe un slot con la key "{{${slotForm.key}}}".`,
+   569→        variant: 'destructive',
+   570→      });
+   571→      return;
+   572→    }
+   573→
+   574→    if (editingSlot) {
+   575→      updateEquipmentSlot(editingSlot.id, {
+   576→        name: slotForm.name.trim(),
+   577→        key: slotForm.key.trim(),
+   578→        icon: slotForm.icon || undefined,
+   579→        description: slotForm.description.trim() || undefined,
+   580→      });
+   581→      toast({
+   582→        title: 'Slot actualizado',
+   583→        description: `"${slotForm.name}" actualizado correctamente.`,
+   584→      });
+   585→    } else {
+   586→      addEquipmentSlot({
+   587→        name: slotForm.name.trim(),
+   588→        key: slotForm.key.trim(),
+   589→        icon: slotForm.icon || undefined,
+   590→        description: slotForm.description.trim() || undefined,
+   591→      });
+   592→      toast({
+   593→        title: 'Slot creado',
+   594→        description: `"${slotForm.name}" creado correctamente.`,
+   595→      });
+   596→    }
+   597→
+   598→    setSlotEditorOpen(false);
+   599→    setEditingSlot(null);
+   600→    keyManuallyEditedRef.current = false;
+   601→  };
+   602→
+   603→  const handleDeleteSlot = (id: string, name: string) => {
+   604→    deleteEquipmentSlot(id);
+   605→    toast({
+   606→      title: 'Slot eliminado',
+   607→      description: `"${name}" ha sido eliminado. Los items que usaban este slot han sido actualizados.`,
+   608→    });
+   609→  };
+   610→
+   611→  return (
+   612→    <div className="h-full flex flex-col">
+   613→      {/* Header */}
+   614→      <div className="flex items-center justify-between p-3 border-b shrink-0">
+   615→        <div className="flex items-center gap-2">
+   616→          <Package className="w-5 h-5 text-muted-foreground" />
+   617→          <h2 className="text-lg font-semibold">Inventario</h2>
+   618→          <Badge variant="secondary" className="text-xs">{totalItems} items</Badge>
+   619→          {equippedCount > 0 && (
+   620→            <Badge variant="outline" className="text-xs">
+   621→              <Shield className="w-3 h-3 mr-1" />
+   622→              {equippedCount}
+   623→            </Badge>
+   624→          )}
+   625→        </div>
+   626→        <Button
+   627→          size="sm"
+   628→          onClick={() => { setEditingItem(null); editorNonceRef.current++; setEditorOpen(true); }}
+   629→        >
+   630→          <Plus className="w-4 h-4 mr-1" />
+   631→          Nuevo
+   632→        </Button>
+   633→      </div>
+   634→
+   635→      {/* Currency Bar */}
+   636→      {persona && (
+   637→        <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30 shrink-0">
+   638→          <div className="flex items-center gap-2">
+   639→            <span className="text-lg">{persona.currencyIcon || '💰'}</span>
+   640→            <span className="font-bold text-lg">{persona.currency ?? 0}</span>
+   641→            <span className="text-sm text-muted-foreground">{persona.currencyName || 'Divisa'}</span>
+   642→          </div>
+   643→          <div className="flex items-center gap-1">
+   644→            <Button
+   645→              variant="ghost"
+   646→              size="sm"
+   647→              className="h-6 w-6 p-0 text-xs"
+   648→              onClick={() => handleAdjustCurrency(-10)}
+   649→              title="-10"
+   650→            >
+   651→              −
+   652→            </Button>
+   653→            <Button
+   654→              variant="ghost"
+   655→              size="sm"
+   656→              className="h-6 w-6 p-0 text-xs"
+   657→              onClick={() => handleAdjustCurrency(-1)}
+   658→              title="-1"
+   659→            >
+   660→              −1
+   661→            </Button>
+   662→            <Button
+   663→              variant="ghost"
+   664→              size="sm"
+   665→              className="h-6 w-6 p-0 text-xs"
+   666→              onClick={() => handleAdjustCurrency(1)}
+   667→              title="+1"
+   668→            >
+   669→              +1
+   670→            </Button>
+   671→            <Button
+   672→              variant="ghost"
+   673→              size="sm"
+   674→              className="h-6 w-6 p-0 text-xs"
+   675→              onClick={() => handleAdjustCurrency(10)}
+   676→              title="+10"
+   677→            >
+   678→              +
+   679→            </Button>
+   680→          </div>
+   681→        </div>
+   682→      )}
+   683→
+   684→      {/* Active Effects */}
+   685→      {activeEffects.length > 0 && (
+   686→        <div className="px-3 py-2 border-b bg-amber-500/5 shrink-0">
+   687→          <div className="flex items-center gap-1.5 mb-1.5">
+   688→            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+   689→            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+   690→              Efectos Activos
+   691→            </span>
+   692→          </div>
+   693→          <div className="flex flex-wrap gap-1.5">
+   694→            {activeEffects.map(effect => (
+   695→              <ActiveEffectBadge
+   696→                key={effect.id}
+   697→                effect={effect}
+   698→                onRemove={() => removeEffect(effect.id)}
+   699→              />
+   700→            ))}
+   701→          </div>
+   702→        </div>
+   703→      )}
+   704→
+   705→      {/* Tabs */}
+   706→      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+   707→        <div className="px-3 pt-2 border-b shrink-0">
+   708→          <TabsList className="w-full">
+   709→            <TabsTrigger value="inventory" className="flex-1 text-xs">
+   710→              Inventario
+   711→            </TabsTrigger>
+   712→            <TabsTrigger value="registry" className="flex-1 text-xs">
+   713→              Registro
+   714→            </TabsTrigger>
+   715→            <TabsTrigger value="shop" className="flex-1 text-xs">
+   716→              Tienda
+   717→            </TabsTrigger>
+   718→            <TabsTrigger value="slots" className="flex-1 text-xs">
+   719→              Slots
+   720→            </TabsTrigger>
+   721→            <TabsTrigger value="config" className="flex-1 text-xs">
+   722→              Config
+   723→            </TabsTrigger>
+   724→          </TabsList>
+   725→        </div>
+   726→
+   727→        {/* ===== Inventario Tab ===== */}
+   728→        <TabsContent value="inventory" className="flex-1 overflow-hidden m-0">
+   729→          <div className="h-full flex flex-col p-3 gap-3 overflow-hidden">
+   730→            {/* Search */}
+   731→            <div className="relative shrink-0">
+   732→              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   733→              <Input
+   734→                value={searchQuery}
+   735→                onChange={(e) => setSearchQuery(e.target.value)}
+   736→                placeholder="Buscar items..."
+   737→                className="pl-9"
+   738→              />
+   739→            </div>
+   740→
+   741→            {/* Items List */}
+   742→            <ScrollArea className="flex-1 min-h-0">
+   743→              {filteredPersonaItems.length === 0 ? (
+   744→                <div className="text-center py-12 text-muted-foreground">
+   745→                  <Package className="w-16 h-16 mx-auto mb-3 opacity-50" />
+   746→                  <p className="text-lg font-medium">Inventario vacío</p>
+   747→                  <p className="text-sm mt-1">Los items aparecerán aquí cuando los obtengas</p>
+   748→                </div>
+   749→              ) : (
+   750→                <div className="grid gap-2 pr-3">
+   751→                  <AnimatePresence mode="popLayout">
+   752→                    {filteredPersonaItems.map(({ entry, item }) => {
+   753→                      const isEquippedInSession = sessionEquipment.some(se => se.itemId === item.id);
+   754→                      return (
+   755→                      <motion.div
+   756→                        key={entry.itemId}
+   757→                        layout
+   758→                        initial={{ opacity: 0, y: -10 }}
+   759→                        animate={{ opacity: 1, y: 0 }}
+   760→                        exit={{ opacity: 0, x: -20 }}
+   761→                      >
+   762→                        <ItemCard
+   763→                          item={item}
+   764→                          entry={{ ...entry, equipped: isEquippedInSession }}
+   765→                          showQuantity
+   766→                          showActions
+   767→                          equipmentSlots={equipmentSlots}
+   768→                          onUse={item.type === 'consumable' ? () => handleUseConsumable(item.id) : undefined}
+   769→                          onEquip={item.type === 'equipment' && !isEquippedInSession ? () => handleEquipItem(item.id) : undefined}
+   770→                          onUnequip={item.type === 'equipment' && isEquippedInSession ? () => handleUnequipItem(item.id) : undefined}
+   771→                          onRemove={() => handleRemoveFromPersona(item.id)}
+   772→                          onEdit={() => { setEditingItem(item); editorNonceRef.current++; setEditorOpen(true); }}
+   773→                        />
+   774→                      </motion.div>
+   775→                      );
+   776→                    })}
+   777→                  </AnimatePresence>
+   778→                </div>
+   779→              )}
+   780→            </ScrollArea>
+   781→          </div>
+   782→        </TabsContent>
+   783→
+   784→        {/* ===== Registro Tab ===== */}
+   785→        <TabsContent value="registry" className="flex-1 overflow-hidden m-0">
+   786→          <div className="h-full flex flex-col p-3 gap-3 overflow-hidden">
+   787→            <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
+   788→              <Package className="w-4 h-4" />
+   789→              <span>Items definidos ({filteredRegistryItems.length})</span>
+   790→            </div>
+   791→
+   792→            <div className="relative shrink-0">
+   793→              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   794→              <Input
+   795→                value={searchQuery}
+   796→                onChange={(e) => setSearchQuery(e.target.value)}
+   797→                placeholder="Buscar en registro..."
+   798→                className="pl-9"
+   799→              />
+   800→            </div>
+   801→
+   802→            <ScrollArea className="flex-1 min-h-0">
+   803→              {filteredRegistryItems.length === 0 ? (
+   804→                <div className="text-center py-12 text-muted-foreground">
+   805→                  <Package className="w-16 h-16 mx-auto mb-3 opacity-50" />
+   806→                  <p className="text-lg font-medium">Registro vacío</p>
+   807→                  <p className="text-sm mt-1">Crea items para el sistema de inventario</p>
+   808→                </div>
+   809→              ) : (
+   810→                <div className="grid gap-2 pr-3">
+   811→                  {filteredRegistryItems.map(item => {
+   812→                    const inInventory = persona?.inventoryItems?.some(e => e.itemId === item.id);
+   813→                    const typeIcon = item.icon || getItemTypeIcon(item.type || 'consumable');
+   814→                    const typeLabel = getItemTypeLabel(item.type || 'consumable');
+   815→
+   816→                    return (
+   817→                      <div
+   818→                        key={item.id}
+   819→                        className={cn(
+   820→                          'flex items-center gap-2.5 p-2.5 rounded-lg border',
+   821→                          getRarityBgColor(item.rarity)
+   822→                        )}
+   823→                      >
+   824→                        <div className={cn('w-8 h-8 rounded-md flex items-center justify-center text-base shrink-0', getRarityBgColor(item.rarity))}>
+   825→                          {typeIcon}
+   826→                        </div>
+   827→                        <div className="flex-1 min-w-0">
+   828→                          <p className={cn('font-medium text-sm truncate', getRarityColor(item.rarity))}>
+   829→                            {item.name}
+   830→                          </p>
+   831→                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   832→                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+   833→                              {typeLabel}
+   834→                            </Badge>
+   835→                            <span>{item.rarity}</span>
+   836→                            {inInventory && (
+   837→                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+   838→                                En inventario
+   839→                              </Badge>
+   840→                            )}
+   841→                          </div>
+   842→                        </div>
+   843→                        <div className="flex items-center gap-1 shrink-0">
+   844→                          {personaId && !inInventory && (
+   845→                            <Button
+   846→                              variant="ghost"
+   847→                              size="sm"
+   848→                              className="h-7 px-2 text-xs"
+   849→                              onClick={() => addToPersona(personaId, item.id, 1)}
+   850→                              title="Agregar al inventario"
+   851→                            >
+   852→                              <Plus className="w-4 h-4" />
+   853→                            </Button>
+   854→                          )}
+   855→                          <Button
+   856→                            variant="ghost"
+   857→                            size="sm"
+   858→                            className="h-7 px-2 text-xs"
+   859→                            onClick={() => { setEditingItem(item); setEditorOpen(true); }}
+   860→                            title="Editar item"
+   861→                          >
+   862→                            <Settings2 className="w-4 h-4" />
+   863→                          </Button>
+   864→                        </div>
+   865→                      </div>
+   866→                    );
+   867→                  })}
+   868→                </div>
+   869→              )}
+   870→            </ScrollArea>
+   871→          </div>
+   872→        </TabsContent>
+   873→
+   874→        {/* ===== Tienda Tab ===== */}
+   875→        <TabsContent value="shop" className="flex-1 overflow-hidden m-0">
+   876→          <div className="h-full flex flex-col p-3 gap-3 overflow-hidden">
+   877→            {/* Currency display */}
+   878→            {persona && (
+   879→              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50 shrink-0">
+   880→                <Coins className="w-5 h-5 text-amber-500" />
+   881→                <span className="font-bold">{persona.currency ?? 0}</span>
+   882→                <span className="text-sm text-muted-foreground">{persona.currencyName || 'Divisa'}</span>
+   883→              </div>
+   884→            )}
+   885→
+   886→            <div className="relative shrink-0">
+   887→              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   888→              <Input
+   889→                value={searchQuery}
+   890→                onChange={(e) => setSearchQuery(e.target.value)}
+   891→                placeholder="Buscar en la tienda..."
+   892→                className="pl-9"
+   893→              />
+   894→            </div>
+   895→
+   896→            <ScrollArea className="flex-1 min-h-0">
+   897→              {filteredShopItems.length === 0 ? (
+   898→                <div className="text-center py-12 text-muted-foreground">
+   899→                  <ShoppingCart className="w-16 h-16 mx-auto mb-3 opacity-50" />
+   900→                  <p className="text-lg font-medium">Tienda vacía</p>
+   901→                  <p className="text-sm mt-1">Define precios en los items para que aparezcan aquí</p>
+   902→                </div>
+   903→              ) : (
+   904→                <div className="grid gap-2 pr-3">
+   905→                  {filteredShopItems.map(item => (
+   906→                    <ShopItemRow
+   907→                      key={item.id}
+   908→                      item={item}
+   909→                      canAfford={personaId ? canAfford(personaId, item.price ?? 0) : false}
+   910→                      currencyIcon={persona?.currencyIcon ?? '💰'}
+   911→                      onBuy={() => handleBuyItem(item.id)}
+   912→                    />
+   913→                  ))}
+   914→                </div>
+   915→              )}
+   916→            </ScrollArea>
+   917→          </div>
+   918→        </TabsContent>
+   919→
+   920→        {/* ===== Slots Tab ===== */}
+   921→        <TabsContent value="slots" className="flex-1 overflow-hidden m-0">
+   922→          <div className="h-full flex flex-col p-3 gap-3 overflow-hidden">
+   923→            {/* Header */}
+   924→            <div className="flex items-center justify-between shrink-0">
+   925→              <div className="flex items-center gap-2">
+   926→                <Shirt className="w-4 h-4 text-muted-foreground" />
+   927→                <h3 className="font-semibold text-sm">Slots de Equipo</h3>
+   928→                <Badge variant="secondary" className="text-xs">{equipmentSlots.length}</Badge>
+   929→              </div>
+   930→              <Button
+   931→                size="sm"
+   932→                onClick={() => {
+   933→                  setEditingSlot(null);
+   934→                  setSlotForm({ name: '', key: '', icon: '', description: '' });
+   935→                  keyManuallyEditedRef.current = false;
+   936→                  setSlotEditorOpen(true);
+   937→                }}
+   938→              >
+   939→                <Plus className="w-4 h-4 mr-1" />
+   940→                Nuevo
+   941→              </Button>
+   942→            </div>
+   943→
+   944→            {/* Info text */}
+   945→            <div className="p-2.5 rounded-lg bg-muted/50 text-xs text-muted-foreground shrink-0">
+   946→              Los slots definen las ubicaciones donde se puede equipar un item. Cada slot genera una key (ej: {'{{cabeza}}'}) que se puede usar en los prompts.
+   947→            </div>
+   948→
+   949→            {/* Slots List */}
+   950→            <ScrollArea className="flex-1 min-h-0">
+   951→              {equipmentSlots.length === 0 ? (
+   952→                <div className="text-center py-12 text-muted-foreground">
+   953→                  <Shirt className="w-16 h-16 mx-auto mb-3 opacity-50" />
+   954→                  <p className="text-lg font-medium">Sin slots definidos</p>
+   955→                  <p className="text-sm mt-1">Crea slots como Cabeza, Pecho, Mano Izquierda, etc.</p>
+   956→                </div>
+   957→              ) : (
+   958→                <div className="grid gap-2 pr-3">
+   959→                  <AnimatePresence mode="popLayout">
+   960→                    {equipmentSlots.map(slot => (
+   961→                      <motion.div
+   962→                        key={slot.id}
+   963→                        layout
+   964→                        initial={{ opacity: 0, y: -10 }}
+   965→                        animate={{ opacity: 1, y: 0 }}
+   966→                        exit={{ opacity: 0, x: -20 }}
+   967→                      >
+   968→                        <div className="flex items-center gap-2.5 p-2.5 rounded-lg border bg-card">
+   969→                          {/* Icon */}
+   970→                          <div className="w-8 h-8 rounded-md flex items-center justify-center text-base shrink-0 bg-muted/50">
+   971→                            {slot.icon || '📦'}
+   972→                          </div>
+   973→                          {/* Info */}
+   974→                          <div className="flex-1 min-w-0">
+   975→                            <p className="font-medium text-sm truncate">{slot.name}</p>
+   976→                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   977→                              <code className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">{'{{' + slot.key + '}}'}</code>
+   978→                              {slot.description && (
+   979→                                <>
+   980→                                  <span>•</span>
+   981→                                  <span className="truncate">{slot.description}</span>
+   982→                                </>
+   983→                              )}
+   984→                            </div>
+   985→                          </div>
+   986→                          {/* Actions */}
+   987→                          <div className="flex items-center gap-1 shrink-0">
+   988→                            <Button
+   989→                              variant="ghost"
+   990→                              size="sm"
+   991→                              className="h-7 w-7 p-0"
+   992→                              onClick={() => {
+   993→                                copyToClipboard('{{' + slot.key + '}}');
+   994→                                toast({ title: 'Key copiada', description: `{{${slot.key}}} copiada al portapapeles` });
+   995→                              }}
+   996→                              title="Copiar key"
+   997→                            >
+   998→                              <Copy className="w-3.5 h-3.5" />
+   999→                            </Button>
+  1000→                            <Button
+  1001→                              variant="ghost"
+  1002→                              size="sm"
+  1003→                              className="h-7 w-7 p-0"
+  1004→                              onClick={() => {
+  1005→                                setEditingSlot(slot);
+  1006→                                setSlotForm({
+  1007→                                  name: slot.name,
+  1008→                                  key: slot.key,
+  1009→                                  icon: slot.icon || '',
+  1010→                                  description: slot.description || '',
+  1011→                                });
+  1012→                                setSlotEditorOpen(true);
+  1013→                              }}
+  1014→                              title="Editar slot"
+  1015→                            >
+  1016→                              <Pencil className="w-3.5 h-3.5" />
+  1017→                            </Button>
+  1018→                            <Button
+  1019→                              variant="ghost"
+  1020→                              size="sm"
+  1021→                              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+  1022→                              onClick={() => handleDeleteSlot(slot.id, slot.name)}
+  1023→                              title="Eliminar slot"
+  1024→                            >
+  1025→                              <Trash2 className="w-3.5 h-3.5" />
+  1026→                            </Button>
+  1027→                          </div>
+  1028→                        </div>
+  1029→                      </motion.div>
+  1030→                    ))}
+  1031→                  </AnimatePresence>
+  1032→                </div>
+  1033→              )}
+  1034→            </ScrollArea>
+  1035→          </div>
+  1036→        </TabsContent>
+  1037→
+  1038→        {/* ===== Config Tab ===== */}
+  1039→        <TabsContent value="config" className="flex-1 overflow-hidden m-0">
+  1040→          <ScrollArea className="h-full p-3">
+  1041→            <div className="space-y-6 pr-3">
+  1042→              {/* General Settings */}
+  1043→              <div className="space-y-4">
+  1044→                <h3 className="font-semibold text-sm">General</h3>
+  1045→
+  1046→                <div className="flex items-center justify-between">
+  1047→                  <div>
+  1048→                    <Label>Sistema habilitado</Label>
+  1049→                    <p className="text-xs text-muted-foreground">
+  1050→                      Activar el sistema de inventario
+  1051→                    </p>
+  1052→                  </div>
+  1053→                  <Switch
+  1054→                    checked={inventorySettings.enabled}
+  1055→                    onCheckedChange={(v) => setInventorySettings({ enabled: v })}
+  1056→                  />
+  1057→                </div>
+  1058→
+  1059→                <div className="flex items-center justify-between">
+  1060→                  <div>
+  1061→                    <Label>Mostrar en chat</Label>
+  1062→                    <p className="text-xs text-muted-foreground">
+  1063→                      Mostrar mini HUD en el área de chat
+  1064→                    </p>
+  1065→                  </div>
+  1066→                  <Switch
+  1067→                    checked={inventorySettings.showInChat}
+  1068→                    onCheckedChange={(v) => setInventorySettings({ showInChat: v })}
+  1069→                  />
+  1070→                </div>
+  1071→
+  1072→                <div className="flex items-center justify-between">
+  1073→                  <div>
+  1074→                    <Label>Notificaciones</Label>
+  1075→                    <p className="text-xs text-muted-foreground">
+  1076→                      Mostrar notificaciones de items
+  1077→                    </p>
+  1078→                  </div>
+  1079→                  <Switch
+  1080→                    checked={inventorySettings.showNotifications}
+  1081→                    onCheckedChange={(v) => setInventorySettings({ showNotifications: v })}
+  1082→                  />
+  1083→                </div>
+  1084→
+  1085→                <div className="flex items-center justify-between">
+  1086→                  <div>
+  1087→                    <Label>Detección automática</Label>
+  1088→                    <p className="text-xs text-muted-foreground">
+  1089→                      Detectar items en mensajes automáticamente
+  1090→                    </p>
+  1091→                  </div>
+  1092→                  <Switch
+  1093→                    checked={inventorySettings.autoDetect}
+  1094→                    onCheckedChange={(v) => setInventorySettings({ autoDetect: v })}
+  1095→                  />
+  1096→                </div>
+  1097→              </div>
+  1098→
+  1099→              <Separator />
+  1100→
+  1101→              {/* Prompt Settings */}
+  1102→              <div className="space-y-4">
+  1103→                <h3 className="font-semibold text-sm">Integración con Prompt</h3>
+  1104→
+  1105→                <div className="flex items-center justify-between">
+  1106→                  <div>
+  1107→                    <Label>Incluir en prompt</Label>
+  1108→                    <p className="text-xs text-muted-foreground">
+  1109→                      Usar la key {'{{slots}}'} en las secciones del personaje para mostrar equipo y efectos
+  1110→                    </p>
+  1111→                  </div>
+  1112→                  <Switch
+  1113→                    checked={inventorySettings.promptInclude}
+  1114→                    onCheckedChange={(v) => setInventorySettings({ promptInclude: v })}
+  1115→                  />
+  1116→                </div>
+  1117→
+  1118→                <div className="p-2.5 rounded-lg bg-muted/50 text-xs text-muted-foreground space-y-1.5">
+  1119→                  <p className="font-medium text-foreground">Keys disponibles:</p>
+  1120→                  <p><code className="px-1 py-0.5 rounded bg-muted font-mono">{'{{slots}}'}</code> — Lista de slots de equipo y efectos de consumibles activos</p>
+  1121→                  <p><code className="px-1 py-0.5 rounded bg-muted font-mono">{'{{currency}}'}</code> — Muestra la divisa actual</p>
+  1122→                  <p className="pt-1">Puedes colocar {'{{slots}}'} en cualquier sección del personaje (descripción, escenario, system prompt, etc.)</p>
+  1123→                </div>
+  1124→              </div>
+  1125→
+  1126→              <Separator />
+  1127→
+  1128→              {/* Currency Settings */}
+  1129→              <div className="space-y-4">
+  1130→                <h3 className="font-semibold text-sm">Divisa</h3>
+  1131→
+  1132→                <div className="grid grid-cols-2 gap-3">
+  1133→                  <div className="space-y-2">
+  1134→                    <Label>Nombre</Label>
+  1135→                    <Input
+  1136→                      value={inventorySettings.currencyName}
+  1137→                      onChange={(e) => setInventorySettings({ currencyName: e.target.value })}
+  1138→                      placeholder="Divisa"
+  1139→                    />
+  1140→                  </div>
+  1141→                  <div className="space-y-2">
+  1142→                    <Label>Icono</Label>
+  1143→                    <Input
+  1144→                      value={inventorySettings.currencyIcon}
+  1145→                      onChange={(e) => setInventorySettings({ currencyIcon: e.target.value })}
+  1146→                      placeholder="💰"
+  1147→                      className="w-20"
+  1148→                      maxLength={4}
+  1149→                    />
+  1150→                  </div>
+  1151→                </div>
+  1152→              </div>
+  1153→
+  1154→              <Separator />
+  1155→
+  1156→              {/* Notifications */}
+  1157→              <div className="space-y-4">
+  1158→                <div className="flex items-center justify-between">
+  1159→                  <h3 className="font-semibold text-sm">
+  1160→                    Notificaciones
+  1161→                    {unreadNotifications > 0 && (
+  1162→                      <Badge variant="secondary" className="ml-2 text-[10px]">
+  1163→                        {unreadNotifications}
+  1164→                      </Badge>
+  1165→                    )}
+  1166→                  </h3>
+  1167→                  {inventoryNotifications.length > 0 && (
+  1168→                    <Button
+  1169→                      variant="ghost"
+  1170→                      size="sm"
+  1171→                      className="h-7 text-xs"
+  1172→                      onClick={clearInventoryNotifications}
+  1173→                    >
+  1174→                      <Trash2 className="w-3 h-3 mr-1" />
+  1175→                      Limpiar
+  1176→                    </Button>
+  1177→                  )}
+  1178→                </div>
+  1179→
+  1180→                {inventoryNotifications.length === 0 ? (
+  1181→                  <p className="text-sm text-muted-foreground text-center py-4">
+  1182→                    Sin notificaciones
+  1183→                  </p>
+  1184→                ) : (
+  1185→                  <div className="space-y-1 max-h-40 overflow-y-auto">
+  1186→                    {inventoryNotifications.slice(0, 20).map(notif => (
+  1187→                      <div
+  1188→                        key={notif.id}
+  1189→                        className={cn(
+  1190→                          'text-xs p-2 rounded-md',
+  1191→                          notif.read ? 'text-muted-foreground' : 'bg-muted/50 font-medium'
+  1192→                        )}
+  1193→                      >
+  1194→                        <span className="text-muted-foreground">
+  1195→                          {new Date(notif.timestamp).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+  1196→                        </span>
+  1197→                        {' '}
+  1198→                        {notif.message}
+  1199→                      </div>
+  1200→                    ))}
+  1201→                  </div>
+  1202→                )}
+  1203→              </div>
+  1204→
+  1205→              <Separator />
+  1206→
+  1207→              {/* Export / Import Items */}
+  1208→              <div className="space-y-4">
+  1209→                <h3 className="font-semibold text-sm">Exportar / Importar Items</h3>
+  1210→                <p className="text-xs text-muted-foreground">
+  1211→                  Exporta todos los items, efectos activos y configuración del inventario a un archivo JSON, o impórtalos desde un archivo previamente exportado.
+  1212→                </p>
+  1213→
+  1214→                <div className="grid grid-cols-2 gap-3">
+  1215→                  <Button
+  1216→                    variant="outline"
+  1217→                    className="h-auto py-3 flex flex-col gap-1.5"
+  1218→                    onClick={handleExportItems}
+  1219→                  >
+  1220→                    <Download className="w-4 h-4" />
+  1221→                    <span className="text-sm">Exportar Items</span>
+  1222→                    <span className="text-[10px] text-muted-foreground">{items.length} items</span>
+  1223→                  </Button>
+  1224→                  <label className="cursor-pointer">
+  1225→                    <Button
+  1226→                      variant="outline"
+  1227→                      className="h-auto py-3 flex flex-col gap-1.5 w-full"
+  1228→                      asChild
+  1229→                    >
+  1230→                      <span>
+  1231→                        <Upload className="w-4 h-4" />
+  1232→                        <span className="text-sm">Importar Items</span>
+  1233→                        <span className="text-[10px] text-muted-foreground">Desde JSON</span>
+  1234→                      </span>
+  1235→                    </Button>
+  1236→                    <input
+  1237→                      ref={itemFileInputRef}
+  1238→                      type="file"
+  1239→                      accept=".json"
+  1240→                      onChange={handleImportItems}
+  1241→                      className="hidden"
+  1242→                    />
+  1243→                  </label>
+  1244→                </div>
+  1245→
+  1246→                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
+  1247→                  <div className="flex items-start gap-2">
+  1248→                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+  1249→                    <span className="text-muted-foreground">
+  1250→                      Importar items reemplazará los items y efectos activos existentes. La configuración del inventario también se sobreescribirá si está incluida en el archivo.
+  1251→                    </span>
+  1252→                  </div>
+  1253→                </div>
+  1254→              </div>
+  1255→            </div>
+  1256→          </ScrollArea>
+  1257→        </TabsContent>
+  1258→      </Tabs>
+  1259→
+  1260→      {/* Item Editor Dialog */}
+  1261→      <ItemEditor
+  1262→        key={`${editingItem?.id ?? 'new'}-${editorNonceRef.current}`}
+  1263→        open={editorOpen}
+  1264→        onOpenChange={setEditorOpen}
+  1265→        item={editingItem}
+  1266→        onSave={editingItem ? handleUpdateItem : handleCreateItem}
+  1267→        onDelete={editingItem ? handleDeleteItem : undefined}
+  1268→      />
+  1269→
+  1270→      {/* Slot Editor Dialog */}
+  1271→      <Dialog open={slotEditorOpen} onOpenChange={setSlotEditorOpen}>
+  1272→        <DialogContent className="max-w-md">
+  1273→          <DialogHeader>
+  1274→            <DialogTitle>{editingSlot ? 'Editar Slot' : 'Crear Nuevo Slot'}</DialogTitle>
+  1275→            <DialogDescription>Define una ubicación de equipo para los items.</DialogDescription>
+  1276→          </DialogHeader>
+  1277→          <div className="space-y-4">
+  1278→            {/* Name */}
+  1279→            <div className="space-y-2">
+  1280→              <Label>Nombre *</Label>
+  1281→              <Input
+  1282→                value={slotForm.name}
+  1283→                onChange={(e) => {
+  1284→                  const name = e.target.value;
+  1285→                  setSlotForm(prev => ({
+  1286→                    ...prev,
+  1287→                    name,
+  1288→                    // Auto-generate key from name unless user manually edited the key
+  1289→                    key: keyManuallyEditedRef.current ? prev.key : generateKeyFromName(name),
+  1290→                  }));
+  1291→                }}
+  1292→                placeholder="Ej: Cabeza, Mano Izquierda"
+  1293→              />
+  1294→            </div>
+  1295→            {/* Key */}
+  1296→            <div className="space-y-2">
+  1297→              <Label>Key *</Label>
+  1298→              <p className="text-xs text-muted-foreground">Se usará como {'{{key}}'} en los prompts</p>
+  1299→              <Input
+  1300→                value={slotForm.key}
+  1301→                onChange={(e) => {
+  1302→                  keyManuallyEditedRef.current = true;
+  1303→                  setSlotForm(prev => ({ ...prev, key: e.target.value }));
+  1304→                }}
+  1305→                placeholder="Ej: cabeza, mano_izquierda"
+  1306→                className="font-mono"
+  1307→              />
+  1308→            </div>
+  1309→            {/* Icon */}
+  1310→            <div className="space-y-2">
+  1311→              <Label>Icono</Label>
+  1312→              <div className="flex gap-2 items-center">
+  1313→                <Input
+  1314→                  value={slotForm.icon}
+  1315→                  onChange={(e) => setSlotForm(prev => ({ ...prev, icon: e.target.value }))}
+  1316→                  placeholder="🪖"
+  1317→                  className="w-16 text-center text-xl"
+  1318→                  maxLength={4}
+  1319→                />
+  1320→                <div className="flex flex-wrap gap-1">
+  1321→                  {SLOT_EMOJIS.map(emoji => (
+  1322→                    <button
+  1323→                      key={emoji}
+  1324→                      type="button"
+  1325→                      className={cn(
+  1326→                        'w-7 h-7 rounded-md border text-sm flex items-center justify-center transition-colors',
+  1327→                        slotForm.icon === emoji
+  1328→                          ? 'border-primary bg-primary/10'
+  1329→                          : 'border-border hover:bg-muted/50'
+  1330→                      )}
+  1331→                      onClick={() => setSlotForm(prev => ({ ...prev, icon: emoji }))}
+  1332→                    >
+  1333→                      {emoji}
+  1334→                    </button>
+  1335→                  ))}
+  1336→                </div>
+  1337→              </div>
+  1338→            </div>
+  1339→            {/* Description */}
+  1340→            <div className="space-y-2">
+  1341→              <Label>Descripción</Label>
+  1342→              <Input
+  1343→                value={slotForm.description}
+  1344→                onChange={(e) => setSlotForm(prev => ({ ...prev, description: e.target.value }))}
+  1345→                placeholder="Descripción opcional del slot"
+  1346→              />
+  1347→            </div>
+  1348→          </div>
+  1349→          <DialogFooter>
+  1350→            <Button variant="outline" onClick={() => setSlotEditorOpen(false)}>Cancelar</Button>
+  1351→            <Button onClick={handleSaveSlot}>Guardar</Button>
+  1352→          </DialogFooter>
+  1353→        </DialogContent>
+  1354→      </Dialog>
+  1355→
+  1356→      {/* Target Picker Dialog */}
+  1357→      <Dialog open={targetPickerOpen} onOpenChange={(open) => { if (!open) handleTargetPickerCancel(); }}>
+  1358→        <DialogContent className="max-w-sm">
+  1359→          <DialogHeader>
+  1360→            <DialogTitle className="flex items-center gap-2">
+  1361→              <Target className="w-5 h-5" />
+  1362→              Seleccionar Objetivo
+  1363→            </DialogTitle>
+  1364→            <DialogDescription>
+  1365→              {targetPickerAction === 'equip'
+  1366→                ? 'Elige quién recibe los efectos al equipar este item'
+  1367→                : 'Elige quién recibe los efectos al usar este consumible'}
+  1368→            </DialogDescription>
+  1369→          </DialogHeader>
+  1370→
+  1371→          <div className="space-y-2 py-2">
+  1372→            {targetOptions.map(opt => (
+  1373→              <button
+  1374→                key={opt.value}
+  1375→                type="button"
+  1376→                className={cn(
+  1377→                  'w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-colors',
+  1378→                  selectedTargetId === opt.value
+  1379→                    ? 'border-primary bg-primary/10 text-primary'
+  1380→                    : 'border-border hover:bg-muted/50'
+  1381→                )}
+  1382→                onClick={() => setSelectedTargetId(opt.value)}
+  1383→              >
+  1384→                <span className="text-lg shrink-0">{opt.icon}</span>
+  1385→                <span className="font-medium text-sm">{opt.label}</span>
+  1386→                {selectedTargetId === opt.value && (
+  1387→                  <Badge variant="default" className="ml-auto text-[10px]">
+  1388→                    Seleccionado
+  1389→                  </Badge>
+  1390→                )}
+  1391→              </button>
+  1392→            ))}
+  1393→
+  1394→            {targetOptions.length === 1 && (
+  1395→              <p className="text-xs text-muted-foreground text-center py-2">
+  1396→                No hay personajes en la sesión actual. Los efectos se aplicarán a la persona.
+  1397→              </p>
+  1398→            )}
+  1399→          </div>
+  1400→
+  1401→          <div className="flex justify-end gap-2 pt-2 border-t">
+  1402→            <Button variant="outline" onClick={handleTargetPickerCancel}>
+  1403→              Cancelar
+  1404→            </Button>
+  1405→            <Button onClick={handleTargetPickerConfirm}>
+  1406→              {targetPickerAction === 'equip' ? 'Equipar' : 'Usar'}
+  1407→            </Button>
+  1408→          </div>
+  1409→        </DialogContent>
+  1410→      </Dialog>
+  1411→
+  1412→      {/* Slot Picker Dialog - shown when equipping an item with multiple slot effects */}
+  1413→      <Dialog open={slotPickerOpen} onOpenChange={setSlotPickerOpen}>
+  1414→        <DialogContent className="max-w-md">
+  1415→          <DialogHeader>
+  1416→            <DialogTitle>Seleccionar Slot</DialogTitle>
+  1417→            <DialogDescription>
+  1418→              Este item tiene efectos para distintos slots. ¿En qué slot deseas equiparlo?
+  1419→            </DialogDescription>
+  1420→          </DialogHeader>
+  1421→          {(() => {
+  1422→            const item = items.find(i => i.id === slotPickerItemId);
+  1423→            if (!item) return null;
+  1424→            return (
+  1425→              <div className="space-y-2">
+  1426→                {item.slotEffects?.map((slotEffect, idx) => {
+  1427→                  const slotDef = equipmentSlots.find(s => s.id === slotEffect.slotId);
+  1428→                  if (!slotDef) return null;
+  1429→                  const isOccupied = sessionEquipment.some(se => se.equippedSlotId === slotDef.id && se.itemId !== slotPickerItemId);
+  1430→                  return (
+  1431→                    <button
+  1432→                      key={slotEffect.slotId}
+  1433→                      className="w-full rounded-lg border p-3 text-left hover:bg-accent transition-colors"
+  1434→                      onClick={() => {
+  1435→                        if (personaId) {
+  1436→                          equipItemToSlot(personaId, slotPickerItemId, slotDef.id);
+  1437→                        }
+  1438→                        setSlotPickerOpen(false);
+  1439→                        setSlotPickerItemId('');
+  1440→                      }}
+  1441→                    >
+  1442→                      <div className="flex items-center gap-2">
+  1443→                        <span className="text-base">{slotDef.icon || '📦'}</span>
+  1444→                        <span className="font-medium text-sm">{slotDef.name}</span>
+  1445→                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-mono">
+  1446→                          {`{{${slotDef.key}}}`}
+  1447→                        </Badge>
+  1448→                        {isOccupied && (
+  1449→                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+  1450→                            Ocupado
+  1451→                          </Badge>
+  1452→                        )}
+  1453→                      </div>
+  1454→                      {slotEffect.effectText && (
+  1455→                        <p className="text-xs text-muted-foreground mt-1 pl-7">
+  1456→                          {slotEffect.effectText}
+  1457→                        </p>
+  1458→                      )}
+  1459→                    </button>
+  1460→                  );
+  1461→                })}
+  1462→              </div>
+  1463→            );
+  1464→          })()}
+  1465→          <div className="flex justify-end pt-2 border-t">
+  1466→            <Button variant="outline" onClick={() => { setSlotPickerOpen(false); setSlotPickerItemId(''); }}>
+  1467→              Cancelar
+  1468→            </Button>
+  1469→          </div>
+  1470→        </DialogContent>
+  1471→      </Dialog>
+  1472→    </div>
+  1473→  );
+  1474→}
+  1475→
+  1476→export default InventoryPanel;
+  1477→

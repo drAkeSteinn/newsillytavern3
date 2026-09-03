@@ -1111,7 +1111,7 @@ export async function POST(request: NextRequest) {
             // Build character memory section for this responder (from Zustand store)
             const responderMemory = characterMemoryMap[responder.id];
             const characterMemorySection = responderMemory
-              ? buildMemorySection(responderMemory, responder.name || 'Character')
+              ? buildMemorySection(responderMemory, responder.name || 'Character', embeddingsChat?.memoryMaxEventsInPrompt, effectiveUserName)
               : null;
 
             // Build combined embeddings context: [CONTEXTO RELEVANTE] then [MEMORIA RELEVANTE]

@@ -1,0 +1,613 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→import { useTavernStore } from '@/store/tavern-store';
+     4→     4→import { Button } from '@/components/ui/button';
+     5→     5→import { Input } from '@/components/ui/input';
+     6→     6→import { Label } from '@/components/ui/label';
+     7→     7→import { Textarea } from '@/components/ui/textarea';
+     8→     8→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+     9→     9→import { Badge } from '@/components/ui/badge';
+    10→    10→import {
+    11→    11→  Dialog,
+    12→    12→  DialogContent,
+    13→    13→  DialogHeader,
+    14→    14→  DialogTitle,
+    15→    15→  DialogTrigger,
+    16→    16→} from '@/components/ui/dialog';
+    17→    17→import {
+    18→    18→  Heart,
+    19→    19→  Brain,
+    20→    20→  Plus,
+    21→    21→  Trash2,
+    22→    22→  Edit3,
+    23→    23→  Calendar,
+    24→    24→  User,
+    25→    25→  MapPin,
+    26→    26→  Package,
+    27→    27→  Sparkles,
+    28→    28→  TrendingUp
+    29→    29→} from 'lucide-react';
+    30→    30→import { useState, useCallback } from 'react';
+    31→    31→import { cn } from '@/lib/utils';
+    32→    32→import type { MemoryEvent, RelationshipMemory } from '@/types';
+    33→    33→import { useToast } from '@/hooks/use-toast';
+    34→    34→
+    35→    35→// Extract the event type from MemoryEvent
+    36→    36→type MemoryEventType = MemoryEvent['type'];
+    37→    37→
+    38→    38→interface CharacterMemoryEditorProps {
+    39→    39→  characterId: string;
+    40→    40→  characterName: string;
+    41→    41→  className?: string;
+    42→    42→}
+    43→    43→
+    44→    44→// Event type configurations
+    45→    45→const EVENT_TYPES: { type: MemoryEventType; label: string; icon: React.ReactNode; color: string }[] = [
+    46→    46→  { type: 'fact', label: 'Hecho', icon: <Brain className="w-3 h-3" />, color: 'bg-blue-500' },
+    47→    47→  { type: 'relationship', label: 'Relación', icon: <Heart className="w-3 h-3" />, color: 'bg-pink-500' },
+    48→    48→  { type: 'event', label: 'Evento', icon: <Sparkles className="w-3 h-3" />, color: 'bg-purple-500' },
+    49→    49→  { type: 'emotion', label: 'Emoción', icon: <Heart className="w-3 h-3" />, color: 'bg-red-500' },
+    50→    50→  { type: 'location', label: 'Ubicación', icon: <MapPin className="w-3 h-3" />, color: 'bg-green-500' },
+    51→    51→  { type: 'item', label: 'Objeto', icon: <Package className="w-3 h-3" />, color: 'bg-amber-500' },
+    52→    52→  { type: 'state_change', label: 'Cambio', icon: <TrendingUp className="w-3 h-3" />, color: 'bg-cyan-500' },
+    53→    53→];
+    54→    54→
+    55→    55→export function CharacterMemoryEditor({ 
+    56→    56→  characterId, 
+    57→    57→  characterName,
+    58→    58→  className 
+    59→    59→}: CharacterMemoryEditorProps) {
+    60→    60→  const { 
+    61→    61→    getCharacterMemory, 
+    62→    62→    addMemoryEvent, 
+    63→    63→    removeMemoryEvent,
+    64→    64→    updateMemoryEvent,
+    65→    65→    updateRelationship,
+    66→    66→    removeRelationship,
+    67→    67→    setCharacterNotes,
+    68→    68→    activeSessionId,
+    69→    69→  } = useTavernStore();
+    70→    70→  const { toast } = useToast();
+    71→    71→  
+    72→    72→  const memory = getCharacterMemory(characterId);
+    73→    73→  const [addEventOpen, setAddEventOpen] = useState(false);
+    74→    74→  const [addRelationOpen, setAddRelationOpen] = useState(false);
+    75→    75→  const [isSyncing, setIsSyncing] = useState(false);
+    76→    76→  const [newEvent, setNewEvent] = useState<Partial<MemoryEvent>>({
+    77→    77→    type: 'fact',
+    78→    78→    content: '',
+    79→    79→    importance: 3  // 1-5 scale (3 = moderate)
+    80→    80→  });
+    81→    81→  const [newEventSubject, setNewEventSubject] = useState<'usuario' | 'personaje' | 'otro'>('personaje');
+    82→    82→  const [newRelation, setNewRelation] = useState<Partial<RelationshipMemory>>({
+    83→    83→    targetId: '',
+    84→    84→    targetName: '',
+    85→    85→    relationship: '',
+    86→    86→    sentiment: 0,
+    87→    87→    notes: ''
+    88→    88→  });
+    89→    89→
+    90→    90→  // Map UI event types to embedding memory types
+    91→    91→  const mapEventType = (uiType: MemoryEventType): string => {
+    92→    92→    const map: Record<string, string> = {
+    93→    93→      fact: 'hecho', relationship: 'relacion', event: 'evento',
+    94→    94→      emotion: 'otro', location: 'hecho', item: 'hecho', state_change: 'evento',
+    95→    95→    };
+    96→    96→    return map[uiType] || 'hecho';
+    97→    97→  };
+    98→    98→
+    99→    99→  // Map embedding memory types back to UI event types
+   100→   100→  const mapEmbeddingType = (embType: string): MemoryEventType => {
+   101→   101→    const map: Record<string, MemoryEventType> = {
+   102→   102→      hecho: 'fact', relacion: 'relationship', evento: 'event',
+   103→   103→      preferencia: 'fact', secreto: 'fact', otro: 'emotion',
+   104→   104→    };
+   105→   105→    return map[embType] || 'fact';
+   106→   106→  };
+   107→   107→
+   108→   108→  // Sync memories from LanceDB into Character Memory
+   109→   109→  const handleSyncFromLanceDB = useCallback(async () => {
+   110→   110→    setIsSyncing(true);
+   111→   111→    try {
+   112→   112→      const sessionId = activeSessionId || '';
+   113→   113→      const namespace = sessionId 
+   114→   114→        ? `memory-character-${characterId}-${sessionId}` 
+   115→   115→        : `character-${characterId}`;
+   116→   116→
+   117→   117→      const res = await fetch(`/api/embeddings/namespaces/${encodeURIComponent(namespace)}?limit=200`);
+   118→   118→      if (!res.ok) {
+   119→   119→        toast({ title: 'Sin memorias en LanceDB', description: 'No se encontraron embeddings para sincronizar', variant: 'default' });
+   120→   120→        return;
+   121→   121→      }
+   122→   122→      const data = await res.json();
+   123→   123→      const embeddings: Array<{ id: string; content: string; metadata: Record<string, any>; source_type?: string }> = data.data?.embeddings || data.embeddings || [];
+   124→   124→
+   125→   125→      // Filter to only memory-type embeddings
+   126→   126→      const memoryEmbeddings = embeddings.filter(e => e.source_type === 'memory');
+   127→   127→      if (memoryEmbeddings.length === 0) {
+   128→   128→        toast({ title: 'Sin memorias', description: 'No hay memorias tipo "memory" en LanceDB para sincronizar' });
+   129→   129→        return;
+   130→   130→      }
+   131→   131→
+   132→   132→      // Get existing event embeddingIds to avoid duplicates
+   133→   133→      const existingEmbeddingIds = new Set(
+   134→   134→        (memory?.events || []).map(e => e.embeddingId).filter(Boolean)
+   135→   135→      );
+   136→   136→
+   137→   137→      let synced = 0;
+   138→   138→      for (const emb of memoryEmbeddings) {
+   139→   139→        // Skip if already in Character Memory (by embeddingId)
+   140→   140→        if (existingEmbeddingIds.has(emb.id)) continue;
+   141→   141→
+   142→   142→        const eventId = `synced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+   143→   143→        addMemoryEvent(characterId, {
+   144→   144→          id: eventId,
+   145→   145→          type: mapEmbeddingType(emb.metadata?.memory_type || 'hecho'),
+   146→   146→          content: emb.content,
+   147→   147→          importance: emb.metadata?.importance || 3,
+   148→   148→          timestamp: emb.metadata?.extracted_at || new Date().toISOString(),
+   149→   149→          embeddingId: emb.id,
+   150→   150→          sessionId: emb.metadata?.session_id || sessionId,
+   151→   151→        });
+   152→   152→        synced++;
+   153→   153→      }
+   154→   154→
+   155→   155→      if (synced > 0) {
+   156→   156→        toast({ title: `🧠 ${synced} memorias sincronizadas`, description: `Se importaron ${synced} memorias desde LanceDB a la memoria local` });
+   157→   157→      } else {
+   158→   158→        toast({ title: 'Memorias actualizadas', description: 'Todas las memorias de LanceDB ya estaban sincronizadas' });
+   159→   159→      }
+   160→   160→    } catch (err) {
+   161→   161→      console.warn('[CharacterMemory] Sync from LanceDB failed:', err);
+   162→   162→      toast({ title: 'Error de sincronización', description: 'No se pudieron importar las memorias desde LanceDB', variant: 'destructive' });
+   163→   163→    } finally {
+   164→   164→      setIsSyncing(false);
+   165→   165→    }
+   166→   166→  }, [characterId, activeSessionId, memory?.events, addMemoryEvent, toast]);
+   167→   167→
+   168→   168→  const handleAddEvent = useCallback(async () => {
+   169→   169→    if (!newEvent.content?.trim()) return;
+   170→   170→    
+   171→   171→    const eventId = `event-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+   172→   172→    const eventData: MemoryEvent = {
+   173→   173→      id: eventId,
+   174→   174→      type: newEvent.type || 'fact',
+   175→   175→      content: newEvent.content,
+   176→   176→      timestamp: new Date().toISOString(),
+   177→   177→      importance: newEvent.importance || 3
+   178→   178→    };
+   179→   179→
+   180→   180→    // Save to Zustand immediately
+   181→   181→    addMemoryEvent(characterId, eventData);
+   182→   182→
+   183→   183→    // Also create as embedding in LanceDB (async, non-blocking)
+   184→   184→    fetch('/api/embeddings/manual-memory', {
+   185→   185→      method: 'POST',
+   186→   186→      headers: { 'Content-Type': 'application/json' },
+   187→   187→      body: JSON.stringify({
+   188→   188→        content: newEvent.content,
+   189→   189→        characterId,
+   190→   190→        characterName,
+   191→   191→        memoryType: mapEventType(newEvent.type || 'fact'),
+   192→   192→        importance: newEvent.importance || 3, // Already on 1-5 scale
+   193→   193→        memorySubject: newEventSubject,
+   194→   194→        sessionId: activeSessionId || undefined,
+   195→   195→      }),
+   196→   196→    }).then(res => res.json()).then(result => {
+   197→   197→      if (result.success) {
+   198→   198→        // Store embedding ID on the event for future deletion
+   199→   199→        updateMemoryEvent(characterId, eventData.id, { embeddingId: result.data.id } as Partial<MemoryEvent>);
+   200→   200→      }
+   201→   201→    }).catch(err => {
+   202→   202→      console.warn('[CharacterMemory] Failed to create embedding (memory saved locally):', err);
+   203→   203→    });
+   204→   204→
+   205→   205→    setNewEvent({ type: 'fact', content: '', importance: 3 });
+   206→   206→    setNewEventSubject('personaje');
+   207→   207→    setAddEventOpen(false);
+   208→   208→  }, [characterId, newEvent, addMemoryEvent, updateMemoryEvent, characterName, newEventSubject]);
+   209→   209→
+   210→   210→  const handleAddRelation = useCallback(() => {
+   211→   211→    if (!newRelation.targetName?.trim() || !newRelation.relationship?.trim()) return;
+   212→   212→    
+   213→   213→    const targetId = newRelation.targetId || `target-${Date.now()}`;
+   214→   214→    
+   215→   215→    updateRelationship(characterId, {
+   216→   216→      targetId,
+   217→   217→      targetName: newRelation.targetName,
+   218→   218→      relationship: newRelation.relationship,
+   219→   219→      sentiment: newRelation.sentiment || 0,
+   220→   220→      notes: newRelation.notes || '',
+   221→   221→      lastUpdated: new Date().toISOString()
+   222→   222→    });
+   223→   223→
+   224→   224→    // Also create as embedding in LanceDB (async, non-blocking)
+   225→   225→    const sentimentChange = (newRelation.sentiment || 0) > 0 ? `+${newRelation.sentiment || 0}` : `${newRelation.sentiment || 0}`;
+   226→   226→    const relationshipContent = newRelation.notes
+   227→   227→      ? `Relación con ${newRelation.targetName}: ${newRelation.notes} (sentimiento: ${sentimentChange})`
+   228→   228→      : `Relación con ${newRelation.targetName}: ${newRelation.relationship} (sentimiento: ${sentimentChange})`;
+   229→   229→
+   230→   230→    fetch('/api/embeddings/manual-memory', {
+   231→   231→      method: 'POST',
+   232→   232→      headers: { 'Content-Type': 'application/json' },
+   233→   233→      body: JSON.stringify({
+   234→   234→        content: relationshipContent,
+   235→   235→        characterId,
+   236→   236→        characterName,
+   237→   237→        memoryType: 'relacion',
+   238→   238→        importance: Math.abs(newRelation.sentiment || 0) > 50 ? 4 : 3,
+   239→   239→        memorySubject: 'otro',
+   240→   240→      }),
+   241→   241→    }).catch(err => {
+   242→   242→      console.warn('[CharacterMemory] Failed to create relationship embedding (saved locally):', err);
+   243→   243→    });
+   244→   244→    
+   245→   245→    setNewRelation({ targetId: '', targetName: '', relationship: '', sentiment: 0, notes: '' });
+   246→   246→    setAddRelationOpen(false);
+   247→   247→  }, [characterId, newRelation, updateRelationship, characterName]);
+   248→   248→
+   249→   249→  const formatDate = (dateString: string) => {
+   250→   250→    const date = new Date(dateString);
+   251→   251→    return date.toLocaleDateString('es-ES', {
+   252→   252→      day: '2-digit',
+   253→   253→      month: 'short',
+   254→   254→      year: 'numeric'
+   255→   255→    });
+   256→   256→  };
+   257→   257→
+   258→   258→  return (
+   259→   259→    <div className={cn("space-y-4", className)}>
+   260→   260→      {/* Memory Events */}
+   261→   261→      <Card>
+   262→   262→        <CardHeader className="pb-3">
+   263→   263→          <div className="flex items-center justify-between">
+   264→   264→            <div>
+   265→   265→              <CardTitle className="text-base flex items-center gap-2">
+   266→   266→                <Brain className="w-4 h-4 text-purple-500" />
+   267→   267→                Eventos Recordados
+   268→   268→              </CardTitle>
+   269→   269→              <CardDescription>
+   270→   270→                Momentos importantes de la conversación con {characterName}
+   271→   271→              </CardDescription>
+   272→   272→            </div>
+   273→   273→            <div className="flex items-center gap-2">
+   274→   274→              <Dialog open={addEventOpen} onOpenChange={setAddEventOpen}>
+   275→   275→                <DialogTrigger asChild>
+   276→   276→                  <Button size="sm" variant="outline">
+   277→   277→                    <Plus className="w-4 h-4 mr-1" />
+   278→   278→                    Agregar
+   279→   279→                  </Button>
+   280→   280→                </DialogTrigger>
+   281→   281→              <DialogContent>
+   282→   282→                <DialogHeader>
+   283→   283→                  <DialogTitle>Agregar Memoria</DialogTitle>
+   284→   284→                </DialogHeader>
+   285→   285→                <div className="space-y-4 pt-4">
+   286→   286→                  <div className="space-y-2">
+   287→   287→                    <Label>¿Sobre quién es esta memoria?</Label>
+   288→   288→                    <div className="flex flex-wrap gap-2">
+   289→   289→                      <Badge
+   290→   290→                        variant={newEventSubject === 'personaje' ? 'default' : 'outline'}
+   291→   291→                        className="cursor-pointer px-3 py-1.5"
+   292→   292→                        onClick={() => setNewEventSubject('personaje')}
+   293→   293→                      >
+   294→   294→                        <Sparkles className="w-3 h-3 mr-1" />
+   295→   295→                        {characterName}
+   296→   296→                      </Badge>
+   297→   297→                      <Badge
+   298→   298→                        variant={newEventSubject === 'usuario' ? 'default' : 'outline'}
+   299→   299→                        className="cursor-pointer px-3 py-1.5"
+   300→   300→                        onClick={() => setNewEventSubject('usuario')}
+   301→   301→                      >
+   302→   302→                        <User className="w-3 h-3 mr-1" />
+   303→   303→                        Usuario
+   304→   304→                      </Badge>
+   305→   305→                      <Badge
+   306→   306→                        variant={newEventSubject === 'otro' ? 'default' : 'outline'}
+   307→   307→                        className="cursor-pointer px-3 py-1.5"
+   308→   308→                        onClick={() => setNewEventSubject('otro')}
+   309→   309→                      >
+   310→   310→                        <Heart className="w-3 h-3 mr-1" />
+   311→   311→                        Otro
+   312→   312→                      </Badge>
+   313→   313→                    </div>
+   314→   314→                  </div>
+   315→   315→                  <div className="space-y-2">
+   316→   316→                    <Label>Tipo de evento</Label>
+   317→   317→                    <div className="flex flex-wrap gap-2">
+   318→   318→                      {EVENT_TYPES.map((et) => (
+   319→   319→                        <Badge
+   320→   320→                          key={et.type}
+   321→   321→                          variant={newEvent.type === et.type ? 'default' : 'outline'}
+   322→   322→                          className="cursor-pointer"
+   323→   323→                          onClick={() => setNewEvent(prev => ({ ...prev, type: et.type }))}
+   324→   324→                        >
+   325→   325→                          {et.icon}
+   326→   326→                          <span className="ml-1">{et.label}</span>
+   327→   327→                        </Badge>
+   328→   328→                      ))}
+   329→   329→                    </div>
+   330→   330→                  </div>
+   331→   331→                  <div className="space-y-2">
+   332→   332→                    <Label>Descripción</Label>
+   333→   333→                    <Textarea
+   334→   334→                      value={newEvent.content}
+   335→   335→                      onChange={(e) => setNewEvent(prev => ({ ...prev, content: e.target.value }))}
+   336→   336→                      placeholder="Describe el evento o hecho importante..."
+   337→   337→                      className="min-h-[100px]"
+   338→   338→                    />
+   339→   339→                  </div>
+   340→   340→                  <div className="space-y-2">
+   341→   341→                    <Label>Importancia: {'★'.repeat(newEvent.importance || 3)}{'☆'.repeat(5 - (newEvent.importance || 3))} ({newEvent.importance || 3}/5)</Label>
+   342→   342→                    <input
+   343→   343→                      type="range"
+   344→   344→                      min="1"
+   345→   345→                      max="5"
+   346→   346→                      step="1"
+   347→   347→                      value={newEvent.importance || 3}
+   348→   348→                      onChange={(e) => setNewEvent(prev => ({ ...prev, importance: parseFloat(e.target.value) }))}
+   349→   349→                      className="w-full"
+   350→   350→                    />
+   351→   351→                  </div>
+   352→   352→                  <Button onClick={handleAddEvent} className="w-full">
+   353→   353→                    Guardar Memoria
+   354→   354→                  </Button>
+   355→   355→                </div>
+   356→   356→              </DialogContent>
+   357→   357→            </Dialog>
+   358→   358→              <Button 
+   359→   359→                size="sm" 
+   360→   360→                variant="outline" 
+   361→   361→                onClick={handleSyncFromLanceDB}
+   362→   362→                disabled={isSyncing}
+   363→   363→                title="Importar memorias desde LanceDB"
+   364→   364→              >
+   365→   365→                <Sparkles className="w-4 h-4 mr-1" />
+   366→   366→                {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
+   367→   367→              </Button>
+   368→   368→            </div>
+   369→   369→          </div>
+   370→   370→        </CardHeader>
+   371→   371→        <CardContent>
+   372→   372→          {memory?.events && memory.events.length > 0 ? (
+   373→   373→            <div className="space-y-2">
+   374→   374→              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+   375→   375→                <span>{memory.events.length} evento{memory.events.length !== 1 ? 's' : ''} en memoria</span>
+   376→   376→                <span className="opacity-60">Desplázate para ver todo ↓</span>
+   377→   377→              </div>
+   378→   378→              <div className="max-h-80 overflow-y-auto scrollbar-thin pr-2 space-y-2">
+   379→   379→                {memory.events.map((event) => {
+   380→   380→                  const typeConfig = EVENT_TYPES.find(t => t.type === event.type);
+   381→   381→                  return (
+   382→   382→                    <div 
+   383→   383→                      key={event.id}
+   384→   384→                      className="p-3 rounded-lg border bg-muted/30 group"
+   385→   385→                    >
+   386→   386→                      <div className="flex items-start justify-between gap-2">
+   387→   387→                        <div className="flex items-start gap-2 flex-1">
+   388→   388→                          <div className={cn(
+   389→   389→                            "p-1.5 rounded mt-0.5 shrink-0",
+   390→   390→                            typeConfig?.color || 'bg-gray-500'
+   391→   391→                          )}>
+   392→   392→                            {typeConfig?.icon}
+   393→   393→                          </div>
+   394→   394→                          <div className="flex-1 min-w-0">
+   395→   395→                            <p className="text-sm break-words">{event.content}</p>
+   396→   396→                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+   397→   397→                              <Calendar className="w-3 h-3 shrink-0" />
+   398→   398→                              {formatDate(event.timestamp)}
+   399→   399→                            </p>
+   400→   400→                          </div>
+   401→   401→                        </div>
+   402→   402→                        <Button
+   403→   403→                          variant="ghost"
+   404→   404→                          size="icon"
+   405→   405→                          className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
+   406→   406→                          onClick={() => {
+   407→   407→                            // Remove from Zustand store
+   408→   408→                            removeMemoryEvent(characterId, event.id);
+   409→   409→                            // Also delete corresponding LanceDB embedding if it exists
+   410→   410→                            const embeddingId = event.embeddingId;
+   411→   411→                            if (embeddingId) {
+   412→   412→                              fetch(`/api/embeddings/${encodeURIComponent(embeddingId)}`, {
+   413→   413→                                method: 'DELETE',
+   414→   414→                              }).catch(err => {
+   415→   415→                                console.warn('[CharacterMemory] Failed to delete embedding:', err);
+   416→   416→                              });
+   417→   417→                            }
+   418→   418→                          }}
+   419→   419→                        >
+   420→   420→                          <Trash2 className="w-3 h-3" />
+   421→   421→                        </Button>
+   422→   422→                      </div>
+   423→   423→                    </div>
+   424→   424→                  );
+   425→   425→                })}
+   426→   426→              </div>
+   427→   427→            </div>
+   428→   428→          ) : (
+   429→   429→            <div className="text-center py-6 text-muted-foreground text-sm">
+   430→   430→              <Brain className="w-8 h-8 mx-auto mb-2 opacity-50" />
+   431→   431→              Sin eventos recordados
+   432→   432→            </div>
+   433→   433→          )}
+   434→   434→        </CardContent>
+   435→   435→      </Card>
+   436→   436→
+   437→   437→      {/* Relationships */}
+   438→   438→      <Card>
+   439→   439→        <CardHeader className="pb-3">
+   440→   440→          <div className="flex items-center justify-between">
+   441→   441→            <div>
+   442→   442→              <CardTitle className="text-base flex items-center gap-2">
+   443→   443→                <Heart className="w-4 h-4 text-pink-500" />
+   444→   444→                Relaciones
+   445→   445→              </CardTitle>
+   446→   446→              <CardDescription>
+   447→   447→                Cómo {characterName} se relaciona con otros
+   448→   448→              </CardDescription>
+   449→   449→            </div>
+   450→   450→            <Dialog open={addRelationOpen} onOpenChange={setAddRelationOpen}>
+   451→   451→              <DialogTrigger asChild>
+   452→   452→                <Button size="sm" variant="outline">
+   453→   453→                  <Plus className="w-4 h-4 mr-1" />
+   454→   454→                  Agregar
+   455→   455→                </Button>
+   456→   456→              </DialogTrigger>
+   457→   457→              <DialogContent>
+   458→   458→                <DialogHeader>
+   459→   459→                  <DialogTitle>Agregar Relación</DialogTitle>
+   460→   460→                </DialogHeader>
+   461→   461→                <div className="space-y-4 pt-4">
+   462→   462→                  <div className="space-y-2">
+   463→   463→                    <Label>Nombre del objetivo</Label>
+   464→   464→                    <Input
+   465→   465→                      value={newRelation.targetName}
+   466→   466→                      onChange={(e) => setNewRelation(prev => ({ ...prev, targetName: e.target.value }))}
+   467→   467→                      placeholder="Nombre del personaje o usuario"
+   468→   468→                    />
+   469→   469→                  </div>
+   470→   470→                  <div className="space-y-2">
+   471→   471→                    <Label>Tipo de relación</Label>
+   472→   472→                    <Input
+   473→   473→                      value={newRelation.relationship}
+   474→   474→                      onChange={(e) => setNewRelation(prev => ({ ...prev, relationship: e.target.value }))}
+   475→   475→                      placeholder="ej: amigo cercano, rival, amor..."
+   476→   476→                    />
+   477→   477→                  </div>
+   478→   478→                  <div className="space-y-2">
+   479→   479→                    <Label>Sentimiento: {newRelation.sentiment}</Label>
+   480→   480→                    <input
+   481→   481→                      type="range"
+   482→   482→                      min="-100"
+   483→   483→                      max="100"
+   484→   484→                      step="10"
+   485→   485→                      value={newRelation.sentiment}
+   486→   486→                      onChange={(e) => setNewRelation(prev => ({ ...prev, sentiment: parseInt(e.target.value) }))}
+   487→   487→                      className="w-full"
+   488→   488→                    />
+   489→   489→                    <div className="flex justify-between text-xs text-muted-foreground">
+   490→   490→                      <span>Hostil</span>
+   491→   491→                      <span>Neutral</span>
+   492→   492→                      <span>Positivo</span>
+   493→   493→                    </div>
+   494→   494→                  </div>
+   495→   495→                  <div className="space-y-2">
+   496→   496→                    <Label>Notas</Label>
+   497→   497→                    <Textarea
+   498→   498→                      value={newRelation.notes}
+   499→   499→                      onChange={(e) => setNewRelation(prev => ({ ...prev, notes: e.target.value }))}
+   500→   500→                      placeholder="Detalles adicionales sobre esta relación..."
+   501→   501→                      className="min-h-[80px]"
+   502→   502→                    />
+   503→   503→                  </div>
+   504→   504→                  <Button onClick={handleAddRelation} className="w-full">
+   505→   505→                    Guardar Relación
+   506→   506→                  </Button>
+   507→   507→                </div>
+   508→   508→              </DialogContent>
+   509→   509→            </Dialog>
+   510→   510→          </div>
+   511→   511→        </CardHeader>
+   512→   512→        <CardContent>
+   513→   513→          {memory?.relationships && memory.relationships.length > 0 ? (
+   514→   514→            <div className="space-y-2">
+   515→   515→              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+   516→   516→                <span>{memory.relationships.length} {memory.relationships.length !== 1 ? 'relaciones' : 'relación'}</span>
+   517→   517→              </div>
+   518→   518→              <div className="max-h-64 overflow-y-auto scrollbar-thin pr-2 space-y-2">
+   519→   519→                {memory.relationships.map((rel) => (
+   520→   520→                <div 
+   521→   521→                  key={rel.targetId}
+   522→   522→                  className="p-3 rounded-lg border bg-muted/30 group"
+   523→   523→                >
+   524→   524→                  <div className="flex items-start justify-between gap-2">
+   525→   525→                    <div className="flex items-start gap-3">
+   526→   526→                      <div className={cn(
+   527→   527→                        "w-10 h-10 rounded-full flex items-center justify-center",
+   528→   528→                        rel.sentiment > 30 ? "bg-green-500/20 text-green-600" :
+   529→   529→                        rel.sentiment < -30 ? "bg-red-500/20 text-red-600" :
+   530→   530→                        "bg-gray-500/20 text-gray-600"
+   531→   531→                      )}>
+   532→   532→                        <User className="w-5 h-5" />
+   533→   533→                      </div>
+   534→   534→                      <div>
+   535→   535→                        <div className="flex items-center gap-2">
+   536→   536→                          <span className="font-medium text-sm">{rel.targetName}</span>
+   537→   537→                          <Badge variant="secondary" className="text-xs">
+   538→   538→                            {rel.relationship}
+   539→   539→                          </Badge>
+   540→   540→                        </div>
+   541→   541→                        <p className="text-xs text-muted-foreground mt-1">{rel.notes}</p>
+   542→   542→                        <div className="flex items-center gap-2 mt-2">
+   543→   543→                          <span className="text-xs text-muted-foreground">Sentimiento:</span>
+   544→   544→                          <div className="flex-1 h-1.5 bg-muted rounded-full max-w-[100px]">
+   545→   545→                            <div 
+   546→   546→                              className={cn(
+   547→   547→                                "h-full rounded-full",
+   548→   548→                                rel.sentiment > 30 ? "bg-green-500" :
+   549→   549→                                rel.sentiment < -30 ? "bg-red-500" :
+   550→   550→                                "bg-gray-400"
+   551→   551→                              )}
+   552→   552→                              style={{ width: `${Math.abs(rel.sentiment) / 2}%`, marginLeft: rel.sentiment < 0 ? 'auto' : 0 }}
+   553→   553→                            />
+   554→   554→                          </div>
+   555→   555→                          <span className="text-xs font-mono">{rel.sentiment}</span>
+   556→   556→                        </div>
+   557→   557→                      </div>
+   558→   558→                    </div>
+   559→   559→                    <Button
+   560→   560→                      variant="ghost"
+   561→   561→                      size="icon"
+   562→   562→                      className="h-6 w-6 opacity-0 group-hover:opacity-100"
+   563→   563→                      onClick={() => {
+   564→   564→                        removeRelationship(characterId, rel.targetId);
+   565→   565→                        // Try to find and delete corresponding LanceDB embedding
+   566→   566→                        // Search for relationship embeddings about this target
+   567→   567→                        fetch(`/api/embeddings/manual-memory?searchTarget=${encodeURIComponent(rel.targetName)}`, {
+   568→   568→                          method: 'DELETE',
+   569→   569→                        }).catch(err => {
+   570→   570→                          console.warn('[CharacterMemory] Failed to delete relationship embedding:', err);
+   571→   571→                        });
+   572→   572→                      }}
+   573→   573→                    >
+   574→   574→                      <Trash2 className="w-3 h-3" />
+   575→   575→                    </Button>
+   576→   576→                  </div>
+   577→   577→                </div>
+   578→   578→              ))}
+   579→   579→              </div>
+   580→   580→            </div>
+   581→   581→          ) : (
+   582→   582→            <div className="text-center py-6 text-muted-foreground text-sm">
+   583→   583→              <Heart className="w-8 h-8 mx-auto mb-2 opacity-50" />
+   584→   584→              Sin relaciones registradas
+   585→   585→            </div>
+   586→   586→          )}
+   587→   587→        </CardContent>
+   588→   588→      </Card>
+   589→   589→
+   590→   590→      {/* Notes */}
+   591→   591→      <Card>
+   592→   592→        <CardHeader className="pb-3">
+   593→   593→          <CardTitle className="text-base flex items-center gap-2">
+   594→   594→            <Edit3 className="w-4 h-4 text-amber-500" />
+   595→   595→            Notas del Personaje
+   596→   596→          </CardTitle>
+   597→   597→          <CardDescription>
+   598→   598→            Notas personales sobre {characterName}
+   599→   599→          </CardDescription>
+   600→   600→        </CardHeader>
+   601→   601→        <CardContent>
+   602→   602→          <Textarea
+   603→   603→            value={memory?.notes || ''}
+   604→   604→            onChange={(e) => setCharacterNotes(characterId, e.target.value)}
+   605→   605→            placeholder="Escribe notas sobre este personaje..."
+   606→   606→            className="min-h-[100px]"
+   607→   607→          />
+   608→   608→        </CardContent>
+   609→   609→      </Card>
+   610→   610→    </div>
+   611→   611→  );
+   612→   612→}
+   613→   613→

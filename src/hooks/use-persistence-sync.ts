@@ -253,6 +253,35 @@ export function usePersistenceSync() {
           updates.collections = data.collections;
         }
 
+        // MIGRATION (global slots → persona slots): the Slots section was removed
+        // from the Inventory UI. Slots are now managed exclusively in Persona and
+        // Character configuration. Move any legacy global equipmentSlots to the
+        // active persona (non-destructive) and clear the global field.
+        const legacyInvSettings = updates.inventorySettings as
+          | { equipmentSlots?: Array<Record<string, unknown>> }
+          | undefined;
+        const legacyGlobalSlots = legacyInvSettings?.equipmentSlots;
+        if (Array.isArray(legacyGlobalSlots) && legacyGlobalSlots.length > 0) {
+          const personasList = (updates.personas as Array<Record<string, any>> | undefined)
+            ?? useTavernStore.getState().personas as unknown as Array<Record<string, any>>;
+          const activePid = (updates.activePersonaId as string | undefined)
+            ?? useTavernStore.getState().activePersonaId;
+          const targetIdx = personasList.findIndex(p => p.id === activePid);
+          if (targetIdx !== -1) {
+            const target = personasList[targetIdx];
+            if (!target.equipmentSlots || target.equipmentSlots.length === 0) {
+              updates.personas = personasList.map(p =>
+                p.id === activePid ? { ...p, equipmentSlots: legacyGlobalSlots } : p
+              );
+              console.log('[Persistence] Migrated', legacyGlobalSlots.length, 'global equipment slots to active persona');
+            } else {
+              console.log('[Persistence] Persona already has equipment slots; discarding legacy global slots');
+            }
+            // Clear the global field either way — persona slots take precedence
+            updates.inventorySettings = { ...legacyInvSettings, equipmentSlots: [] };
+          }
+        }
+
         // Apply updates to store
         if (Object.keys(updates).length > 0) {
           useTavernStore.setState(updates);

@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -32,6 +31,7 @@ import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import type { MemoryEvent, RelationshipMemory } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+import { personalizeMemoryContent } from '@/lib/memory/personalize';
 
 // Extract the event type from MemoryEvent
 type MemoryEventType = MemoryEvent['type'];
@@ -69,6 +69,13 @@ export function CharacterMemoryEditor({
     activeSessionId,
   } = useTavernStore();
   const { toast } = useToast();
+  
+  // Persona name for {{user}} personalization of memory contents
+  const personaName = useTavernStore((s) => {
+    const persona = (s.personas || []).find((p: any) => p.id === s.activePersonaId);
+    return persona?.name || '';
+  });
+  const personalize = useCallback((text: string) => personalizeMemoryContent(text, personaName), [personaName]);
   
   const memory = getCharacterMemory(characterId);
   const [addEventOpen, setAddEventOpen] = useState(false);
@@ -116,12 +123,18 @@ export function CharacterMemoryEditor({
         : `character-${characterId}`;
 
       const res = await fetch(`/api/embeddings/namespaces/${encodeURIComponent(namespace)}?limit=200`);
-      if (!res.ok) {
+      const crossNs = `memory-character-${characterId}`;
+      const crossRes = await fetch(`/api/embeddings/namespaces/${encodeURIComponent(crossNs)}?limit=200`).catch(() => null);
+      if (!res.ok && !(crossRes && crossRes.ok)) {
         toast({ title: 'Sin memorias en LanceDB', description: 'No se encontraron embeddings para sincronizar', variant: 'default' });
         return;
       }
-      const data = await res.json();
-      const embeddings: Array<{ id: string; content: string; metadata: Record<string, any>; source_type?: string }> = data.data?.embeddings || data.embeddings || [];
+      const data = res.ok ? await res.json() : { data: {} };
+      const crossData = crossRes && crossRes.ok ? await crossRes.json() : { data: {} };
+      const embeddings: Array<{ id: string; content: string; metadata: Record<string, any>; source_type?: string }> = [
+        ...((data.data?.embeddings || data.embeddings || [])),
+        ...((crossData.data?.embeddings || crossData.embeddings || [])),
+      ];
 
       // Filter to only memory-type embeddings
       const memoryEmbeddings = embeddings.filter(e => e.source_type === 'memory');
@@ -144,7 +157,8 @@ export function CharacterMemoryEditor({
         addMemoryEvent(characterId, {
           id: eventId,
           type: mapEmbeddingType(emb.metadata?.memory_type || 'hecho'),
-          content: emb.content,
+          // Personalize on import so synced memories never say "el Jugador"
+          content: personalize(emb.content),
           importance: emb.metadata?.importance || 3,
           timestamp: emb.metadata?.extracted_at || new Date().toISOString(),
           embeddingId: emb.id,
@@ -164,16 +178,18 @@ export function CharacterMemoryEditor({
     } finally {
       setIsSyncing(false);
     }
-  }, [characterId, activeSessionId, memory?.events, addMemoryEvent, toast]);
+  }, [characterId, activeSessionId, memory?.events, addMemoryEvent, toast, personalize]);
 
   const handleAddEvent = useCallback(async () => {
     if (!newEvent.content?.trim()) return;
     
     const eventId = `event-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Personalize: replace "el Jugador"/"el usuario" with the persona's name ({{user}})
+    const personalizedContent = personalize(newEvent.content);
     const eventData: MemoryEvent = {
       id: eventId,
       type: newEvent.type || 'fact',
-      content: newEvent.content,
+      content: personalizedContent,
       timestamp: new Date().toISOString(),
       importance: newEvent.importance || 3
     };
@@ -186,7 +202,7 @@ export function CharacterMemoryEditor({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: newEvent.content,
+        content: personalizedContent,
         characterId,
         characterName,
         memoryType: mapEventType(newEvent.type || 'fact'),
@@ -206,7 +222,7 @@ export function CharacterMemoryEditor({
     setNewEvent({ type: 'fact', content: '', importance: 3 });
     setNewEventSubject('personaje');
     setAddEventOpen(false);
-  }, [characterId, newEvent, addMemoryEvent, updateMemoryEvent, characterName, newEventSubject]);
+  }, [characterId, newEvent, addMemoryEvent, updateMemoryEvent, characterName, newEventSubject, personalize]);
 
   const handleAddRelation = useCallback(() => {
     if (!newRelation.targetName?.trim() || !newRelation.relationship?.trim()) return;
@@ -371,8 +387,12 @@ export function CharacterMemoryEditor({
         </CardHeader>
         <CardContent>
           {memory?.events && memory.events.length > 0 ? (
-            <ScrollArea className="max-h-[250px]">
-              <div className="space-y-2 pr-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span>{memory.events.length} evento{memory.events.length !== 1 ? 's' : ''} en memoria</span>
+                <span className="opacity-60">Desplázate para ver todo ↓</span>
+              </div>
+              <div className="max-h-80 overflow-y-auto scrollbar-thin pr-2 space-y-2">
                 {memory.events.map((event) => {
                   const typeConfig = EVENT_TYPES.find(t => t.type === event.type);
                   return (
@@ -383,15 +403,15 @@ export function CharacterMemoryEditor({
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-start gap-2 flex-1">
                           <div className={cn(
-                            "p-1.5 rounded mt-0.5",
+                            "p-1.5 rounded mt-0.5 shrink-0",
                             typeConfig?.color || 'bg-gray-500'
                           )}>
                             {typeConfig?.icon}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm">{event.content}</p>
+                            <p className="text-sm break-words">{personalize(event.content)}</p>
                             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                              <Calendar className="w-3 h-3" />
+                              <Calendar className="w-3 h-3 shrink-0" />
                               {formatDate(event.timestamp)}
                             </p>
                           </div>
@@ -399,7 +419,7 @@ export function CharacterMemoryEditor({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                          className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
                           onClick={() => {
                             // Remove from Zustand store
                             removeMemoryEvent(characterId, event.id);
@@ -421,7 +441,7 @@ export function CharacterMemoryEditor({
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
           ) : (
             <div className="text-center py-6 text-muted-foreground text-sm">
               <Brain className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -509,7 +529,11 @@ export function CharacterMemoryEditor({
         <CardContent>
           {memory?.relationships && memory.relationships.length > 0 ? (
             <div className="space-y-2">
-              {memory.relationships.map((rel) => (
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span>{memory.relationships.length} {memory.relationships.length !== 1 ? 'relaciones' : 'relación'}</span>
+              </div>
+              <div className="max-h-64 overflow-y-auto scrollbar-thin pr-2 space-y-2">
+                {memory.relationships.map((rel) => (
                 <div 
                   key={rel.targetId}
                   className="p-3 rounded-lg border bg-muted/30 group"
@@ -569,6 +593,7 @@ export function CharacterMemoryEditor({
                   </div>
                 </div>
               ))}
+              </div>
             </div>
           ) : (
             <div className="text-center py-6 text-muted-foreground text-sm">

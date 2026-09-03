@@ -4,6 +4,7 @@
 
 import { formatWorldClock, createDefaultWorldClock } from '@/lib/world/time';
 import { buildTextActionsSection } from '@/lib/tools/text-actions';
+import { personalizeMemoryContent } from '@/lib/memory/personalize';
 import type {
   CharacterCard,
   ChatMessage,
@@ -1811,43 +1812,74 @@ export function buildSummarySection(summary: SummaryData): PromptSection {
 
 /**
  * Build character memory section
+ *
+ * EVENTS ARE CAPPED: only the top `maxEvents` (default 20) most important +
+ * most recent events are injected. Without this cap, the section grows
+ * unboundedly as automatic extraction adds events every few turns, making
+ * each request larger than the last.
+ *
+ * Sort priority: importance (desc) → timestamp (desc, most recent first).
  */
-export function buildMemorySection(memory: CharacterMemory, characterName: string): PromptSection | null {
+export function buildMemorySection(
+  memory: CharacterMemory,
+  characterName: string,
+  maxEvents: number = 20,
+  userName?: string,
+): PromptSection | null {
   if (!memory.events.length && !memory.relationships.length && !memory.notes) {
     return null;
   }
 
+  // Normalize importance (support both old 0-1 and new 1-5 scales)
+  const normalizeImportance = (imp: number) => (imp > 1 ? imp : Math.round(imp * 5));
+
+  // Safety net: memories saved before sanitization existed (or via raw tool calls)
+  // may still contain "el Jugador"/"el usuario". Personalize at injection time so
+  // the LLM always sees the persona's real name without requiring a data migration.
+  const personalize = (text: string) =>
+    userName ? personalizeMemoryContent(text, userName) : text;
+
   const parts: string[] = [];
 
-  // Add events (sorted by importance, highest first)
+  // Add events (capped: top N by importance, then recency)
   if (memory.events.length > 0) {
-    parts.push(`[Eventos y hechos clave]`);
+    const eventsCap = Math.max(2, Math.floor(maxEvents));
     const sortedEvents = [...memory.events].sort((a, b) => {
-      // Support both old (0-1) and new (1-5) importance scales
-      const impA = a.importance > 1 ? a.importance : Math.round(a.importance * 5);
-      const impB = b.importance > 1 ? b.importance : Math.round(b.importance * 5);
-      return impB - impA;
+      const impA = normalizeImportance(a.importance);
+      const impB = normalizeImportance(b.importance);
+      if (impB !== impA) return impB - impA;
+      // Same importance → most recent first
+      return (b.timestamp || '').localeCompare(a.timestamp || '');
     });
-    for (const event of sortedEvents) {
-      // Support both old (0-1) and new (1-5) importance scales
-      const normalizedImportance = event.importance > 1 ? event.importance : Math.round(event.importance * 5);
+    const includedEvents = sortedEvents.slice(0, eventsCap);
+    const omitted = sortedEvents.length - includedEvents.length;
+
+    parts.push(`[Eventos y hechos clave]`);
+    for (const event of includedEvents) {
+      const normalizedImportance = normalizeImportance(event.importance);
       const importance = normalizedImportance >= 4 ? '⭐' : '';
-      parts.push(`${importance} ${event.content}`);
+      parts.push(`${importance} ${personalize(event.content)}`);
+    }
+    if (omitted > 0) {
+      parts.push(`(... ${omitted} eventos de menor relevancia omitidos)`);
     }
   }
 
-  // Add relationships
+  // Add relationships (capped at 12, most extreme sentiment first)
   if (memory.relationships.length > 0) {
     parts.push(`\n[Relaciones]`);
-    for (const rel of memory.relationships) {
+    const sortedRels = [...memory.relationships].sort((a, b) => Math.abs(b.sentiment) - Math.abs(a.sentiment));
+    const includedRels = sortedRels.slice(0, 12);
+    for (const rel of includedRels) {
       const sentiment = rel.sentiment > 50 ? '😊' : rel.sentiment < -50 ? '😞' : '😐';
-      parts.push(`${sentiment} ${rel.targetName}: ${rel.relationship} (${rel.sentiment >= 0 ? '+' : ''}${rel.sentiment})`);
+      const relNotes = rel.notes ? ` — ${personalize(rel.notes)}` : '';
+      parts.push(`${sentiment} ${rel.targetName}: ${rel.relationship} (${rel.sentiment >= 0 ? '+' : ''}${rel.sentiment})${relNotes}`);
     }
   }
 
   // Add notes
   if (memory.notes) {
-    parts.push(`\n[Notas]\n${memory.notes}`);
+    parts.push(`\n[Notas]\n${personalize(memory.notes)}`);
   }
 
   return {

@@ -6,7 +6,7 @@
     "avatar": "",
     "isActive": true,
     "createdAt": "2026-03-01T21:37:31.485Z",
-    "updatedAt": "2026-08-31T15:34:49.615Z",
+    "updatedAt": "2026-09-02T09:37:12.456Z",
     "statsConfig": {
       "enabled": true,
       "attributes": [
@@ -106,8 +106,7 @@
       {
         "itemId": "cum-002",
         "quantity": 1,
-        "equipped": true,
-        "equippedSlotId": "main_hand"
+        "equipped": false
       },
       {
         "itemId": "cum-003",
@@ -127,17 +126,53 @@
       {
         "itemId": "plug-001",
         "quantity": 1,
-        "equipped": true,
-        "equippedSlotId": "slot-1780243594672-h7lvhsf"
+        "equipped": false
       },
       {
         "itemId": "leche-010",
+        "quantity": 1,
+        "equipped": false
+      },
+      {
+        "itemId": "past-003",
         "quantity": 1,
         "equipped": false
       }
     ],
     "currency": 86,
     "currencyName": "Puntos",
-    "currencyIcon": "💰"
+    "currencyIcon": "💰",
+    "equipmentSlots": [
+      {
+        "id": "slot-1780243589021-wpam34n",
+        "name": "Ano",
+        "key": "ano"
+      },
+      {
+        "id": "slot-1780243594672-h7lvhsf",
+        "name": "vagina",
+        "key": "vagina"
+      },
+      {
+        "id": "slot-1780243601682-1bc5vzh",
+        "name": "garganta",
+        "key": "garganta"
+      },
+      {
+        "id": "slot-1780243606357-qu4ccd0",
+        "name": "boca",
+        "key": "boca"
+      },
+      {
+        "id": "slot-1780243609566-rggw29a",
+        "name": "cara",
+        "key": "cara"
+      },
+      {
+        "id": "slot-1780243615399-8152pih",
+        "name": "pezones",
+        "key": "pezones"
+      }
+    ]
   }
 ]

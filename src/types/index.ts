@@ -898,6 +898,8 @@ export interface SessionEquipmentEntry {
   itemId: string;           // Reference to Item.id
   equippedSlotId: string;   // Which EquipmentSlotDefinition.id the item is equipped in
   slotEffectText?: string;  // The effect text for the equipped slot (cached from ItemSlotEffect)
+  /** FASE 20: Slot item rule activation state (for deactivation: end message + fallbacks). */
+  ruleState?: ActiveSlotRuleState;
 }
 
 export interface ChatSession {
@@ -2354,6 +2356,11 @@ export interface EmbeddingsChatSettings {
   knowledgeSearchEnabled?: boolean;
   /** Maximum token budget for embeddings context (approximate, in chars) */
   maxTokenBudget: number;
+  /** Max memories retrieved per search and injected as [MEMORIA RELEVANTE] (default: 5) */
+  memoryMaxResults?: number;
+  /** Max Character Memory events injected into the prompt in one request (default: 20).
+  *  Events are ranked by importance + recency; the rest are omitted. */
+  memoryMaxEventsInPrompt?: number;
   /** Strategy for selecting which namespaces to search */
   namespaceStrategy: 'global' | 'character' | 'session';
   /** Whether to show retrieved embeddings in the prompt viewer */
@@ -3990,19 +3997,142 @@ export interface CharacterSlotDefinition {
   slotId: string;
   /** Display name (denormalized for convenience) */
   slotName?: string;
-  /** Restrict which items can be equipped in this slot.
-   *  Empty = any item can be equipped. */
+  /**
+   * FASE 20: Item rules with lorebook-style conditions. Each rule binds an
+   * inventory item to conditions evaluated against the slot OWNER's attribute.
+   * On activation (equip/use) matching conditions apply their effects and send
+   * their activation message; on deactivation (unequip/expire) fallbacks apply
+   * and the end message is sent.
+   */
+  itemRules?: SlotItemRule[];
+  /** @deprecated (FASE 20) Replaced by {@link itemRules}. Legacy restriction — kept for data compat. */
   allowedItemCategories?: string[];
-  /** Restrict to specific item IDs (whitelist). Empty = no restriction. */
+  /** @deprecated (FASE 20) Replaced by {@link itemRules}. Legacy whitelist — kept for data compat. */
   allowedItemIds?: string[];
-  /** Effects applied when an item is equipped in this slot.
-   *  These effects modify attributes — can be static (once) or dynamic (per turn). */
+  /** @deprecated (FASE 20) Replaced by {@link itemRules}. Legacy attribute effects — kept for data compat. */
   effects?: ItemAttributeEffect[];
-  /** Free-text effect description shown in the prompt when this slot is occupied.
-   *  Supports {{key}} template variables. */
+  /** @deprecated (FASE 20) Replaced by {@link itemRules}. Legacy free-text effect — kept for data compat. */
   effectText?: string;
-  /** Whether to apply effects every turn (dynamic) or just once on equip (static). */
+  /** @deprecated (FASE 20) Replaced by rule.comparisonMode. Legacy mode — kept for data compat. */
   effectMode?: 'static' | 'dynamic';
+}
+
+// ============================================
+// FASE 20: SLOT ITEM RULES — lorebook-style conditions per item
+// ============================================
+// Each slot can define rules for specific inventory items. A rule picks one
+// attribute of the slot OWNER (the persona/character being edited) and a set
+// of conditions (priority + comparator + value), exactly like attribute-based
+// lorebook entries. Matching conditions apply effects (attribute changes or
+// sprite changes) and send activation/end messages to the chat as user messages.
+
+/** Effect that modifies an attribute of a target (persona or character). */
+export interface SlotAttributeEffect {
+  id: string;
+  type: 'attribute';
+  /**
+   * Target whose attribute changes:
+   * - '__self__' → the slot rule owner at runtime (persona or character whose
+   *   slotDefinitions contain this rule)
+   * - '__user__' → the active persona
+   * - otherwise → a character ID
+   */
+  targetId: string;
+  targetName?: string;
+  attributeKey: string;
+  attributeName?: string;
+  operator: CostOperator;
+  value: number | string;
+  /** When true, on deactivation the attribute reverts to fallbackValue. */
+  fallbackEnabled?: boolean;
+  /** Value the attribute returns to on deactivation (requires fallbackEnabled). */
+  fallbackValue?: number | string;
+}
+
+/** Effect that switches a character's sprite (uses the trigger sprite system). */
+export interface SlotSpriteEffect {
+  id: string;
+  type: 'sprite';
+  /** Character whose sprite changes. Personas have no sprites. */
+  targetId: string;
+  targetName?: string;
+  /** SpritePackEntryV2.id within the target character's spritePacksV2. */
+  spriteId: string;
+  spriteLabel?: string;
+  /** When true, on deactivation the sprite changes to fallbackSpriteId (or clears if none). */
+  fallbackEnabled?: boolean;
+  /** Sprite to return to on deactivation (requires fallbackEnabled). */
+  fallbackSpriteId?: string;
+  fallbackSpriteLabel?: string;
+}
+
+export type SlotConditionEffect = SlotAttributeEffect | SlotSpriteEffect;
+
+/** Lorebook-style condition evaluated against the slot owner's attribute. */
+export interface SlotItemCondition {
+  id: string;
+  /** Higher = evaluated first / wins in 'first-match' resolution. Default 0. */
+  priority?: number;
+  comparator: AttributeComparator;
+  value: number | string;
+  /**
+   * Message sent to the chatbox as a user message when this condition
+   * activates (item equipped or consumable used).
+   */
+  activationMessage?: string;
+  /**
+   * Message sent to the chatbox as a user message when this condition ends
+   * (item unequipped or consumable effect expired).
+   */
+  endMessage?: string;
+  /** Effects applied when the condition matches (can be several). */
+  effects?: SlotConditionEffect[];
+}
+
+/** Per-item rule: what happens when this item is equipped/used in the slot. */
+export interface SlotItemRule {
+  itemId: string;
+  itemName?: string;
+  /** Attribute of the slot OWNER (persona/character being edited) to evaluate. */
+  attributeKey: string;
+  attributeName?: string;
+  /** Type of the evaluated attribute (numeric vs text comparators in the UI). */
+  attributeType?: AttributeType;
+  /**
+   * Comparison mode:
+   * - 'static': conditions evaluated ONCE at activation (equip/use)
+   * - 'dynamic': conditions re-evaluated every turn while equipped
+   */
+  comparisonMode: 'static' | 'dynamic';
+  /**
+   * Resolution mode for multiple matching conditions:
+   * - 'concat-all': all matching conditions apply, ordered by priority (default)
+   * - 'first-match': only the highest-priority matching condition applies
+   */
+  resolution?: 'concat-all' | 'first-match';
+  conditions: SlotItemCondition[];
+}
+
+/**
+ * Runtime state of an activated slot item rule. Persisted on the session
+ * equipment entry (or active consumable effect) so deactivation can revert
+ * fallbacks and send the correct end message.
+ */
+export interface ActiveSlotRuleState {
+  /** 'static' rules apply once; 'dynamic' rules re-evaluate every turn. */
+  mode: 'static' | 'dynamic';
+  /** Whose attribute is evaluated: '__user__' or a character ID. */
+  ownerStatId: string;
+  /** Where the rule lives (persona or character slotDefinitions). */
+  ruleSourceKind: 'persona' | 'character';
+  ruleSourceId: string;
+  /** Slot the item was equipped in (undefined for consumable uses). */
+  slotId?: string;
+  /** IDs of the conditions that matched at activation / last tick. */
+  matchedConditionIds: string[];
+  /** Snapshot of the effects applied (for fallback reversal on deactivation). */
+  appliedEffects: SlotConditionEffect[];
+  appliedAt: string;
 }
 
 // Item slot effect - how an item affects a specific equipment slot
@@ -4256,6 +4386,8 @@ export interface ActiveConsumableEffect {
   totalTurns: number;       // For display: "2/5 turns remaining"
   useMessage?: string;      // Message shown when used
   expireMessage?: string;   // Message shown when expired
+  /** FASE 20: Slot item rule activation state (for deactivation: end message + fallbacks). */
+  ruleState?: ActiveSlotRuleState;
   appliedAt: string;
 }
 
@@ -4278,7 +4410,14 @@ export interface InventoryV2Settings {
   autoDetect: boolean;      // Auto-detect items in messages
   currencyName: string;     // Default currency name (e.g., "Divisa")
   currencyIcon: string;     // Default currency icon (e.g., "💰")
-  equipmentSlots: EquipmentSlotDefinition[];  // User-defined equipment slots
+  /**
+   * @deprecated Global equipment slots were removed. Slots are now managed
+   * exclusively in Persona (Persona.equipmentSlots) and Character
+   * (CharacterCard.equipmentSlots) configuration. This field is kept only for
+   * backward compatibility of old exports and is migrated to the active
+   * persona on load; the runtime never reads it.
+   */
+  equipmentSlots: EquipmentSlotDefinition[];
 }
 
 // Default inventory V2 settings

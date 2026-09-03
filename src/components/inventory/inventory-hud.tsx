@@ -199,9 +199,6 @@ export function InventoryHUD() {
   const hudRef = useRef<HTMLDivElement>(null);
   const slotPickerRef = useRef<HTMLDivElement>(null);
 
-  // Equipment slots for slot name resolution
-  const equipmentSlots = inventorySettings.equipmentSlots || [];
-
   // Draggable handlers - must be declared before any early returns
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
@@ -241,6 +238,10 @@ export function InventoryHUD() {
   // Get persona data
   const persona = getActivePersona();
   const personaId = persona?.id ?? '';
+
+  // Equipment slots for slot name resolution — owned by the persona
+  // (global slots were removed; slots live in Persona/Character config)
+  const equipmentSlots = persona?.equipmentSlots || [];
 
   // Get session-specific data
   const activeSession = sessions.find(s => s.id === activeSessionId);

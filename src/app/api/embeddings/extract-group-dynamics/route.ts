@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
       sessionId,
       llmConfig,
       minImportance = 2,
+      userName,
     } = body;
 
     if (!turnContext || !groupId) {
@@ -27,8 +28,8 @@ export async function POST(request: NextRequest) {
     // Dynamic import
     const { extractGroupDynamics, saveMemoriesAsEmbeddings } = await import('@/lib/embeddings/memory-extraction');
 
-    // Step 1: Extract group dynamics
-    const facts = await extractGroupDynamics(turnContext, llmConfig);
+    // Step 1: Extract group dynamics (with persona name sanitization)
+    const facts = await extractGroupDynamics(turnContext, llmConfig, userName);
 
     if (facts.length === 0) {
       return NextResponse.json({ success: true, count: 0, saved: 0 });

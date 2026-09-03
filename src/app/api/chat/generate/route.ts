@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
     // Add character memory section first (events, relationships, notes from Zustand store)
     if (characterMemory) {
-      const memorySection = buildMemorySection(characterMemory, effectiveCharacter.name || 'Character');
+      const memorySection = buildMemorySection(characterMemory, effectiveCharacter.name || 'Character', embeddingsChat?.memoryMaxEventsInPrompt, effectiveUserName);
       if (memorySection) {
         contextParts.push(memorySection.content);
       }

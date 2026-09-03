@@ -907,7 +907,9 @@ export function ChatPanel() {
                 currency: activePersona?.currency ?? 0,
                 currencyName: activePersona?.currencyName || invSettings.currencyName,
                 currencyIcon: activePersona?.currencyIcon || invSettings.currencyIcon,
-                inventorySettings: invSettings,
+                // Slots are owned by the persona (global slots removed) — resolve
+                // them here so {{slots}} and prompt building use the right source
+                inventorySettings: { ...invSettings, equipmentSlots: activePersona?.equipmentSlots || [] },
               };
             })(),  // Pass inventory data for {{slots}} key resolution
           })
@@ -1375,6 +1377,8 @@ export function ChatPanel() {
                 if (!currentLLMConfig) return;
                 
                 // Build chat context for context-aware extraction
+                // Labels use the persona's real name (not "Jugador") so extracted
+                // memories reference the user by name ({{user}} personalization)
                 const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth || 0;
                 let chatContextForExtraction: string | undefined;
                 if (extractionContextDepth > 0) {
@@ -1384,7 +1388,7 @@ export function ChatPanel() {
                   if (contextMessages.length > 0) {
                     chatContextForExtraction = contextMessages
                       .map(m => {
-                        const role = m.role === 'user' ? 'Jugador' : 'Personaje';
+                        const role = m.role === 'user' ? personaName : 'Personaje';
                         return `${role}: ${m.content.trim().slice(0, 300)}`;
                       })
                       .join('\n  ');
@@ -1472,7 +1476,7 @@ export function ChatPanel() {
                     const turnLines: string[] = [];
                     const lastUserMsg = sessionMsgs.filter(m => m.role === 'user' && !m.isDeleted).slice(-1)[0];
                     if (lastUserMsg) {
-                      turnLines.push(`Jugador: ${lastUserMsg.content.trim().slice(0, 500)}`);
+                      turnLines.push(`${personaName}: ${lastUserMsg.content.trim().slice(0, 500)}`);
                     }
                     for (const resp of extractableChars) {
                       turnLines.push(`${resp.characterName}: ${resp.content.trim().slice(0, 500)}`);
@@ -1495,6 +1499,7 @@ export function ChatPanel() {
                             parameters: currentLLMConfig.parameters,
                           },
                           minImportance: embeddingsChat.memoryExtractionMinImportance || 2,
+                          userName: personaName,
                         }),
                       });
                     }
@@ -1713,7 +1718,9 @@ export function ChatPanel() {
                 currency: activePersona?.currency ?? 0,
                 currencyName: activePersona?.currencyName || invSettings.currencyName,
                 currencyIcon: activePersona?.currencyIcon || invSettings.currencyIcon,
-                inventorySettings: invSettings,
+                // Slots are owned by the persona (global slots removed) — resolve
+                // them here so {{slots}} and prompt building use the right source
+                inventorySettings: { ...invSettings, equipmentSlots: activePersona?.equipmentSlots || [] },
               };
             })(),  // Pass inventory data for {{slots}} key resolution
           })
@@ -2123,6 +2130,8 @@ export function ChatPanel() {
                         if (!currentLLMConfig) return;
                         
                         // Build chat context for context-aware extraction
+                        // Labels use the persona's real name (not "Jugador") so extracted
+                        // memories reference the user by name ({{user}} personalization)
                         const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth || 0;
                         let chatContextForExtraction: string | undefined;
                         if (extractionContextDepth > 0) {
@@ -2132,7 +2141,7 @@ export function ChatPanel() {
                           if (contextMessages.length > 0) {
                             chatContextForExtraction = contextMessages
                               .map(m => {
-                                const role = m.role === 'user' ? 'Jugador' : extractionCharacterName;
+                                const role = m.role === 'user' ? personaName : extractionCharacterName;
                                 const content = m.content.trim().slice(0, 300);
                                 return `${role}: ${content}`;
                               })

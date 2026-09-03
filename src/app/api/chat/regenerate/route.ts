@@ -288,7 +288,7 @@ export async function POST(request: NextRequest) {
 
     // Build character memory section from Zustand store data (events, relationships, notes)
     const characterMemorySection = characterMemory
-      ? buildMemorySection(characterMemory, effectiveCharacter.name || 'Character')
+      ? buildMemorySection(characterMemory, effectiveCharacter.name || 'Character', embeddingsChat?.memoryMaxEventsInPrompt)
       : null;
 
     let allPromptSections: PromptSection[] = [

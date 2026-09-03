@@ -31,9 +31,6 @@ import {
   Upload,
   AlertCircle,
   CheckCircle,
-  Shirt,
-  Pencil,
-  Copy,
 } from 'lucide-react';
 import { useTavernStore } from '@/store/tavern-store';
 import { ItemCard } from './item-card';
@@ -62,12 +59,6 @@ import {
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
-
-// ============================================
-// Slot Emoji Quick Picker
-// ============================================
-
-const SLOT_EMOJIS = ['🪖', '🧢', '🧥', '🛡️', '⚔️', '🗡️', '🧤', '🥾', '💍', '📿', '🎒', '👑', '🎭', '💫', '🔮'];
 
 // ============================================
 // Active Effect Badge
@@ -208,11 +199,11 @@ export function InventoryPanel() {
   }, [activePersonaId, personas]);
   const personaId = persona?.id ?? '';
 
-  // Equipment slots - use stable empty array ref
-  const equipmentSlots = useTavernStore(state => state.inventorySettings.equipmentSlots) ?? EMPTY_ARRAY;
-  const addEquipmentSlot = useTavernStore(state => state.addEquipmentSlot);
-  const updateEquipmentSlot = useTavernStore(state => state.updateEquipmentSlot);
-  const deleteEquipmentSlot = useTavernStore(state => state.deleteEquipmentSlot);
+  // Equipment slots — resolved from the ACTIVE PERSONA (global slots were removed).
+  // Slots are now managed exclusively in Persona and Character configuration.
+  const equipmentSlots = useTavernStore(
+    state => state.personas.find(p => p.id === state.activePersonaId)?.equipmentSlots ?? EMPTY_ARRAY
+  );
 
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
@@ -224,9 +215,6 @@ export function InventoryPanel() {
   const [targetPickerAction, setTargetPickerAction] = useState<'equip' | 'use' | null>(null);
   const [targetPickerItemId, setTargetPickerItemId] = useState<string>('');
   const [selectedTargetId, setSelectedTargetId] = useState<string>('__user__');
-  const [editingSlot, setEditingSlot] = useState<EquipmentSlotDefinition | null>(null);
-  const [slotEditorOpen, setSlotEditorOpen] = useState(false);
-  const [slotForm, setSlotForm] = useState({ name: '', key: '', icon: '', description: '' });
   const [slotPickerOpen, setSlotPickerOpen] = useState(false);
   const [slotPickerItemId, setSlotPickerItemId] = useState<string>('');
   const { toast } = useToast();
@@ -513,100 +501,7 @@ export function InventoryPanel() {
     }
   };
 
-  // ---- Slot handlers ----
-  const keyManuallyEditedRef = useRef(false);
-
-  const generateKeyFromName = (name: string): string => {
-    return name
-      .toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s_]/g, '')
-      .replace(/\s+/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_|_$/g, '');
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).catch(() => {
-      // Fallback: use a temporary textarea
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    });
-  };
-
-  const handleSaveSlot = () => {
-    if (!slotForm.name.trim() || !slotForm.key.trim()) {
-      toast({
-        title: 'Campos requeridos',
-        description: 'Nombre y Key son obligatorios.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Validate key format
-    if (!/^[a-z][a-z0-9_]*$/.test(slotForm.key)) {
-      toast({
-        title: 'Key inválida',
-        description: 'La key debe empezar con letra y solo contener letras minúsculas, números y guiones bajos.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Check for duplicate keys (excluding current editing slot)
-    const duplicateKey = equipmentSlots.some(
-      s => s.key === slotForm.key && (!editingSlot || s.id !== editingSlot.id)
-    );
-    if (duplicateKey) {
-      toast({
-        title: 'Key duplicada',
-        description: `Ya existe un slot con la key "{{${slotForm.key}}}".`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (editingSlot) {
-      updateEquipmentSlot(editingSlot.id, {
-        name: slotForm.name.trim(),
-        key: slotForm.key.trim(),
-        icon: slotForm.icon || undefined,
-        description: slotForm.description.trim() || undefined,
-      });
-      toast({
-        title: 'Slot actualizado',
-        description: `"${slotForm.name}" actualizado correctamente.`,
-      });
-    } else {
-      addEquipmentSlot({
-        name: slotForm.name.trim(),
-        key: slotForm.key.trim(),
-        icon: slotForm.icon || undefined,
-        description: slotForm.description.trim() || undefined,
-      });
-      toast({
-        title: 'Slot creado',
-        description: `"${slotForm.name}" creado correctamente.`,
-      });
-    }
-
-    setSlotEditorOpen(false);
-    setEditingSlot(null);
-    keyManuallyEditedRef.current = false;
-  };
-
-  const handleDeleteSlot = (id: string, name: string) => {
-    deleteEquipmentSlot(id);
-    toast({
-      title: 'Slot eliminado',
-      description: `"${name}" ha sido eliminado. Los items que usaban este slot han sido actualizados.`,
-    });
-  };
+  // ---- Item / inventory handlers ----
 
   return (
     <div className="h-full flex flex-col">
@@ -714,9 +609,6 @@ export function InventoryPanel() {
             </TabsTrigger>
             <TabsTrigger value="shop" className="flex-1 text-xs">
               Tienda
-            </TabsTrigger>
-            <TabsTrigger value="slots" className="flex-1 text-xs">
-              Slots
             </TabsTrigger>
             <TabsTrigger value="config" className="flex-1 text-xs">
               Config
@@ -917,123 +809,6 @@ export function InventoryPanel() {
           </div>
         </TabsContent>
 
-        {/* ===== Slots Tab ===== */}
-        <TabsContent value="slots" className="flex-1 overflow-hidden m-0">
-          <div className="h-full flex flex-col p-3 gap-3 overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <Shirt className="w-4 h-4 text-muted-foreground" />
-                <h3 className="font-semibold text-sm">Slots de Equipo</h3>
-                <Badge variant="secondary" className="text-xs">{equipmentSlots.length}</Badge>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setEditingSlot(null);
-                  setSlotForm({ name: '', key: '', icon: '', description: '' });
-                  keyManuallyEditedRef.current = false;
-                  setSlotEditorOpen(true);
-                }}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Nuevo
-              </Button>
-            </div>
-
-            {/* Info text */}
-            <div className="p-2.5 rounded-lg bg-muted/50 text-xs text-muted-foreground shrink-0">
-              Los slots definen las ubicaciones donde se puede equipar un item. Cada slot genera una key (ej: {'{{cabeza}}'}) que se puede usar en los prompts.
-            </div>
-
-            {/* Slots List */}
-            <ScrollArea className="flex-1 min-h-0">
-              {equipmentSlots.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Shirt className="w-16 h-16 mx-auto mb-3 opacity-50" />
-                  <p className="text-lg font-medium">Sin slots definidos</p>
-                  <p className="text-sm mt-1">Crea slots como Cabeza, Pecho, Mano Izquierda, etc.</p>
-                </div>
-              ) : (
-                <div className="grid gap-2 pr-3">
-                  <AnimatePresence mode="popLayout">
-                    {equipmentSlots.map(slot => (
-                      <motion.div
-                        key={slot.id}
-                        layout
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                      >
-                        <div className="flex items-center gap-2.5 p-2.5 rounded-lg border bg-card">
-                          {/* Icon */}
-                          <div className="w-8 h-8 rounded-md flex items-center justify-center text-base shrink-0 bg-muted/50">
-                            {slot.icon || '📦'}
-                          </div>
-                          {/* Info */}
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{slot.name}</p>
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <code className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">{'{{' + slot.key + '}}'}</code>
-                              {slot.description && (
-                                <>
-                                  <span>•</span>
-                                  <span className="truncate">{slot.description}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          {/* Actions */}
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0"
-                              onClick={() => {
-                                copyToClipboard('{{' + slot.key + '}}');
-                                toast({ title: 'Key copiada', description: `{{${slot.key}}} copiada al portapapeles` });
-                              }}
-                              title="Copiar key"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0"
-                              onClick={() => {
-                                setEditingSlot(slot);
-                                setSlotForm({
-                                  name: slot.name,
-                                  key: slot.key,
-                                  icon: slot.icon || '',
-                                  description: slot.description || '',
-                                });
-                                setSlotEditorOpen(true);
-                              }}
-                              title="Editar slot"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                              onClick={() => handleDeleteSlot(slot.id, slot.name)}
-                              title="Eliminar slot"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                </div>
-              )}
-            </ScrollArea>
-          </div>
-        </TabsContent>
 
         {/* ===== Config Tab ===== */}
         <TabsContent value="config" className="flex-1 overflow-hidden m-0">
@@ -1267,91 +1042,6 @@ export function InventoryPanel() {
         onDelete={editingItem ? handleDeleteItem : undefined}
       />
 
-      {/* Slot Editor Dialog */}
-      <Dialog open={slotEditorOpen} onOpenChange={setSlotEditorOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingSlot ? 'Editar Slot' : 'Crear Nuevo Slot'}</DialogTitle>
-            <DialogDescription>Define una ubicación de equipo para los items.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Name */}
-            <div className="space-y-2">
-              <Label>Nombre *</Label>
-              <Input
-                value={slotForm.name}
-                onChange={(e) => {
-                  const name = e.target.value;
-                  setSlotForm(prev => ({
-                    ...prev,
-                    name,
-                    // Auto-generate key from name unless user manually edited the key
-                    key: keyManuallyEditedRef.current ? prev.key : generateKeyFromName(name),
-                  }));
-                }}
-                placeholder="Ej: Cabeza, Mano Izquierda"
-              />
-            </div>
-            {/* Key */}
-            <div className="space-y-2">
-              <Label>Key *</Label>
-              <p className="text-xs text-muted-foreground">Se usará como {'{{key}}'} en los prompts</p>
-              <Input
-                value={slotForm.key}
-                onChange={(e) => {
-                  keyManuallyEditedRef.current = true;
-                  setSlotForm(prev => ({ ...prev, key: e.target.value }));
-                }}
-                placeholder="Ej: cabeza, mano_izquierda"
-                className="font-mono"
-              />
-            </div>
-            {/* Icon */}
-            <div className="space-y-2">
-              <Label>Icono</Label>
-              <div className="flex gap-2 items-center">
-                <Input
-                  value={slotForm.icon}
-                  onChange={(e) => setSlotForm(prev => ({ ...prev, icon: e.target.value }))}
-                  placeholder="🪖"
-                  className="w-16 text-center text-xl"
-                  maxLength={4}
-                />
-                <div className="flex flex-wrap gap-1">
-                  {SLOT_EMOJIS.map(emoji => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      className={cn(
-                        'w-7 h-7 rounded-md border text-sm flex items-center justify-center transition-colors',
-                        slotForm.icon === emoji
-                          ? 'border-primary bg-primary/10'
-                          : 'border-border hover:bg-muted/50'
-                      )}
-                      onClick={() => setSlotForm(prev => ({ ...prev, icon: emoji }))}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            {/* Description */}
-            <div className="space-y-2">
-              <Label>Descripción</Label>
-              <Input
-                value={slotForm.description}
-                onChange={(e) => setSlotForm(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Descripción opcional del slot"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSlotEditorOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSaveSlot}>Guardar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Target Picker Dialog */}
       <Dialog open={targetPickerOpen} onOpenChange={(open) => { if (!open) handleTargetPickerCancel(); }}>

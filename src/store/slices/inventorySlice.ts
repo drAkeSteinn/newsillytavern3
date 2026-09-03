@@ -29,7 +29,19 @@ import {
   type SessionStats,
   type DynamicEquipmentState,
   type SessionEquipmentEntry,
+  type SlotConditionEffect,
+  type SlotItemCondition,
+  type ActiveSlotRuleState,
 } from '@/types';
+import {
+  evaluateSlotItemRule,
+  getWinnerCondition,
+  resolveSlotItemRule,
+  resolveSlotItemRuleAnySlot,
+  resolveRuleFromRuleState,
+  resolveEffectTarget,
+  findCharacterSprite,
+} from '@/lib/inventory/slot-item-rules';
 
 // Re-export for convenience
 export { DEFAULT_INVENTORY_V2_SETTINGS };
@@ -355,6 +367,219 @@ export function getRarityColor(rarity: ItemRarity): string {
   return colors[rarity];
 }
 
+// ============================================
+// FASE 20: Slot Item Rules — runtime helpers
+// ============================================
+//
+// Activation flow (equip / use):
+//   1. resolveSlotItemRule → find the rule in persona/character slotDefinitions
+//   2. Read the owner's current attribute value (session stats)
+//   3. evaluateSlotItemRule → matching conditions (priority order)
+//   4. Apply condition effects (attributes + sprites) + queue activation message
+//   5. Persist an ActiveSlotRuleState snapshot on the equipment/consumable entry
+//
+// Deactivation flow (unequip / expire):
+//   1. Read the ActiveSlotRuleState snapshot
+//   2. Revert effects with fallback (attribute → fallbackValue, sprite → fallbackSprite)
+//   3. Return the end message of the winning matched condition
+
+/**
+ * Apply a single sprite effect via the trigger sprite system.
+ * A new trigger replaces any previous one (per the sprite priority system).
+ */
+function applySlotSpriteEffect(
+  stateAny: any,
+  effect: SlotConditionEffect & { type: 'sprite' },
+  useFallback: boolean
+): void {
+  const characters: any[] = stateAny.characters || [];
+  const character = characters.find(c => c.id === effect.targetId);
+  if (!character) return;
+
+  const spriteId = useFallback
+    ? (effect.fallbackEnabled ? effect.fallbackSpriteId : undefined)
+    : effect.spriteId;
+
+  if (!spriteId) {
+    // No target sprite: clear the trigger so normal sprite logic resumes.
+    stateAny.applyTriggerForCharacter?.(effect.targetId, {
+      packId: '',
+      spriteUrl: '',
+      spriteLabel: null,
+    });
+    return;
+  }
+
+  const sprite = findCharacterSprite(character, spriteId);
+  if (!sprite) return;
+
+  stateAny.applyTriggerForCharacter?.(effect.targetId, {
+    packId: sprite.packId,
+    spriteUrl: sprite.url,
+    spriteLabel: sprite.label,
+  });
+}
+
+/**
+ * Apply all effects of the matched conditions (activation or dynamic tick).
+ */
+function applySlotConditionEffects(
+  stateAny: any,
+  conditions: SlotItemCondition[],
+  ownerStatId: string
+): void {
+  for (const cond of conditions) {
+    for (const effect of cond.effects || []) {
+      if (effect.type === 'attribute') {
+        applyEffectToSessionStats(stateAny, {
+          targetId: resolveEffectTarget(effect.targetId, ownerStatId),
+          targetName: effect.targetId === '__self__'
+            ? (ownerStatId === '__user__' ? 'Persona' : effect.targetName)
+            : effect.targetName,
+          attributeKey: effect.attributeKey,
+          attributeName: effect.attributeName,
+          operator: effect.operator,
+          value: effect.value,
+        });
+      } else {
+        applySlotSpriteEffect(stateAny, effect, false);
+      }
+    }
+  }
+}
+
+/**
+ * Revert applied effects on deactivation:
+ * - Attribute with fallbackEnabled → set fallbackValue (or reverse the operator)
+ * - Sprite → fallback sprite, or clear the trigger
+ */
+function revertSlotRuleEffects(
+  stateAny: any,
+  appliedEffects: SlotConditionEffect[],
+  ownerStatId: string
+): void {
+  for (const effect of appliedEffects) {
+    if (effect.type === 'attribute') {
+      applyFallbackToSessionStats(
+        stateAny,
+        resolveEffectTarget(effect.targetId, ownerStatId),
+        effect.attributeKey,
+        effect.fallbackEnabled ? effect.fallbackValue : undefined,
+        {
+          targetId: resolveEffectTarget(effect.targetId, ownerStatId),
+          attributeKey: effect.attributeKey,
+          attributeName: effect.attributeName,
+          operator: effect.operator,
+          value: effect.value,
+        }
+      );
+    } else {
+      applySlotSpriteEffect(stateAny, effect, true);
+    }
+  }
+}
+
+/**
+ * Activate the slot item rule for an equip/use. Returns the persisted rule
+ * state and the activation message to queue (null when no rule exists or
+ * nothing matched).
+ */
+function activateSlotItemRule(
+  stateAny: any,
+  opts: {
+    personaId: string;
+    itemId: string;
+    slotId?: string;
+    targetCharacterId?: string;
+    /** Consumables resolve the rule across ALL slots of the owner. */
+    anySlot?: boolean;
+  }
+): { ruleState: ActiveSlotRuleState; activationMessage: string } | null {
+  const sessionId = stateAny.activeSessionId as string | undefined;
+  if (!sessionId) return null;
+
+  const personas: any[] = stateAny.personas || [];
+  const characters: any[] = stateAny.characters || [];
+
+  const resolution = opts.anySlot
+    ? resolveSlotItemRuleAnySlot(personas, characters, {
+        personaId: opts.personaId,
+        itemId: opts.itemId,
+        targetCharacterId: opts.targetCharacterId,
+      })
+    : resolveSlotItemRule(personas, characters, {
+        personaId: opts.personaId,
+        slotId: opts.slotId || '',
+        itemId: opts.itemId,
+        targetCharacterId: opts.targetCharacterId,
+      });
+
+  if (!resolution) return null;
+  const { rule, ownerStatId, ruleSourceKind, ruleSourceId } = resolution;
+  if (!rule.conditions?.length) return null;
+
+  // Read the owner's current attribute value
+  let attributeValue: number | string | null = null;
+  try {
+    attributeValue = stateAny.getAttributeValue?.(sessionId, ownerStatId, rule.attributeKey) ?? null;
+  } catch {
+    attributeValue = null;
+  }
+
+  const matched = evaluateSlotItemRule(rule, attributeValue);
+  if (matched.length === 0) return null;
+
+  // Apply the effects of matched conditions
+  applySlotConditionEffects(stateAny, matched, ownerStatId);
+
+  const winner = getWinnerCondition(matched);
+  const activationMessage = winner?.activationMessage?.trim() || '';
+
+  const ruleState: ActiveSlotRuleState = {
+    mode: rule.comparisonMode === 'dynamic' ? 'dynamic' : 'static',
+    ownerStatId,
+    ruleSourceKind,
+    ruleSourceId,
+    slotId: opts.slotId,
+    matchedConditionIds: matched.map(c => c.id),
+    appliedEffects: matched.flatMap(c => c.effects || []),
+    appliedAt: new Date().toISOString(),
+  };
+
+  return { ruleState, activationMessage };
+}
+
+/**
+ * Deactivate a previously activated slot item rule: revert fallbacks and
+ * return the end message of the winning matched condition (if any).
+ */
+function deactivateSlotItemRule(
+  stateAny: any,
+  ruleState: ActiveSlotRuleState,
+  itemId: string
+): string | null {
+  const personas: any[] = stateAny.personas || [];
+  const characters: any[] = stateAny.characters || [];
+
+  // Revert fallback effects
+  if (ruleState.appliedEffects?.length) {
+    revertSlotRuleEffects(stateAny, ruleState.appliedEffects, ruleState.ownerStatId);
+  }
+
+  // Find the winning matched condition's end message
+  if (!ruleState.matchedConditionIds?.length) return null;
+
+  const rule = resolveRuleFromRuleState(personas, characters, ruleState, itemId);
+  if (!rule) return null;
+
+  const matchedConditions = (rule.conditions || []).filter(
+    c => ruleState.matchedConditionIds.includes(c.id)
+  );
+  const winner = getWinnerCondition(matchedConditions);
+  const endMessage = winner?.endMessage?.trim() || '';
+  return endMessage || null;
+}
+
 // Get rarity background color
 export function getRarityBgColor(rarity: ItemRarity): string {
   const colors: Record<ItemRarity, string> = {
@@ -473,29 +698,26 @@ export interface InventorySlice {
   // ===== Dynamic Equipment State =====
   dynamicEquipmentState: Record<string, DynamicEquipmentState>;  // key: `${personaId}:${itemId}`
 
-  // ===== Equipment Slots Actions =====
-  addEquipmentSlot: (slot: Omit<EquipmentSlotDefinition, 'id'>) => EquipmentSlotDefinition;
-  updateEquipmentSlot: (id: string, updates: Partial<EquipmentSlotDefinition>) => void;
-  deleteEquipmentSlot: (id: string) => void;
-  getEquipmentSlotById: (id: string) => EquipmentSlotDefinition | undefined;
-  getEquipmentSlots: () => EquipmentSlotDefinition[];
+  // ===== Equipment Slots Resolution (per persona / per character) =====
   /**
-   * FASE 19: Get equipment slots for a specific character.
-   * Returns character.equipmentSlots if defined, otherwise falls back to global inventorySettings.equipmentSlots.
+   * Get equipment slots for a specific character.
+   * Returns character.equipmentSlots if defined, otherwise an empty array.
+   * (Global slots were removed — slots are managed in Persona/Character config.)
    */
   getEquipmentSlotsForCharacter: (characterId?: string) => EquipmentSlotDefinition[];
   /**
-   * FASE 19: Get equipment slots for the active persona.
-   * Returns persona.equipmentSlots if defined, otherwise falls back to global.
+   * Get equipment slots for a persona (defaults to the active persona).
+   * Returns persona.equipmentSlots if defined, otherwise an empty array.
+   * (Global slots were removed — slots are managed in Persona/Character config.)
    */
-  getEquipmentSlotsForPersona: () => EquipmentSlotDefinition[];
+  getEquipmentSlotsForPersona: (personaId?: string) => EquipmentSlotDefinition[];
   /**
-   * FASE 19: Get slot definitions (effects, restrictions) for a character.
+   * Get slot definitions (effects, restrictions) for a character.
    * Returns character.slotDefinitions if defined, otherwise empty array.
    */
   getSlotDefinitionsForCharacter: (characterId?: string) => CharacterSlotDefinition[];
   /**
-   * FASE 19: Get slot definitions for the active persona.
+   * Get slot definitions for the active persona.
    */
   getSlotDefinitionsForPersona: () => CharacterSlotDefinition[];
 
@@ -705,7 +927,7 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
   // ===== Equipment Actions =====
   equipItem: (personaId, itemId) => {
     const stateAny = get() as any;
-    const personas = stateAny.personas as Array<{ id: string; inventoryItems?: PersonaInventoryEntry[] }>;
+    const personas = stateAny.personas as Array<{ id: string; inventoryItems?: PersonaInventoryEntry[]; equipmentSlots?: EquipmentSlotDefinition[] }>;
     const persona = personas.find(p => p.id === personaId);
     if (!persona?.inventoryItems) return;
 
@@ -716,7 +938,7 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     if (!entry) return;
 
     // Determine which slot to equip in (from slotEffects or item.slot)
-    const equipmentSlots = get().inventorySettings.equipmentSlots || [];
+    const equipmentSlots = persona.equipmentSlots || [];
 
     // If item has multiple slot effects, use the first one (UI should show slot picker for multiple)
     let targetSlotId = '';
@@ -750,7 +972,7 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     const sessionId = stateAny.activeSessionId as string | undefined;
     if (!sessionId) return;
 
-    const personas = stateAny.personas as Array<{ id: string; inventoryItems?: PersonaInventoryEntry[] }>;
+    const personas = stateAny.personas as Array<{ id: string; inventoryItems?: PersonaInventoryEntry[]; equipmentSlots?: EquipmentSlotDefinition[] }>;
     const persona = personas.find(p => p.id === personaId);
     if (!persona?.inventoryItems) return;
 
@@ -760,7 +982,7 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     const entry = persona.inventoryItems.find(e => e.itemId === itemId);
     if (!entry) return;
 
-    const equipmentSlots = get().inventorySettings.equipmentSlots || [];
+    const equipmentSlots = persona.equipmentSlots || [];
     const slotEffect = item.slotEffects?.find(se => se.slotId === slotId);
     const slotDef = equipmentSlots.find(s => s.id === slotId);
 
@@ -769,17 +991,38 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     const session = sessions.find(s => s.id === sessionId);
     const currentEquipment = session?.sessionEquipment || [];
 
+    // FASE 20: Deactivate the slot item rule of any item being replaced
+    // (same slot, or this item moving from another slot)
+    for (const replaced of currentEquipment) {
+      if (!replaced.ruleState) continue;
+      const isReplaced = (replaced.equippedSlotId === slotId && replaced.itemId !== itemId)
+        || (replaced.itemId === itemId);
+      if (!isReplaced) continue;
+      const replacedEndMessage = deactivateSlotItemRule(stateAny, replaced.ruleState, replaced.itemId);
+      if (replacedEndMessage) {
+        set({ pendingItemMessage: resolveSlotKeyInMessage(replacedEndMessage, replaced.equippedSlotId, equipmentSlots) });
+      }
+    }
+
     // Remove any existing item in this slot (unequip it)
     let updatedEquipment = currentEquipment.filter(e => e.equippedSlotId !== slotId);
 
     // Also remove this item from any other slot it might be equipped in
     updatedEquipment = updatedEquipment.filter(e => e.itemId !== itemId);
 
+    // FASE 20: Activate the slot item rule for the newly equipped item
+    const ruleActivation = activateSlotItemRule(stateAny, {
+      personaId,
+      itemId,
+      slotId,
+    });
+
     // Add the new equipment entry
     const newEntry: SessionEquipmentEntry = {
       itemId,
       equippedSlotId: slotId,
       slotEffectText: slotEffect?.effectText || undefined,
+      ruleState: ruleActivation?.ruleState,
     };
     updatedEquipment.push(newEntry);
 
@@ -806,10 +1049,14 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
       itemId: item.id,
       itemName: item.name,
       quantity: 1,
-      message,
+      message: ruleActivation?.activationMessage || message,
     });
 
-    if (item.useMessage) {
+    // FASE 20: The rule's activation message takes precedence over the
+    // legacy useMessage (it is sent to the chat as a user message).
+    if (ruleActivation?.activationMessage) {
+      set({ pendingItemMessage: resolveSlotKeyInMessage(ruleActivation.activationMessage, slotId, equipmentSlots) });
+    } else if (item.useMessage) {
       set({ pendingItemMessage: resolveSlotKeyInMessage(item.useMessage, slotId, equipmentSlots) });
     }
   },
@@ -817,7 +1064,7 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
   unequipItem: (personaId, itemId) => {
     const stateAny = get() as any;
     const sessionId = stateAny.activeSessionId as string | undefined;
-    const personas = stateAny.personas as Array<{ id: string; inventoryItems?: PersonaInventoryEntry[] }>;
+    const personas = stateAny.personas as Array<{ id: string; inventoryItems?: PersonaInventoryEntry[]; equipmentSlots?: EquipmentSlotDefinition[] }>;
     const persona = personas.find(p => p.id === personaId);
     if (!persona?.inventoryItems) return;
 
@@ -826,6 +1073,21 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
 
     const entry = persona.inventoryItems.find(e => e.itemId === itemId);
     const equippedSlotId = entry?.equippedSlotId;
+
+    const equipmentSlots = persona.equipmentSlots || [];
+
+    // FASE 20: Deactivate the slot item rule (fallbacks + end message) BEFORE
+    // removing the equipment entry
+    let ruleEndMessage: string | null = null;
+    if (sessionId) {
+      const sessions = stateAny.sessions as Array<{ id: string; sessionEquipment?: SessionEquipmentEntry[] }>;
+      const session = sessions.find(s => s.id === sessionId);
+      const currentEquipment = session?.sessionEquipment || [];
+      const equipmentEntry = currentEquipment.find(e => e.itemId === itemId);
+      if (equipmentEntry?.ruleState) {
+        ruleEndMessage = deactivateSlotItemRule(stateAny, equipmentEntry.ruleState, itemId);
+      }
+    }
 
     // Remove from persona inventory (mark as unequipped)
     const updatedItems = persona.inventoryItems.map(e =>
@@ -843,7 +1105,6 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     }
 
     // Clear slot-based effects - reset the slot attribute to empty
-    const equipmentSlots = get().inventorySettings.equipmentSlots || [];
     if (equippedSlotId && sessionId) {
       const slotDef = equipmentSlots.find(s => s.id === equippedSlotId);
       if (slotDef) {
@@ -857,11 +1118,14 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
       itemId: item.id,
       itemName: item.name,
       quantity: 1,
-      message,
+      message: ruleEndMessage || message,
     });
 
-    // Queue message for chat injection AFTER attribute change
-    if (item.unequipMessage) {
+    // Queue message for chat injection AFTER attribute change.
+    // FASE 20: the rule's end message takes precedence over legacy unequipMessage.
+    if (ruleEndMessage) {
+      set({ pendingItemMessage: resolveSlotKeyInMessage(ruleEndMessage, equippedSlotId, equipmentSlots) });
+    } else if (item.unequipMessage) {
       set({ pendingItemMessage: resolveSlotKeyInMessage(item.unequipMessage, equippedSlotId, equipmentSlots) });
     }
   },
@@ -943,6 +1207,16 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
       appliedAt: new Date().toISOString(),
     };
 
+    // FASE 20: Activate the slot item rule (any-slot resolution for consumables)
+    const ruleActivation = activateSlotItemRule(stateAny, {
+      personaId,
+      itemId,
+      anySlot: true,
+    });
+    if (ruleActivation) {
+      effect.ruleState = ruleActivation.ruleState;
+    }
+
     set((state) => ({
       activeConsumableEffects: [...state.activeConsumableEffects, effect]
     }));
@@ -963,11 +1237,14 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
       itemId: item.id,
       itemName: item.name,
       quantity: 1,
-      message,
+      message: ruleActivation?.activationMessage || message,
     });
 
-    // Queue message for chat injection AFTER attribute change
-    if (item.useMessage) {
+    // Queue message for chat injection AFTER attribute change.
+    // FASE 20: the rule's activation message takes precedence.
+    if (ruleActivation?.activationMessage) {
+      set({ pendingItemMessage: ruleActivation.activationMessage });
+    } else if (item.useMessage) {
       set({ pendingItemMessage: item.useMessage });
     }
 
@@ -1002,6 +1279,61 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
           applyDynamicEffectToSessionStats(stateAny, resolvedEffect, currentState.activeTurns);
         }
         dynamicEqState[stateKey] = { ...currentState, activeTurns: currentState.activeTurns + 1 };
+      }
+    }
+
+    // 2.5 FASE 20: Re-evaluate dynamic slot item rules — each turn the rule's
+    // conditions are re-checked against the owner's CURRENT attribute value and
+    // the matching conditions' effects are applied. The snapshot is updated so
+    // deactivation reverts the right effects.
+    const sessionId = stateAny.activeSessionId as string | undefined;
+    if (sessionId) {
+      const sessions = stateAny.sessions as Array<{ id: string; sessionEquipment?: SessionEquipmentEntry[] }>;
+      const session = sessions.find(s => s.id === sessionId);
+      const currentEquipment = session?.sessionEquipment || [];
+      const dynamicRuleEntries = currentEquipment.filter(
+        e => e.ruleState && e.ruleState.mode === 'dynamic'
+      );
+
+      if (dynamicRuleEntries.length > 0) {
+        const personasForRules: any[] = stateAny.personas || [];
+        const charactersForRules: any[] = stateAny.characters || [];
+        let rulesChanged = false;
+
+        const updatedEquipment = currentEquipment.map(eq => {
+          const rs = eq.ruleState;
+          if (!rs || rs.mode !== 'dynamic') return eq;
+
+          const rule = resolveRuleFromRuleState(personasForRules, charactersForRules, rs, eq.itemId);
+          if (!rule) return eq;
+
+          let attributeValue: number | string | null = null;
+          try {
+            attributeValue = stateAny.getAttributeValue?.(sessionId, rs.ownerStatId, rule.attributeKey) ?? null;
+          } catch {
+            attributeValue = null;
+          }
+
+          const matched = evaluateSlotItemRule(rule, attributeValue);
+          if (matched.length > 0) {
+            applySlotConditionEffects(stateAny, matched, rs.ownerStatId);
+          }
+
+          const newIds = matched.map(c => c.id);
+          const newEffects = matched.flatMap(c => c.effects || []);
+          const changed = newIds.join(',') !== rs.matchedConditionIds.join(',')
+            || newEffects.length !== (rs.appliedEffects?.length || 0);
+          if (changed) rulesChanged = true;
+
+          return {
+            ...eq,
+            ruleState: { ...rs, matchedConditionIds: newIds, appliedEffects: newEffects },
+          };
+        });
+
+        if (rulesChanged || dynamicRuleEntries.length > 0) {
+          stateAny.updateSession?.(sessionId, { sessionEquipment: updatedEquipment });
+        }
       }
     }
 
@@ -1046,6 +1378,17 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
         });
       }
 
+      // FASE 20: Deactivate slot item rules of expired consumables
+      // (revert fallbacks + queue the rule's end message as a user chat message)
+      for (const effect of expired) {
+        if (!effect.ruleState) continue;
+        const ruleEndMessage = deactivateSlotItemRule(stateAny, effect.ruleState, effect.itemId);
+        if (ruleEndMessage) {
+          expiredMessages.push(ruleEndMessage);
+          set({ pendingItemMessage: ruleEndMessage });
+        }
+      }
+
       // Apply fallback values directly to SessionStats for expired effects
       for (const effect of expired) {
         const item = get().getItemById(effect.itemId);
@@ -1087,6 +1430,10 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     // Find the effect before removing so we can reverse its attribute changes
     const effectToRemove = get().activeConsumableEffects.find(e => e.id === effectId);
     if (effectToRemove) {
+      // FASE 20: Deactivate the slot item rule (fallbacks + end message)
+      if (effectToRemove.ruleState) {
+        deactivateSlotItemRule(stateAny, effectToRemove.ruleState, effectToRemove.itemId);
+      }
       const item = get().getItemById(effectToRemove.itemId);
       if (item?.attributeEffects) {
         for (const ae of item.attributeEffects) {
@@ -1109,6 +1456,10 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     // Reverse all active consumable effects for this persona before clearing
     const effectsToClear = get().activeConsumableEffects.filter(e => e.personaId === personaId);
     for (const effect of effectsToClear) {
+      // FASE 20: Deactivate the slot item rule (fallbacks)
+      if (effect.ruleState) {
+        deactivateSlotItemRule(stateAny, effect.ruleState, effect.itemId);
+      }
       const item = get().getItemById(effect.itemId);
       if (item?.attributeEffects) {
         for (const ae of item.attributeEffects) {
@@ -1248,7 +1599,7 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
 
   executeEquipWithTarget: (personaId, itemId, targetOverrideId) => {
     const stateAny = get() as any;
-    const personas = stateAny.personas as Array<{ id: string; inventoryItems?: PersonaInventoryEntry[] }>;
+    const personas = stateAny.personas as Array<{ id: string; inventoryItems?: PersonaInventoryEntry[]; equipmentSlots?: EquipmentSlotDefinition[] }>;
     const persona = personas.find(p => p.id === personaId);
     if (!persona?.inventoryItems) return;
 
@@ -1259,7 +1610,7 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     if (!entry) return;
 
     // Determine slot for the item
-    const equipmentSlots = get().inventorySettings.equipmentSlots || [];
+    const equipmentSlots = persona.equipmentSlots || [];
     let targetSlotId = '';
     let targetSlotEffect = item.slotEffects?.[0];
 
@@ -1281,6 +1632,49 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
     // If this item uses a slot, unequip any existing item in that slot first
     let updatedItems = [...persona.inventoryItems];
     const dynamicEqStateUpdates: Record<string, DynamicEquipmentState | undefined> = {};
+
+    // FASE 20: Session equipment bookkeeping — deactivate rules of replaced
+    // items and register the new equipment entry (with rule state)
+    const sessionId = stateAny.activeSessionId as string | undefined;
+    let ruleActivation: { ruleState: ActiveSlotRuleState; activationMessage: string } | null = null;
+    let ruleEndMessage: string | null = null;
+    if (sessionId && targetSlotId) {
+      const sessions = stateAny.sessions as Array<{ id: string; sessionEquipment?: SessionEquipmentEntry[] }>;
+      const session = sessions.find(s => s.id === sessionId);
+      const currentEquipment = session?.sessionEquipment || [];
+
+      // Deactivate rules of items being replaced in this slot (or this item elsewhere)
+      for (const replaced of currentEquipment) {
+        if (!replaced.ruleState) continue;
+        const isReplaced = (replaced.equippedSlotId === targetSlotId && replaced.itemId !== itemId)
+          || (replaced.itemId === itemId);
+        if (!isReplaced) continue;
+        const replacedEndMessage = deactivateSlotItemRule(stateAny, replaced.ruleState, replaced.itemId);
+        if (replacedEndMessage) ruleEndMessage = replacedEndMessage;
+      }
+
+      // Activate the rule for the newly equipped item (target character first)
+      ruleActivation = activateSlotItemRule(stateAny, {
+        personaId,
+        itemId,
+        slotId: targetSlotId,
+        targetCharacterId: targetOverrideId,
+      });
+
+      const updatedEquipment = [
+        ...currentEquipment.filter(
+          e => e.equippedSlotId !== targetSlotId && e.itemId !== itemId
+        ),
+        {
+          itemId,
+          equippedSlotId: targetSlotId,
+          slotEffectText: targetSlotEffect?.effectText || undefined,
+          ruleState: ruleActivation?.ruleState,
+        } as SessionEquipmentEntry,
+      ];
+      stateAny.updateSession(sessionId, { sessionEquipment: updatedEquipment });
+    }
+
     if (targetSlotId) {
       updatedItems = updatedItems.map(e => {
         if (e.equipped && e.equippedSlotId === targetSlotId && e.itemId !== itemId) {
@@ -1378,11 +1772,18 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
       itemId: item.id,
       itemName: item.name,
       quantity: 1,
-      message,
+      message: ruleActivation?.activationMessage || ruleEndMessage || message,
     });
 
-    // Queue message for chat injection
-    if (item.useMessage) {
+    // Queue message for chat injection.
+    // FASE 20: the new rule's activation message takes precedence; if a
+    // replaced item's rule produced an end message and no activation message
+    // exists, queue the end message instead.
+    if (ruleActivation?.activationMessage) {
+      set({ pendingItemMessage: resolveSlotKeyInMessage(ruleActivation.activationMessage, targetSlotId || undefined, equipmentSlots) });
+    } else if (ruleEndMessage) {
+      set({ pendingItemMessage: resolveSlotKeyInMessage(ruleEndMessage, targetSlotId || undefined, equipmentSlots) });
+    } else if (item.useMessage) {
       set({ pendingItemMessage: resolveSlotKeyInMessage(item.useMessage, targetSlotId || undefined, equipmentSlots) });
     }
   },
@@ -1431,6 +1832,17 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
       appliedAt: new Date().toISOString(),
     };
 
+    // FASE 20: Activate the slot item rule (any-slot resolution, target character first)
+    const ruleActivation = activateSlotItemRule(stateAny, {
+      personaId,
+      itemId,
+      targetCharacterId: targetOverrideId,
+      anySlot: true,
+    });
+    if (ruleActivation) {
+      effect.ruleState = ruleActivation.ruleState;
+    }
+
     set((state) => ({
       activeConsumableEffects: [...state.activeConsumableEffects, effect],
       pendingEquipAction: null,
@@ -1462,109 +1874,36 @@ export const createInventorySlice: StateCreator<InventorySlice, [], [], Inventor
       itemId: item.id,
       itemName: item.name,
       quantity: 1,
-      message,
+      message: ruleActivation?.activationMessage || message,
     });
 
-    // Queue message for chat injection AFTER attribute change
-    if (item.useMessage) {
+    // Queue message for chat injection AFTER attribute change.
+    // FASE 20: the rule's activation message takes precedence.
+    if (ruleActivation?.activationMessage) {
+      set({ pendingItemMessage: ruleActivation.activationMessage });
+    } else if (item.useMessage) {
       set({ pendingItemMessage: item.useMessage });
     }
   },
 
   // ===== Utility =====
-  // ===== Equipment Slots Actions =====
-  addEquipmentSlot: (slotData) => {
-    const newSlot: EquipmentSlotDefinition = {
-      id: generateId('slot'),
-      ...slotData,
-    };
-    set((state) => ({
-      inventorySettings: {
-        ...state.inventorySettings,
-        equipmentSlots: [...(state.inventorySettings.equipmentSlots || []), newSlot],
-      },
-    }));
-    // Initialize the slot value as empty text attribute on the persona's session stats
-    const stateAny = get() as any;
-    const sessionId = stateAny.activeSessionId as string | undefined;
-    if (sessionId) {
-      stateAny.updateCharacterStat?.(sessionId, '__user__', newSlot.key, '', 'text');
-    }
-    return newSlot;
-  },
+  // ===== Equipment Slots Resolution (per persona / per character) =====
+  // (Global slot management actions were removed — slots live in Persona/Character config)
 
-  updateEquipmentSlot: (id, updates) => set((state) => ({
-    inventorySettings: {
-      ...state.inventorySettings,
-      equipmentSlots: (state.inventorySettings.equipmentSlots || []).map(s =>
-        s.id === id ? { ...s, ...updates } : s
-      ),
-    },
-  })),
-
-  deleteEquipmentSlot: (id) => {
-    // Find the slot before deleting so we can clean up its value
-    const slotToDelete = get().inventorySettings.equipmentSlots?.find(s => s.id === id);
-    set((state) => ({
-      inventorySettings: {
-        ...state.inventorySettings,
-        equipmentSlots: (state.inventorySettings.equipmentSlots || []).filter(s => s.id !== id),
-      },
-    }));
-    // Also clean up any slotEffects on items that reference this slot
-    const items = get().items;
-    for (const item of items) {
-      if (item.slotEffects?.some(se => se.slotId === id)) {
-        get().updateItem(item.id, {
-          slotEffects: item.slotEffects.filter(se => se.slotId !== id),
-        });
-      }
-    }
-    // Remove the slot value from persona's session stats
-    if (slotToDelete?.key) {
-      const stateAny = get() as any;
-      const sessionId = stateAny.activeSessionId as string | undefined;
-      if (sessionId) {
-        const sessionStats = stateAny.sessionStats as any;
-        if (sessionStats?.characterStats?.['__user__']?.attributeValues) {
-          delete sessionStats.characterStats['__user__'].attributeValues[slotToDelete.key];
-          // Trigger re-render
-          stateAny.setSessionStats?.(sessionId, { ...sessionStats });
-        }
-      }
-    }
-  },
-
-  getEquipmentSlotById: (id) => {
-    return get().inventorySettings.equipmentSlots?.find(s => s.id === id);
-  },
-
-  getEquipmentSlots: () => {
-    return get().inventorySettings.equipmentSlots || [];
-  },
-
-  // FASE 19: Per-character equipment slots with fallback to global
   getEquipmentSlotsForCharacter: (characterId?: string) => {
-    if (characterId) {
-      const characters = (get() as any).characters || [];
-      const character = characters.find((c: any) => c.id === characterId);
-      if (character?.equipmentSlots && character.equipmentSlots.length > 0) {
-        return character.equipmentSlots;
-      }
-    }
-    // Fallback to global
-    return get().inventorySettings.equipmentSlots || [];
+    if (!characterId) return [];
+    const characters = (get() as any).characters || [];
+    const character = characters.find((c: any) => c.id === characterId);
+    return character?.equipmentSlots || [];
   },
 
-  getEquipmentSlotsForPersona: () => {
-    const personas = (get() as any).personas || [];
-    const activePersonaId = (get() as any).activePersonaId;
-    const persona = personas.find((p: any) => p.id === activePersonaId);
-    if (persona?.equipmentSlots && persona.equipmentSlots.length > 0) {
-      return persona.equipmentSlots;
-    }
-    // Fallback to global
-    return get().inventorySettings.equipmentSlots || [];
+  getEquipmentSlotsForPersona: (personaId?: string) => {
+    const stateAny = get() as any;
+    const targetId = personaId || stateAny.activePersonaId;
+    if (!targetId) return [];
+    const personas = stateAny.personas || [];
+    const persona = personas.find((p: any) => p.id === targetId);
+    return persona?.equipmentSlots || [];
   },
 
   getSlotDefinitionsForCharacter: (characterId?: string) => {

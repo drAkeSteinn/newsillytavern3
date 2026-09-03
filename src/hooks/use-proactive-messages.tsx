@@ -679,6 +679,8 @@ export function useProactiveMessages({
                             if (!currentLLMConfig) return;
 
                             // Build chat context for context-aware extraction
+                            // Labels use the persona's real name (not "Jugador") so extracted
+                            // memories reference the user by name ({{user}} personalization)
                             const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth || 0;
                             let chatContextForExtraction: string | undefined;
                             if (extractionContextDepth > 0) {
@@ -688,7 +690,7 @@ export function useProactiveMessages({
                               if (contextMessages.length > 0) {
                                 chatContextForExtraction = contextMessages
                                   .map(m => {
-                                    const role = m.role === 'user' ? 'Jugador' : extractionCharacterName;
+                                    const role = m.role === 'user' ? personaName : extractionCharacterName;
                                     const content = m.content.trim().slice(0, 300);
                                     return `${role}: ${content}`;
                                   })

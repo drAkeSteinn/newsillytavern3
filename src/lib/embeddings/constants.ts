@@ -13,6 +13,11 @@ export const DEFAULT_EMBEDDINGS_CHAT = {
   // enabling the full memory extraction pipeline.
   knowledgeSearchEnabled: true,
   maxTokenBudget: 1024,
+  // Max memories retrieved per search and injected as [MEMORIA RELEVANTE]
+  memoryMaxResults: 5,
+  // Max Character Memory events injected into the prompt in one request
+  // (ranked by importance + recency; the rest are omitted)
+  memoryMaxEventsInPrompt: 20,
   namespaceStrategy: 'character' as const,
   showInPromptViewer: true,
   // Memory extraction settings

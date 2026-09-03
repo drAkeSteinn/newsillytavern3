@@ -39,6 +39,23 @@ import {
   type WorldClock,
 } from '@/lib/world/time';
 
+/**
+ * Equipment slots are now owned by the active persona (global slots were removed).
+ * Resolves the persona's slots safely from a stats-slice state object.
+ */
+function getPersonaEquipmentSlots(state: unknown): Array<{ key: string }> {
+  try {
+    const s = state as {
+      personas?: Array<{ id?: string; equipmentSlots?: Array<{ key: string }> }>;
+      activePersonaId?: string;
+    };
+    const persona = s.personas?.find(p => p.id === s.activePersonaId);
+    return persona?.equipmentSlots || [];
+  } catch {
+    return [];
+  }
+}
+
 // ============================================
 // Types
 // ============================================
@@ -444,7 +461,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       let newStats = createDefaultCharacterStats(statsConfig);
       // For persona (__user__), also initialize equipment slot values
       if (characterId === '__user__') {
-        const equipmentSlots = (state as any).inventorySettings?.equipmentSlots;
+        const equipmentSlots = getPersonaEquipmentSlots(state);
         if (equipmentSlots && equipmentSlots.length > 0) {
           for (const slot of equipmentSlots) {
             if (!(slot.key in newStats.attributeValues)) {
@@ -691,7 +708,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
         let autoStats = createDefaultCharacterStats(statsConfig);
         // For persona (__user__), also initialize equipment slot values
         if (characterId === '__user__') {
-          const equipmentSlots = (state as any).inventorySettings?.equipmentSlots;
+          const equipmentSlots = getPersonaEquipmentSlots(state);
           if (equipmentSlots && equipmentSlots.length > 0) {
             for (const slot of equipmentSlots) {
               if (!(slot.key in autoStats.attributeValues)) {
@@ -816,7 +833,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       const newStats = createDefaultCharacterStats(statsConfig || character?.statsConfig);
       // For persona (__user__), also initialize equipment slot values
       if (characterId === '__user__') {
-        const equipmentSlots = (state as any).inventorySettings?.equipmentSlots;
+        const equipmentSlots = getPersonaEquipmentSlots(state);
         if (equipmentSlots && equipmentSlots.length > 0) {
           for (const slot of equipmentSlots) {
             if (!(slot.key in newStats.attributeValues)) {

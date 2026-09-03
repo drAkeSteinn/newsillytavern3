@@ -106,16 +106,24 @@ export function estimateTotalTokens(messages: ChatMessage[]): number {
 
 /**
  * Applies sliding window to messages
- * Keeps first N and last N messages, excludes middle if needed
+ * Keeps first N and last N messages, excludes middle if needed.
+ *
+ * `maxMessages` is a HARD CAP on the total number of messages returned:
+ * if `keepFirstN + keepLastN` exceeds it, recent messages take priority
+ * and the values are clamped so the total never goes over the limit.
+ * The minimum effective window is 2 messages.
  */
 export function applySlidingWindow(
   messages: ChatMessage[],
   config: ContextConfig = DEFAULT_CONTEXT_CONFIG
 ): ContextWindow {
   const totalMessages = messages.length;
-  
+
+  // Hard cap: at least 2 messages (a conversation needs user + character)
+  const hardCap = Math.max(2, Math.floor(config.maxMessages));
+
   // If under limit, return all
-  if (totalMessages <= config.maxMessages) {
+  if (totalMessages <= hardCap) {
     return {
       messages,
       totalMessages,
@@ -123,27 +131,36 @@ export function applySlidingWindow(
       estimatedTokens: estimateTotalTokens(messages)
     };
   }
-  
-  // Calculate how many to exclude
-  const toExclude = totalMessages - config.maxMessages;
-  
+
+  // Clamp keepFirstN/keepLastN so their sum never exceeds the hard cap.
+  // Recent messages have priority — the greeting is only kept if there is room.
+  let keepFirst = Math.max(0, Math.min(config.keepFirstN, Math.floor(hardCap / 2)));
+  let keepLast = Math.max(1, config.keepLastN);
+  if (keepFirst + keepLast > hardCap) {
+    keepLast = hardCap - keepFirst;
+    if (keepLast < 1) {
+      keepLast = 1;
+      keepFirst = hardCap - 1;
+    }
+  }
+
   // Keep first N messages (usually greeting)
-  const firstPart = messages.slice(0, config.keepFirstN);
-  
+  const firstPart = messages.slice(0, keepFirst);
+
   // Keep last N messages
-  const lastPart = messages.slice(-config.keepLastN);
-  
+  const lastPart = messages.slice(-keepLast);
+
   // Calculate middle section
-  const middleStart = config.keepFirstN;
-  const middleEnd = totalMessages - config.keepLastN;
+  const middleStart = keepFirst;
+  const middleEnd = totalMessages - keepLast;
   const middleMessages = messages.slice(middleStart, middleEnd);
-  
+
   // How many middle messages we can include
-  const middleBudget = config.maxMessages - config.keepFirstN - config.keepLastN;
-  
+  const middleBudget = hardCap - keepFirst - keepLast;
+
   let includedMiddle: ChatMessage[] = [];
   let excludedCount = 0;
-  
+
   if (middleBudget > 0 && middleMessages.length > 0) {
     // Include most recent middle messages
     includedMiddle = middleMessages.slice(-middleBudget);
@@ -151,13 +168,13 @@ export function applySlidingWindow(
   } else {
     excludedCount = middleMessages.length;
   }
-  
+
   const result = [...firstPart, ...includedMiddle, ...lastPart];
-  
+
   return {
     messages: result,
     totalMessages,
-    excludedCount,
+    excludedCount: totalMessages - result.length,
     estimatedTokens: estimateTotalTokens(result)
   };
 }

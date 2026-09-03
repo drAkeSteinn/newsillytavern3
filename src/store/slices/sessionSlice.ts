@@ -665,7 +665,8 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
     }
 
     // Also add persona's stats as __user__ entry
-    const equipmentSlots = (get() as any).inventorySettings?.equipmentSlots as EquipmentSlotDefinition[] | undefined;
+    // (slots come from the persona itself — global slots were removed)
+    const equipmentSlots = activePersona?.equipmentSlots as EquipmentSlotDefinition[] | undefined;
     if (activePersona?.statsConfig?.enabled && activePersona.statsConfig.attributes?.length > 0) {
       let personaStats = createDefaultCharacterStats(activePersona.statsConfig);
       personaStats = addEquipmentSlotsToPersonaStats(personaStats, equipmentSlots);
@@ -950,7 +951,7 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
 
     // Also add persona's stats as __user__ entry
     const resetActivePersona = get().getActivePersona?.();
-    const resetEquipmentSlots = (get() as any).inventorySettings?.equipmentSlots as EquipmentSlotDefinition[] | undefined;
+    const resetEquipmentSlots = resetActivePersona?.equipmentSlots as EquipmentSlotDefinition[] | undefined;
     if (resetActivePersona?.statsConfig?.enabled && resetActivePersona.statsConfig.attributes?.length > 0) {
       let personaStats = createDefaultCharacterStats(resetActivePersona.statsConfig);
       personaStats = addEquipmentSlotsToPersonaStats(personaStats, resetEquipmentSlots);
@@ -1046,7 +1047,7 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
     let newSessionStats = initializeSessionStatsForCharacters(characters);
 
     // Also add persona's stats as __user__ entry
-    const clearEquipmentSlots = (get() as any).inventorySettings?.equipmentSlots as EquipmentSlotDefinition[] | undefined;
+    const clearEquipmentSlots = activePersona?.equipmentSlots as EquipmentSlotDefinition[] | undefined;
     if (activePersona?.statsConfig?.enabled && activePersona.statsConfig.attributes?.length > 0) {
       let personaStats = createDefaultCharacterStats(activePersona.statsConfig);
       personaStats = addEquipmentSlotsToPersonaStats(personaStats, clearEquipmentSlots);

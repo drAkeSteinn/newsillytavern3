@@ -26,6 +26,7 @@ Reglas estrictas:
 - Ignora información que ya es conocimiento general del personaje
 - Cada hecho debe ser una FRASE concisa (máximo 50 palabras) en tercera persona
 - Usa el contexto de la conversación para entender referencias implícitas (nombres, lugares, eventos mencionados anteriormente)
+- IMPORTANTE: NUNCA escribas "el jugador", "la jugadora", "el usuario" o "la usuaria" en los hechos. Usa SIEMPRE el nombre real del usuario: {userName}. Ejemplo correcto: "{userName} le debe dinero a Claudec". Ejemplo incorrecto: "El jugador le debe dinero a Claudec"
 - Para cada hecho, indica quién es el sujeto: "usuario" si el hecho es sobre el jugador/usuario ({userName}), "personaje" si es sobre {characterName} mismo, o "otro" si es sobre otra persona o entidad
 - Para cada hecho, indica si es "episodica" (true/false): true si es un EVENTO ESPECÍFICO que ocurrió ("encontró un mapa", "dijo X", "peleó con Y"), false si es un HECHO GENERAL ("le gusta el anime", "es tímido", "vive en la costa")
 - Si NO hay nada memorable, responde EXACTAMENTE: []
@@ -67,33 +68,34 @@ Nombre del usuario: {userName}
  * Optimized to capture facts the player shares about themselves.
  * Variables: {userName}, {lastMessage}
  */
-export const DEFAULT_USER_MEMORY_EXTRACTION_PROMPT = `Eres un analista de memoria para un personaje de rol. Tu ÚNICA tarea es extraer hechos memorables del mensaje del JUGADOR.
+export const DEFAULT_USER_MEMORY_EXTRACTION_PROMPT = `Eres un analista de memoria para un personaje de rol. Tu ÚNICA tarea es extraer hechos memorables del mensaje del usuario ({userName}).
 
 Reglas estrictas:
-- Solo extrae información NUEVA y RELEVANTE sobre el jugador: su nombre, preferencias, gustos, disgustos, datos personales, intenciones, secretos revelados
-- También extrae hechos sobre el mundo que el jugador menciona (lugares, eventos, otros personajes)
+- Solo extrae información NUEVA y RELEVANTE sobre el usuario: su nombre, preferencias, gustos, disgustos, datos personales, intenciones, secretos revelados
+- También extrae hechos sobre el mundo que el usuario menciona (lugares, eventos, otros personajes)
 - Ignora saludos, acciones rutinarias y respuestas cortas sin información
 - Cada hecho debe ser una FRASE concisa (máximo 50 palabras) en tercera persona
-- El SUJETO de la memoria debe ser "usuario" si es sobre el jugador, u "otro" si es sobre algo más
+- IMPORTANTE: NUNCA escribas "el jugador", "la jugadora", "el usuario" o "la usuaria" en los hechos. Usa SIEMPRE el nombre real del usuario: {userName}
+- El SUJETO de la memoria debe ser "usuario" si es sobre el usuario, u "otro" si es sobre algo más
 - Si NO hay nada memorable, responde EXACTAMENTE: []
 
 Responde SOLO con un JSON array, sin explicaciones, sin markdown, sin texto adicional.
 
 Ejemplos:
 
-Mensaje del jugador:
-"Me llamo Carlos y me gustan los gatos, aunque le tengo miedo a las arañas"
+Mensaje del usuario (se llama {userName}):
+"Me gustan los gatos, aunque le tengo miedo a las arañas"
 Respuesta correcta:
-[{"contenido":"El jugador se llama Carlos","tipo":"hecho","importancia":3,"sujeto":"usuario"},{"contenido":"Al jugador le gustan los gatos","tipo":"preferencia","importancia":2,"sujeto":"usuario"},{"contenido":"El jugador le tiene miedo a las arañas","tipo":"hecho","importancia":2,"sujeto":"usuario"}]
+[{"contenido":"A {userName} le gustan los gatos","tipo":"preferencia","importancia":2,"sujeto":"usuario"},{"contenido":"{userName} le tiene miedo a las arañas","tipo":"hecho","importancia":2,"sujeto":"usuario"}]
 
-Mensaje del jugador:
+Mensaje del usuario:
 "Sí, claro"
 Respuesta correcta:
 []
 
-Ahora analiza este mensaje del jugador:
+Ahora analiza este mensaje del usuario:
 
-Nombre del jugador: {userName}
+Nombre del usuario: {userName}
 {lastMessage}`;
 
 /**
@@ -110,6 +112,7 @@ Reglas estrictas:
 - Ignora saludos, descripciones genéricas, acciones rutinarias y narrativa decorativa
 - Ignora información que ya es conocimiento general del personaje
 - Cada hecho debe ser una FRASE concisa (máximo 50 palabras) en tercera persona que incluya nombres específicos cuando sea relevante
+- IMPORTANTE: NUNCA escribas "el jugador", "la jugadora", "el usuario" o "la usuaria" en los hechos. Usa SIEMPRE el nombre real del usuario: {userName}
 - Para cada hecho, indica quién es el sujeto: "usuario" si el hecho es sobre el jugador/usuario ({userName}), "personaje" si es sobre {characterName} mismo, o "otro" si es sobre otro personaje del grupo o entidad mencionada
 - Si NO hay nada memorable, responde EXACTAMENTE: []
 
@@ -162,6 +165,7 @@ Reglas estrictas:
 - Ignora saludos, acciones rutinarias y narrativa decorativa
 - Cada hecho debe ser una FRASE concisa (máximo 50 palabras) en tercera persona
 - Usa el nombre real de los personajes, no "el personaje"
+- IMPORTANTE: NUNCA escribas "el jugador", "la jugadora", "el usuario" o "la usuaria" en los hechos. Usa SIEMPRE el nombre real del usuario si lo conoces por el contexto
 - Para cada hecho, indica el sujeto: "otro" (sobre interacciones entre personajes), "usuario" (sobre el jugador), o "personaje" (sobre el personaje principal)
 - Si NO hay nada memorable sobre dinámicas grupales, responde EXACTAMENTE: []
 
