@@ -23,6 +23,66 @@
   "questNotifications": [
     {
       "questId": "mision-boca-vacia",
+      "questName": "Seduccion",
+      "type": "objective_complete",
+      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
+      "id": "notif-1789095064810-pyys6nrdv",
+      "timestamp": "2026-09-11T02:51:04.810Z",
+      "read": true,
+      "dedupHash": "mision-boca-vacia::objective_complete"
+    },
+    {
+      "questId": "mision-boca-vacia",
+      "questName": "Seduccion",
+      "type": "objective_complete",
+      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
+      "id": "notif-1789048599595-lzjpvr275",
+      "timestamp": "2026-09-10T13:56:39.595Z",
+      "read": true,
+      "dedupHash": "mision-boca-vacia::objective_complete"
+    },
+    {
+      "questId": "mision-boca-vacia",
+      "questName": "Seduccion",
+      "type": "objective_complete",
+      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
+      "id": "notif-1789046801534-v11sz1r2t",
+      "timestamp": "2026-09-10T13:26:41.534Z",
+      "read": true,
+      "dedupHash": "mision-boca-vacia::objective_complete"
+    },
+    {
+      "questId": "mision-boca-vacia",
+      "questName": "Seduccion",
+      "type": "objective_complete",
+      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
+      "id": "notif-1789046268913-02kq0pjml",
+      "timestamp": "2026-09-10T13:17:48.913Z",
+      "read": true,
+      "dedupHash": "mision-boca-vacia::objective_complete"
+    },
+    {
+      "questId": "mision-boca-vacia",
+      "questName": "Seduccion",
+      "type": "objective_complete",
+      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
+      "id": "notif-1789046198696-rj777dagn",
+      "timestamp": "2026-09-10T13:16:38.696Z",
+      "read": true,
+      "dedupHash": "mision-boca-vacia::objective_complete"
+    },
+    {
+      "questId": "mision-boca-vacia",
+      "questName": "Seduccion",
+      "type": "objective_complete",
+      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
+      "id": "notif-1789045396468-4w060jazz",
+      "timestamp": "2026-09-10T13:03:16.468Z",
+      "read": true,
+      "dedupHash": "mision-boca-vacia::objective_complete"
+    },
+    {
+      "questId": "mision-boca-vacia",
       "questTitle": "Seduccion",
       "type": "objective_complete",
       "message": "Objetivo completado: Poner la verga erecta usando alguna accion o habilidad en {{user}} ",
@@ -448,60 +508,6 @@
       "message": "¡Nueva misión activada: Ponerla Bien Dura!",
       "id": "notif-1777347717597-q4qzh9rj0",
       "timestamp": "2026-04-28T03:41:57.597Z",
-      "read": true
-    },
-    {
-      "questId": "mision-boca-vacia",
-      "questTitle": "Boca Vacía",
-      "type": "objective_complete",
-      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
-      "id": "notif-1777347717559-0pvrywrvh",
-      "timestamp": "2026-04-28T03:41:57.559Z",
-      "read": true
-    },
-    {
-      "questId": "mision-poner-dura",
-      "questTitle": "Ponerla Bien Dura",
-      "type": "quest_activated",
-      "message": "¡Nueva misión activada: Ponerla Bien Dura!",
-      "id": "notif-1777261475436-t66aewdt6",
-      "timestamp": "2026-04-27T03:44:35.436Z",
-      "read": true
-    },
-    {
-      "questId": "mision-boca-vacia",
-      "questTitle": "Boca Vacía",
-      "type": "objective_complete",
-      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
-      "id": "notif-1777261475391-pd4556ysh",
-      "timestamp": "2026-04-27T03:44:35.391Z",
-      "read": true
-    },
-    {
-      "questId": "mision-poner-dura",
-      "questTitle": "Ponerla Bien Dura",
-      "type": "quest_activated",
-      "message": "¡Nueva misión activada: Ponerla Bien Dura!",
-      "id": "notif-1777259172559-7cyqqght1",
-      "timestamp": "2026-04-27T03:06:12.559Z",
-      "read": true
-    },
-    {
-      "questId": "mision-boca-vacia",
-      "questTitle": "Boca Vacía",
-      "type": "objective_complete",
-      "message": "Objetivo completado: Sacar la verga de {{user}} del pantalón",
-      "id": "notif-1777259172519-2km42qvi3",
-      "timestamp": "2026-04-27T03:06:12.520Z",
-      "read": true
-    },
-    {
-      "questId": "mision-poner-dura",
-      "questTitle": "Ponerla Bien Dura",
-      "type": "objective_complete",
-      "message": "Objetivo completado: Lamer los huevos de {{user}} para poder estimular la erección, escupe la verga para lubricarla, masajeala para prepararla.",
-      "id": "notif-1777258816212-29muiwvwd",
-      "timestamp": "2026-04-27T03:00:16.212Z",
       "read": true
     }
   ]

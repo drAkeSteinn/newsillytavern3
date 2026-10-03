@@ -903,51 +903,12 @@ export function useTriggerSystem(config: TriggerSystemConfig = {}): TriggerSyste
                 }
               }
               
-              // Execute threshold effects (when attribute reaches min/max)
+              // NOTE: threshold effect rewards are executed INSIDE updateCharacterStat
+              // (statsSlice) since that refactor — every stat-changing path executes
+              // them exactly once. Executing them here again would double-fire
+              // (skills already call updateCharacterStat for their costs).
               if (executeResult.thresholdsReached.length > 0) {
-                console.log(`[TriggerSystem] Executing ${executeResult.thresholdsReached.length} threshold effects`);
-                for (const threshold of executeResult.thresholdsReached) {
-                  for (const reward of threshold.rewards) {
-                    try {
-                      executeReward(reward, {
-                        sessionId,
-                        characterId: character.id,
-                        character,
-                        allCharacters: allCharactersWithPersona,
-                        sessionStats: activeSession?.sessionStats,
-                        timestamp: Date.now(),
-                        soundCollections: store.soundCollections,
-                        soundTriggers: store.soundTriggers,
-                        backgroundPacks: store.backgroundTriggerPacks,
-                        soundSettings: {
-                          enabled: settings.sound?.enabled ?? false,
-                          globalVolume: settings.sound?.globalVolume ?? 0.85,
-                        },
-                        backgroundSettings: {
-                          transitionDuration: settings.backgroundTriggers?.transitionDuration ?? 500,
-                          defaultTransitionType: settings.backgroundTriggers?.defaultTransitionType ?? 'fade',
-                        },
-                      }, {
-                        updateCharacterStat: store.updateCharacterStat.bind(store),
-                        applyTriggerForCharacter: store.applyTriggerForCharacter?.bind(store),
-                        scheduleReturnToIdleForCharacter: store.scheduleReturnToIdleForCharacter?.bind(store),
-                        isSpriteLocked: store.isSpriteLocked?.bind(store),
-                        playSound: store.playSound?.bind(store),
-                        setBackground: store.setBackground?.bind(store),
-                        setActiveOverlays: store.setActiveOverlays?.bind(store),
-                        completeQuestObjective: completeQuestObjectiveByKey,
-                        completeSolicitud: store.completeSolicitud?.bind(store),
-                        getSessionQuests: (sid: string) => {
-                          const s = store.sessions?.find((session: any) => session.id === sid);
-                          return s?.sessionQuests || [];
-                        },
-                      });
-                      console.log(`[TriggerSystem] Executed threshold effect for ${threshold.attributeName}`);
-                    } catch (err) {
-                      console.error(`[TriggerSystem] Failed to execute threshold effect:`, err);
-                    }
-                  }
-                }
+                console.log(`[TriggerSystem] ${executeResult.thresholdsReached.length} threshold effect(s) reached (rewards handled by statsSlice)`);
               }
               } // end else (requirements met — execute rewards and thresholds)
             }

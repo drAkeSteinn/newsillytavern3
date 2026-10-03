@@ -9,6 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -38,6 +39,11 @@ import {
   Timer,
   GripVertical,
   Filter,
+  Shirt,
+  MapPin,
+  GitBranch,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -63,6 +69,9 @@ import type {
   QuickReplyModifierOperation,
   QuickReplySpriteActivation,
   QuickReplySpriteFallbackMode,
+  QuickReplyUmbral,
+  QuickReplyWardrobeAction,
+  QuickReplyScenarioAction,
   AttributeDefinition,
   CharacterStatsConfig,
   SpritePackV2,
@@ -70,9 +79,9 @@ import type {
   StatRequirement,
   RequirementOperator,
   GroupQuickReply,
-  ThresholdEffect,
+  WardrobeConfig,
+  ScenarioConfig,
 } from '@/types';
-import { ThresholdEffectDialog } from './stats-editor';
 
 // ============================================
 // Numeric and Text operator options (same as stats-editor)
@@ -377,6 +386,10 @@ interface QuickRepliesPanelProps {
   spritePacksV2?: SpritePackV2[];
   /** Available trigger collections for sprite activation */
   triggerCollections?: TriggerCollection[];
+  /** Character's wardrobe (Guardarropa V2) for the wardrobe-change effect */
+  wardrobeConfig?: WardrobeConfig;
+  /** Character's scenario (ESCENARIO V2) for the location-change effect */
+  scenarioConfig?: ScenarioConfig;
   /** Available target characters for cross-character conditions (group mode) */
   availableTargets?: { id: string; name: string; attributes: AttributeDefinition[] }[];
   onChange: (quickReplies: CharacterQuickReply[]) => void;
@@ -400,6 +413,8 @@ export function QuickRepliesPanel({
   statsConfig,
   spritePacksV2,
   triggerCollections,
+  wardrobeConfig,
+  scenarioConfig,
   availableTargets,
   onChange,
 }: QuickRepliesPanelProps) {
@@ -433,40 +448,71 @@ export function QuickRepliesPanel({
   // State for sprite activation in editing reply
   const [editSpriteActivation, setEditSpriteActivation] = useState<QuickReplySpriteActivation | undefined>(undefined);
 
-  // FASE 18: Threshold effects state for editing
-  const [editThresholdEffects, setEditThresholdEffects] = useState<ThresholdEffect[]>([]);
-  const [editingThresholdEffect, setEditingThresholdEffect] = useState<ThresholdEffect | null>(null);
-  const [thresholdDialogOpen, setThresholdDialogOpen] = useState(false);
+  // Umbral (conditional messages) state for new/editing reply
+  const [newUmbrales, setNewUmbrales] = useState<QuickReplyUmbral[]>([]);
+  const [editUmbrales, setEditUmbrales] = useState<QuickReplyUmbral[]>([]);
 
-  // State for expanded threshold effects section
-  const [expandedThresholdEffects, setExpandedThresholdEffects] = useState<string | null>(null);
+  // Wardrobe action state for new/editing reply
+  const [newWardrobeAction, setNewWardrobeAction] = useState<QuickReplyWardrobeAction | undefined>(undefined);
+  const [editWardrobeAction, setEditWardrobeAction] = useState<QuickReplyWardrobeAction | undefined>(undefined);
+
+  // Scenario action state for new/editing reply (ESCENARIO V2)
+  const [newScenarioAction, setNewScenarioAction] = useState<QuickReplyScenarioAction | undefined>(undefined);
+  const [editScenarioAction, setEditScenarioAction] = useState<QuickReplyScenarioAction | undefined>(undefined);
+
+  // State for expanded umbral / wardrobe / scenario sections
+  const [expandedUmbral, setExpandedUmbral] = useState<string | null>(null);
+  const [expandedWardrobe, setExpandedWardrobe] = useState<string | null>(null);
+  const [expandedScenario, setExpandedScenario] = useState<string | null>(null);
 
   // State for expanded sprite activation section
   const [expandedSpriteActivation, setExpandedSpriteActivation] = useState<string | null>(null);
 
   // Whether sprite activation is available (has packs or collections)
-  const hasSpriteOptions = (spritePacksV2 && spritePacksV2.length > 0) || (triggerCollections && triggerCollections.length > 0);
+  const hasSpriteOptions = !!((spritePacksV2 && spritePacksV2.length > 0) || (triggerCollections && triggerCollections.length > 0));
+
+  // Whether the wardrobe effect is available (wardrobe enabled with at least 1 outfit)
+  const hasWardrobeOptions = !!(wardrobeConfig?.enabled && wardrobeConfig.outfits && wardrobeConfig.outfits.length > 0);
+
+  // Whether the scenario effect is available (scenario enabled with at least 1 location)
+  const hasScenarioOptions = !!(scenarioConfig?.enabled && scenarioConfig.locations && scenarioConfig.locations.length > 0);
 
   const isAdding = newLabel.trim() && newResponse.trim();
 
   const handleAdd = () => {
     if (!isAdding) return;
+    // Only keep umbrales that can actually fire (conditions + message)
+    const validNewUmbrales = newUmbrales.filter(u => u.conditions.length > 0 && u.message.trim());
+    // Only keep a wardrobe action that is fully configured
+    const validNewWardrobe = newWardrobeAction && (newWardrobeAction.action === 'remove' || newWardrobeAction.outfitId)
+      ? newWardrobeAction
+      : undefined;
+    // Only keep a scenario action that is fully configured (ESCENARIO V2)
+    const validNewScenario = newScenarioAction && newScenarioAction.locationId
+      ? newScenarioAction
+      : undefined;
     const newReply: CharacterQuickReply = {
       id: generateId(),
       label: newLabel.trim(),
       response: newResponse.trim(),
       modifiers: newModifiers.length > 0 ? newModifiers : undefined,
       spriteActivation: newSpriteActivation,
+      wardrobeAction: validNewWardrobe,
+      scenarioAction: validNewScenario,
       requirements: newRequirements.length > 0 ? newRequirements : undefined,
       requirementOperator: newRequirements.length > 1 ? newRequirementOperator : undefined,
+      umbrales: validNewUmbrales.length > 0 ? validNewUmbrales : undefined,
     };
     onChange([...replies, newReply]);
     setNewLabel('');
     setNewResponse('');
     setNewModifiers([]);
     setNewSpriteActivation(undefined);
+    setNewWardrobeAction(undefined);
+    setNewScenarioAction(undefined);
     setNewRequirements([]);
     setNewRequirementOperator('AND');
+    setNewUmbrales([]);
   };
 
   const handleDelete = (id: string) => {
@@ -479,14 +525,22 @@ export function QuickRepliesPanel({
     setEditResponse(reply.response);
     setEditModifiers(reply.modifiers ? [...reply.modifiers] : []);
     setEditSpriteActivation(reply.spriteActivation ? { ...reply.spriteActivation } : undefined);
+    setEditWardrobeAction(reply.wardrobeAction ? { ...reply.wardrobeAction } : undefined);
+    setEditScenarioAction(reply.scenarioAction ? { ...reply.scenarioAction } : undefined);
     setEditRequirements(reply.requirements ? reply.requirements.map(r => ({ ...r })) : []);
     setEditRequirementOperator(reply.requirementOperator || 'AND');
-    // FASE 18: Load threshold effects
-    setEditThresholdEffects(reply.thresholdEffects ? reply.thresholdEffects.map(e => ({ ...e })) : []);
+    setEditUmbrales(reply.umbrales ? reply.umbrales.map(u => ({ ...u, conditions: u.conditions.map(c => ({ ...c })) })) : []);
   };
 
   const handleSaveEdit = () => {
     if (!editingId || !editLabel.trim() || !editResponse.trim()) return;
+    const validEditUmbrales = editUmbrales.filter(u => u.conditions.length > 0 && u.message.trim());
+    const validEditWardrobe = editWardrobeAction && (editWardrobeAction.action === 'remove' || editWardrobeAction.outfitId)
+      ? editWardrobeAction
+      : undefined;
+    const validEditScenario = editScenarioAction && editScenarioAction.locationId
+      ? editScenarioAction
+      : undefined;
     onChange(
       replies.map((r) =>
         r.id === editingId
@@ -496,9 +550,11 @@ export function QuickRepliesPanel({
               response: editResponse.trim(),
               modifiers: editModifiers.length > 0 ? editModifiers : undefined,
               spriteActivation: editSpriteActivation,
+              wardrobeAction: validEditWardrobe,
+              scenarioAction: validEditScenario,
               requirements: editRequirements.length > 0 ? editRequirements : undefined,
               requirementOperator: editRequirements.length > 1 ? editRequirementOperator : undefined,
-              thresholdEffects: editThresholdEffects.length > 0 ? editThresholdEffects : undefined,
+              umbrales: validEditUmbrales.length > 0 ? validEditUmbrales : undefined,
             }
           : r
       )
@@ -508,8 +564,11 @@ export function QuickRepliesPanel({
     setEditResponse('');
     setEditModifiers([]);
     setEditSpriteActivation(undefined);
+    setEditWardrobeAction(undefined);
+    setEditScenarioAction(undefined);
     setEditRequirements([]);
     setEditRequirementOperator('AND');
+    setEditUmbrales([]);
   };
 
   const handleCancelEdit = () => {
@@ -518,8 +577,11 @@ export function QuickRepliesPanel({
     setEditResponse('');
     setEditModifiers([]);
     setEditSpriteActivation(undefined);
+    setEditWardrobeAction(undefined);
+    setEditScenarioAction(undefined);
     setEditRequirements([]);
     setEditRequirementOperator('AND');
+    setEditUmbrales([]);
   };
 
   // Add a modifier to the new reply form
@@ -909,6 +971,382 @@ export function QuickRepliesPanel({
     );
   };
 
+  // Render umbral (conditional message) section for a quick reply (new or editing)
+  const renderUmbralSection = (
+    umbrales: QuickReplyUmbral[],
+    setUmbrales: (u: QuickReplyUmbral[]) => void,
+    sectionKey: string,
+  ) => {
+    const isExpanded = expandedUmbral === sectionKey;
+    const hasUmbrales = umbrales.length > 0;
+
+    const updateUmbral = (id: string, updates: Partial<QuickReplyUmbral>) => {
+      setUmbrales(umbrales.map(u => u.id === id ? { ...u, ...updates } : u));
+    };
+
+    const moveUmbral = (index: number, dir: -1 | 1) => {
+      const target = index + dir;
+      if (target < 0 || target >= umbrales.length) return;
+      const updated = [...umbrales];
+      const [moved] = updated.splice(index, 1);
+      updated.splice(target, 0, moved);
+      setUmbrales(updated);
+    };
+
+    return (
+      <TooltipProvider>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setExpandedUmbral(isExpanded ? null : sectionKey)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <GitBranch className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Umbral (respuesta condicional)</span>
+            {hasUmbrales && (
+              <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-cyan-500/20 text-cyan-400">
+                {umbrales.length}
+              </Badge>
+            )}
+            {isExpanded ? (
+              <ChevronUp className="w-3 h-3" />
+            ) : (
+              <ChevronDown className="w-3 h-3" />
+            )}
+          </button>
+          <p className="text-[10px] text-muted-foreground ml-5">
+            Si se cumplen las condiciones se envía el texto del umbral <strong>en lugar de</strong> la Respuesta.
+            Se evalúan de arriba hacia abajo: gana el primero que cumpla (como los lorebooks por atributo).
+          </p>
+
+          {(isExpanded || hasUmbrales) && (
+            <div className="ml-5 space-y-2 border-l-2 border-cyan-500/20 pl-3">
+              {umbrales.map((umbral, idx) => (
+                <div key={umbral.id} className="rounded-md border bg-muted/20 p-2 space-y-2">
+                  {/* Header: name + enabled + reorder + delete */}
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      value={umbral.name}
+                      onChange={(e) => updateUmbral(umbral.id, { name: e.target.value })}
+                      placeholder={`Nombre del umbral ${idx + 1} (ej: Golpe salvaje)`}
+                      className="h-7 text-xs flex-1"
+                      maxLength={40}
+                    />
+                    <button
+                      type="button"
+                      title={umbral.enabled ? 'Desactivar umbral' : 'Activar umbral'}
+                      onClick={() => updateUmbral(umbral.id, { enabled: !umbral.enabled })}
+                      className={cn(
+                        'text-[10px] px-2 py-0.5 rounded-full transition-colors flex-shrink-0',
+                        umbral.enabled ? 'bg-cyan-500/20 text-cyan-400' : 'bg-muted text-muted-foreground'
+                      )}
+                    >
+                      {umbral.enabled ? 'On' : 'Off'}
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 flex-shrink-0"
+                      disabled={idx === 0}
+                      title="Subir prioridad"
+                      onClick={() => moveUmbral(idx, -1)}
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 flex-shrink-0"
+                      disabled={idx === umbrales.length - 1}
+                      title="Bajar prioridad"
+                      onClick={() => moveUmbral(idx, 1)}
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-red-400 hover:text-red-500 flex-shrink-0"
+                      onClick={() => setUmbrales(umbrales.filter(u => u.id !== umbral.id))}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+
+                  {/* Conditions */}
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                      <Filter className="w-3 h-3 text-orange-400" />
+                      Condiciones (atributos del personaje):
+                    </p>
+                    {umbral.conditions.map((req, cIdx) => (
+                      <RequirementEditor
+                        key={cIdx}
+                        requirement={req}
+                        availableAttributes={attributes}
+                        availableTargets={availableTargets}
+                        onChange={(updates) => {
+                          const updated = [...umbral.conditions];
+                          updated[cIdx] = { ...updated[cIdx], ...updates };
+                          updateUmbral(umbral.id, { conditions: updated });
+                        }}
+                        onDelete={() => {
+                          updateUmbral(umbral.id, { conditions: umbral.conditions.filter((_, i) => i !== cIdx) });
+                        }}
+                      />
+                    ))}
+                    <RequirementOperatorToggle
+                      operator={umbral.conditionOperator}
+                      requirementCount={umbral.conditions.length}
+                      onChange={(op) => updateUmbral(umbral.id, { conditionOperator: op })}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-500/10"
+                      onClick={() => updateUmbral(umbral.id, { conditions: [...umbral.conditions, { attributeKey: '', operator: '>=', value: 0 }] })}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Agregar Condición
+                    </Button>
+                  </div>
+
+                  {/* Message */}
+                  <div className="space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">
+                      Mensaje a enviar cuando se cumplen las condiciones (reemplaza la Respuesta):
+                    </Label>
+                    <Textarea
+                      value={umbral.message}
+                      onChange={(e) => updateUmbral(umbral.id, { message: e.target.value })}
+                      placeholder="Ej: Ella te ataca con rabia mientras jadea tu nombre... (usa {{char}}, {{user}})"
+                      className="min-h-[60px] text-xs"
+                      maxLength={2000}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-cyan-600 hover:text-cyan-700 hover:bg-cyan-500/10"
+                onClick={() =>
+                  setUmbrales([
+                    ...umbrales,
+                    {
+                      id: `umbral_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                      name: '',
+                      enabled: true,
+                      conditions: [{ attributeKey: '', operator: '>=', value: 0 }],
+                      conditionOperator: 'AND',
+                      message: '',
+                    },
+                  ])
+                }
+              >
+                <Plus className="w-3 h-3 mr-1" />
+                Agregar umbral
+              </Button>
+            </div>
+          )}
+        </div>
+      </TooltipProvider>
+    );
+  };
+
+  // Render wardrobe action section (Guardarropa V2) for a quick reply (new or editing)
+  const renderWardrobeSection = (
+    action: QuickReplyWardrobeAction | undefined,
+    setAction: (a: QuickReplyWardrobeAction | undefined) => void,
+    sectionKey: string,
+  ) => {
+    if (!hasWardrobeOptions) return null;
+    const isExpanded = expandedWardrobe === sectionKey;
+    const isActive = !!action;
+    const outfits = wardrobeConfig?.outfits || [];
+    const selectedOutfit = action?.outfitId ? outfits.find(o => o.id === action.outfitId) : undefined;
+
+    return (
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setExpandedWardrobe(isExpanded ? null : sectionKey)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Shirt className="w-3.5 h-3.5 text-rose-400" />
+          <span>Cambiar Guardarropa</span>
+          {isActive && (
+            <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-rose-500/20 text-rose-400 max-w-[140px]">
+              <span className="truncate">{action?.action === 'remove' ? '→ predeterminado' : (selectedOutfit?.name || 'Outfit...')}</span>
+            </Badge>
+          )}
+          {isExpanded ? (
+            <ChevronUp className="w-3 h-3" />
+          ) : (
+            <ChevronDown className="w-3 h-3" />
+          )}
+        </button>
+
+        {(isExpanded || isActive) && (
+          <div className="ml-5 space-y-2 border-l-2 border-rose-500/20 pl-3">
+            {/* Enable/Disable toggle */}
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-muted-foreground">Cambiar vestuario:</label>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isActive) {
+                    setAction(undefined);
+                  } else {
+                    setAction({ action: 'wear', outfitId: outfits[0]?.id });
+                  }
+                }}
+                className={cn(
+                  'text-[10px] px-2 py-0.5 rounded-full transition-colors',
+                  isActive ? 'bg-rose-500/20 text-rose-400' : 'bg-muted text-muted-foreground'
+                )}
+              >
+                {isActive ? 'Activado' : 'Desactivado'}
+              </button>
+            </div>
+
+            {isActive && action && (
+              <>
+                {/* Action selector */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Acción</Label>
+                  <Select
+                    value={action.action}
+                    onValueChange={(val) =>
+                      setAction(val === 'wear' ? { action: 'wear', outfitId: action.outfitId || outfits[0]?.id } : { action: 'remove' })
+                    }
+                  >
+                    <SelectTrigger className="h-7 text-xs flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="wear">
+                        <span className="text-xs">👗 Poner un outfit</span>
+                      </SelectItem>
+                      <SelectItem value="remove">
+                        <span className="text-xs">🧺 Quitarse el vestuario (volver al predeterminado)</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Outfit selector (only for 'wear') */}
+                {action.action === 'wear' && (
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Outfit</Label>
+                    <Select
+                      value={action.outfitId || ''}
+                      onValueChange={(val) => setAction({ action: 'wear', outfitId: val })}
+                    >
+                      <SelectTrigger className="h-7 text-xs flex-1">
+                        <SelectValue placeholder="Seleccionar outfit..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {outfits.map((o) => (
+                          <SelectItem key={o.id} value={o.id}>
+                            <span className="text-xs">{o.isDefault ? '⭐ ' : ''}{o.name}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render scenario action section (ESCENARIO V2) for a quick reply (new or editing)
+  const renderScenarioSection = (
+    action: QuickReplyScenarioAction | undefined,
+    setAction: (a: QuickReplyScenarioAction | undefined) => void,
+    sectionKey: string,
+  ) => {
+    if (!hasScenarioOptions) return null;
+    const isExpanded = expandedScenario === sectionKey;
+    const isActive = !!action;
+    const locations = scenarioConfig?.locations || [];
+    const selectedLocation = action?.locationId ? locations.find(l => l.id === action.locationId) : undefined;
+
+    return (
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setExpandedScenario(isExpanded ? null : sectionKey)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Cambiar Escenario</span>
+          {isActive && (
+            <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-emerald-500/20 text-emerald-400 max-w-[140px]">
+              <span className="truncate">→ {selectedLocation?.name || 'Ubicación...'}</span>
+            </Badge>
+          )}
+          {isExpanded ? (
+            <ChevronUp className="w-3 h-3" />
+          ) : (
+            <ChevronDown className="w-3 h-3" />
+          )}
+        </button>
+
+        {(isExpanded || isActive) && (
+          <div className="ml-5 space-y-2 border-l-2 border-emerald-500/20 pl-3">
+            {/* Enable/Disable toggle */}
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-muted-foreground">Mover la escena:</label>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isActive) {
+                    setAction(undefined);
+                  } else {
+                    setAction({ action: 'go', locationId: locations[0]?.id });
+                  }
+                }}
+                className={cn(
+                  'text-[10px] px-2 py-0.5 rounded-full transition-colors',
+                  isActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-muted text-muted-foreground'
+                )}
+              >
+                {isActive ? 'Activado' : 'Desactivado'}
+              </button>
+            </div>
+
+            {isActive && action && (
+              <div className="flex items-center gap-2">
+                <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Ubicación</Label>
+                <Select
+                  value={action.locationId || ''}
+                  onValueChange={(val) => setAction({ action: 'go', locationId: val })}
+                >
+                  <SelectTrigger className="h-7 text-xs flex-1">
+                    <SelectValue placeholder="Seleccionar ubicación..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations.map((l) => (
+                      <SelectItem key={l.id} value={l.id}>
+                        <span className="text-xs">{l.isDefault ? '⭐ ' : ''}{l.name}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -951,7 +1389,11 @@ export function QuickRepliesPanel({
             {attributes.length > 0 && (
               <p className="text-xs text-muted-foreground mt-1">
                 Opcionalmente puedes agregar <Zap className="w-3 h-3 inline text-amber-400" /> modificadores de atributos que se aplican al usar la respuesta,{' '}
-                <Filter className="w-3 h-3 inline text-orange-400" /> condiciones de visibilidad para controlar cuándo se muestra.
+                <Filter className="w-3 h-3 inline text-orange-400" /> condiciones de visibilidad para controlar cuándo se muestra,{' '}
+                <GitBranch className="w-3 h-3 inline text-cyan-400" /> umbrales con mensajes condicionales que reemplazan la Respuesta según los atributos,{' '}
+                <Shirt className="w-3 h-3 inline text-rose-400" /> cambio de guardarropa,{' '}
+                <MapPin className="w-3 h-3 inline text-emerald-400" /> cambio de escenario, y{' '}
+                <ImageIcon className="w-3 h-3 inline text-emerald-400" /> activación de sprites al usar la respuesta.
               </p>
             )}
             {attributes.length === 0 && (
@@ -962,6 +1404,11 @@ export function QuickRepliesPanel({
             {hasSpriteOptions && (
               <p className="text-xs text-muted-foreground mt-1">
                 También puedes activar <ImageIcon className="w-3 h-3 inline text-emerald-400" /> sprites al usar la respuesta.
+              </p>
+            )}
+            {hasWardrobeOptions && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Una respuesta puede cambiar varias cosas a la vez: modificar atributos, activar un sprite, cambiar el vestuario, mover la escena a otra ubicación y enviar el mensaje según el umbral configurado (si no hay umbral, se envía la Respuesta).
               </p>
             )}
             {replies.length > 1 && (
@@ -996,17 +1443,29 @@ export function QuickRepliesPanel({
                   editRequirements={editRequirements}
                   editRequirementOperator={editRequirementOperator}
                   editSpriteActivation={editSpriteActivation}
-                  editThresholdEffects={editThresholdEffects}
-                  setEditThresholdEffects={setEditThresholdEffects}
-                  expandedThresholdEffects={expandedThresholdEffects}
-                  setExpandedThresholdEffects={setExpandedThresholdEffects}
+                  editUmbrales={editUmbrales}
+                  setEditUmbrales={setEditUmbrales}
+                  editWardrobeAction={editWardrobeAction}
+                  setEditWardrobeAction={setEditWardrobeAction}
+                  editScenarioAction={editScenarioAction}
+                  setEditScenarioAction={setEditScenarioAction}
+                  expandedUmbral={expandedUmbral}
+                  setExpandedUmbral={setExpandedUmbral}
+                  expandedWardrobe={expandedWardrobe}
+                  setExpandedWardrobe={setExpandedWardrobe}
+                  expandedScenario={expandedScenario}
+                  setExpandedScenario={setExpandedScenario}
                   expandedModifiers={expandedModifiers}
                   expandedConditions={expandedConditions}
                   expandedSpriteActivation={expandedSpriteActivation}
                   attributes={attributes}
                   hasSpriteOptions={hasSpriteOptions}
+                  hasWardrobeOptions={hasWardrobeOptions}
+                  hasScenarioOptions={hasScenarioOptions}
                   spritePacksV2={spritePacksV2}
                   triggerCollections={triggerCollections}
+                  wardrobeConfig={wardrobeConfig}
+                  scenarioConfig={scenarioConfig}
                   availableTargets={availableTargets}
                   onStartEdit={handleStartEdit}
                   onSaveEdit={handleSaveEdit}
@@ -1027,6 +1486,9 @@ export function QuickRepliesPanel({
                   renderModifierRow={renderModifierRow}
                   renderSpriteActivation={renderSpriteActivation}
                   renderConditionSection={renderConditionSection}
+                  renderUmbralSection={renderUmbralSection}
+                  renderWardrobeSection={renderWardrobeSection}
+                  renderScenarioSection={renderScenarioSection}
                 />
               ))}
             </div>
@@ -1114,13 +1576,29 @@ export function QuickRepliesPanel({
             </div>
           )}
 
-          {/* Conditions for new reply */}
-          {attributes.length > 0 && (
+          {/* Wardrobe action for new reply */}
+          {hasWardrobeOptions && (
             <div>
-              {renderConditionSection(newRequirements, newRequirementOperator, setNewRequirements, setNewRequirementOperator, '__new__')}
+              {renderWardrobeSection(newWardrobeAction, setNewWardrobeAction, '__new__')}
             </div>
           )}
-          {attributes.length === 0 && availableTargets && availableTargets.length > 0 && (
+
+          {/* Scenario action for new reply (ESCENARIO V2) */}
+          {hasScenarioOptions && (
+            <div>
+              {renderScenarioSection(newScenarioAction, setNewScenarioAction, '__new__')}
+            </div>
+          )}
+
+          {/* Umbral (conditional messages) for new reply */}
+          {(attributes.length > 0 || (availableTargets && availableTargets.length > 0)) && (
+            <div>
+              {renderUmbralSection(newUmbrales, setNewUmbrales, '__new__')}
+            </div>
+          )}
+
+          {/* Conditions for new reply */}
+          {(attributes.length > 0 || (availableTargets && availableTargets.length > 0)) && (
             <div>
               {renderConditionSection(newRequirements, newRequirementOperator, setNewRequirements, setNewRequirementOperator, '__new__')}
             </div>
@@ -1174,8 +1652,12 @@ interface SortableQuickReplyItemProps {
   expandedSpriteActivation: string | null;
   attributes: AttributeDefinition[];
   hasSpriteOptions: boolean;
+  hasWardrobeOptions: boolean;
+  hasScenarioOptions: boolean;
   spritePacksV2?: SpritePackV2[];
   triggerCollections?: TriggerCollection[];
+  wardrobeConfig?: WardrobeConfig;
+  scenarioConfig?: ScenarioConfig;
   availableTargets?: { id: string; name: string; attributes: AttributeDefinition[] }[];
   onStartEdit: (reply: CharacterQuickReply) => void;
   onSaveEdit: () => void;
@@ -1187,11 +1669,21 @@ interface SortableQuickReplyItemProps {
   setEditRequirements: (v: StatRequirement[]) => void;
   setEditRequirementOperator: (v: 'AND' | 'OR') => void;
   setEditSpriteActivation: (v: QuickReplySpriteActivation | undefined) => void;
-  // FASE 18: Threshold effects props
-  editThresholdEffects: ThresholdEffect[];
-  setEditThresholdEffects: (v: ThresholdEffect[]) => void;
-  expandedThresholdEffects: string | null;
-  setExpandedThresholdEffects: (v: string | null) => void;
+  // Umbral (conditional messages) props
+  editUmbrales: QuickReplyUmbral[];
+  setEditUmbrales: (v: QuickReplyUmbral[]) => void;
+  expandedUmbral: string | null;
+  setExpandedUmbral: (v: string | null) => void;
+  // Wardrobe action props
+  editWardrobeAction: QuickReplyWardrobeAction | undefined;
+  setEditWardrobeAction: (v: QuickReplyWardrobeAction | undefined) => void;
+  expandedWardrobe: string | null;
+  setExpandedWardrobe: (v: string | null) => void;
+  // Scenario action props (ESCENARIO V2)
+  editScenarioAction: QuickReplyScenarioAction | undefined;
+  setEditScenarioAction: (v: QuickReplyScenarioAction | undefined) => void;
+  expandedScenario: string | null;
+  setExpandedScenario: (v: string | null) => void;
   setExpandedModifiers: (v: string | null) => void;
   setExpandedConditions: (v: string | null) => void;
   setExpandedSpriteActivation: (v: string | null) => void;
@@ -1216,6 +1708,21 @@ interface SortableQuickReplyItemProps {
     setRequirementOperator: (op: 'AND' | 'OR') => void,
     sectionKey: string,
   ) => React.ReactNode;
+  renderUmbralSection: (
+    umbrales: QuickReplyUmbral[],
+    setUmbrales: (u: QuickReplyUmbral[]) => void,
+    sectionKey: string,
+  ) => React.ReactNode;
+  renderWardrobeSection: (
+    action: QuickReplyWardrobeAction | undefined,
+    setAction: (a: QuickReplyWardrobeAction | undefined) => void,
+    sectionKey: string,
+  ) => React.ReactNode;
+  renderScenarioSection: (
+    action: QuickReplyScenarioAction | undefined,
+    setAction: (a: QuickReplyScenarioAction | undefined) => void,
+    sectionKey: string,
+  ) => React.ReactNode;
 }
 
 function SortableQuickReplyItem({
@@ -1232,8 +1739,12 @@ function SortableQuickReplyItem({
   expandedSpriteActivation,
   attributes,
   hasSpriteOptions,
+  hasWardrobeOptions,
+  hasScenarioOptions,
   spritePacksV2,
   triggerCollections,
+  wardrobeConfig,
+  scenarioConfig,
   availableTargets,
   onStartEdit,
   onSaveEdit,
@@ -1245,11 +1756,21 @@ function SortableQuickReplyItem({
   setEditRequirements,
   setEditRequirementOperator,
   setEditSpriteActivation,
-  // FASE 18: Threshold effects
-  editThresholdEffects,
-  setEditThresholdEffects,
-  expandedThresholdEffects,
-  setExpandedThresholdEffects,
+  // Umbral (conditional messages)
+  editUmbrales,
+  setEditUmbrales,
+  expandedUmbral,
+  setExpandedUmbral,
+  // Wardrobe action
+  editWardrobeAction,
+  setEditWardrobeAction,
+  expandedWardrobe,
+  setExpandedWardrobe,
+  // Scenario action (ESCENARIO V2)
+  editScenarioAction,
+  setEditScenarioAction,
+  expandedScenario,
+  setExpandedScenario,
   setExpandedModifiers,
   setExpandedConditions,
   setExpandedSpriteActivation,
@@ -1259,6 +1780,9 @@ function SortableQuickReplyItem({
   renderModifierRow,
   renderSpriteActivation,
   renderConditionSection,
+  renderUmbralSection,
+  renderWardrobeSection,
+  renderScenarioSection,
 }: SortableQuickReplyItemProps) {
   const {
     attributes: dndAttributes,
@@ -1361,147 +1885,31 @@ function SortableQuickReplyItem({
             </div>
           )}
 
+          {/* Wardrobe action section for editing */}
+          {hasWardrobeOptions && (
+            <div className="mt-2">
+              {renderWardrobeSection(editWardrobeAction, setEditWardrobeAction, `edit-${reply.id}`)}
+            </div>
+          )}
+
+          {/* Scenario action section for editing (ESCENARIO V2) */}
+          {hasScenarioOptions && (
+            <div className="mt-2">
+              {renderScenarioSection(editScenarioAction, setEditScenarioAction, `edit-${reply.id}`)}
+            </div>
+          )}
+
+          {/* Umbral (conditional messages) section for editing */}
+          {(attributes.length > 0 || (availableTargets && availableTargets.length > 0)) && (
+            <div className="mt-2">
+              {renderUmbralSection(editUmbrales, setEditUmbrales, `edit-${reply.id}`)}
+            </div>
+          )}
+
           {/* Conditions section for editing */}
           {(attributes.length > 0 || (availableTargets && availableTargets.length > 0)) && (
             <div className="mt-2">
               {renderConditionSection(editRequirements, editRequirementOperator, setEditRequirements, setEditRequirementOperator, `edit-${reply.id}`)}
-            </div>
-          )}
-
-          {/* FASE 18: Threshold Effects section */}
-          {attributes.length > 0 && (
-            <div className="mt-2">
-              {/* Collapsible header */}
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-xs text-muted-foreground"
-                  onClick={() => setExpandedThresholdEffects(expandedThresholdEffects === reply.id ? null : reply.id)}
-                >
-                  {expandedThresholdEffects === reply.id ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
-                  Efectos de Umbral
-                </Button>
-                {editThresholdEffects.length > 0 && (
-                  <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-rose-500/20 text-rose-400">
-                    {editThresholdEffects.length}
-                  </Badge>
-                )}
-              </div>
-
-              {/* Expanded threshold effects editor */}
-              {expandedThresholdEffects === reply.id && (
-                <div className="mt-1.5 space-y-1.5 pl-2">
-                  {editThresholdEffects.map((effect, effIdx) => (
-                    <div key={effect.id} className="flex items-center gap-1.5 p-1.5 rounded-md border bg-muted/20">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs font-medium truncate">{effect.name || `Efecto ${effIdx + 1}`}</span>
-                          <Badge variant="outline" className="text-[9px] h-3 px-1">
-                            P:{effect.priority}
-                          </Badge>
-                          {!effect.enabled && (
-                            <Badge variant="outline" className="text-[9px] h-3 px-1 text-muted-foreground">Off</Badge>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">
-                          {effect.conditions.length} condiciones · {effect.rewards.length} recompensas
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5"
-                          onClick={() => {
-                            setEditThresholdEffects(editThresholdEffects.map(e =>
-                              e.id === effect.id ? { ...e, enabled: !e.enabled } : e
-                            ));
-                          }}
-                        >
-                          <Check className={cn("w-3 h-3", effect.enabled ? "text-emerald-500" : "text-muted-foreground/40")} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5"
-                          onClick={() => {
-                            setEditingThresholdEffect({ ...effect });
-                            setThresholdDialogOpen(true);
-                          }}
-                        >
-                          <Settings2 className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5"
-                          onClick={() => {
-                            setEditThresholdEffects(editThresholdEffects.filter(e => e.id !== effect.id));
-                          }}
-                        >
-                          <Trash2 className="w-3 h-3 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Add new threshold effect */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-6 text-xs w-full"
-                    onClick={() => {
-                      const newEffect: ThresholdEffect = {
-                        id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                        name: 'Nuevo efecto',
-                        enabled: true,
-                        priority: 0,
-                        conditions: [],
-                        conditionOperator: 'AND',
-                        rewards: [],
-                      };
-                      setEditingThresholdEffect(newEffect);
-                      setThresholdDialogOpen(true);
-                    }}
-                  >
-                    <Plus className="w-3 h-3 mr-1" />
-                    Añadir efecto de umbral
-                  </Button>
-
-                  {/* Threshold effect dialog */}
-                  {editingThresholdEffect && (
-                    <ThresholdEffectDialog
-                      effect={editingThresholdEffect}
-                      open={thresholdDialogOpen}
-                      onOpenChange={(open) => {
-                        setThresholdDialogOpen(open);
-                        if (!open) setEditingThresholdEffect(null);
-                      }}
-                      onSave={(saved) => {
-                        const existing = editThresholdEffects.find(e => e.id === saved.id);
-                        if (existing) {
-                          setEditThresholdEffects(editThresholdEffects.map(e => e.id === saved.id ? saved : e));
-                        } else {
-                          setEditThresholdEffects([...editThresholdEffects, saved]);
-                        }
-                        setThresholdDialogOpen(false);
-                        setEditingThresholdEffect(null);
-                      }}
-                      allAttributes={attributes}
-                      availableTargets={availableTargets}
-                      spritePacksV2={spritePacksV2}
-                      attributeKey={attributes[0]?.key || ''}
-                    />
-                  )}
-
-                  {editThresholdEffects.length === 0 && (
-                    <p className="text-[10px] text-muted-foreground italic pl-1">
-                      Los efectos de umbral evalúan condiciones cuando se hace clic en esta respuesta rápida y ejecutan recompensas (cambiar atributos, sprites, etc.) según la prioridad.
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
@@ -1557,6 +1965,30 @@ function SortableQuickReplyItem({
                 <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-emerald-500/20 text-emerald-400">
                   <ImageIcon className="w-2.5 h-2.5" />
                   {reply.spriteActivation.mode === 'trigger_collection' ? 'Trigger' : 'Sprite'}
+                </Badge>
+              )}
+              {reply.wardrobeAction && (
+                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-rose-500/20 text-rose-400 max-w-[130px]">
+                  <Shirt className="w-2.5 h-2.5 flex-shrink-0" />
+                  <span className="truncate">
+                    {reply.wardrobeAction.action === 'remove'
+                      ? '→ predeterminado'
+                      : (wardrobeConfig?.outfits?.find(o => o.id === reply.wardrobeAction?.outfitId)?.name || 'Outfit')}
+                  </span>
+                </Badge>
+              )}
+              {reply.scenarioAction && (
+                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-emerald-500/20 text-emerald-400 max-w-[130px]">
+                  <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
+                  <span className="truncate">
+                    {scenarioConfig?.locations?.find(l => l.id === reply.scenarioAction?.locationId)?.name || 'Ubicación'}
+                  </span>
+                </Badge>
+              )}
+              {reply.umbrales && reply.umbrales.length > 0 && (
+                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-cyan-500/20 text-cyan-400">
+                  <GitBranch className="w-2.5 h-2.5" />
+                  {reply.umbrales.length}
                 </Badge>
               )}
               {reply.requirements && reply.requirements.length > 0 && (

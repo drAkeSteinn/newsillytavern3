@@ -413,7 +413,7 @@
     },
     "846c6f5f-e62d-428b-b9ec-924a018ff824": {
       "sessionId": "846c6f5f-e62d-428b-b9ec-924a018ff824",
-      "messagesSinceLastSummary": 1,
+      "messagesSinceLastSummary": 6,
       "lastSummaryMessageIndex": 0,
       "isGroupChat": false
     },
@@ -449,7 +449,7 @@
     },
     "f9ae3b2e-dfd5-46ef-a132-1d9bd6b73ee8": {
       "sessionId": "f9ae3b2e-dfd5-46ef-a132-1d9bd6b73ee8",
-      "messagesSinceLastSummary": 0,
+      "messagesSinceLastSummary": 5,
       "lastSummaryMessageIndex": 0,
       "isGroupChat": false
     },
@@ -461,7 +461,7 @@
     },
     "e121f50b-aee5-4db5-b4e8-2a5188e5491f": {
       "sessionId": "e121f50b-aee5-4db5-b4e8-2a5188e5491f",
-      "messagesSinceLastSummary": 0,
+      "messagesSinceLastSummary": 8,
       "lastSummaryMessageIndex": 0,
       "isGroupChat": false
     },
@@ -596,6 +596,12 @@
       "messagesSinceLastSummary": 7,
       "lastSummaryMessageIndex": 0,
       "isGroupChat": false
+    },
+    "357ffb73-b180-4c54-bf35-e6ea7433bf2d": {
+      "sessionId": "357ffb73-b180-4c54-bf35-e6ea7433bf2d",
+      "messagesSinceLastSummary": 14,
+      "lastSummaryMessageIndex": 0,
+      "isGroupChat": true
     }
   }
 }

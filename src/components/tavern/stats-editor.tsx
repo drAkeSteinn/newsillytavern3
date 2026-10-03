@@ -98,6 +98,7 @@ import {
   createTargetAttributeReward,
   createCurrencyReward,
   createActivateSpritePackReward,
+  createMessageReward,
   describeReward,
   normalizeReward,
 } from '@/lib/quest/quest-reward-utils';
@@ -1665,6 +1666,9 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
           }
         };
         break;
+      case 'message':
+        newReward = createMessageReward('');
+        break;
       default:
         newReward = createTriggerReward('sprite', '', 'self');
     }
@@ -1957,6 +1961,9 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
               <Button variant="ghost" size="sm" className="h-6 text-[10px] text-cyan-400 hover:bg-cyan-500/10 border border-dashed border-cyan-500/30" onClick={() => addReward('conditional_sprite_collection')}>
                 <Plus className="w-2.5 h-2.5 mr-0.5" /> 🖼️ Colección Condicional
               </Button>
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-pink-400 hover:bg-pink-500/10 border border-dashed border-pink-500/30" onClick={() => addReward('message')}>
+                <Plus className="w-2.5 h-2.5 mr-0.5" /> 💬 Mensaje
+              </Button>
             </div>
 
             {localEffect.rewards.length === 0 && (
@@ -1973,6 +1980,7 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
               const isCurrency = normalized.type === 'currency';
               const isSpritePack = normalized.type === 'activate_sprite_pack';
               const isCondSprite = normalized.type === 'conditional_sprite_collection';
+              const isMessage = normalized.type === 'message';
 
               return (
                 <div key={reward.id} className={`p-2.5 rounded border space-y-2 ${
@@ -1981,6 +1989,7 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
                   isAttr ? 'bg-amber-500/5 border-amber-500/10' :
                   isTargetAttr ? 'bg-blue-500/5 border-blue-500/10' :
                   isCurrency ? 'bg-amber-500/5 border-amber-500/10' :
+                  isMessage ? 'bg-pink-500/5 border-pink-500/10' :
                   'bg-purple-500/5 border-purple-500/10'
                 }`}>
                   <div className="flex items-center gap-2">
@@ -1990,9 +1999,10 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
                       isAttr ? 'text-amber-400 border-amber-500/30' :
                       isTargetAttr ? 'text-blue-400 border-blue-500/30' :
                       isCurrency ? 'text-amber-400 border-amber-500/30' :
+                      isMessage ? 'text-pink-400 border-pink-500/30' :
                       'text-purple-400 border-purple-500/30'
                     }`}>
-                      {isSpritePack ? '🎨 Sprite Pack' : isCondSprite ? '🖼️ Col. Condicional' : isAttr ? '📊 Atributo' : isTargetAttr ? '🔗 Atributo Target' : isCurrency ? '💰 Divisa' : '⚡ Trigger'}
+                      {isSpritePack ? '🎨 Sprite Pack' : isCondSprite ? '🖼️ Col. Condicional' : isAttr ? '📊 Atributo' : isTargetAttr ? '🔗 Atributo Target' : isCurrency ? '💰 Divisa' : isMessage ? '💬 Mensaje' : '⚡ Trigger'}
                     </Badge>
                     <span className="text-[10px] text-muted-foreground ml-auto">
                       {describeReward(normalized)}
@@ -2149,6 +2159,23 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
                         className="bg-background h-7 text-xs w-24"
                       />
                       <span className="text-xs text-muted-foreground">divisa para persona</span>
+                    </div>
+                  )}
+
+                  {/* Message reward editor — auto-message sent as a quick reply at end of turn */}
+                  {isMessage && (
+                    <div className="space-y-1.5">
+                      <Textarea
+                        value={normalized.message?.text ?? ''}
+                        onChange={(e) => updateReward(rewardIdx, { ...reward, type: 'message', message: { text: e.target.value } })}
+                        placeholder="Ej: {{char}} tiene ahora 50 de fuerza!"
+                        className="bg-background text-xs min-h-[60px]"
+                        rows={3}
+                      />
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        💬 Se envía como mensaje del usuario al finalizar el turno en que se cruza el umbral (solo la primera vez, hasta que la condición deje de cumplirse).
+                        Tags: <code className="text-pink-300">{'{{char}}'}</code>, <code className="text-pink-300">{'{{user}}'}</code>, <code className="text-pink-300">{'{{time}}'}</code>, atributos del personaje (<code className="text-pink-300">{'{{fuerza}}'}</code>), <code className="text-pink-300">{'{{eventos}}'}</code>, <code className="text-pink-300">{'{{relacion}}'}</code>...
+                      </p>
                     </div>
                   )}
 

@@ -45,6 +45,7 @@ import {
   type StatsResolutionContext,
 } from '@/lib/stats';
 import { isWardrobeAvailable, getWardrobeInfo } from '@/lib/wardrobe';
+import { isScenarioAvailable, getScenarioInfo } from '@/lib/scenario';
 import {
   resolveAllKeys,
   resolveSectionsKeys,
@@ -712,43 +713,115 @@ export function buildSystemPrompt(
     }
   }
 
-  // FASE 12: Wardrobe Management Section — tells the LLM about the wardrobe system
+  // GUARDARROPA V2: Wardrobe Section — tells the LLM about the wardrobe (outfits)
   // and how to use the manage_wardrobe tool. Only injected if the character has
-  // a wardrobeConfig with levels + a main attribute.
+  // a wardrobeConfig with at least 1 outfit.
   {
     if (isWardrobeAvailable(character)) {
       const wardrobeInfo = getWardrobeInfo(character, sessionStats, character.id);
       if (wardrobeInfo) {
         const wardrobeLines: string[] = [
-          `[SISTEMA DE VESTUARIO]`,
-          `El personaje tiene un sistema de vestuario vinculado al atributo principal.`,
+          `[GUARDARROPA]`,
+          `Tienes un guardarropa con varios outfits. Lo que llevas puesto ahora aparece en el bloque [VESTUARIO] del prompt.`,
           ``,
-          `Nivel actual: "${wardrobeInfo.current?.name}" (nivel ${wardrobeInfo.effectiveIndex + 1}/${wardrobeInfo.totalLevels}, offset: ${wardrobeInfo.offset >= 0 ? '+' : ''}${wardrobeInfo.offset})`,
+          `Outfits disponibles:`,
         ];
-        if (wardrobeInfo.above) {
-          wardrobeLines.push(`Nivel superior disponible: "${wardrobeInfo.above.name}"`);
-        } else {
-          wardrobeLines.push(`No hay nivel superior disponible (ya está al máximo).`);
+        for (const outfit of wardrobeInfo.outfits) {
+          const isWorn = wardrobeInfo.current?.id === outfit.id;
+          const isDefault = wardrobeInfo.defaultId === outfit.id;
+          const badges = [isWorn ? '← PUESTO AHORA' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
+          const desc = outfit.description?.trim() || '';
+          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
+          wardrobeLines.push(`- "${outfit.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
         }
-        if (wardrobeInfo.below) {
-          wardrobeLines.push(`Nivel inferior disponible: "${wardrobeInfo.below.name}"`);
-        } else {
-          wardrobeLines.push(`No hay nivel inferior disponible (ya está al mínimo).`);
+        wardrobeLines.push('');
+        wardrobeLines.push(`INSTRUCCIONES PARA GESTIONAR TU VESTUARIO (HERRAMIENTA OBLIGATORIA):`);
+        wardrobeLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ropa (ponerte o quitarte algo) DEBE reflejarse llamando a la herramienta "manage_wardrobe" con action "wear" (o "remove") ANTES de narrarlo. NUNCA narres que te cambiaste de ropa sin haber llamado primero a la herramienta.`);
+        wardrobeLines.push(`- Si ${'{{user}}'} te pide que te quites o te pongas ropa, SIEMPRE responde con una tool call a "manage_wardrobe" eligiendo el outfit más adecuado de tu guardarropa.`);
+        wardrobeLines.push(`- Cuando la escena lo justifique (llegar a casa, irse a dormir, salir, bañarse, ir a una fiesta, disfrazarse...), CÁMBIATE de ropa TÚ MISMO usando la herramienta "manage_wardrobe" con action "wear" y el nombre del outfit a ponerte.`);
+        wardrobeLines.push(`- Elige el outfit que mejor encaje con la escena, el lugar, la hora y tu estado de ánimo. No necesitas permiso del usuario para cambiarte.`);
+        wardrobeLines.push(`- Usa el nombre EXACTO del outfit tal como aparece en la lista (ej: "Tanga de lado"). Con action "list" ves tu guardarropa completo con todos los detalles.`);
+        wardrobeLines.push(`- Con action "remove" te quitas el outfit actual y vuelves a tu outfit predeterminado.`);
+        wardrobeLines.push(`- Mantén coherencia narrativa con lo que llevas puesto (bloque [VESTUARIO]).`);
+
+        // Safety net: if the character card doesn't include the {{vestuario}} key
+        // in any section, inject the [VESTUARIO] block automatically so the
+        // outfit description always reaches the prompt.
+        const cardText = [
+          character.description, character.personality, character.scenario,
+          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
+          character.authorNote, character.mesExample,
+        ].filter(Boolean).join('\n');
+        const cardHasKey = /\{\{(?:vestuario|wardrobe)\}\}/i.test(cardText || '');
+        if (!cardHasKey) {
+          const header = character.wardrobeConfig?.blockHeader || '[VESTUARIO]';
+          const wornDesc = wardrobeInfo.current?.description?.trim();
+          if (wornDesc) {
+            wardrobeLines.push('', header, wornDesc);
+          }
         }
-        wardrobeLines.push(``);
-        wardrobeLines.push(`INSTRUCCIONES PARA GESTIONAR EL VESTUARIO:`);
-        wardrobeLines.push(`- USA la herramienta "manage_wardrobe" cuando el personaje deba cambiarse de ropa (ej: se quita una prenda, se pone algo más cómodo, se desnuda, etc.).`);
-        wardrobeLines.push(`- Primero usa "get_info" para ver los niveles disponibles, luego "escalate" (subir un nivel) o "regress" (bajar un nivel).`);
-        wardrobeLines.push(`- "escalate" sube un nivel del vestuario (ej: de "ropa casual" a "ropa interior").`);
-        wardrobeLines.push(`- "regress" baja un nivel del vestuario (ej: de "desnuda" a "ropa interior").`);
-        wardrobeLines.push(`- "reset" vuelve al nivel base determinado por el atributo principal.`);
-        wardrobeLines.push(`- Usa el vestuario ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
-        wardrobeLines.push(`- El contenido del vestuario actual se inyecta via {{wardrobe}} en el prompt.`);
 
         sections.push({
           type: 'character_note',
-          label: 'Sistema de Vestuario',
+          label: 'Guardarropa',
           content: wardrobeLines.join('\n'),
+          color: SECTION_COLORS.character_note
+        });
+      }
+    }
+  }
+
+  // ESCENARIO V2: Scenario Section — tells the LLM about the available locations
+  // and how to use the manage_escenario tool. Only injected if the character has
+  // a scenarioConfig with at least 1 location.
+  {
+    if (isScenarioAvailable(character)) {
+      const scenarioInfo = getScenarioInfo(character, sessionStats);
+      if (scenarioInfo) {
+        const scenarioLines: string[] = [
+          `[ESCENARIO]`,
+          `La escena tiene varias ubicaciones disponibles. Dónde estáis ahora aparece en el bloque [ESCENARIO] del prompt.`,
+          ``,
+          `Ubicaciones disponibles:`,
+        ];
+        for (const location of scenarioInfo.locations) {
+          const isActive = scenarioInfo.current?.id === location.id;
+          const isDefault = scenarioInfo.defaultId === location.id;
+          const badges = [isActive ? '← UBICACIÓN ACTUAL' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
+          const desc = location.description?.trim() || '';
+          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
+          scenarioLines.push(`- "${location.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
+        }
+        scenarioLines.push('');
+        scenarioLines.push(`INSTRUCCIONES PARA GESTIONAR LA UBICACIÓN DE LA ESCENA (HERRAMIENTA OBLIGATORIA):`);
+        scenarioLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ubicación (moveros a otro lugar) DEBE reflejarse llamando a la herramienta "manage_escenario" con action "go" ANTES de narrarlo. NUNCA narres que os movisteis a otro lugar sin haber llamado primero a la herramienta.`);
+        scenarioLines.push(`- Si ${'{'}user${'}'} pide cambiar de lugar (ir a la cama, al sofá, al escritorio, salir, etc.), SIEMPRE responde con una tool call a "manage_escenario" eligiendo la ubicación más adecuada de tu escenario.`);
+        scenarioLines.push(`- Cuando la narrativa lo justifique (irse a dormir, ir a la cocina, entrar a otra habitación, salir de casa...), MUEVE la escena TÚ MISMO usando la herramienta "manage_escenario" con action "go" y el nombre del lugar.`);
+        scenarioLines.push(`- Elige la ubicación que mejor encaje con la escena, la hora y el estado de ánimo. No necesitas permiso del usuario para mover la escena.`);
+        scenarioLines.push(`- Usa el nombre EXACTO de la ubicación tal como aparece en la lista (ej: "Cama"). Con action "list" ves todas las ubicaciones con sus detalles.`);
+        scenarioLines.push(`- Mantén coherencia narrativa con la ubicación actual (bloque [ESCENARIO]): no narrues objetos o personas de otro lugar mientras estéis aquí.`);
+
+        // Safety net: if the character card doesn't include the {{escenario}} key
+        // in any section, inject the [ESCENARIO] block automatically so the
+        // active location description always reaches the prompt.
+        const cardText = [
+          character.description, character.personality, character.scenario,
+          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
+          character.authorNote, character.mesExample,
+        ].filter(Boolean).join('\n');
+        const cardHasKey = /\{\{(?:escenario|scenario)\}\}/i.test(cardText || '');
+        if (!cardHasKey) {
+          const header = character.scenarioConfig?.blockHeader || '[ESCENARIO]';
+          const activeDesc = scenarioInfo.current?.description?.trim();
+          if (activeDesc) {
+            scenarioLines.push('', header, activeDesc);
+          }
+        }
+
+        sections.push({
+          type: 'character_note',
+          label: 'Escenario',
+          content: scenarioLines.join('\n'),
           color: SECTION_COLORS.character_note
         });
       }
@@ -1273,6 +1346,9 @@ export function buildGroupSystemPrompt(
     currencyIcon: inventoryData.currencyIcon,
     inventorySettings: inventoryData.inventorySettings,
   } : undefined, lorebookEntryKeyMap);
+  // ESCENARIO V2 (groups): the group's scenarioConfig (when usable) replaces the
+  // members' scenarios for {{escenario}} key resolution.
+  keyContext.group = group;
 
   // System Prompt Priority: Group > Character > Default
   let systemContent: string;
@@ -1298,6 +1374,31 @@ export function buildGroupSystemPrompt(
     content: systemContent,
     color: SECTION_COLORS.system
   });
+
+  // GROUP IDENTITY DIRECTIVE (anti cross-character impersonation):
+  // In group chats every responder gets its own LLM request, but the shared
+  // history contains lines from ALL characters. Without a hard identity
+  // directive, models (Grok/GPT/etc.) tend to write the WHOLE scene speaking
+  // for every character. This section pins the responder identity right after
+  // the system prompt.
+  {
+    const otherNames = (allCharacters || [])
+      .filter(c => c.id !== character.id && c.id !== '__user__')
+      .map(c => c.name);
+    const identityContent = [
+      `[IDENTIDAD DE RESPUESTA]`,
+      `Estás interpretando ÚNICAMENTE a: ${character.name}.`,
+      `- Tu respuesta debe contener solo las palabras, acciones y pensamientos de ${character.name}.`,
+      `- NUNCA escribas diálogo, acciones ni narración "por" otros personajes (${otherNames.join(', ') || 'ninguno'}). Cada uno responde en su propio turno.`,
+      `- NUNCA escribas ni decidas por el usuario (${userName}).`,
+    ].join('\n');
+    sections.push({
+      type: 'system',
+      label: 'Identidad de Respuesta',
+      content: identityContent,
+      color: SECTION_COLORS.system
+    });
+  }
 
   // World Time (fictional clock) — group builder
   const worldClock = sessionStats?.worldClock;
@@ -1458,39 +1559,114 @@ export function buildGroupSystemPrompt(
     }
   }
 
-  // FASE 12: Wardrobe Management Section (group chat variant) — same as 1-to-1 chat.
-  // Only injected if the character has a wardrobeConfig with levels + a main attribute.
+  // GUARDARROPA V2: Wardrobe Section (group chat variant) — same as 1-to-1 chat.
+  // Only injected if the character has a wardrobeConfig with at least 1 outfit.
   {
     if (isWardrobeAvailable(character)) {
       const wardrobeInfo = getWardrobeInfo(character, sessionStats, character.id);
       if (wardrobeInfo) {
         const wardrobeLines: string[] = [
-          `[SISTEMA DE VESTUARIO]`,
-          `El personaje tiene un sistema de vestuario vinculado al atributo principal.`,
+          `[GUARDARROPA]`,
+          `Tienes un guardarropa con varios outfits. Lo que llevas puesto ahora aparece en el bloque [VESTUARIO] del prompt.`,
           ``,
-          `Nivel actual: "${wardrobeInfo.current?.name}" (nivel ${wardrobeInfo.effectiveIndex + 1}/${wardrobeInfo.totalLevels}, offset: ${wardrobeInfo.offset >= 0 ? '+' : ''}${wardrobeInfo.offset})`,
+          `Outfits disponibles:`,
         ];
-        if (wardrobeInfo.above) {
-          wardrobeLines.push(`Nivel superior disponible: "${wardrobeInfo.above.name}"`);
-        } else {
-          wardrobeLines.push(`No hay nivel superior disponible (ya está al máximo).`);
+        for (const outfit of wardrobeInfo.outfits) {
+          const isWorn = wardrobeInfo.current?.id === outfit.id;
+          const isDefault = wardrobeInfo.defaultId === outfit.id;
+          const badges = [isWorn ? '← PUESTO AHORA' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
+          const desc = outfit.description?.trim() || '';
+          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
+          wardrobeLines.push(`- "${outfit.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
         }
-        if (wardrobeInfo.below) {
-          wardrobeLines.push(`Nivel inferior disponible: "${wardrobeInfo.below.name}"`);
-        } else {
-          wardrobeLines.push(`No hay nivel inferior disponible (ya está al mínimo).`);
-        }
-        wardrobeLines.push(``);
-        wardrobeLines.push(`INSTRUCCIONES PARA GESTIONAR EL VESTUARIO:`);
-        wardrobeLines.push(`- USA la herramienta "manage_wardrobe" cuando el personaje deba cambiarse de ropa (ej: se quita una prenda, se pone algo más cómodo, se desnuda, etc.).`);
-        wardrobeLines.push(`- Primero usa "get_info" para ver los niveles disponibles, luego "escalate" (subir un nivel) o "regress" (bajar un nivel).`);
+        wardrobeLines.push('');
+        wardrobeLines.push(`INSTRUCCIONES PARA GESTIONAR TU VESTUARIO (HERRAMIENTA OBLIGATORIA):`);
+        wardrobeLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ropa (ponerte o quitarte algo) DEBE reflejarse llamando a la herramienta "manage_wardrobe" con action "wear" (o "remove") ANTES de narrarlo. NUNCA narres que te cambiaste de ropa sin haber llamado primero a la herramienta.`);
+        wardrobeLines.push(`- Si el usuario te pide que te quites o te pongas ropa, SIEMPRE responde con una tool call a "manage_wardrobe" eligiendo el outfit más adecuado de tu guardarropa.`);
+        wardrobeLines.push(`- Cuando la escena lo justifique, CÁMBIATE de ropa TÚ MISMO usando la herramienta "manage_wardrobe" con action "wear" y el nombre del outfit.`);
+        wardrobeLines.push(`- Usa el nombre EXACTO del outfit tal como aparece en la lista. Con action "list" ves tu guardarropa completo. Con action "remove" vuelves a tu outfit predeterminado.`);
         wardrobeLines.push(`- Usa el vestuario ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
-        wardrobeLines.push(`- El contenido del vestuario actual se inyecta via {{wardrobe}} en el prompt.`);
+
+        // Safety net: inject the [VESTUARIO] block if the card has no {{vestuario}} key
+        const cardText = [
+          character.description, character.personality, character.scenario,
+          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
+          character.authorNote, character.mesExample,
+        ].filter(Boolean).join('\n');
+        const cardHasKey = /\{\{(?:vestuario|wardrobe)\}\}/i.test(cardText || '');
+        if (!cardHasKey) {
+          const header = character.wardrobeConfig?.blockHeader || '[VESTUARIO]';
+          const wornDesc = wardrobeInfo.current?.description?.trim();
+          if (wornDesc) {
+            wardrobeLines.push('', header, wornDesc);
+          }
+        }
 
         sections.push({
           type: 'character_note',
-          label: `${character.name} - Sistema de Vestuario`,
+          label: `${character.name} - Guardarropa`,
           content: wardrobeLines.join('\n'),
+          color: SECTION_COLORS.character_note
+        });
+      }
+    }
+  }
+
+  // ESCENARIO V2: Scenario Section (group chat variant).
+  // GROUP PRIORITY: if the group defines its own scenarioConfig (enabled + ≥1
+  // location), it REPLACES every member's character-level scenario so all
+  // members share the same location list ("misma sintonía"). Otherwise each
+  // character falls back to their own scenarioConfig (legacy behavior).
+  // Note: the active location (SessionStats.activeScenarioId) is SESSION-level,
+  // so all members see and move the same shared scene location.
+  {
+    if (isScenarioAvailable(character, group)) {
+      const scenarioInfo = getScenarioInfo(character, sessionStats, group);
+      if (scenarioInfo) {
+        const scopeLine = scenarioInfo.isGroupScenario
+          ? `Escenario compartido del grupo "${group.name}" — TODOS los personajes usan esta misma lista de ubicaciones (ignora tu escenario individual).`
+          : `La escena tiene varias ubicaciones disponibles. Dónde estáis ahora aparece en el bloque [ESCENARIO] del prompt.`;
+        const scenarioLines: string[] = [
+          `[ESCENARIO]`,
+          scopeLine,
+          ``,
+          `Ubicaciones disponibles:`,
+        ];
+        for (const location of scenarioInfo.locations) {
+          const isActive = scenarioInfo.current?.id === location.id;
+          const isDefault = scenarioInfo.defaultId === location.id;
+          const badges = [isActive ? '← UBICACIÓN ACTUAL' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
+          const desc = location.description?.trim() || '';
+          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
+          scenarioLines.push(`- "${location.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
+        }
+        scenarioLines.push('');
+        scenarioLines.push(`INSTRUCCIONES PARA GESTIONAR LA UBICACIÓN DE LA ESCENA (HERRAMIENTA OBLIGATORIA):`);
+        scenarioLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ubicación (moveros a otro lugar) DEBE reflejarse llamando a la herramienta "manage_escenario" con action "go" ANTES de narrarlo. NUNCA narres que os movisteis a otro lugar sin haber llamado primero a la herramienta.`);
+        scenarioLines.push(`- Si el usuario pide cambiar de lugar (ir a la cama, al sofá, al escritorio, salir, etc.), SIEMPRE responde con una tool call a "manage_escenario" eligiendo la ubicación más adecuada de tu escenario.`);
+        scenarioLines.push(`- Cuando la narrativa lo justifique, MUEVE la escena TÚ MISMO usando la herramienta "manage_escenario" con action "go" y el nombre del lugar.`);
+        scenarioLines.push(`- Usa el nombre EXACTO de la ubicación tal como aparece en la lista. Con action "list" ves todas las ubicaciones con sus detalles.`);
+        scenarioLines.push(`- Usa la ubicación ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
+
+        // Safety net: inject the [ESCENARIO] block if the card has no {{escenario}} key
+        const cardText = [
+          character.description, character.personality, character.scenario,
+          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
+          character.authorNote, character.mesExample,
+        ].filter(Boolean).join('\n');
+        const cardHasKey = /\{\{(?:escenario|scenario)\}\}/i.test(cardText || '');
+        if (!cardHasKey) {
+          const header = (scenarioInfo.isGroupScenario ? group.scenarioConfig?.blockHeader : character.scenarioConfig?.blockHeader) || '[ESCENARIO]';
+          const activeDesc = scenarioInfo.current?.description?.trim();
+          if (activeDesc) {
+            scenarioLines.push('', header, activeDesc);
+          }
+        }
+
+        sections.push({
+          type: 'character_note',
+          label: `${character.name} - Escenario`,
+          content: scenarioLines.join('\n'),
           color: SECTION_COLORS.character_note
         });
       }
@@ -1570,7 +1746,8 @@ export function buildGroupChatMessages(
   isForNarrator: boolean = false,
   embeddingsContext?: string,  // embeddings injected before chat history
   lorebookChatInjections?: LorebookChatInjection[],  // positions 1-4: inject into specific messages
-  exampleMessages?: ChatApiMessage[]  // SillyTavern-style example dialogue as chat messages
+  exampleMessages?: ChatApiMessage[],  // SillyTavern-style example dialogue as chat messages
+  turnDirective?: string  // per-responder directive appended to the last user message (anti impersonation)
 ): GroupPromptBuildResult {
   // =============================================
   // Step 1: Build all system content as ONE message
@@ -1592,10 +1769,13 @@ export function buildGroupChatMessages(
 
   const chatMessages: ChatApiMessage[] = [];
 
-  // Single system/assistant message
+  // Single system message
+  // role 'system' (matches 1-to-1 buildChatMessages with useSystemRole=true):
+  // sending the system prompt as 'assistant' weakens instruction-following and
+  // encourages the model to keep narrating the whole scene by itself.
   if (systemParts.length > 0) {
     chatMessages.push({
-      role: 'assistant',
+      role: 'system',
       content: systemParts.join('\n\n---\n\n')
     });
   }
@@ -1687,6 +1867,22 @@ export function buildGroupChatMessages(
 
   chatMessages.push(...finalHistory);
 
+  // =============================================
+  // Step 4: Turn directive — appended to the LAST user message
+  // =============================================
+  // Recency bias makes the end of the prompt the strongest position.
+  // Appending "respond ONLY as X" right after the user's message (instead of
+  // burying it in the system block) is what actually stops cross-character
+  // impersonation in group chats.
+  if (turnDirective?.trim()) {
+    const lastMsg = chatMessages[chatMessages.length - 1];
+    if (lastMsg && lastMsg.role === 'user') {
+      lastMsg.content = `${lastMsg.content}\n\n${turnDirective}`;
+    } else {
+      chatMessages.push({ role: 'user', content: turnDirective });
+    }
+  }
+
   // Inject lorebook chat-level content (positions 1-4)
   if (lorebookChatInjections?.length) {
     applyChatInjections(chatMessages, lorebookChatInjections);
@@ -1709,6 +1905,45 @@ export function buildGroupChatMessages(
     chatMessages,
     chatHistorySection
   };
+}
+
+/**
+ * Build the per-responder turn directive for group chats (anti impersonation).
+ * Appended to the END of the last user message by buildGroupChatMessages.
+ *
+ * This mirrors SillyTavern's group "[Write the next reply only as ...]" pattern:
+ * the model is told, at the position of maximum attention, exactly who it may
+ * voice in this reply.
+ */
+export function buildGroupTurnDirective(
+  character: CharacterCard,
+  allCharacters?: CharacterCard[],
+  userName: string = 'User',
+  isNarrator: boolean = false
+): string {
+  // The narrator IS a scene voice: they narrate the world, but still must not
+  // write dialogue "for" the other characters' minds.
+  if (isNarrator) {
+    return [
+      `[INSTRUCCIÓN DE TURNO — GRUPO]`,
+      `Es tu turno: responde como el NARRADOR (escenas, ambiente y eventos del mundo).`,
+      `- NO escribas diálogo, acciones ni pensamientos "por" otros personajes (${(allCharacters || []).filter(c => c.id !== character.id && c.id !== '__user__').map(c => c.name).join(', ') || 'ninguno'}) ni por ${userName}.`,
+      `- Responde directamente, sin prefijo de nombre ni encabezados.`,
+    ].join('\n');
+  }
+
+  const otherNames = (allCharacters || [])
+    .filter(c => c.id !== character.id && c.id !== '__user__')
+    .map(c => c.name);
+
+  return [
+    `[INSTRUCCIÓN DE TURNO — GRUPO]`,
+    `Es el turno de ${character.name}. Responde AHORA ÚNICAMENTE como ${character.name}.`,
+    `- Escribe SOLO las líneas, acciones y pensamientos de ${character.name}.`,
+    `- NO escribas nada "por" otros personajes (${otherNames.join(', ') || 'ninguno'}) ni por ${userName}: ellos responden en sus propios turnos.`,
+    `- NO repitas ni parafrasees lo que otros personajes ya dijeron.`,
+    `- Responde directamente, sin prefijo de nombre ("${character.name}:") ni encabezados.`,
+  ].join('\n');
 }
 
 // ============================================

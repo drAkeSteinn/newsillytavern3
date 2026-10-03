@@ -1,6 +1,6 @@
 [
   {
-    "name": "Ok",
+    "name": "Voca",
     "description": "",
     "systemPrompt": "",
     "activationStrategy": "all",
@@ -10,27 +10,27 @@
     "mentionTriggers": [],
     "conversationStyle": "sequential",
     "characterIds": [
-      "a736edfc-c3df-4218-afb4-969ef530543c",
-      "d13cdd2f-bb90-4f4c-b163-fcf87e9b15f1",
-      "33bbd96a-3533-43b9-84b8-653f401db619"
+      "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+      "be007398-1400-45b2-b87a-0d7e1f906278",
+      "c4c648bc-f114-4d58-96e4-3bbe493f4a30"
     ],
     "members": [
       {
-        "characterId": "a736edfc-c3df-4218-afb4-969ef530543c",
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
         "isActive": true,
         "isPresent": true,
         "isNarrator": false,
         "joinOrder": 0
       },
       {
-        "characterId": "d13cdd2f-bb90-4f4c-b163-fcf87e9b15f1",
+        "characterId": "be007398-1400-45b2-b87a-0d7e1f906278",
         "isActive": true,
         "isPresent": true,
         "isNarrator": false,
         "joinOrder": 1
       },
       {
-        "characterId": "33bbd96a-3533-43b9-84b8-653f401db619",
+        "characterId": "c4c648bc-f114-4d58-96e4-3bbe493f4a30",
         "isActive": true,
         "isPresent": true,
         "isNarrator": false,
@@ -40,15 +40,11 @@
     "avatar": "",
     "hudTemplateId": "41b36aa1-f1b7-4cf3-9593-dbd7640a08da",
     "lorebookIds": [
-      "c7313714-3b49-4976-b315-7b644bf70524",
-      "272bfce2-1a68-41c0-9043-cd548cc8de58",
-      "ef0383c0-ffb9-4b9a-ab20-f552c45a24c8"
+      "7f1410a6-06ba-4009-959c-a23b7883a114",
+      "d854a0e7-fc62-4e37-85dd-4a813625e885"
     ],
     "questTemplateIds": [],
     "embeddingNamespaces": [],
-    "id": "99220264-cd89-4c16-887a-97623efc674e",
-    "createdAt": "2026-05-31T05:49:34.742Z",
-    "updatedAt": "2026-06-05T13:51:52.944Z",
     "narratorSettings": {
       "responseMode": "turn_end",
       "conditional": {
@@ -57,6 +53,31 @@
       },
       "hiddenFromChat": false,
       "showSprite": false
+    },
+    "id": "05d7c92f-cbe6-444a-b442-6c9da16c6f47",
+    "createdAt": "2026-09-11T14:20:52.847Z",
+    "updatedAt": "2026-09-12T04:44:53.438Z",
+    "firstMes": "(El departamento está encendido. Ana anda en harness, como quien ya vive ahí. Aitana llegó del after con lentes y ropa que sí pasa. La puerta se abre de un golpe y entra Ximena con la bolsa chueca y la cara hecha un desmadre.)\n\n(Ximena se planta, sin saber si sentarse o seguirse de largo.)\n\"No vengo a la fiesta. Me corrieron. Puerta, bolsa y a la calle. Que ando de puta, que soy cogelona. Necesito el paro. Sofá, piso, lo que sea.\"\n*No me vayan a dejar en la calle otra vez. Él está. Las otras también. Vale verga.*\n\"No les estoy pidiendo que me mantengan. Les estoy pidiendo no dormir afuera. Dime que sí o dime que no. Para saber qué onda.\"\n\n(Aitana se pega un segundo al perreo que ya no suena y se abre, hablando encima, ofendida de que se arme el desmadre.)\n\"No me veas raro, baby. Yo vine un rato. Perreo y me voy. No ando de las que se quedan a que amanezca el cuarto.\"\n*Se me hace agua la boca. Cállate. Que no se note. Y esa Ana ya se le ve el hambre.*\n\"Si esto se pone intenso me regreso a la pista. Hoy no traje ganas de que me hablen como si yo también viniera a cobrarte algo.\"\n\n(Ana se ríe feo, se te acerca y te baja un dedo el cierre, sin pedir permiso.)\n\"Qué tierno el reencuentro de la 11, diablillo. Yo ya egresé. Yo ya cobro. Piedra o esa verga. Tú eliges.\"\n*Quiero dosis. Que pague o que la saque. Las morras que pidan sofá.*\n\"No vine a pedir paro. Vine por lo mío. Si la cogelona se queda en el sillón, que se quede. Tú quítate eso o saca un toque. No me dejes a medias.\"",
+    "scenarioConfig": {
+      "enabled": true,
+      "locations": [
+        {
+          "id": "location-1789152180653",
+          "name": "Departamento",
+          "description": "Un departamento pequeño en el quinto piso: sala con sofá gris, cocina abierta, un pasillo con dos habitaciones y ventanas grandes con vista a la ciudad.",
+          "isDefault": true
+        },
+        {
+          "id": "location-1789152188749",
+          "name": "Cama",
+          "description": "La habitación principal: cama queen con sábanas suaves, luz tenue y cortinas cerradas."
+        },
+        {
+          "id": "location-1789152198605",
+          "name": "Ducha",
+          "description": "El baño: regadera amplia con agua caliente, espejo empañado y azulejos blancos."
+        }
+      ]
     }
   }
 ]

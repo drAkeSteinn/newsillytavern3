@@ -15,6 +15,7 @@ import type {
   QuestRewardConditionalSpriteCollection,
   QuestRewardActivateSpritePack,
   QuestRewardCondition,
+  QuestRewardMessage,
   AttributeAction,
   TriggerCategory,
   TriggerTargetMode,
@@ -46,6 +47,26 @@ export function createAttributeReward(
       value,
       action,
     },
+    condition: options?.condition,
+  };
+}
+
+/**
+ * Crea una recompensa de mensaje (umbral: mensaje automático al chat)
+ * Se envía como respuesta rápida al finalizar el turno en que se cumple la condición.
+ */
+export function createMessageReward(
+  text: string,
+  options?: {
+    id?: string;
+    condition?: QuestRewardCondition;
+  }
+): QuestReward {
+  const message: QuestRewardMessage = { text };
+  return {
+    id: options?.id || generateId(),
+    type: 'message',
+    message,
     condition: options?.condition,
   };
 }
@@ -485,6 +506,14 @@ export function validateReward(reward: QuestReward): { valid: boolean; errors: s
     }
   }
 
+  if (reward.type === 'message') {
+    if (!reward.message) {
+      errors.push('Message reward must have message config');
+    } else if (!reward.message.text || !reward.message.text.trim()) {
+      errors.push('Message reward must have non-empty message.text');
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
@@ -627,6 +656,13 @@ export function describeReward(reward: QuestReward): string {
     return `🎨 Sprite Pack: ${asp.packId || 'sin pack'}${fallback}${persistLabel}`;
   }
 
+  if (reward.type === 'message') {
+    const msg = reward.message;
+    if (!msg) return 'Mensaje inválido';
+    const truncated = msg.text.length > 40 ? `${msg.text.slice(0, 40)}…` : msg.text;
+    return `💬 Mensaje: "${truncated}"`;
+  }
+
   return 'Recompensa desconocida';
 }
 
@@ -669,6 +705,9 @@ export function normalizeReward(reward: QuestReward): QuestReward {
     return reward;
   }
   if (reward.type === 'activate_sprite_pack' && reward.activate_sprite_pack) {
+    return reward;
+  }
+  if (reward.type === 'message' && reward.message) {
     return reward;
   }
 
@@ -759,6 +798,16 @@ export function normalizeReward(reward: QuestReward): QuestReward {
         targetCharacterId: reward.activate_sprite_pack?.targetCharacterId,
         returnToIdleMs: reward.activate_sprite_pack?.returnToIdleMs,
         fallbackMode: reward.activate_sprite_pack?.fallbackMode,
+      },
+    };
+  }
+
+  // Handle message type (legacy: text stored in value/key)
+  if (reward.type === 'message') {
+    return {
+      ...reward,
+      message: {
+        text: reward.message?.text ?? (typeof reward.value === 'string' ? reward.value : ''),
       },
     };
   }

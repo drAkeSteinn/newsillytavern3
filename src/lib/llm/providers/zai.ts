@@ -152,7 +152,7 @@ function formatAuthError(status: number, errorBody: string): Error {
  */
 async function* parseSSEStream(
   stream: ReadableStream<Uint8Array>,
-  onDelta?: (delta: Record<string, unknown>) => string | undefined
+  onDelta?: (delta: Record<string, unknown>, finishReason: string | null) => string | undefined
 ): AsyncGenerator<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -180,10 +180,15 @@ async function* parseSSEStream(
           if (!choice) continue;
 
           const delta = choice.delta || {};
+          // FIX: capture choice.finish_reason (lives on the CHOICE, not on the
+          // delta). Without this the tool-call accumulator's finishReason stayed
+          // null forever and the stream route discarded every native tool call
+          // ("finishReason=null, toolCalls=1 → No tool calls detected").
+          const finishReason = (choice.finish_reason as string | null | undefined) ?? null;
 
           // Use custom delta processor if provided (for tool calling)
           if (onDelta) {
-            const textContent = onDelta(delta);
+            const textContent = onDelta(delta, finishReason);
             if (textContent) yield textContent;
           } else {
             // Simple text extraction
@@ -299,9 +304,12 @@ export async function* streamZAIWithTools(
     const body = response.body;
     if (!body) throw new Error('No response body from Z.ai');
 
-    yield* parseSSEStream(body, (delta) => {
+    yield* parseSSEStream(body, (delta, finishReason) => {
+      // FIX: store the choice's finish_reason on the accumulator. Some providers
+      // also inline it in the delta — processOpenAIDelta handles both.
+      if (finishReason) accumulator.finishReason = finishReason;
       // Process delta using native parser (handles tool_calls)
-      return processOpenAIDelta(delta, accumulator);
+      return processOpenAIDelta(delta, accumulator, finishReason);
     });
 
     finalizeToolCalls(accumulator);

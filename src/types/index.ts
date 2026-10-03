@@ -548,6 +548,14 @@ export interface CharacterCard {
   postHistoryInstructions: string;
   authorNote: string;     // Author's Note - injected after chat history, before post-history instructions
   alternateGreetings: string[];
+  /** ESCENARIO V2: scenario location associated with the FIRST MESSAGE (firstMes).
+   *  When the conversation starts with this greeting, the session's active scenario
+   *  is set to this location (if it exists in scenarioConfig.locations). */
+  firstMesScenarioId?: string | null;
+  /** ESCENARIO V2: scenario location for each ALTERNATE GREETING, parallel to
+   *  alternateGreetings (greetingScenarioIds[i] ↔ alternateGreetings[i]).
+   *  null/undefined entries fall back to the default location. */
+  greetingScenarioIds?: (string | null)[];
   tags: string[];
   avatar: string;
   /** @deprecated Use spritePacksV2 + stateCollectionsV2 instead. Legacy sprite list. */
@@ -573,10 +581,14 @@ export interface CharacterCard {
   embeddingNamespaces?: string[];   // Embedding namespaces to search during chat (overrides strategy)
   statsConfig?: CharacterStatsConfig;  // Stats system configuration (attributes, skills, etc.)
   proactiveMessages?: ProactiveMessagesConfig;  // Proactive message configuration
-  /** FASE 12: Wardrobe system — clothing that changes based on the main attribute.
-   *  When enabled and levels exist, the {{wardrobe}} key resolves to the current
-   *  level's content, and the manage_wardrobe tool becomes available. */
+  /** GUARDARROPA V2: the character's wardrobe with named outfits (name + description).
+   *  When enabled with at least 1 outfit, the {{vestuario}} key resolves to the
+   *  active outfit's description and the manage_wardrobe tool becomes available. */
   wardrobeConfig?: WardrobeConfig;
+  /** ESCENARIO V2: the character's scenario with named locations (name + description).
+   *  When enabled with at least 1 location, the {{escenario}} key resolves to the
+   *  active location's description and the manage_escenario tool becomes available. */
+  scenarioConfig?: ScenarioConfig;
   microReactionConfig?: MicroReactionConfig;     // FASE 4: Micro-reaction configuration for group chats
   emotionalConfig?: EmotionalStateConfig;        // FASE 5: Autonomous emotional state system
   quickReplies?: CharacterQuickReply[];          // Character-specific quick replies with optional attribute modifiers
@@ -802,6 +814,10 @@ export interface MessageMetadata {
   interruptInfo?: InterruptInfo;  // FASE 4: Interruption metadata
   microReactions?: MicroReaction[];  // FASE 4: Micro-reactions from other characters
   isPartial?: boolean;  // FASE 4: Message was interrupted (partial content)
+  /** ESCENARIO V2: for the FIRST message only, parallel to `swipes` — the
+   *  scenario location pinned to each greeting swipe. Swipes beyond this
+   *  array (regenerations) have no pinned location and never change the scene. */
+  greetingScenarioIds?: (string | null)[];
 }
 
 export interface ToolUsedInfo {
@@ -993,6 +1009,11 @@ export interface CharacterGroup {
   quickReplies?: GroupQuickReply[];     // Group-specific quick replies (replaces individual character quick replies in group mode)
   firstMes?: string;            // First message for group chat
   alternateGreetings?: string[]; // Alternative first messages
+  /** ESCENARIO V2 (groups): the group's own scenario with named locations.
+   *  When enabled with ≥1 location it REPLACES every member's character-level
+   *  scenario in group chats, so all members share the same location list and
+   *  the same {{escenario}} / manage_escenario / quick-reply scene. */
+  scenarioConfig?: ScenarioConfig;
   createdAt: string;
   updatedAt: string;
 }
@@ -2247,29 +2268,74 @@ export interface QuickReplySpriteActivation {
   fallbackSpriteId?: string;
 }
 
+/**
+ * Wardrobe effect: changes the character's active outfit when the quick reply is used.
+ * - 'wear': puts on the outfit identified by `outfitId`
+ * - 'remove': takes off the current outfit (returns to the isDefault outfit)
+ */
+export interface QuickReplyWardrobeAction {
+  action: 'wear' | 'remove';
+  /** ID of the WardrobeOutfit to wear (required for 'wear') */
+  outfitId?: string;
+}
+
+/**
+ * Scenario effect: moves the scene to a location when the quick reply is used.
+ * - 'go': sets the session's active scenario to the location identified by `locationId`
+ */
+export interface QuickReplyScenarioAction {
+  action: 'go';
+  /** ID of the ScenarioLocation to move to (required for 'go') */
+  locationId?: string;
+}
+
+/**
+ * Umbral (conditional message): lorebook-style conditions over attributes that,
+ * when met, REPLACE the base response text with `message` when the quick reply is clicked.
+ * Umbrales are evaluated top-down; the FIRST enabled umbral whose conditions match wins.
+ * If none matches, the base `response` is sent.
+ */
+export interface QuickReplyUmbral {
+  /** Unique ID for this umbral */
+  id: string;
+  /** Optional display name (e.g., "Golpe salvaje") */
+  name: string;
+  /** Disabled umbrales are skipped during evaluation */
+  enabled: boolean;
+  /** Attribute conditions (same format as visibility requirements / lorebooks) */
+  conditions: StatRequirement[];
+  /** Logic operator for conditions: AND = all must match, OR = at least one */
+  conditionOperator?: 'AND' | 'OR';
+  /** Text sent instead of the base response when conditions match (supports {{char}}, {{user}}) */
+  message: string;
+}
+
 /** Character-specific quick reply with optional attribute modifiers and sprite activation */
 export interface CharacterQuickReply {
   /** Unique ID for this quick reply */
   id: string;
   /** Label shown on the button in the chatbox (supports {{char}}, {{user}}) */
   label: string;
-  /** Actual text sent as the user message (supports {{char}}, {{user}}) */
+  /** Actual text sent as the user message (supports {{char}}, {{user}}). Replaced by a matching umbral's message when one matches. */
   response: string;
   /** Optional attribute modifiers applied when this quick reply is used */
   modifiers?: QuickReplyAttributeModifier[];
   /** Optional sprite activation - triggers a sprite animation when this quick reply is used */
   spriteActivation?: QuickReplySpriteActivation;
+  /** Optional wardrobe effect - changes the character's active outfit when used */
+  wardrobeAction?: QuickReplyWardrobeAction;
+  /** Optional scenario effect - moves the scene to a location when used */
+  scenarioAction?: QuickReplyScenarioAction;
   /** Optional conditions that must be met for this quick reply to appear */
   requirements?: StatRequirement[];
   /** Logic operator for requirements: AND = all must be met, OR = at least one must be met */
   requirementOperator?: 'AND' | 'OR';
   /**
-   * FASE 18: Threshold effects evaluated when the quick reply is clicked.
-   * Similar to attribute threshold effects — supports conditions, priorities, and full rewards.
-   * Rewards can: modify attributes, trigger sprites, execute triggers, etc.
-   * Evaluated in priority order; all matching effects' rewards are executed.
+   * Umbral: conditional messages that REPLACE the base response.
+   * Evaluated top-down against the character's attributes (BEFORE modifiers apply);
+   * the first enabled umbral whose conditions match is sent instead of `response`.
    */
-  thresholdEffects?: ThresholdEffect[];
+  umbrales?: QuickReplyUmbral[];
 }
 
 /** Group-specific quick reply with conditions based on member character attributes */
@@ -2278,18 +2344,22 @@ export interface GroupQuickReply {
   id: string;
   /** Label shown on the button in the chatbox */
   label: string;
-  /** Actual text sent as the user message */
+  /** Actual text sent as the user message. Replaced by a matching umbral's message when one matches. */
   response: string;
   /** Optional attribute modifiers - can target any member character's attributes */
   modifiers?: QuickReplyAttributeModifier[];
   /** Optional sprite activation */
   spriteActivation?: QuickReplySpriteActivation;
+  /** Optional wardrobe effect (applies to the primary character of the chat) */
+  wardrobeAction?: QuickReplyWardrobeAction;
+  /** Optional scenario effect - moves the scene to a location when used */
+  scenarioAction?: QuickReplyScenarioAction;
   /** Optional conditions based on member character attributes */
   requirements?: StatRequirement[];
   /** Logic operator for requirements */
   requirementOperator?: 'AND' | 'OR';
-  /** FASE 18: Threshold effects evaluated when the quick reply is clicked. */
-  thresholdEffects?: ThresholdEffect[];
+  /** Umbral: conditional messages that REPLACE the base response (first match wins). */
+  umbrales?: QuickReplyUmbral[];
 }
 
 export interface HandySettings {
@@ -3154,7 +3224,7 @@ export interface QuestObjectiveTemplate {
 // Los triggers se ejecutan a través del UnifiedTriggerExecutor,
 // que simula que el TokenDetector encontró la key.
 
-export type QuestRewardType = 'attribute' | 'trigger' | 'objective' | 'solicitud' | 'target_attribute' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack';
+export type QuestRewardType = 'attribute' | 'trigger' | 'objective' | 'solicitud' | 'target_attribute' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack' | 'message';
 
 // Target mode para grupos
 export type TriggerTargetMode = 'self' | 'all' | 'target';
@@ -3194,6 +3264,14 @@ export interface QuestRewardTrigger {
 
   // Para backgrounds: transición
   transitionDuration?: number;
+}
+
+// Configuración de mensaje para recompensa (UMBRAL: mensaje automático al chat)
+// Al finalizar el turno, si se cumple la condición del umbral, se envía este
+// mensaje al chat como si fuera una respuesta rápida (mensaje del usuario).
+// El texto soporta tags: {{char}}, {{user}}, {{atributo}}, {{time}}, {{eventos}}, etc.
+export interface QuestRewardMessage {
+  text: string;               // Plantilla del mensaje con tags resolubles
 }
 
 // Configuración de objetivo para recompensa (completa un objetivo de misión)
@@ -3329,6 +3407,10 @@ export interface QuestReward {
 
   // Para type: 'activate_sprite_pack' - activa un sprite pack con evaluación condicional
   activate_sprite_pack?: QuestRewardActivateSpritePack;
+
+  // Para type: 'message' - mensaje automático al chat al cumplirse el umbral
+  // (se envía como respuesta rápida al finalizar el turno)
+  message?: QuestRewardMessage;
 
   // Condiciones opcionales para ejecutar el reward
   condition?: QuestRewardCondition;
@@ -4721,37 +4803,85 @@ export interface CharacterStatsConfig {
 }
 
 // ============================================
-// WARDROBE SYSTEM (FASE 12)
+// WARDROBE SYSTEM V2 — GUARDARROPA
 // ============================================
-// Character clothing/outfit that changes based on the main attribute level.
-// Similar to attribute-based lorebooks, but with session-state offset that
-// can be shifted by ±1 via the manage_wardrobe tool.
+// A real wardrobe: the character has multiple OUTFITS (sets), each defined
+// with a name + a free-text description. The character (LLM) decides which
+// outfit to wear via the manage_wardrobe tool, and the active outfit is
+// stored in the session state.
 //
 // Flow:
-// 1. Base level = highest threshold <= main attribute value
-// 2. Effective level = clamp(base + offset, 0, levels.length - 1)
-// 3. {{wardrobe}} resolves to effective level's content
-// 4. manage_wardrobe tool can escalate (+1) or regress (-1) the offset
-// 5. The offset persists across turns (no downgrade unless tool regress)
+// 1. The creator defines outfits in the wardrobe (name + description).
+// 2. One outfit can be flagged isDefault — it's worn when nothing is active
+//    (e.g., at session start).
+// 3. {{vestuario}} (alias {{wardrobe}}) resolves to the ACTIVE outfit's
+//    description, read from the session JSON.
+// 4. manage_wardrobe tool: list / wear / remove / get_info — the character
+//    picks what to wear according to the scene; the choice persists.
 
-export interface WardrobeLevel {
+export interface WardrobeOutfit {
   id: string;
-  /** Display name for this level (e.g., "Ropa casual", "Ropa interior", "Desnuda") */
+  /** Outfit name (e.g., "Vestido de gala", "Pijama", "Ropa vieja") — the LLM
+   *  uses this name to wear it via the manage_wardrobe tool. */
   name: string;
-  /** The main attribute value at which this level becomes active.
-   *  Levels are sorted by threshold ascending. The base level is the highest
-   *  threshold that is <= the current main attribute value. */
-  threshold: number;
-  /** The content to inject via {{wardrobe}} when this level is active.
-   *  Free-form text describing the character's current clothing state. */
-  content: string;
+  /** Free-text description of the outfit (e.g., "Vestido negro de satén, con un
+   *  collar de plata y zapatillas altas color rojo"). Injected via {{vestuario}}
+   *  while this outfit is worn. */
+  description: string;
+  /** When true, this outfit is worn by default (session start / after remove).
+   *  Only one outfit should have this flag. */
+  isDefault?: boolean;
 }
 
 export interface WardrobeConfig {
   enabled: boolean;
-  /** Ordered list of wardrobe levels (will be sorted by threshold at runtime). */
-  levels: WardrobeLevel[];
+  /** The character's wardrobe: all available outfits. */
+  outfits: WardrobeOutfit[];
   /** Optional header for the wardrobe block in the prompt (default: [VESTUARIO]). */
+  blockHeader?: string;
+}
+
+// ============================================
+// SCENARIO SYSTEM V2 — ESCENARIO / UBICACIONES
+// ============================================
+// A scene location system: the character (or group) has multiple LOCATIONS
+// (e.g., "Cama", "Sofá", "Escritorio", "Departamento"), each defined with a
+// name + a free-text description. The character (LLM) decides where the scene
+// takes place via the manage_escenario tool, and the active location is
+// stored in the SESSION state (SessionStats.activeScenarioId — shared by all
+// participants of the chat).
+//
+// Flow:
+// 1. The creator defines locations in the scenario (name + description).
+// 2. One location is flagged isDefault — the scene starts there when no
+//    greeting-specific location applies.
+// 3. {{escenario}} (alias {{scenario}}) resolves to the ACTIVE location's
+//    description, read from the session JSON.
+// 4. Greetings (firstMes / alternateGreetings) can pin a standard location
+//    via firstMesScenarioId / greetingScenarioIds — when a session starts
+//    with that greeting, the scene is located there automatically.
+// 5. manage_escenario tool: list / go / get_info — the character moves the
+//    scene according to the narrative; the choice persists in the session.
+
+export interface ScenarioLocation {
+  id: string;
+  /** Location name (e.g., "Cama", "Sofá", "Escritorio", "Departamento") — the LLM
+   *  uses this name to move the scene there via the manage_escenario tool. */
+  name: string;
+  /** Free-text description of the location (e.g., "Un departamento pequeño en el
+   *  quinto piso, con ventanas grandes y luz cálida"). Injected via {{escenario}}
+   *  while this location is active. */
+  description: string;
+  /** When true, this location is the default one (session start without a
+   *  greeting-specific location). Only one location should have this flag. */
+  isDefault?: boolean;
+}
+
+export interface ScenarioConfig {
+  enabled: boolean;
+  /** All available locations within this scenario. */
+  locations: ScenarioLocation[];
+  /** Optional header for the scenario block in the prompt (default: [ESCENARIO]). */
   blockHeader?: string;
 }
 
@@ -4782,11 +4912,15 @@ export interface CharacterSessionStats {
   emotionalStateLastEval?: number;        // Timestamp of last emotional evaluation
   emotionalStateTurnCount?: number;       // Turn counter for evaluation interval
 
-  // FASE 12: Wardrobe offset — shifts the effective wardrobe level from the
-  // attribute-determined base. +1 = one level above base, -1 = one below.
-  // Persists across turns; reset to 0 by the manage_wardrobe tool's "reset" action.
-  wardrobeOffset?: number;
+  // GUARDARROPA V2: id of the outfit the character is currently wearing.
+  // null/undefined → the outfit flagged isDefault (or the first one) is worn.
+  // Set by the manage_wardrobe tool (wear/remove) or by manual override.
+  activeOutfitId?: string | null;
 }
+
+// NOTE: the active scenario location (SessionStats.activeScenarioId) is stored
+// at SESSION level — the scene is shared by every participant of the chat —
+// not per character like activeOutfitId. See SessionStats below.
 
 // ============================================
 // Session Event Log (ring buffer of recent events, for {{eventos}} key)
@@ -4856,6 +4990,13 @@ export interface SessionStats {
   // Ring buffer of recent session events (newest last). Feeds {{eventos}}.
   eventLog?: SessionEventLogEntry[];
 
+  // ESCENARIO V2: id of the scenario location the scene is currently in.
+  // SESSION-level (shared by all chat participants — the scene is one place).
+  // null/undefined → the location flagged isDefault (or the first one) is used.
+  // Set by the manage_escenario tool (go), a quick reply's scenarioAction,
+  // or automatically when a session starts with a greeting that pins a location.
+  activeScenarioId?: string | null;
+
   // Recent events (for {{eventos}} key)
   ultimo_objetivo_completado?: string;  // Description of the last completed objective
   ultima_solicitud_completada?: string; // Completion description of the last completed solicitud
@@ -4870,6 +5011,12 @@ export interface SessionStats {
   // Timer state (persistent timer tracking)
   lastTimerUpdate?: number;             // Timestamp of last timer evaluation
   keywordCycleIndex?: Record<string, number>;  // Current cycle position per attribute key
+
+  // Threshold MESSAGE effects edge-state (persistent across turns/sessions)
+  // Key format: `${characterId}:${attributeKey}:${effectId}` → true while the
+  // condition is met. A threshold message only fires on the false→true edge
+  // (prevents re-sending the same message every turn while the condition stays true).
+  thresholdMessageStates?: Record<string, boolean>;
 }
 
 // Stats trigger hit result (Post-LLM detection)

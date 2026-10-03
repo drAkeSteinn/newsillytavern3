@@ -6,7 +6,7 @@
     "avatar": "",
     "isActive": true,
     "createdAt": "2026-03-01T21:37:31.485Z",
-    "updatedAt": "2026-09-02T09:37:12.456Z",
+    "updatedAt": "2026-09-11T14:35:17.869Z",
     "statsConfig": {
       "enabled": true,
       "attributes": [
@@ -135,6 +135,16 @@
       },
       {
         "itemId": "past-003",
+        "quantity": 1,
+        "equipped": false
+      },
+      {
+        "itemId": "afro-007",
+        "quantity": 1,
+        "equipped": false
+      },
+      {
+        "itemId": "past-002",
         "quantity": 1,
         "equipped": false
       }

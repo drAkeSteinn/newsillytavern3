@@ -19,6 +19,7 @@ import {
   cleanResponseContent,
   buildGroupSystemPrompt,
   buildGroupChatMessages,
+  buildGroupTurnDirective,
   buildPostHistorySection,
   buildCompletionPrompt,
   getEffectiveUserName,
@@ -400,6 +401,7 @@ async function executeGroupToolCalls(
         groupId: group?.id,
         groupMembers: group?.members,
         character,  // FASE 12: needed by manage_wardrobe tool
+        group,      // ESCENARIO V2: manage_escenario uses the GROUP's scenario when set
       },
     );
 
@@ -568,22 +570,41 @@ async function executeGroupToolCalls(
       }));
     }
 
-    // Check for wardrobe activation and send SSE event
+    // Check for wardrobe activation and send SSE event (GUARDARROPA V2)
     if (toolResult.wardrobeActivation) {
       const wa = toolResult.wardrobeActivation;
-      console.log(`[GroupStream-Tools] Wardrobe activation from ${tc.name}:`, wa.action, 'offset:', wa.previousOffset, '→', wa.newOffset);
+      console.log(`[GroupStream-Tools] Wardrobe activation from ${tc.name}:`, wa.action, wa.previousOutfitId ?? '(none)', '→', wa.outfitId ?? '(default)', wa.outfitName);
 
       controller.enqueue(createSSEJSON({
         type: 'wardrobe_activation',
         toolName: tc.name,
         characterId: wa.characterId,
         action: wa.action,
-        newOffset: wa.newOffset,
-        previousOffset: wa.previousOffset,
-        newLevelName: wa.newLevelName,
-        newLevelContent: wa.newLevelContent,
+        outfitId: wa.outfitId,
+        outfitName: wa.outfitName,
+        outfitDescription: wa.outfitDescription,
+        previousOutfitId: wa.previousOutfitId,
         changed: wa.changed,
         reason: wa.reason,
+      }));
+    }
+
+    // Check for scenario activation and send SSE event (ESCENARIO V2)
+    if (toolResult.scenarioActivation) {
+      const sa = toolResult.scenarioActivation;
+      console.log(`[GroupStream-Tools] Scenario activation from ${tc.name}:`, sa.action, sa.previousLocationId ?? '(none)', '→', sa.locationId ?? '(default)', sa.locationName);
+
+      controller.enqueue(createSSEJSON({
+        type: 'scenario_activation',
+        toolName: tc.name,
+        characterId: sa.characterId,
+        action: sa.action,
+        locationId: sa.locationId,
+        locationName: sa.locationName,
+        locationDescription: sa.locationDescription,
+        previousLocationId: sa.previousLocationId,
+        changed: sa.changed,
+        reason: sa.reason,
       }));
     }
 
@@ -697,18 +718,19 @@ export async function POST(request: NextRequest) {
     // Cast hudContext to proper type
     const typedHUDContext = hudContext as HUDContextConfig | undefined;
 
-    // Extract per-character lorebook map for when group has no lorebooks
+    // Extract per-character lorebook map (characterId → personal lorebookIds).
+    // The client ALWAYS sends this map in group mode.
     const characterLorebooksMap: Record<string, string[]> = body.characterLorebooksMap || {};
 
     // Extract per-character memory map for deduplication (characterId → CharacterMemory)
     const characterMemoryMap: Record<string, CharacterMemory> = body.characterMemoryMap || {};
 
-    // Determine if we should use per-character lorebooks
-    // When characterLorebooksMap is present (group has no lorebooks), each character
-    // should only see their own lorebooks — NOT a merged plan from all characters.
-    // When characterLorebooksMap is null/empty, the group has its own lorebooks
-    // that are shared across all characters.
-    const useGroupLorebooks = !characterLorebooksMap || Object.keys(characterLorebooksMap).length === 0;
+    // LOREBOOK STRATEGY (groups): each responder gets
+    //   personal lorebooks (characterLorebooksMap[responder.id])
+    //   + shared group lorebooks (group.lorebookIds)
+    // merged with dedup by lorebook id. This way a character never loses its
+    // own lore just because the group defines shared world books, and shared
+    // books are not injected twice when they duplicate a personal one.
 
     // Extract narrator-related data
     const turnCount: number = body.turnCount || 0;
@@ -821,26 +843,8 @@ export async function POST(request: NextRequest) {
     // Apply sliding window to messages
     const contextWindow = selectContextMessages(messages, llmConfig, contextConfig);
 
-    // Build group-level lorebook injection plan if group has lorebooks
-    let groupLorebookPlan: LorebookInjectionPlan | null = null;
-    let groupLorebookAttributeKeys: Record<string, string> = {};
-    let groupLorebookEntryKeyMap: Record<string, string> = {};
-    if (useGroupLorebooks && lorebooks.length > 0) {
-      const { plan, lorebookAttributeKeys: _groupAttrKeys, lorebookEntryKeyMap: _groupEntryKeyMap } = buildLorebookSectionForPrompt(
-        messages,
-        lorebooks,
-        {
-          scanDepth: contextConfig.scanDepth,
-          // tokenBudget: let the injector use the lorebook's own setting
-          userName: effectiveUserName,
-          charName: undefined, // group-level lorebook has no specific character
-        },
-        { sessionStats: typedSessionStats, characters: allCharacters }
-      );
-      groupLorebookPlan = plan;
-      groupLorebookAttributeKeys = _groupAttrKeys || {};
-      groupLorebookEntryKeyMap = _groupEntryKeyMap || {};
-    }
+    // Note: lorebook injection plans are built PER RESPONDER inside the
+    // character loop (personal + shared group lorebooks, deduped).
 
     // Note: HUD context section is built inside the character loop
     // so it can resolve keys for each specific character
@@ -904,13 +908,17 @@ export async function POST(request: NextRequest) {
               totalResponses: responders.length
             }));
 
-            // Determine lorebook plan for this character
-            // When using group lorebooks (shared), start with the group plan.
-            // When using per-character lorebooks, start with null and let the
-            // per-character override below build the correct plan.
-            let lorebookSectionForCharacter: LorebookInjectionPlan | null = useGroupLorebooks ? groupLorebookPlan : null;
-            let lorebookAttributeKeys: Record<string, string> = useGroupLorebooks ? groupLorebookAttributeKeys : {};
-            let lorebookEntryKeyMap: Record<string, string> = useGroupLorebooks ? groupLorebookEntryKeyMap : {};
+            // Determine lorebook plan for this character:
+            // personal lorebooks + shared group lorebooks, deduped by id.
+            const personalLorebookIds = characterLorebooksMap[responder.id] || [];
+            const sharedGroupLorebookIds = (group.lorebookIds || []);
+            const combinedLorebookIds = Array.from(new Set([...personalLorebookIds, ...sharedGroupLorebookIds]));
+            const combinedLorebooks = combinedLorebookIds.length > 0
+              ? lorebooks.filter(lb => combinedLorebookIds.includes(lb.id) && lb.active)
+              : [];
+            let lorebookSectionForCharacter: LorebookInjectionPlan | null = null;
+            let lorebookAttributeKeys: Record<string, string> = {};
+            let lorebookEntryKeyMap: Record<string, string> = {};
 
             // ========================================
             // Embeddings Context Retrieval (per-character)
@@ -986,33 +994,23 @@ export async function POST(request: NextRequest) {
               console.log(`[Group Stream] Retrieved ${embeddingsResult.count} embeddings for ${responder.name}`);
             }
 
-            // If group has no lorebooks, use character's own lorebooks
-            if (!useGroupLorebooks) {
-              const characterLorebookIds = characterLorebooksMap[responder.id] || [];
-              if (characterLorebookIds.length > 0) {
-                const characterLorebooksFiltered = lorebooks.filter(lb =>
-                  characterLorebookIds.includes(lb.id) && lb.active
-                );
-
-                if (characterLorebooksFiltered.length > 0) {
-                  const { plan, lorebookAttributeKeys: charAttrKeys, lorebookEntryKeyMap: charEntryKeyMap } = buildLorebookSectionForPrompt(
-                    messages,
-                    characterLorebooksFiltered,
-                    {
-                      scanDepth: contextConfig.scanDepth,
-                      // tokenBudget: let the injector use the lorebook's own setting
-                      userName: effectiveUserName,
-                      charName: responder.name,
-                    },
-                    { sessionStats: typedSessionStats, characterId: responder.id, characters: allCharacters }
-                  );
-                  lorebookSectionForCharacter = plan;
-                  if (charAttrKeys) lorebookAttributeKeys = charAttrKeys;
-                  if (charEntryKeyMap) lorebookEntryKeyMap = charEntryKeyMap;
-                }
-              } else {
-                lorebookSectionForCharacter = null;
-              }
+            // Build the lorebook injection plan for this responder:
+            // personal + shared group lorebooks (deduped above)
+            if (combinedLorebooks.length > 0) {
+              const { plan, lorebookAttributeKeys: charAttrKeys, lorebookEntryKeyMap: charEntryKeyMap } = buildLorebookSectionForPrompt(
+                messages,
+                combinedLorebooks,
+                {
+                  scanDepth: contextConfig.scanDepth,
+                  // tokenBudget: let the injector use the lorebook's own setting
+                  userName: effectiveUserName,
+                  charName: responder.name,
+                },
+                { sessionStats: typedSessionStats, characterId: responder.id, characters: allCharacters }
+              );
+              lorebookSectionForCharacter = plan;
+              if (charAttrKeys) lorebookAttributeKeys = charAttrKeys;
+              if (charEntryKeyMap) lorebookEntryKeyMap = charEntryKeyMap;
             }
 
             // ========================================
@@ -1090,6 +1088,9 @@ export async function POST(request: NextRequest) {
               lorebookAttributeKeys,  // lorebook attribute keys for {{injectionKey}}
               inventoryData       // inventory data for {{inventory}} and {{currency}} key resolution
             );
+            // ESCENARIO V2 (groups): {{escenario}} resolves against the GROUP's
+            // scenario when the group defines one (replaces member scenarios).
+            keyContext.group = group;
 
             // Build HUD context section for this character (resolves keys!)
             const hudContextSection = typedHUDContext ? buildHUDContextSection(typedHUDContext, keyContext) : null;
@@ -1178,6 +1179,16 @@ export async function POST(request: NextRequest) {
                 charAvailableTools = charAvailableTools.filter(t => t.id !== 'manage_wardrobe');
               }
             }
+
+            // ESCENARIO V2: filter out the manage_escenario tool when NEITHER the
+            // group nor this character has a usable scenarioConfig (same pattern
+            // as manage_wardrobe). In groups the GROUP's scenario takes priority.
+            if (charAvailableTools.length > 0) {
+              const { isScenarioAvailable } = await import('@/lib/scenario');
+              if (!isScenarioAvailable(responder, group)) {
+                charAvailableTools = charAvailableTools.filter(t => t.id !== 'manage_escenario');
+              }
+            }
             const charToolsEnabled = toolsSettings.enabled && charAvailableTools.length > 0;
 
             // Resolve {{keys}} in tool descriptions and parameter descriptions
@@ -1260,7 +1271,8 @@ export async function POST(request: NextRequest) {
               isResponderNarrator,  // If responder is narrator, they see all messages
               embeddingsContext,  // Memory embeddings before chat history
               lorebookChatInjections,  // Lorebook chat-level injections (positions 1-4)
-              exampleMessages  // SillyTavern-style example dialogue as chat messages
+              exampleMessages,  // SillyTavern-style example dialogue as chat messages
+              buildGroupTurnDirective(responder, allCharacters, effectiveUserName, isResponderNarrator)  // Anti-impersonation turn directive
             );
 
             // Combine prompt sections with chat history for the viewer
@@ -1329,7 +1341,7 @@ export async function POST(request: NextRequest) {
                       fullContent += chunk;
                     }
 
-                    if (hasToolCalls(zaiAccumulator) && (zaiAccumulator.finishReason === 'tool_calls' || zaiAccumulator.finishReason === 'stop')) {
+                    if (hasToolCalls(zaiAccumulator)) {
                       if (zaiRoundContent.trim()) {
                         for (const chunk of splitIntoChunks(zaiRoundContent)) {
                           controller.enqueue(createSSEJSON({
@@ -1402,7 +1414,7 @@ export async function POST(request: NextRequest) {
                       fullContent += chunk;
                     }
 
-                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                    if (hasToolCalls(accumulator)) {
                       // Native tool calls detected! Execute them
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {
@@ -1666,7 +1678,7 @@ export async function POST(request: NextRequest) {
                       fullContent += chunk;
                     }
 
-                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'tool use')) {
+                    if (hasToolCalls(accumulator)) {
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {
                           controller.enqueue(createSSEJSON({
@@ -1808,7 +1820,7 @@ export async function POST(request: NextRequest) {
 
                     console.log(`[Grok+Tools] Round buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
 
-                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                    if (hasToolCalls(accumulator)) {
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {
                           controller.enqueue(createSSEJSON({
@@ -1931,7 +1943,7 @@ export async function POST(request: NextRequest) {
 
                     console.log(`[TextGenWebUI+Tools] Round buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
 
-                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                    if (hasToolCalls(accumulator)) {
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {
                           controller.enqueue(createSSEJSON({

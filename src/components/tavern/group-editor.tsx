@@ -52,14 +52,16 @@ import {
   Database,
   Camera,
   Loader2,
+  MapPin,
 } from 'lucide-react';
 import { useState, useRef, useMemo, useEffect } from 'react';
-import type { GroupMember, GroupActivationStrategy, NarratorResponseMode, NarratorSettings, GroupQuickReply } from '@/types';
+import type { GroupMember, GroupActivationStrategy, NarratorResponseMode, NarratorSettings, GroupQuickReply, ScenarioConfig } from '@/types';
 import { HUDSelector } from './hud-selector';
 import { LorebookSelector } from './lorebook-selector';
 import { QuestSelector } from './quest-selector';
 import { NamespaceSelector } from './namespace-selector';
 import { QuickRepliesPanel } from './quick-replies-panel';
+import { ScenarioEditor } from './scenario-editor';
 import { useToast } from '@/hooks/use-toast';
 
 // Strategy color helper
@@ -226,7 +228,8 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
         narratorSettings: existingGroup?.narratorSettings || DEFAULT_NARRATOR_SETTINGS,
         firstMes: existingGroup?.firstMes || '',
         alternateGreetings: existingGroup?.alternateGreetings || [],
-        quickReplies: existingGroup?.quickReplies || []
+        quickReplies: existingGroup?.quickReplies || [],
+        scenarioConfig: existingGroup?.scenarioConfig
       };
     }
     return {
@@ -247,7 +250,8 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
       narratorSettings: DEFAULT_NARRATOR_SETTINGS,
       firstMes: '',
       alternateGreetings: [],
-      quickReplies: []
+      quickReplies: [],
+      scenarioConfig: undefined
     };
   }, [existingGroup]);
 
@@ -271,6 +275,9 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
   const [firstMes, setFirstMes] = useState(initialValues.firstMes);
   const [alternateGreetings, setAlternateGreetings] = useState<string[]>(initialValues.alternateGreetings);
   const [localQuickReplies, setLocalQuickReplies] = useState<GroupQuickReply[]>(initialValues.quickReplies || []);
+  // ESCENARIO V2 (groups): the group's own scenario (locations). When enabled
+  // with ≥1 location it REPLACES the members' character-level scenarios.
+  const [scenarioConfig, setScenarioConfig] = useState<ScenarioConfig | undefined>(initialValues.scenarioConfig);
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(initialValues.avatar);
@@ -456,6 +463,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
       firstMes: firstMes || undefined,
       alternateGreetings: alternateGreetings.length > 0 ? alternateGreetings : undefined,
       quickReplies: localQuickReplies.length > 0 ? localQuickReplies : undefined,
+      scenarioConfig,
     };
 
     if (isNewGroup) {
@@ -578,7 +586,12 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
                   <HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  <p>Describe el escenario o contexto del grupo.</p>
+                  <p>Describe el escenario o contexto general del grupo.</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Para ubicaciones concretas con {'{{escenario}}'} y cambio automático de escena,
+                    usa el editor de Escenario de más abajo: reemplaza los escenarios individuales
+                    de los personajes mientras estén en este grupo.
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -731,6 +744,20 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ESCENARIO V2 (groups): shared scenario — replaces members' scenarios */}
+      <div className="space-y-3 pt-2">
+        <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 rounded-lg">
+          <MapPin className="w-4 h-4 text-emerald-500 shrink-0" />
+          <p className="text-xs text-muted-foreground">
+            Escenario <strong>compartido del grupo</strong>: cuando está habilitado con al menos una ubicación,
+            <strong> reemplaza</strong> los escenarios individuales de todos los miembros para que todos estén en
+            la misma sintonía (misma key <code>{'{escenario}'}</code>, misma tool <code>manage_escenario</code> y
+            mismas ubicaciones en respuestas rápidas). Si se deshabilita, cada personaje vuelve a su propio escenario.
+          </p>
+        </div>
+        <ScenarioEditor config={scenarioConfig} onChange={setScenarioConfig} />
       </div>
 
       {/* Primer Mensaje del Grupo */}
@@ -1482,6 +1509,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
               spritePacksV2={spritePacksV2}
               triggerCollections={allTriggerCollections.length > 0 ? allTriggerCollections : undefined}
               availableTargets={allTargets}
+              scenarioConfig={scenarioConfig}
               onChange={(replies) => setLocalQuickReplies(replies as GroupQuickReply[])}
             />
           </div>

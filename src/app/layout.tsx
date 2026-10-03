@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "next-themes";
 import { PersistenceProvider } from "@/components/persistence-provider";
 
@@ -50,6 +51,9 @@ export default function RootLayout({
             {children}
           </PersistenceProvider>
           <Toaster />
+          {/* Sonner toaster: `toast` from 'sonner' is used across chat components
+              (quick replies, SSE tool notifications, proactive messages) */}
+          <SonnerToaster position="bottom-right" richColors closeButton />
         </ThemeProvider>
       </body>
     </html>

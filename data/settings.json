@@ -54,8 +54,8 @@
     "novelMode": true,
     "chatWidth": 60,
     "chatHeight": 70,
-    "chatX": 50,
-    "chatY": 50,
+    "chatX": 46.03174603174603,
+    "chatY": 35,
     "chatOpacity": 0.95,
     "blurBackground": false,
     "showCharacterSprite": true

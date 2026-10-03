@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useTavernStore } from '@/store/tavern-store';
+import { normalizeWardrobeConfig } from '@/lib/wardrobe';
 
 // Debounce time for auto-save (in milliseconds)
 // PERF FIX: Increased from 2000ms to 3000ms to reduce save frequency during streaming.
@@ -70,7 +71,12 @@ export function usePersistenceSync() {
 
         // Core data
         if (data.characters && Array.isArray(data.characters)) {
-          updates.characters = data.characters;
+          // Sanitize wardrobeConfig (legacy {enabled, levels} formats or malformed
+          // outfits crash the Guardarropa editor on open). No-op for clean data.
+          updates.characters = data.characters.map((c: Record<string, unknown>) => ({
+            ...c,
+            wardrobeConfig: c.wardrobeConfig ? normalizeWardrobeConfig(c.wardrobeConfig) : undefined,
+          }));
         }
         if (data.sessions && Array.isArray(data.sessions)) {
           updates.sessions = data.sessions;

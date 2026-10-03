@@ -395,17 +395,32 @@ export function summarizeToolResult(result: ToolExecutionResult, params?: Record
     }
   }
 
-  // Wardrobe activation
+  // Wardrobe activation (GUARDARROPA V2)
   if (result.wardrobeActivation) {
     const wa = result.wardrobeActivation;
-    if (wa.action === 'get_info') {
-      parts.push(`Vestuario actual: ${wa.newLevelName} (offset ${wa.newOffset >= 0 ? '+' : ''}${wa.newOffset})`);
-    } else if (wa.changed) {
-      const actionLabel = wa.action === 'escalate' ? 'Escalado' : wa.action === 'regress' ? 'Regresado' : 'Reseteado';
-      parts.push(`Vestuario ${actionLabel}: → ${wa.newLevelName}`);
+    if (wa.action === 'wear' && wa.changed) {
+      parts.push(`Se puso: ${wa.outfitName}`);
       if (wa.reason) parts.push(`Razón: ${wa.reason}`);
+    } else if (wa.action === 'remove' && wa.changed) {
+      parts.push(`Se quitó el vestuario → ${wa.outfitName || 'predeterminado'}`);
+      if (wa.reason) parts.push(`Razón: ${wa.reason}`);
+    } else if (wa.action === 'list') {
+      parts.push(`Guardarropa consultado (lleva: ${wa.outfitName || 'nada'})`);
     } else {
-      parts.push(`Vestuario: ${wa.newLevelName} (sin cambio)`);
+      parts.push(`Vestuario actual: ${wa.outfitName || 'n/a'} (sin cambio)`);
+    }
+  }
+
+  // Scenario activation (ESCENARIO V2)
+  if (result.scenarioActivation) {
+    const sa = result.scenarioActivation;
+    if (sa.action === 'go' && sa.changed) {
+      parts.push(`Escena movida a: ${sa.locationName}`);
+      if (sa.reason) parts.push(`Razón: ${sa.reason}`);
+    } else if (sa.action === 'list') {
+      parts.push(`Escenario consultado (están en: ${sa.locationName || 'n/a'})`);
+    } else {
+      parts.push(`Ubicación actual: ${sa.locationName || 'n/a'} (sin cambio)`);
     }
   }
 
@@ -445,6 +460,7 @@ import { manageRelationshipTool, manageRelationshipExecutor } from './tools/mana
 import { skillCheckTool, skillCheckExecutor } from './tools/skill-check';
 import { manageTimeTool, manageTimeExecutor } from './tools/manage-time';
 import { manageWardrobeTool, manageWardrobeExecutor } from './tools/manage-wardrobe';
+import { manageScenarioTool, manageScenarioExecutor } from './tools/manage-scenario';
 
 // Register built-in tools
 registerTool(rollDiceTool, rollDiceExecutor);
@@ -463,5 +479,6 @@ registerTool(manageRelationshipTool, manageRelationshipExecutor);
 registerTool(skillCheckTool, skillCheckExecutor);
 registerTool(manageTimeTool, manageTimeExecutor);
 registerTool(manageWardrobeTool, manageWardrobeExecutor);
+registerTool(manageScenarioTool, manageScenarioExecutor);
 
 console.log(`[Tools] Registered ${toolRegistry.size} built-in tools: ${Array.from(toolRegistry.keys()).join(', ')}`);

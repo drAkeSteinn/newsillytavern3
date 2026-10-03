@@ -192,7 +192,7 @@ export async function evaluateEmotionalState(
     // Build the context for evaluation
     const chatContext = recentMessages
       .map(m => {
-        const speaker = m.role === 'user' ? 'Usuario' : m.characterName || charName;
+        const speaker = m.role === 'user' ? 'Usuario' : charName;
         return `${speaker}: ${m.content.trim().slice(0, 200)}`;
       })
       .join('\n');
@@ -218,7 +218,7 @@ ${chatContext}
       parameters: {
         ...llmConfig.parameters,
         temperature: 0.3,  // Low temperature for consistent evaluation
-        max_tokens: 20,    // Very short: just the state keyword
+        maxTokens: 20,     // Very short: just the state keyword
       },
     };
 
@@ -226,24 +226,26 @@ ${chatContext}
     let generator: AsyncGenerator<string>;
 
     switch (evalLLMConfig.provider) {
+      // NOTE: provider signatures — messages-first for z-ai/anthropic/grok/openai;
+      // plain prompt STRING for ollama and text-generation-webui.
       case 'z-ai':
-        generator = streamZAI(evalLLMConfig, llmMessages);
+        generator = streamZAI(llmMessages);
         break;
       case 'anthropic':
-        generator = streamAnthropic(evalLLMConfig, systemPrompt, llmMessages.slice(1));
+        generator = streamAnthropic(llmMessages, evalLLMConfig);
         break;
       case 'ollama':
-        generator = streamOllama(evalLLMConfig, llmMessages);
+        generator = streamOllama(`${systemPrompt}\n\n${userMessage}`, evalLLMConfig);
         break;
       case 'grok':
-        generator = streamGrok(evalLLMConfig, llmMessages);
+        generator = streamGrok(llmMessages, evalLLMConfig);
         break;
       case 'text-generation-webui':
       case 'koboldcpp':
-        generator = streamTextGenerationWebUI(evalLLMConfig, llmMessages);
+        generator = streamTextGenerationWebUI(`${systemPrompt}\n\n${userMessage}`, evalLLMConfig);
         break;
       default:
-        generator = streamOpenAICompatible(evalLLMConfig, llmMessages);
+        generator = streamOpenAICompatible(llmMessages, evalLLMConfig, evalLLMConfig.provider);
         break;
     }
 

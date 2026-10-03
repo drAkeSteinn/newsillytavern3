@@ -67,12 +67,24 @@ export function hasToolCalls(accumulator: ToolCallAccumulator): boolean {
  * Process a streaming delta from an OpenAI-compatible API.
  * Accumulates tool call chunks into the accumulator.
  * Returns any text content delta.
+ *
+ * @param finishReason - Optional finish_reason from the choice (some providers
+ *   inline it in the delta, others send it on the choice object). Stored on the
+ *   accumulator so the stream route can detect tool-call completion.
  */
 export function processOpenAIDelta(
   delta: Record<string, unknown>,
   accumulator: ToolCallAccumulator,
+  finishReason?: string | null,
 ): string {
   let textContent = '';
+
+  // Store finish_reason: providers send it either on the choice (passed here)
+  // or inlined in the delta. The last non-null value wins.
+  const deltaFinish = (delta.finish_reason as string | null | undefined) ?? finishReason ?? null;
+  if (deltaFinish) {
+    accumulator.finishReason = deltaFinish;
+  }
 
   // Extract text content
   const content = delta.content as string | null | undefined;

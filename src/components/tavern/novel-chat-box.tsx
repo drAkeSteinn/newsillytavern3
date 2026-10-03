@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { EmojiPicker } from './emoji-picker';
 import { StreamingText } from './streaming-text';
-import { evaluateThresholdEffects } from '@/lib/sprites/condition-evaluator';
+import { evaluateStatConditions } from '@/lib/sprites/condition-evaluator';
+import { toast } from 'sonner';
 import { useHotkeys, formatHotkey } from '@/hooks/use-hotkeys';
 import {
   Send,
@@ -100,7 +101,7 @@ import { stopAllSoundTriggers } from '@/hooks/use-sound-triggers';
 import { ttsService } from '@/lib/tts';
 import { resolveTemplateVariables } from '@/lib/key-resolver';
 import { personalizeMemoryContent } from '@/lib/memory/personalize';
-import type { CharacterQuickReply, GroupQuickReply, QuickReplyAttributeModifier, QuickReplySpriteActivation, SpritePackV2, TriggerCollection } from '@/types';
+import type { CharacterQuickReply, GroupQuickReply, QuickReplyAttributeModifier, QuickReplySpriteActivation, QuickReplyWardrobeAction, QuickReplyScenarioAction, SpritePackV2, TriggerCollection } from '@/types';
 import { evaluatePackConditionalSprites, evaluateConditionalEntries } from '@/lib/sprites/condition-evaluator';
 import { evaluateRequirements } from '@/store/slices/statsSlice';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
@@ -902,7 +903,7 @@ export function NovelChatBox({
     const characterId = activeCharacter.id;
 
     // Get current session stats (AFTER modifiers have been applied)
-    const session = getActiveSession(activeSessionId);
+    const session = getActiveSession();
     const sessionStats = session?.sessionStats || null;
 
     if (activation.mode === 'trigger_collection') {
@@ -1096,123 +1097,103 @@ export function NovelChatBox({
     }
   };
 
-  const handleQuickReply = (item: CharacterQuickReply) => {
-    if (isAnyGenerating || !item.response.trim()) return;
+  // Apply wardrobe action from a quick reply (Guardarropa V2)
+  const applyQuickReplyWardrobe = (action: QuickReplyWardrobeAction) => {
+    if (!activeSessionId || !activeCharacter?.id) return;
+    const wardrobe = activeCharacter.wardrobeConfig;
+    if (!wardrobe?.enabled || !wardrobe.outfits || wardrobe.outfits.length === 0) {
+      console.warn('[QuickReply] Wardrobe not available for character:', activeCharacter.name);
+      return;
+    }
+
+    if (action.action === 'remove') {
+      useTavernStore.getState().setActiveOutfit(activeSessionId, activeCharacter.id, null);
+      const defaultOutfit = wardrobe.outfits.find((o) => o.isDefault) || wardrobe.outfits[0];
+      toast.info(`👕 ${activeCharacter.name} se quita el vestuario → ${defaultOutfit?.name || 'predeterminado'}`);
+      return;
+    }
+
+    if (!action.outfitId) return;
+    const outfit = wardrobe.outfits.find((o) => o.id === action.outfitId);
+    if (!outfit) {
+      console.warn('[QuickReply] Outfit not found:', action.outfitId);
+      return;
+    }
+    useTavernStore.getState().setActiveOutfit(activeSessionId, activeCharacter.id, outfit.id);
+    toast.info(`👕 ${activeCharacter.name} ahora lleva: ${outfit.name}`);
+  };
+
+  // Apply scenario action from a quick reply (ESCENARIO V2)
+  // GROUP PRIORITY: in group chats the GROUP's scenarioConfig (when usable)
+  // replaces the character's — quick replies move the shared group scene.
+  const applyQuickReplyScenario = (action: QuickReplyScenarioAction) => {
+    if (!activeSessionId) return;
+    const groupScenario = isGroupMode ? activeGroup?.scenarioConfig : undefined;
+    const scenario = (groupScenario?.enabled && groupScenario.locations?.length) ? groupScenario : activeCharacter?.scenarioConfig;
+    if (!scenario?.enabled || !scenario.locations || scenario.locations.length === 0) {
+      console.warn('[QuickReply] Scenario not available for:', isGroupMode ? (activeGroup?.name || 'group') : activeCharacter?.name);
+      return;
+    }
+
+    if (!action.locationId) return;
+    const location = scenario.locations.find((l) => l.id === action.locationId);
+    if (!location) {
+      console.warn('[QuickReply] Scenario location not found:', action.locationId);
+      return;
+    }
+    useTavernStore.getState().setActiveScenario(activeSessionId, location.id);
+    toast.info(`📍 La escena se mueve a: ${location.name}`);
+  };
+
+  const handleQuickReply = (item: CharacterQuickReply | GroupQuickReply) => {
+    if (isAnyGenerating) return;
     // Resolve template variables like {{char}} and {{user}} in quick replies
     const resolutionContext = {
       user: activePersona?.name || 'User',
       char: activeCharacter?.name || 'Character',
     };
-    const resolvedResponse = resolveTemplateVariables(item.response.trim(), resolutionContext);
-    // Apply attribute modifiers if any (BEFORE sprite activation so conditions evaluate with new stats)
-    if (item.modifiers && item.modifiers.length > 0) {
-      applyQuickReplyModifiers(item.modifiers);
-    }
-    // Activate sprite if configured
-    if (item.spriteActivation) {
-      activateQuickReplySprite(item.spriteActivation);
-    }
 
-    // FASE 18: Evaluate threshold effects if configured
-    if (item.thresholdEffects && item.thresholdEffects.length > 0 && activeSessionId) {
-      try {
-        const store = useTavernStore.getState();
-        const session = store.sessions?.find((s: any) => s.id === activeSessionId);
-        const sessionStats = session?.sessionStats;
-        const characterId = activeCharacter?.id || '__user__';
-
-        // Evaluate threshold effects against current session stats
-        const matchingEffects = evaluateThresholdEffects(item.thresholdEffects, sessionStats, characterId);
-
-        if (matchingEffects.length > 0) {
-          console.log(`[QuickReply] ${matchingEffects.length} threshold effects matched for "${item.label}"`);
-
-          // Execute rewards for each matching effect (in priority order)
-          for (const effect of matchingEffects) {
-            for (const reward of effect.rewards) {
-              try {
-                // Handle attribute modifications directly
-                if (reward.type === 'attribute' && reward.attribute) {
-                  const attr = reward.attribute;
-                  const targetId = characterId;
-                  const currentValue = sessionStats?.characterStats?.[targetId]?.attributeValues?.[attr.key];
-                  const currentNum = typeof currentValue === 'number' ? currentValue : parseFloat(String(currentValue || 0)) || 0;
-                  let newValue: number;
-
-                  switch (attr.action) {
-                    case 'add': newValue = currentNum + (typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 0); break;
-                    case 'subtract': newValue = currentNum - (typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 0); break;
-                    case 'set': newValue = typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 0; break;
-                    case 'multiply': newValue = currentNum * (typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 1); break;
-                    case 'divide': newValue = currentNum / (typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 1); break;
-                    default: newValue = typeof attr.value === 'number' ? attr.value : parseFloat(String(attr.value)) || 0;
-                  }
-
-                  store.updateCharacterStat?.(activeSessionId, targetId, attr.key, newValue, 'quick_reply_threshold');
-                  console.log(`[QuickReply] Threshold reward: ${attr.key} ${attr.action} ${attr.value} → ${newValue}`);
-                }
-                // Handle target_attribute modifications (modify another character's stat)
-                else if (reward.type === 'target_attribute' && reward.target_attribute) {
-                  const ta = reward.target_attribute;
-                  const targetId = ta.targetId || '__user__';
-                  const sessionStats2 = store.sessions?.find((s: any) => s.id === activeSessionId)?.sessionStats;
-                  const currentValue = sessionStats2?.characterStats?.[targetId]?.attributeValues?.[ta.key];
-                  const currentNum = typeof currentValue === 'number' ? currentValue : parseFloat(String(currentValue || 0)) || 0;
-                  let newValue: number;
-
-                  switch (ta.action) {
-                    case 'add': newValue = currentNum + (typeof ta.value === 'number' ? ta.value : parseFloat(String(ta.value)) || 0); break;
-                    case 'subtract': newValue = currentNum - (typeof ta.value === 'number' ? ta.value : parseFloat(String(ta.value)) || 0); break;
-                    case 'set': newValue = typeof ta.value === 'number' ? ta.value : parseFloat(String(ta.value)) || 0; break;
-                    default: newValue = typeof ta.value === 'number' ? ta.value : parseFloat(String(ta.value)) || 0;
-                  }
-
-                  store.updateCharacterStat?.(activeSessionId, targetId, ta.key, newValue, 'quick_reply_threshold');
-                  console.log(`[QuickReply] Target threshold reward: ${targetId} ${ta.key} → ${newValue}`);
-                }
-                // Handle activate_sprite_pack rewards
-                else if (reward.type === 'activate_sprite_pack' && reward.activate_sprite_pack) {
-                  const asp = reward.activate_sprite_pack;
-                  store.applyTriggerForCharacter?.(activeSessionId, characterId, {
-                    type: 'sprite',
-                    spriteUrl: asp.spriteId,
-                    label: asp.spriteId,
-                    duration: asp.returnToIdleMs || 3000,
-                  });
-                  console.log(`[QuickReply] Sprite pack activated: ${asp.spriteId}`);
-                }
-                // Handle trigger rewards
-                else if (reward.type === 'trigger' && reward.trigger) {
-                  const tr = reward.trigger;
-                  store.applyTriggerForCharacter?.(activeSessionId, characterId, {
-                    type: tr.triggerType || 'sprite',
-                    spriteUrl: tr.spriteUrl,
-                    label: tr.spriteUrl || 'Trigger',
-                    duration: tr.returnToIdleMs || 3000,
-                  });
-                  console.log(`[QuickReply] Trigger activated: ${tr.triggerType}`);
-                }
-                // Handle currency rewards
-                else if (reward.type === 'currency' && reward.currency) {
-                  const currentCurrency = sessionStats?.characterStats?.['__user__']?.attributeValues?.['currency'] || 0;
-                  const newCurrency = (typeof currentCurrency === 'number' ? currentCurrency : 0) + reward.currency.amount;
-                  store.updateCharacterStat?.(activeSessionId, '__user__', 'currency', newCurrency, 'quick_reply_threshold');
-                  console.log(`[QuickReply] Currency: +${reward.currency.amount} → ${newCurrency}`);
-                }
-                else {
-                  console.log(`[QuickReply] Threshold reward type "${reward.type}" not handled yet (skipped)`);
-                }
-              } catch (rewardErr) {
-                console.warn(`[QuickReply] Failed to execute threshold reward:`, rewardErr);
-              }
-            }
-          }
-        }
-      } catch (thresholdErr) {
-        console.warn('[QuickReply] Threshold effects evaluation failed:', thresholdErr);
+    // 1. Resolve the message to send: a matching umbral REPLACES the base response.
+    //    Conditions are evaluated against the character's attributes BEFORE modifiers apply.
+    let messageToSend = item.response.trim();
+    if (item.umbrales && item.umbrales.length > 0 && activeSessionId && activeCharacter?.id) {
+      const session = getActiveSession();
+      const sessionStats = session?.sessionStats || null;
+      const matchedUmbral = item.umbrales.find(
+        (u) =>
+          u.enabled &&
+          u.message.trim() &&
+          u.conditions.length > 0 &&
+          evaluateStatConditions(u.conditions, sessionStats, activeCharacter.id, u.conditionOperator || 'AND')
+      );
+      if (matchedUmbral) {
+        messageToSend = matchedUmbral.message.trim();
+        toast.info(`🔀 Umbral: ${matchedUmbral.name || 'condición cumplida'}`);
       }
     }
 
+    // Nothing to send (empty base response and no umbral matched)
+    if (!messageToSend) return;
+    const resolvedResponse = resolveTemplateVariables(messageToSend, resolutionContext);
+
+    // 2. Apply attribute modifiers if any (BEFORE sprite activation so conditional sprites evaluate with new stats)
+    if (item.modifiers && item.modifiers.length > 0) {
+      applyQuickReplyModifiers(item.modifiers);
+    }
+    // 3. Activate sprite if configured
+    if (item.spriteActivation) {
+      activateQuickReplySprite(item.spriteActivation);
+    }
+    // 4. Apply wardrobe effect if configured
+    if (item.wardrobeAction) {
+      applyQuickReplyWardrobe(item.wardrobeAction);
+    }
+    // 4.5 Apply scenario effect if configured (ESCENARIO V2)
+    if (item.scenarioAction) {
+      applyQuickReplyScenario(item.scenarioAction);
+    }
+
+    // 5. Send the message (umbral text or base response)
     onSendMessage(resolvedResponse);
     setInput('');
   };

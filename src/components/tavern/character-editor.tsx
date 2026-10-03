@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AnimatePresence, motion } from 'framer-motion';
 import { 
   Camera, 
@@ -35,6 +36,7 @@ import {
   ScrollText,
   Database,
   Shirt,
+  MapPin,
   FolderOpen,
   BookOpen
 } from 'lucide-react';
@@ -51,6 +53,7 @@ import { CharacterVoicePanel } from './character-voice-panel';
 import { ProactiveMessagesPanel } from './proactive-messages-panel';
 import { QuickRepliesPanel } from './quick-replies-panel';
 import { WardrobeEditor } from './wardrobe-editor';
+import { ScenarioEditor } from './scenario-editor';
 import { AvatarLibraryPicker } from './avatar-library-picker';
 import { CharacterKnowledgeUploader } from './character-knowledge-uploader';
 import { CharacterSlotsEditor } from './character-slots-editor';
@@ -74,7 +77,8 @@ const characterEditorTabs = [
   { value: 'stats', label: 'Stats', icon: Activity },
   { value: 'voice', label: 'Voz', icon: Mic },
   { value: 'proactive', label: 'Proactivo', icon: Sparkles },
-  { value: 'wardrobe', label: 'Vestuario', icon: Shirt },
+  { value: 'wardrobe', label: 'Guardarropa', icon: Shirt },
+  { value: 'escenario', label: 'Escenario', icon: MapPin },
   { value: 'slots', label: 'Slots', icon: Package },
   { value: 'knowledge', label: 'Conocimiento', icon: BookOpen },
   { value: 'quickreplies', label: 'Resp. Rápidas', icon: MessageSquare },
@@ -103,6 +107,7 @@ const defaultCharacter: Omit<CharacterCard, 'id' | 'createdAt' | 'updatedAt'> = 
   proactiveMessages: undefined,
   quickReplies: undefined,
   wardrobeConfig: undefined,
+  scenarioConfig: undefined,
   equipmentSlots: undefined,
   slotDefinitions: undefined,
 };
@@ -726,6 +731,14 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
     </div>
   );
 
+  // ESCENARIO V2: available scenario locations for greeting → scenario dropdowns
+  // (only shown when the character has an enabled scenarioConfig with locations)
+  const scenarioLocations = useMemo(() => {
+    const config = character.scenarioConfig;
+    if (!config?.enabled || !config.locations || config.locations.length === 0) return [];
+    return config.locations.filter(l => l && l.id);
+  }, [character.scenarioConfig]);
+
   const renderDialogueTab = () => (
     <div className="space-y-4">
       {/* Banner compact */}
@@ -733,6 +746,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
         <MessageSquare className="w-4 h-4 text-blue-500 shrink-0" />
         <p className="text-xs text-muted-foreground">
           Define el <strong>primer mensaje</strong> y <strong>ejemplos de diálogo</strong> para guiar a la IA.
+          {scenarioLocations.length > 0 && ' Puedes fijar la ubicación del escenario con la que empieza cada saludo.'}
         </p>
       </div>
       
@@ -759,6 +773,29 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
               placeholder="Mensaje de apertura del personaje..."
               className="min-h-[200px] text-sm"
             />
+            {/* ESCENARIO V2: standard scenario location for this greeting */}
+            {scenarioLocations.length > 0 && (
+              <div className="flex items-center gap-2 mt-1.5">
+                <MapPin className="w-3 h-3 text-emerald-500 shrink-0" />
+                <Label className="text-[10px] text-muted-foreground shrink-0">Escenario inicial:</Label>
+                <Select
+                  value={character.firstMesScenarioId || '__default__'}
+                  onValueChange={(value) => setCharacter(prev => ({ ...prev, firstMesScenarioId: value === '__default__' ? null : value }))}
+                >
+                  <SelectTrigger className="h-6 text-[11px] flex-1">
+                    <SelectValue placeholder="Ubicación predeterminada" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__">Ubicación predeterminada</SelectItem>
+                    {scenarioLocations.map((loc) => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name}{loc.isDefault ? ' ⭐' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           {/* Saludos Alternativos */}
@@ -793,7 +830,10 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
                       onClick={() => {
                         const updated = [...character.alternateGreetings];
                         updated.splice(index, 1);
-                        setCharacter(prev => ({ ...prev, alternateGreetings: updated }));
+                        // ESCENARIO V2: keep greetingScenarioIds in sync with the greetings
+                        const updatedScenarios = [...(character.greetingScenarioIds || [])];
+                        updatedScenarios.splice(index, 1);
+                        setCharacter(prev => ({ ...prev, alternateGreetings: updated, greetingScenarioIds: updatedScenarios }));
                       }}
                     >
                       <X className="w-3 h-3" />
@@ -809,6 +849,34 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
                     placeholder={`Saludo alternativo #${index + 1}...`}
                     className="min-h-[100px] text-sm"
                   />
+                  {/* ESCENARIO V2: standard scenario location for this greeting */}
+                  {scenarioLocations.length > 0 && (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <MapPin className="w-3 h-3 text-emerald-500 shrink-0" />
+                      <Label className="text-[10px] text-muted-foreground shrink-0">Escenario inicial:</Label>
+                      <Select
+                        value={(character.greetingScenarioIds || [])[index] || '__default__'}
+                        onValueChange={(value) => {
+                          const updatedScenarios = [...(character.greetingScenarioIds || [])];
+                          while (updatedScenarios.length < character.alternateGreetings.length) updatedScenarios.push(null);
+                          updatedScenarios[index] = value === '__default__' ? null : value;
+                          setCharacter(prev => ({ ...prev, greetingScenarioIds: updatedScenarios }));
+                        }}
+                      >
+                        <SelectTrigger className="h-6 text-[11px] flex-1">
+                          <SelectValue placeholder="Ubicación predeterminada" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__default__">Ubicación predeterminada</SelectItem>
+                          {scenarioLocations.map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id}>
+                              {loc.name}{loc.isDefault ? ' ⭐' : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -820,7 +888,9 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
               onClick={() => {
                 setCharacter(prev => ({
                   ...prev,
-                  alternateGreetings: [...(prev.alternateGreetings || []), '']
+                  alternateGreetings: [...(prev.alternateGreetings || []), ''],
+                  // ESCENARIO V2: keep greetingScenarioIds in sync with the greetings
+                  greetingScenarioIds: [...(prev.greetingScenarioIds || []), null],
                 }));
               }}
             >
@@ -1071,6 +1141,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
         statsConfig={character.statsConfig}
         spritePacksV2={character.spritePacksV2}
         triggerCollections={character.triggerCollections}
+        wardrobeConfig={character.wardrobeConfig}
+        scenarioConfig={character.scenarioConfig}
         availableTargets={availableTargets}
         onChange={(quickReplies) => setCharacter(prev => ({ ...prev, quickReplies }))}
       />
@@ -1082,7 +1154,15 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       <WardrobeEditor
         config={character.wardrobeConfig}
         onChange={(wardrobeConfig) => setCharacter(prev => ({ ...prev, wardrobeConfig }))}
-        attributes={character.statsConfig?.attributes || []}
+      />
+    );
+  };
+
+  const renderScenarioTab = () => {
+    return (
+      <ScenarioEditor
+        config={character.scenarioConfig}
+        onChange={(scenarioConfig) => setCharacter(prev => ({ ...prev, scenarioConfig }))}
       />
     );
   };
@@ -1134,6 +1214,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       case 'voice': return renderVoiceTab();
       case 'proactive': return renderProactiveTab();
       case 'wardrobe': return renderWardrobeTab();
+      case 'escenario': return renderScenarioTab();
       case 'slots': return renderSlotsTab();
       case 'knowledge': return renderKnowledgeTab();
       case 'quickreplies': return renderQuickRepliesTab();

@@ -177,12 +177,12 @@ export function CharacterKnowledgeUploader({ characterId, characterName }: Chara
           content: data.data.content,
           characterCount: data.data.characterCount,
         });
-        toast({ title: 'Archivo cargado', description: `${data.data.fileName} (${data.data.characterCount.toLocaleString()} caracteres)` });
+        toast.success('Archivo cargado', { description: `${data.data.fileName} (${data.data.characterCount.toLocaleString()} caracteres)` });
       } else {
-        toast({ title: 'Error al subir', description: data.error, variant: 'destructive' });
+        toast.error('Error al subir', { description: data.error });
       }
     } catch {
-      toast({ title: 'Error', description: 'Error al subir archivo.', variant: 'destructive' });
+      toast.error('Error', { description: 'Error al subir archivo.' });
     }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -213,17 +213,27 @@ export function CharacterKnowledgeUploader({ characterId, characterName }: Chara
       });
       const data = await res.json();
       if (data.success) {
-        toast({
-          title: 'Conocimiento agregado',
-          description: `${data.data.createdCount} fragmentos de conocimiento para ${characterName}`,
-        });
-        setUploadedFile(null);
-        loadExistingKnowledge();
+        const created: number = data.data?.createdCount ?? 0;
+        const errors: string[] = data.data?.errors ?? [];
+        if (created === 0) {
+          // All chunks failed (e.g. embedding backend down) — fail loudly instead of "0 fragmentos"
+          toast.error('No se pudo crear ningún fragmento', {
+            description: errors[0] || 'Verifica que el servidor de embeddings (Ollama) esté ejecutándose.',
+          });
+        } else {
+          toast.success('Conocimiento agregado', {
+            description: errors.length > 0
+              ? `${created} fragmentos de conocimiento para ${characterName} (${errors.length} fallaron)`
+              : `${created} fragmentos de conocimiento para ${characterName}`,
+          });
+          setUploadedFile(null);
+          loadExistingKnowledge();
+        }
       } else {
-        toast({ title: 'Fallido', description: data.error, variant: 'destructive' });
+        toast.error('Fallido', { description: data.error });
       }
     } catch {
-      toast({ title: 'Error', description: 'Error al crear embeddings.', variant: 'destructive' });
+      toast.error('Error', { description: 'Error al crear embeddings.' });
     }
     setCreating(false);
   };
@@ -237,11 +247,11 @@ export function CharacterKnowledgeUploader({ characterId, characterName }: Chara
         body: JSON.stringify({ source_id: sourceId }),
       });
       if (res.ok) {
-        toast({ title: 'Conocimiento eliminado' });
+        toast.success('Conocimiento eliminado');
         loadExistingKnowledge();
       }
     } catch {
-      toast({ title: 'Error al eliminar', variant: 'destructive' });
+      toast.error('Error al eliminar');
     }
   };
 

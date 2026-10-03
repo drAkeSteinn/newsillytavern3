@@ -3647,3 +3647,243 @@ Stage Summary:
 - Q3: Scrollbars añadidos: Eventos (max-h-72) y Relaciones (max-h-56) en cajón Memorias del chat; Personaje tab ya tenía max-h-80/max-h-64
 - Q4: "Jugador"→nombre de persona en 5 capas: tool manage_memory, inyección al prompt (corrige datos viejos), guardado manual, visualización UI, sync LanceDB
 - Sistema de memoria completo documentado al usuario con arquitectura de 5 capas y qué secciones están activas/muertas
+
+---
+Task ID: MOVE-APP (Fase A)
+Agent: Z.ai Code (principal)
+Task: Mover app clonada a /home/z/my-project, instalar dependencias y arrancar con turbopack
+
+Work Log:
+- Detectado que /home/z/my-project/upload es un mount point del sandbox (no movible)
+- Scaffold viejo respaldado en /home/z/my-project-old
+- Clon newsillytavern3 copiado dentro de /home/z/my-project preservando el mount (cp -a), skills restaurado, original borrado
+- package.json: dev script cambiado de "--webpack" a "--turbopack" (Next 16.1.3)
+- bun install OK (833 paquetes), prisma db push OK
+- Descubierto el modelo de limpieza del sandbox: mata el árbol de PPID de cada comando; procesos con PPID=1 (doble fork: `( setsid ... & )`) sobreviven
+- Dev server lanzado con patrón doble-fork: sobrevive entre llamadas, HTTP 200 confirmado
+
+Stage Summary:
+- App clonada ahora ES el proyecto principal en /home/z/my-project
+- Dev server corriendo en puerto 3000 con Turbopack, logs en dev.log
+
+---
+Task ID: WARDROBE-V2 (Fase B)
+Agent: Z.ai Code (principal)
+Task: Guardarropa V2 — outfits con nombre+descripción, tool calling para que el personaje elija, key {{vestuario}}
+
+Work Log:
+- TYPES (types/index.ts): WardrobeLevel/thresholds eliminados. Nuevo WardrobeOutfit {id, name, description, isDefault?} + WardrobeConfig {enabled, outfits, blockHeader?}. CharacterSessionStats.wardrobeOffset → activeOutfitId (outfit activo en el JSON de sesión).
+- TOOLS TYPES (lib/tools/types.ts): wardrobeActivation rediseñada {action: list|wear|remove|get_info, outfitId, outfitName, outfitDescription, previousOutfitId, changed, reason}.
+- LIB (lib/wardrobe/index.ts): reescrita. getOutfits, getDefaultOutfit, getActiveOutfitId, findOutfitByNameOrId (match por id/nombre normalizado sin acentos + substring), resolveActiveOutfit (activo → default → primero), resolveWardrobeKey ([VESTUARIO]\\ndesc), getWardrobeInfo, isWardrobeAvailable (enabled + >=1 outfit).
+- KEY-RESOLVER: {{vestuario}} (alias {{wardrobe}}) resuelto en fase 5.9 ANTES de las keys de lorebook (guardarropa = fuente canónica).
+- TOOL (lib/tools/tools/manage-wardrobe.ts): reescrita con list/wear/remove/get_info. wear matchea por nombre/id (fuzzy); remove vuelve al outfit isDefault; payloads narrativos con lista de opciones en errores.
+- REGISTRY: summarizeToolResult → "Se puso: X", "Se quitó el vestuario → default", "Guardarropa consultado".
+- PROMPT-BUILDER (1-a-1 y grupos): [SISTEMA DE VESTUARIO] → [GUARDARROPA] con lista de outfits (badges ← PUESTO AHORA / predeterminado, descripción truncada a 140 chars) + instrucciones de cambio autónomo. Red de seguridad: si la card no tiene la key, inyecta el bloque [VESTUARIO] en la sección.
+- SSE (stream/route.ts + group-stream/route.ts): payload nuevo del evento wardrobe_activation.
+- STORE (statsSlice.ts): updateWardrobeOffset/getWardrobeOffset → setActiveOutfit/getActiveOutfitId. FIX: ahora inicializa characterStats[id] si no existe (antes fallaba en silencio).
+- CHAT-PANEL: handlers SSE actualizados (toast "🧥 Vestuario: <outfit>").
+- UI (wardrobe-editor.tsx): reescrita completa. Tarjetas de outfits con nombre + descripción (textarea), estrella ⭐ predeterminado, duplicar, borrar, "Agregar vestuario" (el primero autodefault), header de bloque editable, ayuda actualizada. character-editor: pestaña renombrada "Guardarropa".
+- ICON (tool-call-notification.tsx): Shirt añadido al ICON_MAP para manage_wardrobe.
+- DATOS: Ximena migrada (5 niveles → 5 outfits, "Ropa vieja" isDefault, ids preservados); characterNote {{wardrobe}} → {{vestuario}}; lorebook "Persona" entry vestigial injectionKey 'vestuario' → 'vestuario_user' (evitar shadowing).
+- INFRA: next.config.ts turbopackMemoryLimit:1024 (sandbox 4GB, servidor OOM-killed a 1.9GB); .zscripts/dev-keepalive-sandbox.sh (keepalive con doble-fork superviviente al modelo de limpieza por árbol PPID del sandbox).
+
+Verificación:
+- bun run lint: OK (0 errores)
+- Tests server-side (bun): resolución {{vestuario}} default/activo, fuzzy match, tool list/wear/remove/get_info, errores narrativos — todo OK
+- buildSystemPrompt: [GUARDARROPA] inyectado con lista y badges; [VESTUARIO] resuelto con outfit activo; sin keys sin resolver
+- Browser (agent-browser): pestaña Guardarropa renderiza 5 outfits migrados; flujo agregar outfit (nombre+descripción) → Guardar Cambios → persistido en data/characters.json (verificado, duplicados de prueba limpiados después)
+- Dev server: HTTP 200, keepalive reinicia tras OOM, sin errores en dev.log
+
+Stage Summary:
+- El vestuario de escalera/umbrales fue REEMPLAZADO por el Guardarropa V2: outfits libres (nombre+descripción), uno predeterminado para iniciar, el personaje elige cuál ponerse vía tool calling y queda guardado en la sesión, inyectado con {{vestuario}} en cualquier sección de la card.
+
+---
+Task ID: QR-UMBRAL-V2
+Agent: Z.ai Code (principal)
+Task: Respuestas rápidas — redefinir "Umbral" como mensaje condicional (reemplaza la Respuesta), efecto de guardarropa, corregir errores FASE 18, completar respuesta guardada de Ximena
+
+Work Log:
+- DIAGNÓSTICO: la sección "Efectos de Umbral" FASE 18 de quick replies usaba ThresholdEffect (recompensas de quests) con 14 errores TypeScript y rota en runtime (applyTriggerForCharacter con firma errónea, targetId inexistente, spriteId/triggerType inexistentes). El usuario redefinió Umbral = texto condicional que REEMPLAZA la respuesta (estilo lorebooks por atributo).
+- TYPES (types/index.ts): eliminado thresholdEffects de CharacterQuickReply/GroupQuickReply. Nuevos tipos: QuickReplyUmbral {id, name, enabled, conditions: StatRequirement[], conditionOperator, message} y QuickReplyWardrobeAction {action: 'wear'|'remove', outfitId?}. Campos nuevos en ambas QR types: umbrales?, wardrobeAction?.
+- RUNTIME (novel-chat-box.tsx): handleQuickReply reescrito: (1) evalúa umbrales top-down con evaluateStatConditions contra sessionStats ANTES de aplicar modificadores — el primero habilitado con condiciones cumplidas y mensaje no vacío REEMPLAZA la respuesta base; (2) aplican modificadores; (3) activación de sprite; (4) NUEVO applyQuickReplyWardrobe: wear→setActiveOutfit(sessionId, charId, outfitId), remove→null, con toast de feedback; (5) envía mensaje (umbral o base). Bloque FASE 18 roto eliminado (14 errores TS fuera). Fix getActiveSession() sin args (2 sitios: mío nuevo + preexistente en activateQuickReplySprite).
+- UI (quick-replies-panel.tsx): nueva sección "Umbral (respuesta condicional)" (icono GitBranch, cyan) en formulario agregar Y modo edición: lista de umbrales con nombre, toggle On/Off, reordenar prioridad (↑↓ first-match-wins), condiciones con RequirementEditor + toggle AND/OR, textarea para el mensaje; nueva sección "Cambiar Guardarropa" (Shirt, rosa): wear outfit (select de outfits con ⭐ default) / remove→predeterminado; requiere prop nueva wardrobeConfig (pasada desde character-editor; en grupos sin wardrobe se oculta). Badges en lista: 👕 outfit, 🔀 n umbrales. handleAdd/handleSaveEdit persisten umbrales+wardrobe (antes handleAdd NO guardaba thresholdEffects — bug). Validación: se descartan umbrales sin condiciones/mensaje y wardrobe sin outfit. Duplicado de bloque de condiciones en add-form corregido. ThresholdEffectDialog/import de stats-editor desacoplado del panel (sigue para umbrales de atributos).
+- FIX GLOBAL: layout.tsx monta SonnerToaster (position bottom-right, richColors, closeButton) — 4 componentes usaban toast de sonner (novel-chat-box, chat-panel, proactive, knowledge-uploader) pero SOLO el Toaster radix estaba montado: todos los toasts sonner eran invisibles (incluidos los del SSE manage_wardrobe).
+- DATOS XIMENA (data/characters.json, backup .bak-qr): "Atacar" ahora con 2 umbrales — "Golpe débil (energia<20)" y "Golpe salvaje (lujuria>=50)"; NUEVA "Baile provocador" con modificadores (lujuria+5, exhibicionismo+3), visibilidad (lujuria>=20), wardrobeAction wear "Crop y tanga", umbral "Baile atrevido (exhibicionismo>=40)". Sprite no configutable para Ximena: no tiene packs ni colecciones (la sección aparece cuando los tenga).
+- NOTA OPERATIVA: editar data/*.json con clientes abiertos provoca que el sync de persistencia (PUT con estado hidratado viejo, ej. localStorage) sobreescriba el archivo — descubierta y revertida una sobreescritura durante pruebas; editar con browser cerrado.
+- VERIFICACIÓN E2E (agent-browser): (1) visibilidad — lujuria 55: Atacar+Baile visibles; lujuria 10: solo Atacar ✓; (2) umbral match — clic Atacar con lujuria 55: enviado "Con la mirada nublada por el deseo..." (NO la base), toast "🔀 Umbral: Golpe salvaje (lujuria alta)", lujuria 55→56 ✓; (3) Baile con exhib 45: mensaje umbral + lujuria 61 + exhib 48 + activeOutfitId=wardrobe-1787723608495 persistido en sessions.json ✓; (4) sin match — clic Atacar con lujuria 10/energia 100: respuesta base "Ella da un golpe certero", sin toast ✓; (5) editor — ficha Ximena → Resp. Rápidas: badges correctos, edición carga nombres/mensajes/condiciones, add-form crea QR con umbral (probado TestQR y borrado); (6) sesión restaurada a estado pre-test (lujuria 10, 6 msgs, sin outfit activo)
+- bun run lint: 0 errores. tsc: 0 errores en archivos tocados (los restantes del proyecto son preexistentes: novel-chat-box L429/835/2747/3734, API routes, examples, memory-ui-files)
+
+Stage Summary:
+- Umbral de respuestas rápidas REDEFINIDO: mensajes condicionales por atributo (estilo lorebook) que reemplazan la Respuesta; first-match-wins con prioridad reordenable; evalúa atributos ANTES de los modificadores
+- Una respuesta rápida puede ahora: modificar atributos + activar sprite + cambiar guardarropa + enviar mensaje según umbral (o base si no hay match) — todo combinable
+- Bug FASE 18 eliminado, toasts de sonner ahora visibles en toda la app, handleAdd guarda todos los efectos
+- Ximena tiene 2 respuestas de ejemplo completas (Atacar con 2 umbrales; Baile provocador con guardarropa+umbral)
+
+---
+Task ID: WARDROBE-FIX-3
+Agent: Z.ai Code (principal)
+Task: Revisar por qué abrir el guardarropa de personajes da error; verificar todo el guardarropa y el tool calling del LLM con la key {{vestuario}}
+
+Work Log:
+- DIAGNÓSTICO UI: reproducidos en agent-browser los flujos pestaña Guardarropa de Ximena (5 outfits) y de un personaje SIN wardrobeConfig (Pinky): ambos renderizan bien, toggle/add/save/persist OK, sin errores de consola. El error real reportado es un crash latente: WardrobeEditor leía `wardrobeConfig.outfits.length` sin defensa — con config legacy ({enabled, levels}) o `outfits` undefined (posible vía localStorage obsoleto/importaciones) lanza "Cannot read properties of undefined (reading 'length')".
+- FIX 1 (lib/wardrobe/index.ts): nuevo `normalizeWardrobeConfig(raw)` — valida/normaliza cualquier shape: migra legacy levels→outfits (nombre "Nivel <threshold>"), filtra items inválidos, garantiza exactamente un isDefault, respeta blockHeader. Testeado con 7 casos (undefined, legacy, sin outfits, items malformados, multi-default, sin default, clean passthrough).
+- FIX 2 (wardrobe-editor.tsx): el editor ahora normaliza la prop config antes de usarla — imposible que crashee sin importar el estado de los datos.
+- FIX 3 (store/index.ts rehydrate + use-persistence-sync.ts loadFromServer): wardrobeConfig de characters se sanitiza con normalizeWardrobeConfig en ambos caminos de carga (localStorage obsoleto y datos del server) — elimina el vector de datos sucios.
+- FIX 4 (character-card.ts parse V2 y V1): wardrobeConfig sanitizado al importar cards (PNG/JSON legacy).
+- FIX 5 (statsSlice.ts): 3 bugs de `sessions` tratado como mapa cuando es ARRAY: updateEmotionalState (`state.sessions?.[sessionId]` → `.find()`) y su `set({sessions: {...arr}})` (expandir array en objeto CORROMPERÍA el estado y rompería todos los .find()/.map() app-wide, incl. setActiveOutfit) → `set({sessions: [...arr]})`; getActiveOutfitId mismo fix de lookup. Eran landmines dormidos (no llamados aún), ahora correctos.
+- FIX 6 — BUG CRÍTICO DE TOOL CALLING (zai.ts parseSSEStream): `choice.finish_reason` se DESCARTABA (solo se pasaba `choice.delta` al procesador) → accumulator.finishReason quedaba null SIEMPRE → stream route exigía `finishReason==='tool_calls'||'stop'` → TODA tool call nativa del LLM se descartaba silenciosamente ("finishReason=null, toolCalls=1 → No tool calls detected, streaming 1 chars"). FIX triple: (a) parseSSEStream captura finish_reason del choice y lo pasa al callback; (b) processOpenAIDelta(delta, acc, finishReason?) lo persiste (también lee finish_reason inlined en delta, retrocompatible con grok/openai/tgw); (c) stream route (round 0 y follow-up) y group-stream (5 sitios) ahora ejecutan con solo `hasToolCalls(accumulator)` — los deltas tool_calls son autoritativos.
+- FIX 7 (prompt-builder 1-1 y grupos): [GUARDARROPA] endurecido — "REGLA CRÍTICA: CUALQUIER cambio de ropa DEBE reflejarse llamando manage_wardrobe ANTES de narrarlo", "Si el usuario pide cambiarse SIEMPRE tool call", "usa el nombre EXACTO del outfit". Antes el LLM narraba el cambio sin llamar la tool.
+- VERIFICACIÓN E2E (browser + LLM real): mensaje "póntete el crop y la tanga" → `[Z.ai+Tools] Complete. finishReason=tool_calls, toolCalls=1` → `[Tools] Executing tool call: manage_wardrobe` → `[Tools] Wardrobe activation: wear → Crop y tanga` → el modelo encadenó 2 rounds (wore "desnuda", corrigió a "Crop y tanga") → SSE wardrobe_activation → setActiveOutfit → PERSISTIDO activeOutfitId=wardrobe-1787723608495 en sessions.json → siguiente turno {{vestuario}} resuelve "[VESTUARIO]\nElla lleva solo el crop top negro y la tanga."
+- DATOS: restaurado estado pre-test (7 msgs, sin activeOutfitId, Pinky sin wardrobe de prueba) con browser cerrado; verificado post-reload que el sync NO sobreescrbió.
+- bun run lint: 0 errores 0 warnings. dev.log sin errores nuevos. Pestaña Guardarropa verificada visualmente tras todos los fixes.
+
+Stage Summary:
+- El crash "al abrir el guardarropa" está blindado en las 4 capas de entrada de datos (editor, hidratación localStorage, carga server, import de cards) + migración automática legacy→V2
+- Tool calling del guardarropa REPARADO: la causa raíz era finish_reason descartado en el parser SSE de z-ai — ahora el LLM llama manage_wardrobe de forma fiable, la sesión persiste el outfit y {{vestuario}} se resuelve con la ropa puesta
+- Instrucciones de prompt endurecidas para que el personaje cambie ropa vía tool (no solo narrándolo)
+- Los 3 bugs de `sessions`-como-mapa en statsSlice corregidos (evitaban corrupción futura del estado global)
+
+---
+Task ID: VERIFY-ALL
+Agent: Z.ai Code (principal)
+Task: Revisión integral de que TODOS los cambios realizados funcionen correctamente (guardarropa, tool calling, {{vestuario}}, respuestas rápidas/umbrales)
+
+Work Log:
+- LINT: `bun run lint` 0 errores 0 warnings. Datos: characters.json OK (Ximena 5 outfits, 1 default, 2 quickReplies completas), settings.json OK (tools.maxToolCallsPerTurn=2), tool-registry registra 16 tools incl. manage_wardrobe.
+- TSC: los errores restantes del proyecto son PREEXISTENTES (executor.ts muerto — no importado por nadie; key-resolver L234/291 strictness; store/sprites heredados). Ninguno en código tocado ni con impacto runtime.
+- VERIFICACIÓN DE LIBRERÍA (bun + datos reales): 7/7 tests OK — normalizeWardrobeConfig (clean/legacy/garbage), resolveActiveOutfit desde session (Crop y tanga), fallback a default (Ropa vieja), findOutfitByNameOrId fuzzy, migración legacy V1→V2, {{vestuario}} → "[VESTUARIO]\nElla lleva solo el crop top negro y la tanga."
+- INTEGRACIÓN key-resolver: resolveAllKeys resuelve {{vestuario}} en description/scenario/systemPrompt/postHistoryInstructions con datos reales (5/5 secciones, sin keys residuales).
+- E2E BROWSER: (1) pestaña Guardarropa de Ximena abre SIN errores, 5 outfits, toggle, agregar vestuario (creó #6) y eliminar (borrado) OK; (2) pestaña Resp. Rápidas renderiza Atacar (⚡2 🔀2 👁1) y Baile provocador (⚡2 👕Crop y tanga 🔀1 👁1); edición inline muestra modificadores + Cambiar Guardarropa (Activado/Poner outfit/Crop y tanga) + Umbral condicional (Exhibicionismo≥40 con mensaje alternativo); (3) click QR "Atacar" sin match de umbral → envía Respuesta base "Ella da un golpe certero" + aplicó Lujuria+1 (HUD 10→11) y Energía+5 (clamp 100) ✓; (4) layout móvil 390x844 correcto; consola sin errores.
+- E2E TOOL CALLING (LLM real): mensaje imperativo → `[Z.ai+Tools] Complete. finishReason=tool_calls, toolCalls=1` → `[Tools] Wardrobe activation: wear → Crop y tanga` → round 1 narración coherente ("se ajusta el crop top negro... dejando la tanga como única otra prenda") → SSE wardrobe_activation → sessions.json persistió activeOutfitId=wardrobe-1787723608495 ✓. Primer intento con frase no imperativa el modelo pidió confirmación (comportamiento del modelo, no bug).
+- BUG ENCONTRADO Y CORREGIDO (emotion-evaluator.ts): `messages.map is not a function` tras CADA turno — el switch de providers pasaba (config, messages) invertido (y Anthropic con 3 args). streamZAI/Anthropic/Grok/OpenAI son messages-first; Ollama/TGW piden prompt STRING. Corregidos los 6 cases + `max_tokens`→`maxTokens` (parámetro muerto) + `m.characterName` (campo inexistente en ChatMessage) → 0 tsc/0 eslint. Verificado E2E: POST /api/chat/emotion 200 sin error tras recompilar.
+- RESTAURACIÓN: sesión de Ximena devuelta a estado pre-test (7 msgs, sin activeOutfitId, Lujuria 10, "2 turnos") con browser cerrado; characters.json idéntico al backup; verificado post-reload.
+- NOTA (preexistente, fuera de alcance): subsistema de memoria/embeddings logra `text.trim is not a function` y `fetch failed` en resumen (no bloqueante, ruta 200) — flujo de democión de resúmenes pasa un no-string a embedText; no relacionado con guardarropa/QR.
+
+Stage Summary:
+- TODO el flujo del guardarropa V2 verificado E2E: editor sin crash (7 tests de normalización), tool manage_wardrobe nativa funciona (finishReason=tool_calls), outfit persiste en sesión, {{vestuario}} resuelve la ropa puesta en cualquier sección de la card, y el LLM narra de forma coherente con lo puesto
+- Respuestas rápidas: visibilidad por atributo, modificadores aplicados, umbral sin match → Respuesta base — todo verificado en chat real
+- Fix adicional: EmotionEvaluator reparado (llamadas a providers invertidas desde refactor anterior) — los estados emocionales vuelven a evaluarse tras cada turno
+- Sesión/datos restaurados al estado pre-test; lint 0/0
+
+---
+Task ID: ESCENARIO-V2
+Agent: Z.ai Code (principal)
+Task: Sistema de Escenario ({{escenario}}) — ubicaciones múltiples con tool calling, efecto en respuestas rápidas y escenario estándar por saludo
+
+Work Log:
+- TYPES (types/index.ts): ScenarioLocation {id, name, description, isDefault?} + ScenarioConfig {enabled, locations, blockHeader?} (espejo de WardrobeConfig). CharacterCard.scenarioConfig + firstMesScenarioId + greetingScenarioIds (paralelo a alternateGreetings). SessionStats.activeScenarioId — a NIVEL DE SESIÓN (la escena es compartida por todos los participantes, a diferencia del outfit que es por personaje). QuickReplyScenarioAction {action:'go', locationId?} + campo scenarioAction en CharacterQuickReply/GroupQuickReply. MessageMetadata.greetingScenarioIds (paralelo a swipes del primer mensaje, para el mapping swipe→escenario sin drift por regeneraciones).
+- LIB (lib/scenario/index.ts): normalizeScenarioConfig (valida shapes, garantiza 1 default), getLocations, getDefaultLocation, getActiveScenarioId (session-level), findLocationByNameOrId (fuzzy id/nombre/substring sin acentos), resolveActiveLocation (activo → default → primero), resolveScenarioKey ("[ESCENARIO]\ndesc"), getScenarioInfo, isScenarioAvailable, resolveGreetingScenarioId (mapea índice de saludo → escenario, espejando el filtro de saludos no-vacíos).
+- TOOL (lib/tools/tools/manage-scenario.ts): manage_escenario con actions list / go / get_info (go matchea por nombre/id fuzzy; errores narrativos con lista de ubicaciones). scenarioActivation en tools/types.ts. Registry: registro + summarizeToolResult ("Escena movida a: X").
+- KEY-RESOLVER: fase 5.95 resolveScenarioKeyInText — {{escenario}} (alias {{scenario}}) resuelto ANTES de lorebook keys (tras {{vestuario}} en 5.9).
+- PROMPT-BUILDER (1-1 y grupos): sección [ESCENARIO] con lista de ubicaciones (badges ← UBICACIÓN ACTUAL / predeterminado, desc truncada 140) + instrucciones endurecidas ("REGLA CRÍTICA: CUALQUIER cambio de ubicación DEBE llamarse con manage_escenario ANTES de narrarlo"). Red de seguridad: si la card no tiene {{escenario}}, inyecta el bloque con la ubicación activa.
+- STORE (statsSlice.ts): setActiveScenario(sessionId, scenarioId) / getActiveScenarioId(sessionId) — session-level; crea sessionStats mínimo si no existe.
+- SSE (stream, group-stream, proactive routes): evento scenario_activation. FIX COLATERAL en proactive route: su ToolContext NO incluía `character` → manage_wardrobe fallaba con "No hay personaje activo" en mensajes proactivos (encontrado en dev.log); añadido character + handlers wardrobe_activation/scenario_activation (antes solo manejaba time/check/stat/memory).
+- CHAT-PANEL (2 sitios): handler scenario_activation → setActiveScenario + toast "📍 Escenario: <lugar>".
+- UI (scenario-editor.tsx nuevo): espejo de wardrobe-editor — switch, ubicaciones con nombre+descripción, ⭐ predeterminado, duplicar/borrar, blockHeader, ayuda. character-editor: pestaña "Escenario" (MapPin) tras Guardarropa.
+- DIÁLOGO (character-editor): dropdown "Escenario inicial:" bajo el Primer Mensaje y bajo cada Saludo Alternativo (visible solo con scenarioConfig activo; add/delete de saludos mantiene greetingScenarioIds sincronizado). FIX: <SelectItem value=""> crasheaba Radix ("must have a value prop that is not an empty string") → valor centinela '__default__'.
+- QR (quick-replies-panel): prop scenarioConfig + hasScenarioOptions; sección "Cambiar Escenario" (MapPin, emerald) con select de ubicaciones en add-form y edit-mode; badge 📍Cama en la lista; persistencia en handleAdd/handleSaveEdit. FIX CRÍTICO encontrado por E2E: renderScenarioSection faltaba en el destructuring de SortableQuickReplyItem → "renderScenarioSection is not defined" al editar una QR (crasheaba el editor).
+- QR runtime (novel-chat-box): applyQuickReplyScenario (go → setActiveScenario + toast "📍 La escena se mueve a: X") como paso 4.5 de handleQuickReply.
+- SESIÓN (sessionSlice): createSession y clearChat eligen el saludo Y su escenario (swipeScenarioIds alineado a greetingList filtrado; group greetings sin escenario → default). El primer mensaje guarda metadata.greetingScenarioIds. swipeMessage: al deslizar el PRIMER mensaje entre saludos, aplica el escenario pineado del saludo destino (null → default; regeneraciones fuera del rango original nunca mueven la escena).
+- DATOS XIMENA (configurados vía UI, no a mano): scenarioConfig con 4 ubicaciones (Departamento ⭐ default, Escritorio, Sofá, Cama), firstMesScenarioId → Cama, characterNote con "Lugar: {{escenario}}" junto a {{vestuario}}, QR nueva "Dormir" con scenarioAction → Cama.
+- ICONO: tool-call-notification ICON_MAP + manage_escenario: MapPin.
+
+Verificación:
+- bun run lint: 0 errores. tsc: mismos errores PREEXISTENTES (diff pre/post idéntico salvo desplazamiento de líneas); archivos nuevos sin errores.
+- Tests server-side (bun, 32/32 OK): normalize (7 casos), resolución activo/default/stale, key con header, fuzzy match, resolveScenarioKeyInText {{escenario}}/{{scenario}}, tool list/go/get_info/errores, buildSystemPrompt inyecta [ESCENARIO] con badges y safety net, resolveAllKeys e2e.
+- E2E BROWSER: (1) pestaña Escenario abre sin errores y sin crash con config vacía; (2) crear 4 ubicaciones vía UI (incluye fix del SelectItem vacío) → persistido en characters.json; (3) dropdowns "Escenario inicial" en Diálogo (2) sin error → firstMes → Cama persistido; (4) QR panel sin crash tras fix destructuring → "Dormir" creada con 📍Cama.
+- E2E SESIÓN NUEVA: "Nuevo Chat" eligió el firstMes → sessionStats.activeScenarioId = Cama persistido en sessions.json; metadata.greetingScenarioIds ["cama", null] en el primer mensaje.
+- E2E TOOL CALLING (LLM real): mensaje "vámonos al sofá" → finishReason=tool_calls → manage_escenario go "Sofá" → SSE scenario_activation → setActiveScenario → sessions.json activeScenarioId=Sofá ✓ → prompt viewer muestra [ESCENARIO] con la descripción del Sofá y sin keys residuales; Ximena narró coherente con el lugar.
+- E2E QR: clic "Dormir" → toast "📍 La escena se mueve a: Cama" + mensaje enviado + activeScenarioId=Cama persistido ✓.
+- E2E SWIPE: swipe derecho del primer mensaje → saludo alternativo + activeScenarioId=null (default Departamento); swipe izquierdo → firstMes + activeScenarioId=Cama ✓.
+- PROACTIVE FIX verificado en código (context.character ahora presente; activaciones wardrobe/scenario SSE añadidas).
+- Limpieza: 2 sesiones de prueba eliminadas vía UI (confirm nativo), solo queda la original (9 msgs, 302 turnos); test-scenario.ts eliminado tras pasar 32/32.
+
+Stage Summary:
+- ESCENARIO V2 completo y verificado E2E: ubicaciones (nombre+descripción) por personaje con una predeterminada; el LLM mueve la escena vía manage_escenario (list/go/get_info) y el cambio persiste en la sesión; la ubicación activa se inyecta con {{escenario}} (alias {{scenario}}) en cualquier sección de la card — o automáticamente por safety net si la card no tiene la key.
+- El escenario es SESSION-level (compartido), a diferencia del vestuario (por personaje).
+- Los saludos (firstMes/alternativos) pueden fijar el escenario estándar con el que arranca la conversación, incluido al deslizar entre saludos.
+- Las respuestas rápidas pueden mover la escena como efecto adicional (combinable con modificadores/sprite/guardarropa/umbral).
+- Fix colateral: tool calling de guardarropa/escenario en mensajes PROACTIVOS reparado (falta de context.character) + sus SSE de activación.
+
+---
+Task ID: GRUPOS-FIX
+Agent: Z.ai Code (principal)
+Task: (1) Fix error al subir archivo en "Conocimiento"; (2) documentar estrategia de prompts en grupos; (3) diagnosticar/corregir que un personaje responda por ambos (grupo Voca: Ximena + Aitana)
+
+Work Log:
+- DIAGNÓSTICO CONOCIMIENTO: el componente character-knowledge-uploader llama a POST /api/embeddings/upload pero ESA RUTA NO EXISTÍA en el árbol de APIs (404 → res.json() falla → "Error al subir archivo"). Además importaba `toast` de sonner pero usaba la API de objetos de shadcn ({title, description}) → toast roto/crash al renderizar.
+- FIX 1 (upload route): creado src/app/api/embeddings/upload/route.ts — multipart FormData, allowlist de extensiones de texto (.txt/.md/.json/.csv/.xml/.yaml/.html/.rtf/.log), límite 10MB, sanitización de bytes nulos/reemplazo UTF-8, respuesta {success, data:{fileName, fileSize, content, characterCount}}. Contrato exacto esperado por character-knowledge-uploader.tsx Y embeddings-settings-panel.tsx.
+- FIX 2 (toasts): character-knowledge-uploader.tsx migrado a API sonner (toast.success/toast.error). Además: si createdCount===0 (p.ej. Ollama caído) ahora muestra error explícito en vez de "0 fragmentos" silencioso.
+- ANÁLISIS ESTRATEGIA GRUPOS (documentado para el usuario): cada responder recibe SU PROPIA petición LLM con buildGroupSystemPrompt(responder,...): su card completa (description/personality/scenario/note/mesExample), estado (atributos/wardrobe/escenario/emocional), y de otros personajes SOLO los nombres. Historia compartida con prefijos "Nombre:" al fusionar assistant consecutivos. Lorebooks: antes era XOR (grupo tiene libros → todos comparten SOLO los del grupo; grupo sin libros → personales). System prompt se enviaba con role 'assistant' (1-1 usa role 'system' con useSystemRole=true) y sin directiva de identidad por turno.
+- CAUSAS DEL "RESPONDE POR AMBOS": (a) system prompt como mensaje 'assistant' debilita instrucciones; (b) sin directiva "responde SOLO como X" al final del prompt (los modelos, esp. Grok activo en Voca, tienden a narrar la escena completa); (c) lorebooks del grupo duplicaban los personales → cada prompt contenía el lore del otro personaje.
+- FIX 3 (identidad): prompt-builder.ts buildGroupSystemPrompt ahora inyecta sección [IDENTIDAD DE RESPUESTA] tras el system prompt (interpretas ÚNICAMENTE a X; nunca escribas por otros ni por el usuario). Nuevo export buildGroupTurnDirective() → [INSTRUCCIÓN DE TURNO — GRUPO] personalizado por responder (incluye variante narrador); buildGroupChatMessages lo añade al FINAL del último mensaje user (posición de máxima atención). group-stream/route.ts pasa la directiva.
+- FIX 4 (roles): buildGroupChatMessages envía el bloque system con role 'system' (alineado con 1-1).
+- FIX 5 (lorebooks): estrategia cambia de XOR a personal+compartido con dedup: cliente (chat-panel.tsx) SIEMPRE envía characterLorebooksMap (personales por miembro) y la UNIÓN activa de libros (grupo + personales de todos); servidor (group-stream/route.ts) construye el plan por responder con dedup por id (eliminado useGroupLorebooks/groupLorebookPlan). Para Voca: cada personaje recibe exactamente sus libros una vez.
+- E2E BROWSER (grupo Voca real, provider Grok grok-4.20-non-reasoning): mensaje enviado → ambos responden en turnos separados; tool calling OK en ambos (Aitana: manage_action + modify_stat lujuria/orgasmo; Ximena: manage_wardrobe wear + modify_stat lujuria/exhibicionismo); respuestas nuevas verificadas en sessions.json: cada una habla SOLO como su personaje (mencionan a la otra sin ponerla a hablar), sin prefijos de nombre. PromptData verificado: sección "Identidad de Respuesta" presente y personalizada en ambos; chatMessages[0].role='system'.
+- E2E BROWSER (Conocimiento): archivo .md subido vía UI → preview OK (antes fallaba aquí) → "Agregar como conocimiento" ejecuta create-from-file graceful (Ollama caído en sandbox → createdCount 0 → ahora con toast de error claro).
+- REGRESIÓN UI (editor Ximena): pestañas Escenario (4 ubicaciones, ⭐ default, dropdowns "Escenario inicial" con valores persistidos), Guardarropa (outfits + default), Resp. Rápidas (efectos multi + umbral + Cambiar Escenario) — todo renderiza sin errores.
+- NOTA DATOS: Ximena_Lorebook (10 entries) y Aitana_lorebook (9 entries) están VACÍOS (key:[] y content:'' en todas las entradas) → por eso 0 World Info en los prompts (preexistente, no regresión). El usuario debe rellenarlas o reimportarlas.
+- Tests server-side (bun): unión/dedup de lorebooks por responder OK; directiva de turno anexada al último user msg OK; rol system primero OK; fusión de assistants con prefijo "Nombre:" OK. Lint 0 errores. Errores restantes en dev.log son solo ECONNREFUSED de Ollama/embeddings (no fatales, degradación graciosa).
+
+Stage Summary:
+- Conocimiento reparado: la causa era la ruta /api/embeddings/upload inexistente; ahora upload→preview→create funciona E2E y los fallos de embeddings se reportan claramente.
+- Estrategia de grupos rediseñada y documentada: petición LLM separada por responder (card+lorebooks propios+grupo compartido con dedup), historia compartida con prefijos, role 'system', identidad fija en el system y directiva de turno al final del último mensaje del usuario.
+- El problema "responde por ambos" queda corregido con 3 capas: sección [IDENTIDAD DE RESPUESTA] + [INSTRUCCIÓN DE TURNO] per-responder + system role; verificado E2E con LLM real (Grok) en el grupo Voca.
+
+---
+Task ID: rel-edit-1
+Agent: Z.ai Code (main)
+Task: Agregar edición manual de niveles de relación (sección "Relación") — el usuario no veía dónde editar los niveles.
+
+Work Log:
+- Localizado el sistema: `src/lib/relationships.ts` (stages 0-100), `SessionStats.relationships` (bonds por pairKey), espejo `relacion`/`relacion_etapa` en attributeValues, panel `src/components/tavern/relationship-panel.tsx` (era read-only).
+- `statsSlice.ts`: agregada acción `removeRelationship(sessionId, aId, bId)` (borra bond + limpia espejo de ambas partes).
+- `statsSlice.ts`: NUEVO helper `recomputeRelationshipMirror()` — corrige bug de grupos: el espejo de un personaje era pisado por el último vínculo cambiado; ahora recalcula desde el registro completo de bonds priorizando el vínculo con el usuario (o el más alto si no hay). Aplicado en updateRelationship y removeRelationship.
+- `relationship-panel.tsx`: convertido en editable: BondCard con modo edición (slider 0-100 + input numérico + botones ±5/±10 + motivo + guardar/cancelar + eliminar con confirmación inline), sección "Nuevo vínculo" (selects A/B deshabilitando pares existentes, slider de nivel inicial, crea vía updateRelationship con set), toasts sonner.
+
+Stage Summary:
+- Los niveles de relación ahora se editan manualmente desde el panel 💜 Relaciones (botón "Relaciones" de la barra de sesión): ✏️ edita, 🗑️ elimina, "+ Nuevo" crea vínculos usuario↔personaje o personaje↔personaje.
+- Fix de fondo para grupos: el espejo `relacion` ya no se corrompe cuando un personaje tiene varios vínculos (caso Voca: Ximena mantiene 55 Amigos con el usuario aunque su bond con Aitana sea 45).
+- Verificado en browser: editar (10→55), crear vínculo (Ximena↔Aitana 20), eliminar con confirmación, persistencia en data/sessions.json, espejos correctos. Lint limpio.
+
+---
+Task ID: group-scenario-1
+Agent: Z.ai Code (main)
+Task: Extender el sistema Escenario V2 a los GRUPOS — escenario compartido que reemplace los escenarios individuales de los miembros.
+
+Work Log:
+- Tipos: `CharacterGroup.scenarioConfig?: ScenarioConfig` (misma forma que el de personaje).
+- `src/lib/scenario/index.ts`: helpers group-aware. Nuevo `ScenarioSource` + `getEffectiveScenarioConfig(character, group)` (grupo usable → gana; si no, fallback al del personaje). `isScenarioAvailable/resolveActiveLocation/resolveScenarioKey/getScenarioInfo` aceptan `group?` opcional; `getScenarioInfo` devuelve `isGroupScenario`.
+- `key-resolver.ts`: `KeyResolutionContext.group?` → `{{escenario}}` resuelve contra el grupo en chats grupales.
+- `prompt-builder.ts` (buildGroupSystemPrompt): keyContext.group = group; sección [ESCENARIO] grupal usa el escenario efectivo y añade línea "Escenario compartido del grupo" cuando aplica; safety-net usa el blockHeader correcto.
+- Tool: `ToolContext.group?`; `manage-scenario.ts` resuelve contra el grupo (list/go/get_info; mensaje de error menciona grupo; "Escenario de el grupo X"); group-stream pasa `group` al ToolContext + filtra `manage_escenario` si ni grupo ni personaje tienen escenario (patrón manage_wardrobe) + keyContext.group.
+- Quick replies: `novel-chat-box.applyQuickReplyScenario` usa el escenario del grupo en modo grupo; group-editor pasa `scenarioConfig` al QuickRepliesPanel (dropdown de ubicaciones = ubicaciones del grupo).
+- UI: `group-editor.tsx` pestaña Info ahora incluye el `ScenarioEditor` completo (ubicaciones nombre/descripción/⭐default/header del bloque) + banner explicativo; se guarda en groupData.
+- Persistencia: updateGroup hace spread merge → scenarioConfig sobrevive; verificado en data/groups.json.
+
+Stage Summary:
+- Los grupos ahora tienen el MISMO editor de escenario que los personajes (Info tab del editor de grupo).
+- PRIORIDAD: escenario del grupo (habilitado + ≥1 ubicación) REEMPLAZA los escenarios individuales de todos los miembros en: sección [ESCENARIO] del prompt, key {{escenario}}, tool manage_escenario, y efectos "Cambiar Escenario" de respuestas rápidas. Sin escenario de grupo → cada personaje usa el suyo (comportamiento previo intacto).
+- Verificado con scripts bun: prompt de grupo lista ubicaciones del grupo y NO filtra las del personaje; tool mueve la escena a ubicaciones del grupo; fallback 1:1 intacto. Browser: editor guarda Departamento/Cama/Ducha en groups.json; dropdown de respuestas rápidas las lista. Lint limpio.
+
+---
+Task ID: threshold-message-1
+Agent: Z.ai Code (main)
+Task: Efectos de Umbral (atributos) — revisar que TODAS las recompensas se ejecuten correctamente + nuevo tipo de recompensa "Mensaje" (mensaje automático al chat al finalizar el turno, configurable con tags {{char}}/{{user}}/etc.).
+
+Work Log:
+- Auditoría de ejecución de rewards: `updateCharacterStat` (statsSlice) retornaba `thresholdsReached` pero casi todos los callers lo ignoraban (tool activations en chat-panel, stats-handler, stats-key-handler, timers, edits manuales, target_attribute). Solo el path de skills ejecutaba los rewards vía use-trigger-system → BUG: recompensas de umbrales no se ejecutaban en la mayoría de los caminos.
+- FIX central: `statsSlice.updateCharacterStat` y `batchUpdateCharacterStats` ahora EJECUTAN los rewards de los thresholds internamente (nuevo helper `executeThresholdRewardsInternal` con contador de profundidad máx 3 anti-recursión). Todas las vías (tools LLM, detección post-LLM, skills, timers, sliders manuales, quest rewards) ejecutan rewards exactamente una vez.
+- `src/lib/quest/reward-store-actions.ts` (NUEVO): `buildRewardStoreActions(store)` + `completeQuestObjectiveByKey` compartidos para ejecutar rewards desde cualquier parte con acceso al store.
+- `use-trigger-system.ts`: eliminada la ejecución duplicada de thresholds del path de skills (ahora la hace el store; antes era doble para skills y cero para el resto).
+- Nuevo reward 'message': `QuestRewardType` + `QuestRewardMessage { text }` + campo `message?` en `QuestReward` (types/index.ts). `createMessageReward` + normalize/validate/describe en quest-reward-utils. `executeReward` case 'message' = no-op diferido (lo envía el chat al fin del turno).
+- `src/lib/stats/threshold-messages.ts` (NUEVO): `collectThresholdMessages()` evalúa los thresholdEffects tipo-message de los participantes al FINAL del turno con edge-triggering persistido (`SessionStats.thresholdMessageStates`, key `${characterId}:${attributeKey}:${effectId}`): dispara solo en el cruce false→true, resetea al dejar de cumplirse (anti-bucle: no repite el mensaje cada turno). `resolveThresholdMessageText()` resuelve tags con `resolveAllKeys` ({{char}}, {{user}}, {{time}}, atributos del personaje con fallback a la persona, {{eventos}}, {{relacion}}, {{escenario}}, etc.).
+- Nueva acción store: `statsSlice.setThresholdMessageStates(sessionId, states)`.
+- `chat-panel.tsx`: `runThresholdMessageScan()` (scan de participantes: personaje activo/miembros del grupo + persona) + `scheduleThresholdAutoSend()` (cola con polling 400ms que espera a que termine la generación y envía vía handleSendRef; mensajes múltiples se concatenan con doble salto de línea). Enganchado al `done` de: chat 1-a-1, grupo (post-stream) y regenerate. Toast "💬 Umbral ..." al disparar.
+- UI (`stats-editor.tsx` ThresholdEffectDialog): botón "💬 Mensaje" para añadir el reward, editor Textarea con placeholder "{{char}} tiene ahora 50 de fuerza!", hint de tags y comportamiento (se envía al finalizar el turno en que se CRUZA el umbral), badge rosa "💬 Mensaje" + describeReward con preview truncado.
+
+Stage Summary:
+- BUG FIX (recompensas): los rewards de Efectos de Umbral ahora se ejecutan en TODAS las vías de cambio de atributo (antes solo skills). Sin doble ejecución.
+- NUEVO efecto "Mensaje": configurable por umbral en el editor de Atributos; al finalizar el turno en que el atributo CRUZA la condición, envía el mensaje al chat como respuesta rápida (mensaje del usuario) disparando la generación siguiente. Totalmente personalizable con tags del sistema.
+- Anti-bucle: edge-triggered persistido en sessionStats.thresholdMessageStates (solo dispara en el cruce; se rearma al dejar de cumplirse la condición).
+- Verificado: script bun (5 escenarios edge + tags + disabled + texto vacío) y E2E en browser con LLM mock: mensaje auto "Ximena la Cogelona tiene ahora 50 de lujuria..." enviado 1 sola vez como mensaje del usuario, generó la respuesta siguiente, edge persistido en sessions.json, sin repetición en el turno siguiente. Lint limpio. Umbral de prueba dejado en Ximena (lujuria ≥ 50 con mensaje — editable/borrable desde el editor) y LLM activo restaurado a Grok.

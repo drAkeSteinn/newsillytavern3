@@ -74,6 +74,9 @@ export interface ToolContext {
   groupMembers?: GroupMember[];
   /** The active character card (for wardrobe tool — needs wardrobeConfig + main attribute) */
   character?: CharacterCard;
+  /** The group (ESCENARIO V2: when set, manage_escenario uses the GROUP's
+   *  scenarioConfig — shared scene — instead of the character's own). */
+  group?: import('@/types').CharacterGroup | null;
 }
 
 /** Result from tool execution */
@@ -201,20 +204,38 @@ export interface ToolExecutionResult {
     deleteEventId?: string;
     deleteEmbeddingId?: string;
   };
-  /** Special result for wardrobe tools — syncs to client-side session stats wardrobeOffset */
+  /** Special result for wardrobe tools — syncs to client-side session stats activeOutfitId */
   wardrobeActivation?: {
     characterId: string;
-    /** Action taken: escalate (+1), regress (-1), or reset (0) */
-    action: 'escalate' | 'regress' | 'reset' | 'get_info';
-    /** The new offset after the action */
-    newOffset: number;
-    /** Previous offset before the action */
-    previousOffset: number;
-    /** The wardrobe level name after the action */
-    newLevelName: string;
-    /** The wardrobe level content after the action */
-    newLevelContent: string;
-    /** Whether the action actually changed the level */
+    /** Action taken: list (info only), wear (put on outfit), remove (back to default), get_info */
+    action: 'list' | 'wear' | 'remove' | 'get_info';
+    /** The outfit now being worn (null after remove → falls back to default) */
+    outfitId: string | null;
+    /** Name of the outfit after the action (for toast / UI display) */
+    outfitName: string;
+    /** Full description of the outfit after the action */
+    outfitDescription: string;
+    /** Outfit that was worn before the action (null if none/default) */
+    previousOutfitId?: string | null;
+    /** Whether the action actually changed the worn outfit */
+    changed: boolean;
+    /** Reason for the change (narrative) */
+    reason?: string;
+  };
+  /** Special result for scenario tools — syncs to client-side session stats activeScenarioId (SESSION-level) */
+  scenarioActivation?: {
+    characterId: string;
+    /** Action taken: list (info only), go (move the scene), get_info */
+    action: 'list' | 'go' | 'get_info';
+    /** The location now active (null = follow default) */
+    locationId: string | null;
+    /** Name of the location after the action (for toast / UI display) */
+    locationName: string;
+    /** Full description of the location after the action */
+    locationDescription: string;
+    /** Location the scene was in before the action (null if none/default) */
+    previousLocationId?: string | null;
+    /** Whether the action actually changed the active location */
     changed: boolean;
     /** Reason for the change (narrative) */
     reason?: string;

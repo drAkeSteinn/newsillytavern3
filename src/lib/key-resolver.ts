@@ -18,6 +18,7 @@ import type { CharacterCard, Persona, SessionStats, SoundTrigger, AppSettings, Q
 import type { ResolvedStats } from '@/types';
 import { resolveStatsInText } from '@/lib/stats/stats-resolver';
 import { resolveWardrobeKey } from '@/lib/wardrobe';
+import { resolveScenarioKey } from '@/lib/scenario';
 import { MAX_EVENT_LOG_IN_PROMPT, eventLogTypeLabel } from '@/lib/stats/event-log';
 import { getRelationship, computeRelationshipStage, DEFAULT_RELATIONSHIP_POINTS } from '@/lib/relationships';
 import {
@@ -92,6 +93,11 @@ export interface KeyResolutionContext {
     currencyIcon: string;
     inventorySettings: InventoryV2Settings;
   };
+
+  // Group chat context (ESCENARIO V2): when the group has its own scenarioConfig,
+  // the {{escenario}} key resolves against the GROUP's locations instead of the
+  // character's ones (group scenario replaces member scenarios).
+  group?: { scenarioConfig?: import('@/types').ScenarioConfig } | null;
 }
 
 // ============================================
@@ -811,16 +817,18 @@ export function resolveLorebookEntryKeys(
  */
 
 /**
- * Resolve the {{wardrobe}} key to the current wardrobe content.
- * The wardrobe level is determined by the character's main attribute value
- * plus a session-state offset (set by the manage_wardrobe tool).
+ * Resolve the {{vestuario}} key (alias {{wardrobe}}) to the description of the
+ * outfit the character is currently wearing (GUARDARROPA V2).
+ * The worn outfit is read from the session state (activeOutfitId), with a
+ * fallback to the outfit flagged isDefault.
  */
 export function resolveWardrobeKeyInText(
   text: string,
   context: KeyResolutionContext
 ): string {
   if (!text) return text;
-  if (!/\{\{wardrobe\}\}/gi.test(text)) return text;
+  // Fast exit when neither key is present
+  if (!/\{\{(?:vestuario|wardrobe)\}\}/gi.test(text)) return text;
 
   const wardrobeContent = resolveWardrobeKey(
     context.character,
@@ -828,7 +836,35 @@ export function resolveWardrobeKeyInText(
     context.characterId
   );
 
-  return text.replace(/\{\{wardrobe\}\}/gi, wardrobeContent);
+  return text
+    .replace(/\{\{vestuario\}\}/gi, wardrobeContent)
+    .replace(/\{\{wardrobe\}\}/gi, wardrobeContent);
+}
+
+/**
+ * Resolve the {{escenario}} key (alias {{scenario}}) to the description of the
+ * location where the scene currently takes place (ESCENARIO V2).
+ * The active location is read from the SESSION state (activeScenarioId —
+ * session-level, shared by all chat participants), with a fallback to the
+ * location flagged isDefault.
+ */
+export function resolveScenarioKeyInText(
+  text: string,
+  context: KeyResolutionContext
+): string {
+  if (!text) return text;
+  // Fast exit when neither key is present
+  if (!/\{\{(?:escenario|scenario)\}\}/gi.test(text)) return text;
+
+  const scenarioContent = resolveScenarioKey(
+    context.character,
+    context.sessionStats,
+    context.group
+  );
+
+  return text
+    .replace(/\{\{escenario\}\}/gi, scenarioContent)
+    .replace(/\{\{scenario\}\}/gi, scenarioContent);
 }
 
 export function resolveInventoryKeys(
@@ -1039,14 +1075,22 @@ export function resolveAllKeys(
   result = resolveQuestKeys(result, context);
   result = resolveAvailableQuestsKey(result, context);
 
+  // Phase 5.9: Resolve wardrobe key ({{vestuario}} / {{wardrobe}})
+  // GUARDARROPA V2: resolved BEFORE lorebook keys so the session's active outfit
+  // is the canonical source (lorebook entries must not shadow {{vestuario}}).
+  result = resolveWardrobeKeyInText(result, context);
+
+  // Phase 5.95: Resolve scenario key ({{escenario}} / {{scenario}})
+  // ESCENARIO V2: same ordering rationale as the wardrobe — the session's
+  // active location is the canonical source (lorebook entries must not shadow
+  // {{escenario}}).
+  result = resolveScenarioKeyInText(result, context);
+
   // Phase 6: Resolve lorebook attribute keys
   result = resolveLorebookAttributeKeys(result, context);
 
   // Phase 6.1: Resolve lorebook entry keys ({{key}} from traditional lorebook entries)
   result = resolveLorebookEntryKeys(result, context);
-
-  // Phase 6.2: Resolve wardrobe key ({{wardrobe}})
-  result = resolveWardrobeKeyInText(result, context);
 
   // Phase 6.5: Resolve inventory keys ({{slots}}, {{currency}})
   result = resolveInventoryKeys(result, context);

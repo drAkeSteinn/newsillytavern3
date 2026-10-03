@@ -1369,6 +1369,24 @@ export function executeReward(
     case 'activate_sprite_pack':
       return executeActivateSpritePackReward(normalized, context, storeActions);
 
+    case 'message': {
+      // Message rewards (threshold effects) are DEFERRED: they are not sent here.
+      // The chat panel collects them at the END OF THE TURN (edge-triggered) and
+      // sends them to the chat as if they were quick replies (user messages).
+      // This keeps the executor side-effect free for this reward type.
+      const text = normalized.message?.text || '';
+      return {
+        rewardId: reward.id,
+        type: 'message',
+        key: 'message',
+        value: text,
+        success: true,
+        message: text
+          ? `Mensaje diferido a fin de turno: "${text.slice(0, 60)}${text.length > 60 ? '…' : ''}"`
+          : 'Mensaje diferido (sin texto configurado)',
+      };
+    }
+
     default:
       return {
         rewardId: reward.id,

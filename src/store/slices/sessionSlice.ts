@@ -605,6 +605,30 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
     let allGreetings = [processedFirstMes, ...processedAlternateGreetings].filter((g: string) => g.trim());
     let greetingList = allGreetings.length > 0 ? allGreetings : [''];
     let selectedGreeting = greetingList[Math.floor(Math.random() * greetingList.length)];
+    // ESCENARIO V2: scenario location pinned to each greeting swipe, aligned
+    // with greetingList (non-empty greetings only). null = default location.
+    let swipeScenarioIds: (string | null)[] = [];
+    let selectedGreetingScenarioId: string | null = null;
+    if (character) {
+      const charScenarios: (string | null)[] = [
+        character.firstMesScenarioId ?? null,
+        ...(character.greetingScenarioIds || []).map((id) => id ?? null),
+      ];
+      const charTexts: string[] = [character.firstMes, ...(character.alternateGreetings || [])];
+      let nonEmptySeen = -1;
+      for (let i = 0; i < charTexts.length; i++) {
+        if ((charTexts[i] || '').trim()) {
+          nonEmptySeen++;
+          // greetingList preserves the non-empty order — map index → scenario id
+          if (nonEmptySeen < greetingList.length) {
+            swipeScenarioIds[nonEmptySeen] = charScenarios[i] ?? null;
+            if (greetingList[nonEmptySeen] === selectedGreeting && selectedGreetingScenarioId === null) {
+              selectedGreetingScenarioId = charScenarios[i] ?? null;
+            }
+          }
+        }
+      }
+    }
     let groupFirstMessageCharacterId = characterId; // characterId used for the first message in group chat
     
     // Initialize session stats
@@ -647,6 +671,9 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
           allGreetings = [processedGroupFirstMes, ...processedGroupAlternateGreetings].filter((g: string) => g.trim());
           greetingList = allGreetings.length > 0 ? allGreetings : [''];
           selectedGreeting = greetingList[Math.floor(Math.random() * greetingList.length)];
+          // Group greetings have no pinned scenario — the scene starts at the default location
+          swipeScenarioIds = [];
+          selectedGreetingScenarioId = null;
           // Use first group member's characterId for the group first message
           groupFirstMessageCharacterId = group.members[0]?.characterId || '__group__';
         }
@@ -716,6 +743,17 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
       }
     }
     
+    // ESCENARIO V2: locate the scene according to the greeting that starts the
+    // conversation. If the selected greeting pins a location, set it as the
+    // session's active scenario; otherwise the default location is used.
+    if (sessionStats && selectedGreetingScenarioId) {
+      sessionStats = {
+        ...sessionStats,
+        activeScenarioId: selectedGreetingScenarioId,
+      };
+      console.log(`[Session] Starting with greeting scenario: ${selectedGreetingScenarioId}`);
+    }
+
     set((state: any) => ({
       sessions: [...state.sessions, {
         id,
@@ -731,7 +769,9 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
           isDeleted: false,
           swipeId: uuidv4(),
           swipeIndex: greetingList.indexOf(selectedGreeting),
-          swipes: greetingList
+          swipes: greetingList,
+          // ESCENARIO V2: pinned scenario location per greeting swipe (first message only)
+          ...(swipeScenarioIds.length > 0 ? { metadata: { greetingScenarioIds: swipeScenarioIds } } : {}),
         }] : [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1011,6 +1051,29 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
     let allGreetings = [processedFirstMes, ...processedAlternateGreetings].filter((g: string) => g.trim());
     let greetingList = allGreetings.length > 0 ? allGreetings : [''];
     let selectedGreeting = greetingList[Math.floor(Math.random() * greetingList.length)];
+    // ESCENARIO V2: scenario location pinned to each greeting swipe, aligned
+    // with greetingList (non-empty greetings only). null = default location.
+    let swipeScenarioIds: (string | null)[] = [];
+    let selectedGreetingScenarioId: string | null = null;
+    if (character) {
+      const charScenarios: (string | null)[] = [
+        character.firstMesScenarioId ?? null,
+        ...(character.greetingScenarioIds || []).map((id) => id ?? null),
+      ];
+      const charTexts: string[] = [character.firstMes, ...(character.alternateGreetings || [])];
+      let nonEmptySeen = -1;
+      for (let i = 0; i < charTexts.length; i++) {
+        if ((charTexts[i] || '').trim()) {
+          nonEmptySeen++;
+          if (nonEmptySeen < greetingList.length) {
+            swipeScenarioIds[nonEmptySeen] = charScenarios[i] ?? null;
+            if (greetingList[nonEmptySeen] === selectedGreeting && selectedGreetingScenarioId === null) {
+              selectedGreetingScenarioId = charScenarios[i] ?? null;
+            }
+          }
+        }
+      }
+    }
     let clearChatFirstMessageCharacterId = session.characterId;
     
     // Get characters for stats reset
@@ -1034,6 +1097,9 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
           allGreetings = [processedGroupFirstMes, ...processedGroupAlternateGreetings].filter((g: string) => g.trim());
           greetingList = allGreetings.length > 0 ? allGreetings : [''];
           selectedGreeting = greetingList[Math.floor(Math.random() * greetingList.length)];
+          // Group greetings have no pinned scenario — the scene starts at the default location
+          swipeScenarioIds = [];
+          selectedGreetingScenarioId = null;
           clearChatFirstMessageCharacterId = group.members[0]?.characterId || '__group__';
         }
       }
@@ -1094,7 +1160,16 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
     }
     
     // Reset messages to only the first message (with all greetings as swipes)
-    
+
+    // ESCENARIO V2: locate the scene according to the greeting that restarts the conversation
+    if (newSessionStats && selectedGreetingScenarioId) {
+      newSessionStats = {
+        ...newSessionStats,
+        activeScenarioId: selectedGreetingScenarioId,
+      };
+      console.log(`[Session] Clearing chat with greeting scenario: ${selectedGreetingScenarioId}`);
+    }
+
     set((state: any) => ({
       sessions: state.sessions.map((s: ChatSession) =>
         s.id === sessionId ? {
@@ -1108,7 +1183,9 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
             isDeleted: false,
             swipeId: uuidv4(),
             swipeIndex: greetingList.indexOf(selectedGreeting),
-            swipes: greetingList
+            swipes: greetingList,
+            // ESCENARIO V2: pinned scenario location per greeting swipe (first message only)
+            ...(swipeScenarioIds.length > 0 ? { metadata: { greetingScenarioIds: swipeScenarioIds } } : {}),
           }] : [],
           sessionStats: newSessionStats,
           sessionQuests: newSessionQuests,  // Reset quests to template defaults
@@ -1294,7 +1371,10 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
   // Swipe Actions
   swipeMessage: (sessionId, messageId, direction) => {
     let newIndex = 0;
-    
+    // ESCENARIO V2: pinned greeting scenario for the new swipe (if any)
+    let greetingScenarioId: string | null | undefined = undefined;
+    let isGreetingSwipe = false;
+
     set((state: any) => ({
       sessions: state.sessions.map((s: ChatSession) => {
         if (s.id !== sessionId) return s;
@@ -1302,17 +1382,30 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
           ...s,
           messages: s.messages.map((m: ChatMessage) => {
             if (m.id !== messageId) return m;
-            
+
             const maxIndex = (m.swipes?.length || 1) - 1;
-            
+
             if (direction === 'right') {
               newIndex = Math.min(m.swipeIndex + 1, maxIndex);
             } else {
               newIndex = Math.max(0, m.swipeIndex - 1);
             }
-            
-            return { 
-              ...m, 
+
+            // ESCENARIO V2: the FIRST message of the session may carry a map of
+            // greeting → scenario location (metadata.greetingScenarioIds, parallel
+            // to the original greeting swipes). Swiping between greetings moves the
+            // scene accordingly; regeneration swipes (beyond the original greetings)
+            // never change the scene.
+            if (s.messages[0]?.id === m.id && m.metadata?.greetingScenarioIds) {
+              const pinned = m.metadata.greetingScenarioIds[newIndex];
+              if (newIndex < m.metadata.greetingScenarioIds.length) {
+                greetingScenarioId = pinned ?? null;
+                isGreetingSwipe = true;
+              }
+            }
+
+            return {
+              ...m,
               swipeIndex: newIndex,
               content: m.swipes?.[newIndex] || m.content
             };
@@ -1320,7 +1413,12 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
         };
       })
     }));
-    
+
+    // ESCENARIO V2: apply the greeting's pinned location to the session
+    if (isGreetingSwipe) {
+      (get() as any).setActiveScenario?.(sessionId, greetingScenarioId ?? null);
+    }
+
     return newIndex;
   },
 

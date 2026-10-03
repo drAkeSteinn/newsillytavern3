@@ -1,22 +1,20 @@
 {
-  "activeSessionId": "f9ae3b2e-dfd5-46ef-a132-1d9bd6b73ee8",
-  "activeCharacterId": "be007398-1400-45b2-b87a-0d7e1f906278",
+  "activeSessionId": "e121f50b-aee5-4db5-b4e8-2a5188e5491f",
+  "activeCharacterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
   "activeGroupId": null,
   "activeBackground": "/backgrounds/Room/Room (1).png",
   "activeOverlayBack": "",
   "activeOverlayFront": "",
   "activePersonaId": "default",
   "activeLorebookIds": [
-    "c7313714-3b49-4976-b315-7b644bf70524",
     "c0982fb3-2c52-4ead-82a6-c33654736338",
     "b897f3a1-7348-482b-b2ca-7ea0213ecd59",
-    "2fbf5ad1-071b-43e6-b976-3d78900766d2",
-    "74a5ad70-e093-46e6-84fb-7f0dd66d2f02",
     "7f1410a6-06ba-4009-959c-a23b7883a114",
-    "ef0383c0-ffb9-4b9a-ab20-f552c45a24c8",
     "275a584d-f697-4002-afc2-0c19b2b68b91",
     "272bfce2-1a68-41c0-9043-cd548cc8de58",
     "57bc4f03-f53a-48d9-8ab9-5113e9d4f86a",
-    "6fcd55d7-6605-4d0b-a62b-3f96c6a9574c"
+    "6fcd55d7-6605-4d0b-a62b-3f96c6a9574c",
+    "d854a0e7-fc62-4e37-85dd-4a813625e885",
+    "c85b9950-4f13-45d7-b22d-982b91da191d"
   ]
 }

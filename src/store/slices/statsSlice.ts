@@ -18,6 +18,8 @@ import type {
 } from '@/types';
 import { evaluateTimerTicks, hasActiveTimers, type TimerEvaluationResult } from '@/lib/stats/timer-processor';
 import { evaluateThresholdEffects } from '@/lib/sprites/condition-evaluator';
+import { executeReward } from '@/lib/quest/quest-reward-executor';
+import { buildRewardStoreActions } from '@/lib/quest/reward-store-actions';
 import { appendEventLogEntry } from '@/lib/stats/event-log';
 import {
   relationshipPairKey,
@@ -59,6 +61,130 @@ function getPersonaEquipmentSlots(state: unknown): Array<{ key: string }> {
 // ============================================
 // Types
 // ============================================
+
+/**
+ * Recompute the `relacion`/`relacion_etapa` mirror for one character from
+ * the FULL bonds record. A character may be in several bonds (group chats):
+ * the mirror prefers the bond with the user; otherwise the highest bond.
+ * If no bonds remain, the mirror keys are removed.
+ */
+function recomputeRelationshipMirror(
+  characterStats: SessionStats['characterStats'],
+  id: string,
+  relationships: Record<string, import('@/types').SessionRelationship>,
+  now: number
+): void {
+  const existing = characterStats[id] || { attributeValues: {}, lastUpdated: {} };
+  const attributeValues = { ...existing.attributeValues };
+  const lastUpdated = { ...existing.lastUpdated };
+  const bonds = Object.values(relationships).filter(b => b.aId === id || b.bId === id);
+  if (bonds.length === 0) {
+    delete attributeValues[RELATIONSHIP_MIRROR_KEY];
+    delete attributeValues[RELATIONSHIP_STAGE_KEY];
+    delete lastUpdated[RELATIONSHIP_MIRROR_KEY];
+    delete lastUpdated[RELATIONSHIP_STAGE_KEY];
+  } else {
+    const withUser = bonds.find(b => b.aId === '__user__' || b.bId === '__user__');
+    const chosen = withUser || bonds.reduce((m, b) => (b.points > m.points ? b : m), bonds[0]);
+    const stage = computeRelationshipStage(chosen.points);
+    attributeValues[RELATIONSHIP_MIRROR_KEY] = chosen.points;
+    attributeValues[RELATIONSHIP_STAGE_KEY] = stage.label;
+    lastUpdated[RELATIONSHIP_MIRROR_KEY] = now;
+    lastUpdated[RELATIONSHIP_STAGE_KEY] = now;
+  }
+  characterStats[id] = { ...existing, attributeValues, lastUpdated };
+}
+
+// ============================================
+// Threshold Reward Execution (runs inside updateCharacterStat)
+// ============================================
+//
+// Rewards from matched ThresholdEffects are executed HERE (store side) so that
+// EVERY path that changes an attribute executes them: LLM tool activations,
+// post-LLM key detection, skills, timers, manual edits and quest rewards.
+// Previously only the skill path executed them — rewards silently did nothing
+// for the other paths.
+//
+// 'message' rewards are skipped here: they are DEFERRED to the end of the turn
+// (collected by the chat panel and sent as quick replies with edge-triggering).
+
+let thresholdRewardDepth = 0;
+const THRESHOLD_REWARD_MAX_DEPTH = 3;
+
+function executeThresholdRewardsInternal(
+  getFn: () => any,
+  sessionId: string,
+  characterId: string,
+  thresholdsReached: ThresholdReachedInfo[]
+): void {
+  if (!thresholdsReached || thresholdsReached.length === 0) return;
+
+  if (thresholdRewardDepth >= THRESHOLD_REWARD_MAX_DEPTH) {
+    console.warn(`[StatsSlice] Threshold reward chain too deep (${thresholdRewardDepth}), skipping to prevent loops`);
+    return;
+  }
+
+  thresholdRewardDepth++;
+  try {
+    const state = getFn();
+    const session = state.sessions?.find((s: any) => s.id === sessionId);
+    const sessionStats = session?.sessionStats;
+    if (!sessionStats) return;
+
+    const activePersona = state.personas?.find((p: any) => p.id === state.activePersonaId);
+
+    // Resolve the character (or persona pseudo-character for __user__)
+    let character: any = state.characters?.find((c: any) => c.id === characterId);
+    if (!character && characterId === '__user__' && activePersona) {
+      character = { id: '__user__', name: activePersona.name || 'User', statsConfig: activePersona.statsConfig };
+    }
+
+    const allCharacters = [
+      ...(state.characters || []),
+      ...(activePersona?.statsConfig?.enabled
+        ? [{ id: '__user__', name: activePersona.name || 'User', statsConfig: activePersona.statsConfig }]
+        : []),
+    ];
+
+    const settings = state.settings || {};
+    const storeActions = buildRewardStoreActions(state);
+
+    for (const threshold of thresholdsReached) {
+      for (const reward of threshold.rewards || []) {
+        // Message rewards are deferred to end-of-turn (chat panel)
+        if (reward.type === 'message') continue;
+        try {
+          const result = executeReward(reward, {
+            sessionId,
+            characterId,
+            character,
+            allCharacters,
+            sessionStats,
+            timestamp: Date.now(),
+            soundCollections: state.soundCollections,
+            soundTriggers: state.soundTriggers,
+            backgroundPacks: state.backgroundTriggerPacks,
+            soundSettings: {
+              enabled: settings.sound?.enabled ?? false,
+              globalVolume: settings.sound?.globalVolume ?? 0.85,
+            },
+            backgroundSettings: {
+              transitionDuration: settings.backgroundTriggers?.transitionDuration ?? 500,
+              defaultTransitionType: settings.backgroundTriggers?.defaultTransitionType ?? 'fade',
+            },
+          }, storeActions);
+          if (!result.success) {
+            console.warn(`[StatsSlice] Threshold reward failed (${reward.type}):`, result.error || result.message);
+          }
+        } catch (err) {
+          console.error('[StatsSlice] Failed to execute threshold reward:', err);
+        }
+      }
+    }
+  } finally {
+    thresholdRewardDepth--;
+  }
+}
 
 export interface ThresholdReachedInfo {
   attributeKey: string;
@@ -198,6 +324,10 @@ export interface StatsSlice {
     names?: { aName?: string; bName?: string }
   ) => { points: number; stageKey: string; stageLabel: string; pairKey: string } | null;
 
+  // Manually delete a bond (UI editing): removes it from relationships and
+  // cleans the `relacion`/`relacion_etapa` mirror from both parties.
+  removeRelationship: (sessionId: string, aId: string, bId: string) => void;
+
   // World time — advance by N turns (minutesPerTurn each), mirror hora/momento/dia/estacion
   advanceWorldTime: (sessionId: string, turns?: number) => WorldClock | null;
   // World time — set/override clock values (hour, minutes, season, config)
@@ -206,6 +336,11 @@ export interface StatsSlice {
     updates: { hour?: number; minute?: number; minutes?: number; season?: string; realTimeSync?: boolean; minutesPerTurn?: number; enabled?: boolean }
   ) => WorldClock | null;
   getWorldClock: (sessionId: string) => WorldClock | null;
+
+  // Threshold MESSAGE effects: persist edge-state (condition met while true).
+  // Used by the chat panel at end-of-turn so threshold messages fire only on
+  // the false→true edge (prevents repeating the message every turn).
+  setThresholdMessageStates: (sessionId: string, states: Record<string, boolean>) => void;
 
   // Timer System (automatic attribute changes over time)
   processTimerTicks: (
@@ -231,11 +366,23 @@ export interface StatsSlice {
     characterId: string
   ) => string | null;
 
-  // FASE 12: Wardrobe System — manage wardrobe offset per character
-  /** Update the wardrobe offset for a character (called by manage_wardrobe tool SSE handler). */
-  updateWardrobeOffset: (sessionId: string, characterId: string, newOffset: number) => void;
-  /** Get the current wardrobe offset for a character (default: 0). */
-  getWardrobeOffset: (sessionId: string, characterId: string) => number;
+  // GUARDARROPA V2: Wardrobe System — manage the active outfit per character
+  /** Set the outfit the character is wearing (activeOutfitId in session stats).
+   *  Pass null to fall back to the default outfit. Called by the manage_wardrobe
+   *  tool SSE handler or by a manual override from the chat UI. */
+  setActiveOutfit: (sessionId: string, characterId: string, outfitId: string | null) => void;
+  /** Get the currently worn outfit id for a character (null = default outfit). */
+  getActiveOutfitId: (sessionId: string, characterId: string) => string | null;
+
+  // ESCENARIO V2: Scenario System — manage the active scene location (SESSION-level)
+  /** Set the location where the scene takes place (activeScenarioId in session
+   *  stats — shared by all chat participants). Pass null to fall back to the
+   *  default location. Called by the manage_escenario tool SSE handler, by a
+   *  quick reply's scenarioAction, or when starting a session with a greeting
+   *  that pins a standard location. */
+  setActiveScenario: (sessionId: string, scenarioId: string | null) => void;
+  /** Get the currently active scenario location id (null = default location). */
+  getActiveScenarioId: (sessionId: string) => string | null;
 }
 
 // ============================================
@@ -643,6 +790,17 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       } catch { /* non-critical sync */ }
     }
 
+    // Execute threshold effect rewards (store-side, every path covered).
+    // 'message' rewards are deferred to end-of-turn (chat panel sends them as
+    // quick replies with edge-triggering via thresholdMessageStates).
+    if (thresholdsReached.length > 0) {
+      try {
+        executeThresholdRewardsInternal(get, sessionId, characterId, thresholdsReached);
+      } catch (err) {
+        console.error('[StatsSlice] Threshold reward execution error:', err);
+      }
+    }
+
     // Refresh objective visibility since attribute conditions may have changed
     try {
       (get() as any).refreshAllObjectiveVisibility?.(sessionId);
@@ -807,6 +965,52 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
         ),
       };
     });
+
+    // Evaluate threshold effects for the updated attributes (rewards run store-side,
+    // same as updateCharacterStat). 'message' rewards are deferred to end-of-turn.
+    try {
+      const st = get() as any;
+      const freshSession = st.sessions?.find((s: any) => s.id === sessionId);
+      const freshStats = freshSession?.sessionStats?.characterStats?.[characterId];
+      let batchStatsConfig: CharacterStatsConfig | undefined;
+      if (characterId === '__user__') {
+        const activePersona = st.personas?.find((p: any) => p.id === st.activePersonaId);
+        batchStatsConfig = activePersona?.statsConfig;
+      } else {
+        const character = st.characters?.find((c: any) => c.id === characterId);
+        batchStatsConfig = character?.statsConfig;
+      }
+      if (freshStats && batchStatsConfig?.attributes) {
+        const seenEffects = new Set<string>();
+        const allThresholds: ThresholdReachedInfo[] = [];
+        for (const update of updates) {
+          const attributeDef = batchStatsConfig.attributes.find(
+            (a: AttributeDefinition) => a.key === update.attributeKey
+          );
+          if (!attributeDef?.thresholdEffects || attributeDef.thresholdEffects.length === 0) continue;
+          const matching = evaluateThresholdEffects(attributeDef.thresholdEffects, freshSession.sessionStats, characterId);
+          for (const effect of matching) {
+            const dedupKey = `${attributeDef.key}:${effect.id}`;
+            if (seenEffects.has(dedupKey)) continue;
+            seenEffects.add(dedupKey);
+            allThresholds.push({
+              attributeKey: attributeDef.key,
+              attributeName: attributeDef.name,
+              thresholdType: 'custom',
+              effectName: effect.name,
+              effectId: effect.id,
+              priority: effect.priority,
+              rewards: effect.rewards,
+            });
+          }
+        }
+        if (allThresholds.length > 0) {
+          executeThresholdRewardsInternal(get, sessionId, characterId, allThresholds);
+        }
+      }
+    } catch (err) {
+      console.error('[StatsSlice] Batch threshold reward execution error:', err);
+    }
 
     // Refresh objective visibility since attribute conditions may have changed
     try {
@@ -1643,23 +1847,35 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
         lastReason: updates.reason,
       };
 
+      // Merge the bond first, then recompute mirrors from the FULL record
+      // (a character may be in several bonds — prefer the user bond).
+      const newRelationships: Record<string, import('@/types').SessionRelationship> = {
+        ...(sessionStats.relationships || {}),
+        [pairKey]: bond,
+      };
+
       // Mirror into both parties' attributeValues (creates CharacterSessionStats if missing)
       const characterStats: SessionStats['characterStats'] = { ...sessionStats.characterStats };
+      const now = Date.now();
       for (const id of [aId, bId]) {
-        const existing = characterStats[id] || { attributeValues: {}, lastUpdated: {} };
-        characterStats[id] = {
-          ...existing,
-          attributeValues: {
-            ...existing.attributeValues,
-            [RELATIONSHIP_MIRROR_KEY]: points,
-            [RELATIONSHIP_STAGE_KEY]: stage.label,
-          },
-          lastUpdated: {
-            ...existing.lastUpdated,
-            [RELATIONSHIP_MIRROR_KEY]: Date.now(),
-            [RELATIONSHIP_STAGE_KEY]: Date.now(),
-          },
-        };
+        if (id === '__user__') {
+          const existing = characterStats[id] || { attributeValues: {}, lastUpdated: {} };
+          characterStats[id] = {
+            ...existing,
+            attributeValues: {
+              ...existing.attributeValues,
+              [RELATIONSHIP_MIRROR_KEY]: points,
+              [RELATIONSHIP_STAGE_KEY]: stage.label,
+            },
+            lastUpdated: {
+              ...existing.lastUpdated,
+              [RELATIONSHIP_MIRROR_KEY]: now,
+              [RELATIONSHIP_STAGE_KEY]: now,
+            },
+          };
+        } else {
+          recomputeRelationshipMirror(characterStats, id, newRelationships, now);
+        }
       }
 
       const aName = names?.aName || (state as any).characters?.find((c: any) => c.id === aId)?.name || aId;
@@ -1670,7 +1886,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       let newSessionStats: SessionStats = {
         ...sessionStats,
         characterStats,
-        relationships: { ...(sessionStats.relationships || {}), [pairKey]: bond },
+        relationships: newRelationships,
       };
       newSessionStats = appendEventLogEntry(newSessionStats, {
         type: 'relationship',
@@ -1693,6 +1909,50 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     })();
 
     return result;
+  },
+
+  /**
+   * Manually delete a bond (UI editing). Removes it from
+   * sessionStats.relationships and cleans the mirror attributes
+   * (`relacion`/`relacion_etapa`) from both parties' attributeValues.
+   */
+  removeRelationship: (sessionId, aId, bId) => {
+    const state = get();
+    const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session?.sessionStats) return;
+
+    const sessionStats = session.sessionStats;
+    const pairKey = relationshipPairKey(aId, bId);
+    const bond = sessionStats.relationships?.[pairKey];
+    if (!bond) return;
+
+    // Remove the bond, then recompute both parties' mirrors from the
+    // remaining bonds (keys are cleaned automatically when none remain).
+    const relationships = { ...(sessionStats.relationships || {}) };
+    delete relationships[pairKey];
+
+    const characterStats: SessionStats['characterStats'] = { ...sessionStats.characterStats };
+    const now = Date.now();
+    for (const id of [bond.aId, bond.bId]) {
+      recomputeRelationshipMirror(characterStats, id, relationships, now);
+    }
+
+    const newSessionStats: SessionStats = {
+      ...sessionStats,
+      characterStats,
+      relationships,
+    };
+
+    set((state: any) => ({
+      sessions: state.sessions.map((s: any) =>
+        s.id === sessionId
+          ? { ...s, sessionStats: newSessionStats, updatedAt: new Date().toISOString() }
+          : s
+      ),
+    }));
+
+    console.log(`[Relationship] Removed bond ${pairKey}`);
   },
 
   // ============================================
@@ -1818,6 +2078,30 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
     const session = sessions.find(s => s.id === sessionId);
     return session?.sessionStats?.worldClock || null;
+  },
+
+  setThresholdMessageStates: (sessionId, states) => {
+    if (!states || Object.keys(states).length === 0) return;
+    set((state: any) => ({
+      sessions: state.sessions.map((s: any) =>
+        s.id === sessionId
+          ? {
+              ...s,
+              sessionStats: s.sessionStats
+                ? {
+                    ...s.sessionStats,
+                    thresholdMessageStates: {
+                      ...(s.sessionStats.thresholdMessageStates || {}),
+                      ...states,
+                    },
+                    lastModified: Date.now(),
+                  }
+                : s.sessionStats,
+              updatedAt: new Date().toISOString(),
+            }
+          : s
+      ),
+    }));
   },
 
   // ============================================
@@ -2037,7 +2321,9 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
   // FASE 5: Update emotional state for a character
   updateEmotionalState: (sessionId, characterId, newState, previousState) => {
     const state = get();
-    const session = state.sessions?.[sessionId];
+    // FIX: sessions is an ARRAY — must find by id (string indexing on an
+    // array always returned undefined, making this function a no-op).
+    const session = state.sessions?.find(s => s.id === sessionId);
     if (!session?.sessionStats) return;
 
     const charStats = session.sessionStats.characterStats?.[characterId];
@@ -2066,7 +2352,10 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
 
     session.sessionStats.lastModified = Date.now();
 
-    set({ sessions: { ...state.sessions } });
+    // FIX: spread into a NEW array. `{ ...state.sessions }` converted the
+    // array into a plain object, which would break every `sessions.find()`
+    // / `sessions.map()` call app-wide (including setActiveOutfit).
+    set({ sessions: [...state.sessions] });
 
     console.log(`[Emotion] ${characterId}: "${oldState || '(none)'}" → "${newState}"`);
   },
@@ -2080,24 +2369,30 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     return session.sessionStats.characterStats?.[characterId]?.emotionalState || null;
   },
 
-  // FASE 12: Update wardrobe offset for a character (manage_wardrobe tool)
-  updateWardrobeOffset: (sessionId, characterId, newOffset) => {
+  // GUARDARROPA V2: Set the active outfit for a character (manage_wardrobe tool / manual override)
+  setActiveOutfit: (sessionId, characterId, outfitId) => {
     const state = get();
     const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
     const session = sessions.find(s => s.id === sessionId);
     if (!session?.sessionStats) return;
 
-    const charStats = session.sessionStats.characterStats?.[characterId];
-    if (!charStats) {
-      // Character not in session stats — initialize wardrobe offset
-      console.warn(`[Wardrobe] Character ${characterId} not found in session stats, cannot update offset`);
-      return;
+    // Ensure the character entry exists (avoid silent failures when stats
+    // were never initialized for this character in the session)
+    if (!session.sessionStats.characterStats) {
+      session.sessionStats.characterStats = {};
+    }
+    if (!session.sessionStats.characterStats[characterId]) {
+      session.sessionStats.characterStats[characterId] = {
+        attributeValues: {},
+        lastUpdated: {},
+      };
     }
 
-    const previousOffset = charStats.wardrobeOffset ?? 0;
-    if (previousOffset === newOffset) return; // No change
+    const charStats = session.sessionStats.characterStats[characterId];
+    const previousOutfitId = charStats.activeOutfitId ?? null;
+    if (previousOutfitId === outfitId) return; // No change
 
-    charStats.wardrobeOffset = newOffset;
+    charStats.activeOutfitId = outfitId;
     session.sessionStats.lastModified = Date.now();
 
     set((state: any) => ({
@@ -2108,15 +2403,59 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       ),
     }));
 
-    console.log(`[Wardrobe] ${characterId}: offset ${previousOffset >= 0 ? '+' : ''}${previousOffset} → ${newOffset >= 0 ? '+' : ''}${newOffset}`);
+    console.log(`[Wardrobe] ${characterId}: outfit ${previousOutfitId ?? '(default)'} → ${outfitId ?? '(default)'}`);
   },
 
-  // FASE 12: Get wardrobe offset for a character
-  getWardrobeOffset: (sessionId, characterId) => {
+  // GUARDARROPA V2: Get the active outfit id for a character
+  getActiveOutfitId: (sessionId, characterId) => {
     const state = get();
-    const session = state.sessions?.[sessionId];
-    if (!session?.sessionStats) return 0;
-    return session.sessionStats.characterStats?.[characterId]?.wardrobeOffset ?? 0;
+    // FIX: sessions is an array — find by id (string indexing returned undefined).
+    const session = state.sessions?.find(s => s.id === sessionId);
+    if (!session?.sessionStats) return null;
+    return session.sessionStats.characterStats?.[characterId]?.activeOutfitId ?? null;
+  },
+
+  // ESCENARIO V2: Set the active scenario location (SESSION-level — shared scene)
+  setActiveScenario: (sessionId, scenarioId) => {
+    const state = get();
+    const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+
+    // Ensure sessionStats exists (characters without statsConfig may have no
+    // sessionStats, but the scenario location still needs to persist)
+    if (!session.sessionStats) {
+      session.sessionStats = {
+        characterStats: {},
+        solicitudes: { characterSolicitudes: {}, lastModified: Date.now() },
+        initialized: false,
+        lastModified: Date.now(),
+      };
+    }
+
+    const previousScenarioId = session.sessionStats.activeScenarioId ?? null;
+    if (previousScenarioId === scenarioId) return; // No change
+
+    session.sessionStats.activeScenarioId = scenarioId;
+    session.sessionStats.lastModified = Date.now();
+
+    set((state: any) => ({
+      sessions: state.sessions.map((s: any) =>
+        s.id === sessionId
+          ? { ...s, sessionStats: session.sessionStats, updatedAt: new Date().toISOString() }
+          : s
+      ),
+    }));
+
+    console.log(`[Scenario] Session ${sessionId.slice(0, 8)}: location ${previousScenarioId ?? '(default)'} → ${scenarioId ?? '(default)'}`);
+  },
+
+  // ESCENARIO V2: Get the active scenario location id (SESSION-level)
+  getActiveScenarioId: (sessionId) => {
+    const state = get();
+    const session = state.sessions?.find(s => s.id === sessionId);
+    if (!session?.sessionStats) return null;
+    return session.sessionStats.activeScenarioId ?? null;
   },
 });
 

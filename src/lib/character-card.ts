@@ -6,6 +6,7 @@
 
 import type { CharacterCard, CharacterCardV2 } from '@/types';
 import { migrateCharacterSprites, needsMigration, applyMigrationResult } from '@/lib/migration/sprite-migration';
+import { normalizeWardrobeConfig } from '@/lib/wardrobe';
 
 // PNG tEXt chunk header for character cards
 const PNG_CHUNK_HEADER = 'tEXt';
@@ -156,8 +157,8 @@ function parseCharacterData(data: unknown): Partial<CharacterCard> {
       // Quick Replies & Proactive Messages
       quickReplies: extensions?.quickReplies as CharacterCard['quickReplies'],
       proactiveMessages: extensions?.proactiveMessages as CharacterCard['proactiveMessages'],
-      // FASE 12: Wardrobe system
-      wardrobeConfig: extensions?.wardrobeConfig as CharacterCard['wardrobeConfig'],
+      // FASE 12: Wardrobe system (sanitized: legacy {enabled, levels} → outfits)
+      wardrobeConfig: normalizeWardrobeConfig(extensions?.wardrobeConfig),
       // Micro Reactions, Emotional Config, Default Transition
       microReactionConfig: extensions?.microReactionConfig as CharacterCard['microReactionConfig'],
       emotionalConfig: extensions?.emotionalConfig as CharacterCard['emotionalConfig'],
@@ -214,8 +215,8 @@ function parseCharacterData(data: unknown): Partial<CharacterCard> {
       // Quick Replies & Proactive Messages
       quickReplies: v1Data.quickReplies as CharacterCard['quickReplies'],
       proactiveMessages: v1Data.proactiveMessages as CharacterCard['proactiveMessages'],
-      // FASE 12: Wardrobe system
-      wardrobeConfig: v1Data.wardrobeConfig as CharacterCard['wardrobeConfig'],
+      // FASE 12: Wardrobe system (sanitized: legacy {enabled, levels} → outfits)
+      wardrobeConfig: normalizeWardrobeConfig(v1Data.wardrobeConfig),
       // Micro Reactions, Emotional Config, Default Transition
       microReactionConfig: v1Data.microReactionConfig as CharacterCard['microReactionConfig'],
       emotionalConfig: v1Data.emotionalConfig as CharacterCard['emotionalConfig'],

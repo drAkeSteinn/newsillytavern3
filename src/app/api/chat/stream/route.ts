@@ -319,22 +319,41 @@ async function executeToolCallsAndContinue(
       }));
     }
 
-    // Check for wardrobe activation and send SSE event
+    // Check for wardrobe activation and send SSE event (GUARDARROPA V2)
     if (toolResult.wardrobeActivation) {
       const wa = toolResult.wardrobeActivation;
-      console.log(`[Tools] Wardrobe activation from ${tc.name}:`, wa.action, 'offset:', wa.previousOffset, '→', wa.newOffset);
+      console.log(`[Tools] Wardrobe activation from ${tc.name}:`, wa.action, wa.previousOutfitId ?? '(none)', '→', wa.outfitId ?? '(default)', wa.outfitName);
 
       controller.enqueue(createSSEJSON({
         type: 'wardrobe_activation',
         toolName: tc.name,
         characterId: wa.characterId,
         action: wa.action,
-        newOffset: wa.newOffset,
-        previousOffset: wa.previousOffset,
-        newLevelName: wa.newLevelName,
-        newLevelContent: wa.newLevelContent,
+        outfitId: wa.outfitId,
+        outfitName: wa.outfitName,
+        outfitDescription: wa.outfitDescription,
+        previousOutfitId: wa.previousOutfitId,
         changed: wa.changed,
         reason: wa.reason,
+      }));
+    }
+
+    // Check for scenario activation and send SSE event (ESCENARIO V2)
+    if (toolResult.scenarioActivation) {
+      const sa = toolResult.scenarioActivation;
+      console.log(`[Tools] Scenario activation from ${tc.name}:`, sa.action, sa.previousLocationId ?? '(none)', '→', sa.locationId ?? '(default)', sa.locationName);
+
+      controller.enqueue(createSSEJSON({
+        type: 'scenario_activation',
+        toolName: tc.name,
+        characterId: sa.characterId,
+        action: sa.action,
+        locationId: sa.locationId,
+        locationName: sa.locationName,
+        locationDescription: sa.locationDescription,
+        previousLocationId: sa.previousLocationId,
+        changed: sa.changed,
+        reason: sa.reason,
       }));
     }
 
@@ -1027,7 +1046,11 @@ Y cambiar mi expresión:
                   console.log(`[Z.ai+Tools] Round 0 buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, nativeToolCalls=${accumulator.toolCalls.length}`);
 
                   // Check for native tool calls
-                  if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                  // FIX: execute whenever the model emitted tool_calls deltas.
+                  // The old check also required finishReason==='tool_calls'|'stop',
+                  // but several providers (incl. z-ai) never send a usable
+                  // finish_reason — the tool call was silently discarded.
+                  if (hasToolCalls(accumulator)) {
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1112,7 +1135,9 @@ Y cambiar mi expresión:
 
                     // FIX: finalizeToolCalls returns void (mutates accumulator in place).
                     // Use hasToolCalls(accumulator) + accumulator.toolCalls instead.
-                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                    // FIX: same relaxation as Round 0 — tool_calls deltas are
+                    // authoritative even without a finish_reason.
+                    if (hasToolCalls(accumulator)) {
                       // Another tool call detected - stream buffered content and execute
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {

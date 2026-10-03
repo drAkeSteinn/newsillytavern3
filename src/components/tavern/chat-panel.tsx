@@ -33,6 +33,7 @@ import { toast } from 'sonner';
 import { t } from '@/lib/i18n';
 import { chatLogger } from '@/lib/logger';
 import { generateId } from '@/lib/utils';
+import { collectThresholdMessages, type ThresholdMessageTarget } from '@/lib/stats/threshold-messages';
 
 export function ChatPanel() {
   const [streamingContent, setStreamingContent] = useState('');
@@ -240,6 +241,117 @@ export function ChatPanel() {
   const isGroupMode = !!activeGroupId && !!activeGroup;
 
   // ============================================
+  // THRESHOLD MESSAGE EFFECTS (reward type: 'message')
+  // At end of turn, threshold effects with a "message" reward are evaluated;
+  // when a condition is CROSSED (false→true edge) the configured message is
+  // sent to the chat as if it were a quick reply (user message), which
+  // triggers the next generation. Edge states persist in sessionStats.
+  // ============================================
+  const pendingThresholdSendRef = useRef<string | null>(null);
+  const thresholdSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Assigned below (after handleSend) — refs keep call order safe inside closures
+  const handleSendRef = useRef<(msg: string) => void | Promise<void>>(() => {});
+  const runThresholdMessageScanRef = useRef<(scopeCharacterIds?: string[]) => void>(() => {});
+
+  const scheduleThresholdAutoSend = useCallback((texts: string[]) => {
+    if (!texts || texts.length === 0) return;
+    const combined = texts.join('\n\n');
+    pendingThresholdSendRef.current = pendingThresholdSendRef.current
+      ? `${pendingThresholdSendRef.current}\n\n${combined}`
+      : combined;
+
+    const trySend = () => {
+      // Wait for the current generation to finish before sending
+      if (isGenerationInProgressRef.current) {
+        thresholdSendTimerRef.current = setTimeout(trySend, 400);
+        return;
+      }
+      thresholdSendTimerRef.current = null;
+      const text = pendingThresholdSendRef.current;
+      pendingThresholdSendRef.current = null;
+      if (text && text.trim()) {
+        handleSendRef.current(text);
+      }
+    };
+    if (!thresholdSendTimerRef.current) {
+      thresholdSendTimerRef.current = setTimeout(trySend, 400);
+    }
+  }, []);
+
+  // Cleanup pending threshold auto-send on unmount
+  useEffect(() => {
+    return () => {
+      if (thresholdSendTimerRef.current) {
+        clearTimeout(thresholdSendTimerRef.current);
+        thresholdSendTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const runThresholdMessageScan = useCallback((scopeCharacterIds?: string[]) => {
+    try {
+      const store = useTavernStore.getState() as any;
+      const sessionId = activeSessionId;
+      if (!sessionId) return;
+
+      const session = (store.sessions as Array<any>)?.find((s: any) => s.id === sessionId);
+      const sessionStats = session?.sessionStats;
+      if (!sessionStats) return;
+
+      const persona = (store.personas || []).find((p: any) => p.id === store.activePersonaId);
+      const charactersList = store.characters || [];
+
+      // Participants to scan: scoped ids (turn responders) or session members
+      let ids: string[] = [];
+      if (scopeCharacterIds && scopeCharacterIds.length > 0) {
+        ids = [...scopeCharacterIds];
+      } else if (isGroupMode && activeGroup) {
+        ids = activeGroup.members?.map((m: any) => m.characterId) || activeGroup.characterIds || [];
+      } else if (activeCharacter) {
+        ids = [activeCharacter.id];
+      }
+      if (persona?.statsConfig?.enabled && !ids.includes('__user__')) {
+        ids.push('__user__');
+      }
+      if (ids.length === 0) return;
+
+      const targets: ThresholdMessageTarget[] = [];
+      for (const id of ids) {
+        if (id === '__user__' && persona) {
+          targets.push({ characterId: '__user__', characterName: persona.name || 'User', statsConfig: persona.statsConfig });
+          continue;
+        }
+        const char = charactersList.find((c: any) => c.id === id);
+        if (char) targets.push({ characterId: char.id, characterName: char.name, statsConfig: char.statsConfig });
+      }
+      if (targets.length === 0) return;
+
+      const { messages, newStates } = collectThresholdMessages({
+        sessionStats,
+        targets,
+        userName: persona?.name || 'User',
+        characterCards: Object.fromEntries(charactersList.map((c: any) => [c.id, c])),
+      });
+
+      // Persist edge states (also resets when conditions stop being met)
+      if (newStates && Object.keys(newStates).length > 0) {
+        store.setThresholdMessageStates?.(sessionId, newStates);
+      }
+
+      if (messages.length > 0) {
+        for (const m of messages) {
+          toast.info(`💬 Umbral "${m.effectName}" — ${m.characterName}`);
+        }
+        scheduleThresholdAutoSend(messages.map(m => m.text));
+      }
+    } catch (err) {
+      console.error('[ChatPanel] Threshold message scan failed:', err);
+    }
+  }, [activeSessionId, isGroupMode, activeGroup, activeCharacter, scheduleThresholdAutoSend]);
+
+  runThresholdMessageScanRef.current = runThresholdMessageScan;
+
+  // ============================================
   // LOREBOOK SELECTION LOGIC
   // ============================================
   // Normal Chat:
@@ -272,18 +384,17 @@ export function ChatPanel() {
     }
   }, [isGroupMode, activeGroup?.lorebookIds, activeCharacter?.lorebookIds]);
 
-  // For group chat without group lorebooks: build per-character lorebook map
+  // For group chat: build per-character lorebook map (ALWAYS sent in group mode).
+  // Server merges each character's personal lorebooks with the shared group
+  // lorebooks (dedup by id), so a character never loses its own lore when the
+  // group defines shared books.
   const characterLorebooksMap = useMemo(() => {
     if (!isGroupMode) return null;
     
-    // If group has lorebooks, all characters use those (handled by effectiveLorebookIds)
-    if (activeGroup?.lorebookIds && activeGroup.lorebookIds.length > 0) {
-      return null;
-    }
-    
-    // Group has NO lorebooks → build per-character map
+    // Build per-character map for every group member
     const map: Record<string, string[]> = {};
-    const groupCharacterIds = activeGroup?.characterIds ?? [];
+    const groupCharacterIds = activeGroup?.members?.map(m => m.characterId) 
+      ?? activeGroup?.characterIds ?? [];
     
     for (const charId of groupCharacterIds) {
       const char = characters.find(c => c.id === charId);
@@ -804,12 +915,16 @@ export function ChatPanel() {
         }
 
         // Get active lorebooks for prompt injection
-        // IMPORTANT: When group has no lorebooks, we need to send ALL active lorebooks
-        // so the server can filter per-character using characterLorebooksMap.
-        // When group HAS lorebooks, only send those (shared by all characters).
-        const activeLorebooks = (activeGroup?.lorebookIds && activeGroup.lorebookIds.length > 0)
-          ? lorebooks.filter(lb => activeGroup.lorebookIds!.includes(lb.id) && activeLorebookIds.includes(lb.id))
-          : lorebooks.filter(lb => activeLorebookIds.includes(lb.id) && lb.active);
+        // Send the UNION of shared group lorebooks + every member's personal
+        // lorebooks (dedup, active only). The server builds a per-responder
+        // plan (personal + shared, deduped) using characterLorebooksMap.
+        const groupLorebookIdSet = new Set<string>(activeGroup?.lorebookIds ?? []);
+        for (const gc of groupCharacters) {
+          (gc.lorebookIds ?? []).forEach(id => groupLorebookIdSet.add(id));
+        }
+        const activeLorebooks = lorebooks.filter(
+          lb => groupLorebookIdSet.has(lb.id) && activeLorebookIds.includes(lb.id) && lb.active
+        );
         
         // Get session stats for attribute values
         const sessionStats = currentSession?.sessionStats;
@@ -1194,17 +1309,29 @@ export function ChatPanel() {
                       existingMemory?.notes ? `${existingMemory.notes}\n${parsed.noteContent}` : parsed.noteContent);
                   }
                 } else if (parsed.type === 'wardrobe_activation') {
-                  // FASE 12: Wardrobe tool activation - update session stats wardrobeOffset
-                  console.log('[ChatPanel] Wardrobe activation from tool:', parsed.toolName, parsed.action, 'offset:', parsed.previousOffset, '→', parsed.newOffset);
+                  // GUARDARROPA V2: Wardrobe tool activation — update session stats activeOutfitId
+                  console.log('[ChatPanel] Wardrobe activation from tool:', parsed.toolName, parsed.action, parsed.previousOutfitId ?? '(default)', '→', parsed.outfitId ?? '(default)', parsed.outfitName);
                   const store = useTavernStore.getState();
                   if (parsed.changed && parsed.characterId) {
-                    // Update the wardrobe offset in session stats
-                    store.updateWardrobeOffset?.(activeSessionId, parsed.characterId, parsed.newOffset);
-                    const actionLabel = parsed.action === 'escalate' ? '⬆️' : parsed.action === 'regress' ? '⬇️' : '🔄';
-                    toast.success(`👗 ${actionLabel} Vestuario: ${parsed.newLevelName}`);
-                  } else if (parsed.action === 'get_info') {
-                    // get_info is silent — no toast, just console log
-                    console.log('[ChatPanel] Wardrobe info:', parsed.newLevelName, '(offset:', parsed.newOffset, ')');
+                    // Update the worn outfit in session stats
+                    store.setActiveOutfit?.(activeSessionId, parsed.characterId, parsed.outfitId ?? null);
+                    const actionIcon = parsed.action === 'wear' ? '🧥' : parsed.action === 'remove' ? '🔄' : '👗';
+                    toast.success(`${actionIcon} Vestuario: ${parsed.outfitName}`);
+                  } else {
+                    // list / get_info are informational — no toast, just console log
+                    console.log('[ChatPanel] Wardrobe info:', parsed.outfitName || '(sin cambio)');
+                  }
+                } else if (parsed.type === 'scenario_activation') {
+                  // ESCENARIO V2: Scenario tool activation — update session stats activeScenarioId (session-level)
+                  console.log('[ChatPanel] Scenario activation from tool:', parsed.toolName, parsed.action, parsed.previousLocationId ?? '(default)', '→', parsed.locationId ?? '(default)', parsed.locationName);
+                  const store = useTavernStore.getState();
+                  if (parsed.changed) {
+                    // Move the scene to the new location (session-level)
+                    store.setActiveScenario?.(activeSessionId, parsed.locationId ?? null);
+                    toast.success(`📍 Escenario: ${parsed.locationName}`);
+                  } else {
+                    // list / get_info are informational — no toast, just console log
+                    console.log('[ChatPanel] Scenario info:', parsed.locationName || '(sin cambio)');
                   }
                 } else if (parsed.type === 'character_start') {
                   currentCharacterContent = '';
@@ -1355,7 +1482,13 @@ export function ChatPanel() {
         }
         
         setStreamingProgress(null);
-        
+
+        // THRESHOLD MESSAGE EFFECTS: evaluate at end of the group turn.
+        // Scans every group member (+ persona) for crossed 'message' thresholds.
+        if (isStillActive() && activeSessionId) {
+          runThresholdMessageScanRef.current?.();
+        }
+
         // Client-side memory extraction for group chat
         // Triggered after the stream is fully processed, if server flagged shouldExtract
         if (groupShouldExtract && isStillActive() && activeSessionId) {
@@ -2015,15 +2148,25 @@ export function ChatPanel() {
                       existingMemory?.notes ? `${existingMemory.notes}\n${parsed.noteContent}` : parsed.noteContent);
                   }
                 } else if (parsed.type === 'wardrobe_activation') {
-                  // FASE 12: Wardrobe tool activation - update session stats wardrobeOffset
-                  console.log('[ChatPanel] Wardrobe activation from tool:', parsed.toolName, parsed.action, 'offset:', parsed.previousOffset, '→', parsed.newOffset);
+                  // GUARDARROPA V2: Wardrobe tool activation — update session stats activeOutfitId
+                  console.log('[ChatPanel] Wardrobe activation from tool:', parsed.toolName, parsed.action, parsed.previousOutfitId ?? '(default)', '→', parsed.outfitId ?? '(default)', parsed.outfitName);
                   const store = useTavernStore.getState();
                   if (parsed.changed && parsed.characterId) {
-                    store.updateWardrobeOffset?.(activeSessionId, parsed.characterId, parsed.newOffset);
-                    const actionLabel = parsed.action === 'escalate' ? '⬆️' : parsed.action === 'regress' ? '⬇️' : '🔄';
-                    toast.success(`👗 ${actionLabel} Vestuario: ${parsed.newLevelName}`);
-                  } else if (parsed.action === 'get_info') {
-                    console.log('[ChatPanel] Wardrobe info:', parsed.newLevelName, '(offset:', parsed.newOffset, ')');
+                    store.setActiveOutfit?.(activeSessionId, parsed.characterId, parsed.outfitId ?? null);
+                    const actionIcon = parsed.action === 'wear' ? '🧥' : parsed.action === 'remove' ? '🔄' : '👗';
+                    toast.success(`${actionIcon} Vestuario: ${parsed.outfitName}`);
+                  } else {
+                    console.log('[ChatPanel] Wardrobe info:', parsed.outfitName || '(sin cambio)');
+                  }
+                } else if (parsed.type === 'scenario_activation') {
+                  // ESCENARIO V2: Scenario tool activation — update session stats activeScenarioId (session-level)
+                  console.log('[ChatPanel] Scenario activation from tool:', parsed.toolName, parsed.action, parsed.previousLocationId ?? '(default)', '→', parsed.locationId ?? '(default)', parsed.locationName);
+                  const store = useTavernStore.getState();
+                  if (parsed.changed) {
+                    store.setActiveScenario?.(activeSessionId, parsed.locationId ?? null);
+                    toast.success(`📍 Escenario: ${parsed.locationName}`);
+                  } else {
+                    console.log('[ChatPanel] Scenario info:', parsed.locationName || '(sin cambio)');
                   }
                 } else if (parsed.type === 'token' && parsed.content) {
                   accumulatedContent += parsed.content;
@@ -2108,7 +2251,13 @@ export function ChatPanel() {
                     }
                   }
                   setStreamingContent('');
-                  
+
+                  // THRESHOLD MESSAGE EFFECTS: evaluate at end of the turn.
+                  // Scans the active character (+ persona) for crossed 'message' thresholds.
+                  if (isStillActive() && activeCharacter?.id) {
+                    runThresholdMessageScanRef.current?.([activeCharacter.id]);
+                  }
+
                   // Client-side memory extraction for single chat
                   // Triggered after the stream is fully processed, if server flagged shouldExtract
                   if (parsed.shouldExtract && cleanedMessage && isStillActive()) {
@@ -2422,7 +2571,7 @@ export function ChatPanel() {
   // ============================================
 
   // Use a ref for handleSend to avoid the useEffect cleanup race condition.
-  const handleSendRef = useRef(handleSend);
+  // (Declaration happens near the top of the component — see threshold message refs.)
   handleSendRef.current = handleSend;
 
   // Use a ref to track the last processed message and avoid the cleanup race:
@@ -2772,10 +2921,12 @@ export function ChatPanel() {
         if (activeCharacter) {
           // CRITICAL: Complete any pending partial matches (key:value at end of text)
           completeTriggersPartialMatches(streamingMessageKeyRef.current, activeCharacter, characters);
-          
+
           const ttsExpected = !!(ttsConfig?.enabled && ttsConfig?.autoGeneration && isTTSConnected);
           endSpriteGenerationForCharacterWithTTS(activeCharacter.id, ttsExpected);
         }
+        // THRESHOLD MESSAGE EFFECTS: evaluate at end of the regenerated turn.
+        runThresholdMessageScanRef.current?.(activeCharacter?.id ? [activeCharacter.id] : undefined);
       }
     }
   }, [isGenerating, activeSessionId, activeCharacter, activePersona, addSwipeAlternative, setGenerating, settings.context, lorebooks, effectiveLorebookIds]);

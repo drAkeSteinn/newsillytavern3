@@ -155,6 +155,7 @@ async function executeToolCallsAndContinue(
         allCharacters,
         characterMemory,
         lorebooks,
+        character,  // needed by manage_wardrobe / manage_escenario tools
       },
     );
 
@@ -300,7 +301,7 @@ async function executeToolCallsAndContinue(
     if (toolResult.memoryActivation) {
       const mem = toolResult.memoryActivation;
       console.log(`[Tools] Memory activation from ${tc.name}:`, mem.type);
-      
+
       controller.enqueue(createSSEJSON({
         type: 'memory_activation',
         toolName: tc.name,
@@ -311,6 +312,44 @@ async function executeToolCallsAndContinue(
         noteContent: mem.noteContent,
         deleteEventId: mem.deleteEventId,
         deleteEmbeddingId: mem.deleteEmbeddingId,
+      }));
+    }
+
+    // Check for wardrobe activation and send SSE event (GUARDARROPA V2)
+    if (toolResult.wardrobeActivation) {
+      const wa = toolResult.wardrobeActivation;
+      console.log(`[Proactive-Tools] Wardrobe activation from ${tc.name}:`, wa.action, wa.previousOutfitId ?? '(none)', '→', wa.outfitId ?? '(default)', wa.outfitName);
+
+      controller.enqueue(createSSEJSON({
+        type: 'wardrobe_activation',
+        toolName: tc.name,
+        characterId: wa.characterId,
+        action: wa.action,
+        outfitId: wa.outfitId,
+        outfitName: wa.outfitName,
+        outfitDescription: wa.outfitDescription,
+        previousOutfitId: wa.previousOutfitId,
+        changed: wa.changed,
+        reason: wa.reason,
+      }));
+    }
+
+    // Check for scenario activation and send SSE event (ESCENARIO V2)
+    if (toolResult.scenarioActivation) {
+      const sa = toolResult.scenarioActivation;
+      console.log(`[Proactive-Tools] Scenario activation from ${tc.name}:`, sa.action, sa.previousLocationId ?? '(none)', '→', sa.locationId ?? '(default)', sa.locationName);
+
+      controller.enqueue(createSSEJSON({
+        type: 'scenario_activation',
+        toolName: tc.name,
+        characterId: sa.characterId,
+        action: sa.action,
+        locationId: sa.locationId,
+        locationName: sa.locationName,
+        locationDescription: sa.locationDescription,
+        previousLocationId: sa.previousLocationId,
+        changed: sa.changed,
+        reason: sa.reason,
       }));
     }
 

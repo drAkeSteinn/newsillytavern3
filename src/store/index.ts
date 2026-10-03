@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CharacterCard, Persona } from '@/types';
+import { normalizeWardrobeConfig } from '@/lib/wardrobe';
 
 // Import all slices
 import {
@@ -255,11 +256,17 @@ export const useTavernStore = create<TavernState>()(
           }
         };
 
-        // Ensure characters have the characterNote field
+        // Ensure characters have the characterNote field, and sanitize
+        // wardrobeConfig: persisted (localStorage) state may hold a legacy
+        // wardrobe ({enabled, levels}) or a malformed `outfits` array, which
+        // crashed the Guardarropa editor on open ("Cannot read properties of
+        // undefined (reading 'length')"). normalizeWardrobeConfig validates,
+        // migrates legacy levels → outfits, or drops the config entirely.
         const persistedCharacters = persisted.characters as CharacterCard[] | undefined;
         const mergedCharacters = (persistedCharacters || currentState.characters).map(char => ({
           ...char,
-          characterNote: char.characterNote ?? '' // Add characterNote if missing
+          characterNote: char.characterNote ?? '', // Add characterNote if missing
+          wardrobeConfig: char.wardrobeConfig ? normalizeWardrobeConfig(char.wardrobeConfig) : undefined,
         }));
 
         // Ensure personas exist with default if not present
