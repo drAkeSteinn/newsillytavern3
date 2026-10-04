@@ -52,7 +52,7 @@ export interface StatsResolutionContext {
   characterName?: string;
   // For resolving objective names in skill rewards
   questTemplates?: QuestTemplate[];
-  // For comprehensive key resolution ({{userpersona}}, {{eventos}}, stat keys, etc.)
+  // For comprehensive key resolution ({{userpersona}}, {{last_events}}, stat keys, etc.)
   personaDescription?: string;
   personaResolvedStats?: ResolvedStats | null;
   // Lorebook entry keys for resolving {{key}} in action descriptions
@@ -75,7 +75,6 @@ export interface ResolvedInvitation {
   solicitudKey: string;              // Key to COMPLETE the solicitud (used by receiver)
   peticionDescription: string;       // Description shown to SOLICITANTE (who asks)
   solicitudDescription: string;      // Description shown to SOLICITADO (who receives)
-  completionDescription?: string;    // Description saved when completed
   targetCharacterId: string;
   targetCharacterName: string;
   solicitudId: string;
@@ -184,7 +183,7 @@ export function resolveAllAttributes(
 
 /**
  * Resolve template keys in text using the full key resolution pipeline
- * Now handles ALL key types: {{user}}, {{char}}, {{userpersona}}, {{eventos}},
+ * Now handles ALL key types: {{user}}, {{char}}, {{userpersona}}, {{last_events}},
  * {{solicitante}}, {{solicitado}}, stat attribute keys, etc.
  *
  * Falls back to basic regex replacement when full context is not available.
@@ -664,17 +663,6 @@ export function resolveInvitations(
       targetCharacter.name  // solicitado = who receives
     );
 
-    // Resolve keys in completionDescription (saved when completed):
-    const resolvedCompletionDescription = solicitud.completionDescription
-      ? resolveTemplateKeys(
-          solicitud.completionDescription,
-          userName,
-          targetCharacter.name,
-          characterName,        // solicitante
-          targetCharacter.name  // solicitado
-        )
-      : undefined;
-
     resolved.push({
       id: invitation.id,
       name: invitation.name,
@@ -682,7 +670,6 @@ export function resolveInvitations(
       solicitudKey: solicitud.solicitudKey,  // Key for completing the solicitud
       peticionDescription: resolvedPeticionDescription,
       solicitudDescription: resolvedSolicitudDescription,
-      completionDescription: resolvedCompletionDescription,
       targetCharacterId: targetCharacter.id,
       targetCharacterName: targetCharacter.name,
       solicitudId: solicitud.id,

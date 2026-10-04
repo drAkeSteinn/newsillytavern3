@@ -38,7 +38,9 @@ import {
   Shirt,
   MapPin,
   FolderOpen,
-  BookOpen
+  BookOpen,
+  BrainCircuit,
+  History
 } from 'lucide-react';
 import type { CharacterCard, CharacterVoiceSettings } from '@/types';
 import { DEFAULT_CHARACTER_VOICE_SETTINGS } from '@/types';
@@ -58,6 +60,7 @@ import { AvatarLibraryPicker } from './avatar-library-picker';
 import { CharacterKnowledgeUploader } from './character-knowledge-uploader';
 import { CharacterSlotsEditor } from './character-slots-editor';
 import { LegacyMigrationPanel } from './legacy-migration-panel';
+import { MemoryV2Manager } from '@/components/memory/memory-v2-manager';
 import { getLogger } from '@/lib/logger';
 
 const editorLogger = getLogger('editor');
@@ -75,6 +78,7 @@ const characterEditorTabs = [
   { value: 'prompt', label: 'Prompts', icon: Sparkles },
   { value: 'sprites', label: 'Sprites', icon: Layers },
   { value: 'stats', label: 'Stats', icon: Activity },
+  { value: 'memoria', label: 'Memoria', icon: BrainCircuit },
   { value: 'voice', label: 'Voz', icon: Mic },
   { value: 'proactive', label: 'Proactivo', icon: Sparkles },
   { value: 'wardrobe', label: 'Guardarropa', icon: Shirt },
@@ -1092,6 +1096,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       voiceSettings={character.voice}
       onChange={(voice) => setCharacter(prev => ({ ...prev, voice }))}
       globalConfig={globalTTSConfig}
+      kwsKeywords={character.kwsKeywords}
+      onKwsKeywordsChange={(kwsKeywords) => setCharacter(prev => ({ ...prev, kwsKeywords }))}
     />
   );
 
@@ -1203,6 +1209,59 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
     />
   );
 
+  const renderMemoryTab = () => (
+    <div className="max-w-2xl mx-auto space-y-4">
+      {/* Scene events config — feeds {{last_events}} */}
+      <div className="p-4 border rounded-lg space-y-3">
+        <div className="flex items-center gap-2">
+          <History className="w-4 h-4 text-amber-500" />
+          <span className="font-medium text-sm">Eventos de escena</span>
+          <Badge variant="secondary" className="ml-auto font-mono text-[10px]">{'{{last_events}}'}</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          La key <code className="bg-muted px-1 rounded font-mono">{'{{last_events}}'}</code> inyecta los últimos eventos de la sesión
+          (acciones, peticiones, solicitudes, objetivos, escenas) con este formato:
+        </p>
+        <pre className="text-[10px] bg-muted/50 rounded p-2 overflow-x-auto leading-relaxed">{`[ULTIMOS EVENTOS EN LA ESCENA]
+- 21:40 (turno 12): [ACCION] Aitana: perreó cerca de ti
+- 21:43 (turno 13): [PETICION] Aitana → drAke: pedir un trago`}</pre>
+        <p className="text-xs text-muted-foreground">
+          Cada evento también se guarda automáticamente en la memoria persistente del personaje
+          (tipo <em>evento</em>), así el recuerdo sobrevive a la sesión. Coloca la key donde quieras
+          verlos: en cualquier sección de la card o en un lorebook.
+        </p>
+        <div className="flex items-center gap-3">
+          <Label className="text-xs shrink-0">Eventos a mostrar:</Label>
+          <Input
+            type="number"
+            min={1}
+            max={10}
+            value={character.memoryConfig?.lastEventsCount ?? 2}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              const clamped = Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : undefined;
+              setCharacter(prev => ({
+                ...prev,
+                memoryConfig: { ...prev.memoryConfig, lastEventsCount: clamped },
+              }));
+            }}
+            className="w-20 h-8"
+          />
+          <span className="text-xs text-muted-foreground">(1-10, por defecto 2)</span>
+        </div>
+      </div>
+      <MemoryV2Manager
+        charId={character.id || ''}
+        charName={character.name || 'Personaje'}
+      />
+      {!character.id && (
+        <p className="text-xs text-muted-foreground mt-3 text-center">
+          Guarda el personaje para poder gestionar su memoria.
+        </p>
+      )}
+    </div>
+  );
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'info': return renderInfoTab();
@@ -1211,6 +1270,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       case 'prompt': return renderPromptTab();
       case 'sprites': return renderSpritesTab();
       case 'stats': return renderStatsTab();
+      case 'memoria': return renderMemoryTab();
       case 'voice': return renderVoiceTab();
       case 'proactive': return renderProactiveTab();
       case 'wardrobe': return renderWardrobeTab();

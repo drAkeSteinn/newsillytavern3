@@ -3,12 +3,11 @@
 // ============================================
 // Category: cognitive
 // Permission: auto
-// Searches both LanceDB embeddings and Character Memory (Zustand store)
-// for relevant memories about a specific topic.
+// Searches the Memory V2 unified store for relevant memories
+// about a specific topic (semantic + lexical retrieval with reranking).
 
 import type { ToolDefinition, ToolContext, ToolExecutionResult } from '../types';
-import { getEmbeddingClient } from '@/lib/embeddings/client';
-import type { SearchResult } from '@/lib/embeddings/types';
+import { getV2, searchMemoriesV2 } from '@/lib/memory/v2';
 
 export const searchMemoryTool: ToolDefinition = {
   id: 'search_memory',
@@ -16,7 +15,7 @@ export const searchMemoryTool: ToolDefinition = {
   label: 'Buscar Memoria',
   icon: 'Brain',
   description:
-    'Busca en tu memoria información relacionada con un tema específico. ' +
+    'Busca en tu memoria (Memoria V2) información relacionada con un tema específico. ' +
     'Usa esta herramienta cuando necesites recordar algo que el usuario mencionó anteriormente ' +
     'o cuando quieras verificar si tienes información sobre un tema en tu memoria.',
   category: 'cognitive',
@@ -30,7 +29,7 @@ export const searchMemoryTool: ToolDefinition = {
       },
       memory_type: {
         type: 'string',
-        description: 'Filtrar por tipo: hecho, evento, relacion, preferencia, secreto (opcional)',
+        description: 'Filtrar por tipo: hecho, evento, relacion, preferencia (opcional)',
         enum: ['hecho', 'evento', 'relacion', 'preferencia', 'secreto', 'otro'],
         required: false,
       },
@@ -51,10 +50,16 @@ export const searchMemoryTool: ToolDefinition = {
   permissionMode: 'auto',
 };
 
-/** Extended search result with source indicator */
-interface MemorySearchResult extends SearchResult {
-  /** Source of the result: 'lancedb' or 'character_memory' */
-  source: 'lancedb' | 'character_memory';
+/** Map tool memory_type filter → V2 types (secreto/otro map to nota) */
+function toV2Types(t: string): string[] {
+  switch (t) {
+    case 'hecho': return ['hecho'];
+    case 'evento': return ['evento', 'resumen_escena'];
+    case 'relacion': return ['relacion'];
+    case 'preferencia': return ['preferencia'];
+    case 'secreto': return ['nota'];
+    default: return ['nota'];
+  }
 }
 
 export async function searchMemoryExecutor(
@@ -76,196 +81,49 @@ export async function searchMemoryExecutor(
     };
   }
 
-  const allResults: MemorySearchResult[] = [];
+  let memories: Awaited<ReturnType<typeof searchMemoriesV2>> = [];
 
-  // ========================================
-  // Part 1: Search LanceDB embeddings
-  // ========================================
   try {
-    const client = getEmbeddingClient();
-    const sessionId = context.sessionId || 'unknown';
-    
-    // Define namespaces to search: session-specific memory + character lore
-    const namespaces = [
-      `memory-character-${context.characterId}-${sessionId}`,
-      `memory-character-${context.characterId}`,
-      `character-${context.characterId}`,
-    ];
-    
-    // Add group namespaces if in a group
-    if (context.groupId) {
-      namespaces.push(`memory-group-${context.groupId}-${sessionId}`);
-      namespaces.push(`memory-group-${context.groupId}`);
-      namespaces.push(`group-${context.groupId}`);
+    const scored = await searchMemoriesV2({
+      query,
+      charId: context.characterId,
+      sessionId: context.sessionId || '',
+      groupId: context.groupId || '',
+      crossSession: true,
+      limit: maxResults * 3, // over-fetch, then apply tool filters
+      threshold: 0.1,
+    });
+
+    let filtered = scored;
+
+    if (memoryType) {
+      const allowed = toV2Types(memoryType);
+      filtered = filtered.filter(r => allowed.includes(r.type));
     }
-    
-    // Also search default knowledge namespaces (lorebooks, world-building).
-    // Note: chat-context.ts does NOT auto-inject these — it only searches
-    // character/session namespaces. This tool is intentionally broader since
-    // the LLM explicitly requests the search.
-    namespaces.push('default', 'world');
-    
-    // Remove duplicates
-    const uniqueNamespaces = [...new Set(namespaces)];
-    
-    // Search in each namespace
-    for (const ns of uniqueNamespaces) {
+    if (memorySubject) {
+      const subj = memorySubject === 'otro' ? 'mundo' : memorySubject;
+      filtered = filtered.filter(r => r.subject === subj);
+    }
+
+    memories = filtered.slice(0, maxResults);
+
+    // Touch retrieved records (heat boost)
+    if (memories.length > 0) {
       try {
-        const results = await client.searchInNamespace({
-          namespace: ns,
-          query: query,
-          limit: maxResults,
-          threshold: 0.3,
-        });
-        
-        // Filter to only memory-type embeddings
-        const memoryResults = results.filter(r => r.source_type === 'memory');
-        
-        for (const r of memoryResults) {
-          // Filter by memory type if specified
-          if (memoryType && r.metadata?.memory_type !== memoryType) {
-            continue;
-          }
-          // Filter by memory subject if specified
-          if (memorySubject && r.metadata?.memory_subject !== memorySubject) {
-            continue;
-          }
-          allResults.push({ ...r, source: 'lancedb' });
-        }
-      } catch (nsErr) {
-        // Namespace might not exist, skip silently
-        console.warn(`[search_memory] Could not search namespace "${ns}":`, nsErr);
-      }
+        const store = await getV2();
+        await store.touch(memories.map(m => m.id));
+      } catch { /* non-blocking */ }
     }
-  } catch (lancedbError) {
-    // LanceDB might be unavailable (e.g., Ollama not running)
-    console.warn('[search_memory] LanceDB search failed, falling back to Character Memory only:', lancedbError);
-  }
-
-  // ========================================
-  // Part 2: Search Character Memory (Zustand store)
-  // ========================================
-  if (context.characterMemory) {
-    const cm = context.characterMemory;
-    
-    // Collect embedding IDs already found in LanceDB to avoid duplicates
-    const lancedbIds = new Set(
-      allResults
-        .filter(r => r.source === 'lancedb')
-        .map(r => r.id)
-    );
-
-    // Helper: extract significant query words (>2 chars) for keyword matching
-    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-
-    // Map Spanish memory_type filter values to Character Memory event types
-    const typeMap: Record<string, string[]> = {
-      hecho: ['fact'],
-      evento: ['event'],
-      relacion: ['relationship'],
-      preferencia: ['fact'],  // preferences are stored as facts
-      secreto: ['fact'],      // secrets are stored as facts
-      otro: ['state_change', 'emotion', 'location', 'item'],
+  } catch (err) {
+    console.warn('[search_memory] V2 search failed:', err);
+    return {
+      success: false,
+      toolName: 'search_memory',
+      result: null,
+      displayMessage: 'La memoria no está disponible en este momento (backend de memoria V2 no accesible).',
+      error: err instanceof Error ? err.message : String(err),
     };
-
-    // Search events
-    for (const event of cm.events) {
-      // Skip if this event's embedding was already found in LanceDB
-      if (event.embeddingId && lancedbIds.has(event.embeddingId)) continue;
-
-      // Keyword matching: check if any significant word from the query appears in the event content
-      const eventContent = event.content.toLowerCase();
-      const matches = queryWords.some(w => eventContent.includes(w));
-      if (!matches) continue;
-
-      // Filter by type if specified
-      if (memoryType) {
-        const allowedTypes = typeMap[memoryType] || [memoryType];
-        if (!allowedTypes.includes(event.type)) continue;
-      }
-
-      // Filter by subject if specified (check metadata)
-      if (memorySubject && event.metadata?.memory_subject) {
-        if (event.metadata.memory_subject !== memorySubject) continue;
-      }
-
-      allResults.push({
-        id: event.id,
-        content: event.content,
-        metadata: {
-          importance: event.importance,
-          memory_type: event.type,
-          memory_subject: event.metadata?.memory_subject || 'personaje',
-          source: 'character_memory',
-        },
-        namespace: 'character-memory',
-        source_type: 'memory',
-        similarity: 0.8, // Fixed score for keyword matches
-        source: 'character_memory',
-      });
-    }
-
-    // Search relationships
-    for (const rel of cm.relationships) {
-      const relContent = `${rel.targetName}: ${rel.relationship} (sentimiento: ${rel.sentiment})${rel.notes ? '. ' + rel.notes : ''}`;
-      const relLower = relContent.toLowerCase();
-      const relMatches = queryWords.some(w => relLower.includes(w));
-
-      if (!relMatches) continue;
-
-      // Filter by type: relationships match "relacion" type
-      if (memoryType && memoryType !== 'relacion') continue;
-
-      // Filter by subject if specified
-      if (memorySubject) {
-        const relSubject = rel.targetId === 'user' || rel.targetId === '__user__' ? 'usuario' : 'otro';
-        if (relSubject !== memorySubject) continue;
-      }
-
-      allResults.push({
-        id: `rel-${rel.targetId}`,
-        content: relContent,
-        metadata: {
-          importance: 3,
-          memory_type: 'relacion',
-          memory_subject: rel.targetId === 'user' || rel.targetId === '__user__' ? 'usuario' : 'otro',
-          source: 'character_memory',
-        },
-        namespace: 'character-memory',
-        source_type: 'memory',
-        similarity: 0.75,
-        source: 'character_memory',
-      });
-    }
-
-    // Search notes
-    if (cm.notes) {
-      const notesLower = cm.notes.toLowerCase();
-      const notesMatches = queryWords.some(w => notesLower.includes(w));
-
-      if (notesMatches) {
-        // Notes don't have a specific type/subject filter
-        allResults.push({
-          id: `notes-${cm.characterId}`,
-          content: cm.notes,
-          metadata: {
-            importance: 3,
-            memory_type: 'notas',
-            memory_subject: 'personaje',
-            source: 'character_memory',
-          },
-          namespace: 'character-memory',
-          source_type: 'memory',
-          similarity: 0.7,
-          source: 'character_memory',
-        });
-      }
-    }
   }
-
-  // Sort by similarity (LanceDB results typically have higher similarity, then Character Memory)
-  allResults.sort((a, b) => b.similarity - a.similarity);
-  const memories = allResults.slice(0, maxResults);
 
   if (memories.length === 0) {
     return {
@@ -277,27 +135,25 @@ export async function searchMemoryExecutor(
   }
 
   const lines = [`🧠 Memorias sobre "${query}":`];
-  
+
   if (memoryType) {
     lines[0] += ` [Tipo: ${memoryType}]`;
   }
   if (memorySubject) {
     lines[0] += ` [Sujeto: ${memorySubject}]`;
   }
-  
+
   lines.push('');
-  
+
   for (let i = 0; i < memories.length; i++) {
     const m = memories[i];
-    const importance = m.metadata?.importance || 3;
-    const type = m.metadata?.memory_type || 'otro';
-    const stars = '★'.repeat(Math.ceil(importance)) + '☆'.repeat(5 - Math.ceil(importance));
-    const subject = m.metadata?.memory_subject || 'personaje';
-    const subjectLabel = subject === 'usuario' ? '👤 Usuario' : subject === 'otro' ? '🌐 Otro' : '🧑 Personaje';
-    const sourceLabel = m.source === 'lancedb' ? '[LanceDB]' : '[Memoria Local]';
-    
+    const imp = Math.round(m.importance * 4) + 1;
+    const stars = '★'.repeat(imp) + '☆'.repeat(5 - imp);
+    const subjectLabel = m.subject === 'usuario' ? '👤 Usuario' : m.subject === 'mundo' ? '🌐 Otro' : '🧑 Personaje';
+    const srcLabel = m.source === 'curada' ? '[Fijada]' : '[Automática]';
+
     lines.push(`${i + 1}. ${m.content}`);
-    lines.push(`   ${stars} (${type}) [${subjectLabel}] ${sourceLabel}`);
+    lines.push(`   ${stars} (${m.type}) [${subjectLabel}] ${srcLabel}`);
   }
 
   return {
@@ -307,12 +163,12 @@ export async function searchMemoryExecutor(
       query,
       memories: memories.map(m => ({
         content: m.content,
-        namespace: m.namespace,
-        importance: m.metadata?.importance,
-        type: m.metadata?.memory_type,
-        subject: m.metadata?.memory_subject,
-        sentiment: m.metadata?.sentiment,
+        type: m.type,
+        subject: m.subject,
+        importance: m.importance,
+        eventDate: m.eventDate,
         source: m.source,
+        score: m.score,
       })),
       memoryType,
       memorySubject,

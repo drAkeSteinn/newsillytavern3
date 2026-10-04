@@ -23,7 +23,7 @@ const PERSIST_KEYS = [
   'spritePacksV2',
   // Advanced systems
   'activeAtmospherePresetId', 'atmosphereSettings',
-  'summaries', 'summarySettings', 'characterMemories', 'sessionTracking',
+  'summaries', 'summarySettings', 'sessionTracking',
   'quests', 'questSettings', 'questNotifications',
   'dialogueSettings',
   'items', 'activeConsumableEffects', 'containers', 'currencies', 'inventorySettings', 'inventoryNotifications',
@@ -178,9 +178,6 @@ export function usePersistenceSync() {
           }
           if (data.memory.summarySettings) {
             updates.summarySettings = data.memory.summarySettings;
-          }
-          if (data.memory.characterMemories) {
-            updates.characterMemories = data.memory.characterMemories;
           }
           if (data.memory.sessionTracking) {
             updates.sessionTracking = data.memory.sessionTracking;
@@ -377,7 +374,6 @@ export function usePersistenceSync() {
         memory: {
           summaries: state.summaries,
           summarySettings: state.summarySettings,
-          characterMemories: state.characterMemories,
           sessionTracking: state.sessionTracking,
         },
         quests: {

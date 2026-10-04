@@ -9,11 +9,6 @@ export {
   hasActiveLorebooks
 } from './lorebook-handler';
 
-// Memory Handler (placeholder for future expansion)
-export {
-  memoryHandler,
-  hasMemoryContent,
-  formatMemoryForDisplay,
-  type MemoryHandlerData,
-  type MemoryMatchData
-} from './memory-handler';
+// NOTE (Memory V2): the legacy memory handler was removed.
+// Character memories live exclusively in the Memory V2 unified store
+// (src/lib/memory/v2) and are injected by buildV2MemoryContext.

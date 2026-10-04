@@ -28,11 +28,11 @@ import { buildLorebookEntryKeyMap } from '@/lib/lorebook';
 
 export interface SkillKeyHandlerContext extends TriggerContext {
   characterId: string;
-  characterName?: string;  // For ultima_accion_realizada format
+  characterName?: string;  // For the action event ({{last_events}})
   statsConfig: CharacterStatsConfig | undefined;
   sessionStats: SessionStats | undefined;
   sessionId: string;
-  /** Lorebooks for resolving {{key}} in completedDescription */
+  /** Lorebooks for resolving {{key}} in the action description */
   lorebooks?: Lorebook[];
   storeActions?: {
     updateCharacterStat: (
@@ -42,10 +42,17 @@ export interface SkillKeyHandlerContext extends TriggerContext {
       value: number | string,
       reason?: 'llm_detection' | 'manual' | 'trigger'
     ) => UpdateCharacterStatResult;
-    updateSessionEvent?: (
+    /** Record a scene event ({{last_events}} ring buffer + persistent memory) */
+    recordSceneEvent?: (
       sessionId: string,
-      eventType: 'ultimo_objetivo_completado' | 'ultima_solicitud_completada' | 'ultima_solicitud_realizada' | 'ultima_accion_realizada' | 'ultima_accion_character',
-      description: string
+      entry: {
+        type: import('@/types').SessionEventLogType;
+        description: string;
+        characterId?: string;
+        characterName?: string;
+        targetName?: string;
+      },
+      memory?: { content?: string }
     ) => void;
   };
 }
@@ -199,8 +206,8 @@ export class SkillKeyHandler implements KeyHandler {
               data: {
                 skillId: skill.id,
                 skillName: skill.name,
-                skillDescription: skill.description, // Include skill description for ultima_accion_realizada
-                skillCompletedDescription: skill.completedDescription || skill.description, // Completed description for event saving
+                skillDescription: skill.description, // Action description (event text for {{last_events}})
+                skillCompletedDescription: skill.description, // Event text for the action (completedDescription removed — memory records it)
                 skillKey: skill.key,
                 matchedKey: key.key,
                 activationCosts: skill.activationCosts || [],
@@ -233,6 +240,7 @@ export class SkillKeyHandler implements KeyHandler {
       skillId: string;
       skillName: string;
       skillDescription?: string;
+      /** Wire-compatible alias of skillDescription (kept for old payloads) */
       skillCompletedDescription?: string;
       activationCosts: any[];
       activationRewards: any[];
@@ -267,16 +275,15 @@ export class SkillKeyHandler implements KeyHandler {
     // Collect all thresholds reached
     const allThresholdsReached: ThresholdReachedInfo[] = [];
     
-    // Save ultima_accion_realizada for {{eventos}} key
-    // Use completedDescription (fallback to description) for the event text
-    // Resolve lorebook {{key}} patterns in the completed description before saving
-    if (skillContext.storeActions?.updateSessionEvent) {
+    // Record the scene event: session ring buffer ({{last_events}}) + memory
+    // Resolve lorebook {{key}} patterns in the description before recording
+    if (skillContext.storeActions?.recordSceneEvent) {
       const characterName = skillContext.characterName || skillContext.characterId;
-      let completedDesc = skillCompletedDescription || skillDescription || '';
+      let actionDesc = skillCompletedDescription || skillDescription || '';
 
-      // Resolve lorebook entry keys in the completed description
+      // Resolve lorebook entry keys in the description
       // This handles {{key}} patterns that reference lorebook entries
-      if (completedDesc && skillContext.lorebooks && skillContext.lorebooks.length > 0) {
+      if (actionDesc && skillContext.lorebooks && skillContext.lorebooks.length > 0) {
         const lorebookEntryKeys = buildLorebookEntryKeyMap(skillContext.lorebooks).keys;
         const keyContext = buildKeyResolutionContext(
           { id: skillContext.characterId, name: characterName } as import('@/types').CharacterCard,
@@ -290,21 +297,22 @@ export class SkillKeyHandler implements KeyHandler {
           undefined, // inventoryData
           lorebookEntryKeys
         );
-        completedDesc = resolveAllKeys(completedDesc, keyContext);
+        actionDesc = resolveAllKeys(actionDesc, keyContext);
       }
 
-      skillContext.storeActions.updateSessionEvent(
+      skillContext.storeActions.recordSceneEvent(
         skillContext.sessionId,
-        'ultima_accion_realizada',
-        completedDesc
+        {
+          type: 'action',
+          description: actionDesc,
+          characterId: skillContext.characterId,
+          characterName,
+        },
+        {
+          content: `${characterName} activó la acción "${skillName}"${actionDesc ? `: ${actionDesc}` : ''}`,
+        }
       );
-      // Also save the character name separately for the new format
-      skillContext.storeActions.updateSessionEvent(
-        skillContext.sessionId,
-        'ultima_accion_character',
-        characterName
-      );
-      console.log(`[SkillKeyHandler] Saved ultima_accion_realizada: ${completedDesc} (character: ${characterName})`);
+      console.log(`[SkillKeyHandler] Recorded action event: ${actionDesc} (character: ${characterName})`);
     }
     
     // Execute costs if store actions provided

@@ -534,6 +534,12 @@ export interface TriggerQueueState {
   maxQueueSize: number;            // Default: 5
 }
 
+// Per-character memory configuration (see CharacterCard.memoryConfig)
+export interface CharacterMemoryConfig {
+  /** Nº of recent scene events injected by {{last_events}} (1-10, default 2) */
+  lastEventsCount?: number;
+}
+
 export interface CharacterCard {
   id: string;
   name: string;
@@ -579,6 +585,11 @@ export interface CharacterCard {
   lorebookIds?: string[];         // Lorebooks to use for this character
   questTemplateIds?: string[];       // Quest templates to use for this character
   embeddingNamespaces?: string[];   // Embedding namespaces to search during chat (overrides strategy)
+  /** KWS: Palabras clave de voz para activar este personaje además de su nombre.
+   *  Si el reconocimiento de voz (KWS) detecta alguna de estas palabras, el mensaje
+   *  se dirige al personaje. En grupos, el personaje mencionado responde primero
+   *  según la estrategia de respuesta configurada. Ej: ["Aitana", "licuadora"]. */
+  kwsKeywords?: string[];
   statsConfig?: CharacterStatsConfig;  // Stats system configuration (attributes, skills, etc.)
   proactiveMessages?: ProactiveMessagesConfig;  // Proactive message configuration
   /** GUARDARROPA V2: the character's wardrobe with named outfits (name + description).
@@ -600,6 +611,10 @@ export interface CharacterCard {
   /** FASE 19: Per-character slot effects — defines what items can be equipped in each slot
    *  and what effects they have (attribute modifications per turn, etc.). */
   slotDefinitions?: CharacterSlotDefinition[];
+  /** MEMORIA: per-character memory-related configuration.
+   *  lastEventsCount: how many recent scene events the {{last_events}} key
+   *  injects as [ULTIMOS EVENTOS EN LA ESCENA] (1-10, default 2). */
+  memoryConfig?: CharacterMemoryConfig;
   // Import/Export extended fields (preserved through character-card.ts parse/serialize)
   spriteLibraries?: unknown;       // Sprite library collections (legacy import support)
   chatStats?: unknown;             // Character-level chat stats (legacy import support)
@@ -2413,24 +2428,24 @@ export interface AppSettings {
 // ============ Embeddings Chat Integration Settings ============
 
 export interface EmbeddingsChatSettings {
-  /** Enable automatic embeddings context retrieval during chat (includes both memory + knowledge) */
+  /** @deprecated Legacy master switch from the "Embeddings" era. It no longer
+   * gates anything: Memory V2 follows `memoryV2Enabled` (single switch) and
+   * knowledge retrieval follows `knowledgeSearchEnabled`. Kept only so old
+   * persisted settings.json files keep parsing; the value is ignored. */
   enabled: boolean;
   /**
    * FASE 16: Enable knowledge search independently from memory.
    * When enabled, the system searches character-{charId} namespace for uploaded
-   * knowledge/backhistory files, even if `enabled` is false.
-   * This lets users upload knowledge and have it work without enabling the full
-   * memory extraction pipeline.
+   * knowledge/backhistory files regardless of memory settings. This lets users
+   * upload knowledge and have it work without enabling the memory pipeline.
    * Default: true
    */
   knowledgeSearchEnabled?: boolean;
-  /** Maximum token budget for embeddings context (approximate, in chars) */
+  /** Maximum token budget for embeddings context (approximate, in chars).
+   * Shared by Knowledge ([CONTEXTO RELEVANTE]) and Memory V2 injection budget. */
   maxTokenBudget: number;
-  /** Max memories retrieved per search and injected as [MEMORIA RELEVANTE] (default: 5) */
-  memoryMaxResults?: number;
-  /** Max Character Memory events injected into the prompt in one request (default: 20).
-  *  Events are ranked by importance + recency; the rest are omitted. */
-  memoryMaxEventsInPrompt?: number;
+  /** Max knowledge chunks retrieved per search (default: 5). Knowledge pipeline only. */
+  knowledgeMaxResults?: number;
   /** Strategy for selecting which namespaces to search */
   namespaceStrategy: 'global' | 'character' | 'session';
   /** Whether to show retrieved embeddings in the prompt viewer */
@@ -2443,31 +2458,11 @@ export interface EmbeddingsChatSettings {
   memoryExtractionFrequency?: number;
   /** Minimum importance (1-5) to save extracted memories (default: 2) */
   memoryExtractionMinImportance?: number;
-  /** Enable automatic memory consolidation when namespace exceeds threshold */
-  memoryConsolidationEnabled?: boolean;
-  /** Consolidate when namespace exceeds this many memory embeddings (default: 50) */
-  memoryConsolidationThreshold?: number;
-  /** Keep this many most recent memories protected from consolidation (default: 10) */
-  memoryConsolidationKeepRecent?: number;
-  /** Keep all memories with importance >= this value (default: 4) */
-  memoryConsolidationKeepHighImportance?: number;
-  /** Custom prompt for memory extraction (overrides default prompt) */
-  memoryExtractionPrompt?: string;
-  /** Custom prompt for group memory extraction (overrides default group prompt) */
-  groupMemoryExtractionPrompt?: string;
   /** Number of recent messages to include as context for memory extraction (0 = only last response, default: 2) */
   memoryExtractionContextDepth?: number;
   /** Number of recent messages to enrich the embedding search query (0 = only user message, default: 1) */
   searchContextDepth?: number;
-  /** Enable group dynamics extraction in group chats (extracts inter-character relationships) */
-  groupDynamicsExtraction?: boolean;
-  /** Enable memory reinforcement when memories are referenced in LLM responses */
-  memoryReinforcementEnabled?: boolean;
-  /** Similarity threshold for memory reinforcement matching (default: 0.7) */
-  memoryReinforcementThreshold?: number;
-  /** Enable memory extraction from user messages as well as assistant messages */
-  memoryExtractionFromUserEnabled?: boolean;
-  /** Enable using a separate (faster/cheaper) LLM for memory extraction and consolidation */
+  /** Enable using a separate (faster/cheaper) LLM for memory extraction */
   extractionModelEnabled?: boolean;
   /** Provider for the separate extraction model (e.g., 'ollama', 'openai', 'grok') */
   extractionModelProvider?: string;
@@ -2482,12 +2477,21 @@ export interface EmbeddingsChatSettings {
   // (character remembers interactions with user/other characters between sessions).
   crossSessionMemory?: boolean;
 
-  // FASE 14: Temporal decay — memories older than decayDays get deleted by cleanup script.
-  memoryDecayEnabled?: boolean;
-  memoryDecayDays?: number;
+  // Knowledge rerank (FASE 14): temporal decay — knowledge chunks older than
+  // knowledgeDecayDays score lower in the knowledge reranker. KNOWLEDGE pipeline
+  // parameters (Memory V2 has its own heat/importance in the memories_v2 store).
+  knowledgeDecayEnabled?: boolean;
+  knowledgeDecayDays?: number;
 
-  // FASE 14: Memory heat — boost recently-retrieved memories in scoring.
-  memoryHeatEnabled?: boolean;
+  // Knowledge rerank (FASE 14): recently-retrieved knowledge gets a heat boost.
+  knowledgeHeatEnabled?: boolean;
+
+  // Memory V2: unified memory system (single store, merged extraction,
+  // partitioned injection). SINGLE master switch of the memory pipeline —
+  // gates injection, extraction and memory tools on its own; it does NOT
+  // depend on the deprecated `enabled` flag. Knowledge retrieval follows
+  // knowledgeSearchEnabled. Default true.
+  memoryV2Enabled?: boolean;
 }
 
 // ============ Tools / Actions Settings ============
@@ -2911,39 +2915,9 @@ export interface HUDTriggerHit {
 }
 
 // ============ Memory & Summary Types ============
-
-// Memory event - a significant occurrence in the roleplay
-export interface MemoryEvent {
-  id: string;
-  type: 'fact' | 'relationship' | 'event' | 'emotion' | 'location' | 'item' | 'state_change';
-  content: string;           // Description of what happened/was learned
-  characterId?: string;      // Related character (if any)
-  timestamp: string;
-  importance: number;        // 1-5, how important to remember (1=minor, 5=critical)
-  embeddingId?: string;      // Link to the corresponding LanceDB embedding
-  sessionId?: string;        // Which session this memory belongs to
-  metadata?: Record<string, unknown>;
-}
-
-// Character memory - persistent memory for a character
-export interface CharacterMemory {
-  id: string;
-  characterId: string;
-  events: MemoryEvent[];
-  relationships: RelationshipMemory[];  // Track relationships with other characters/users
-  notes: string;              // User-editable notes
-  lastUpdated: string;
-}
-
-// Relationship memory - how the character feels about someone
-export interface RelationshipMemory {
-  targetId: string;          // Character ID or 'user' for the user
-  targetName: string;
-  relationship: string;     // e.g., "close friend", "rival", "lover", "stranger"
-  sentiment: number;         // -100 to 100, negative to positive
-  notes: string;
-  lastUpdated: string;
-}
+// NOTE (Memory V2): the legacy CharacterMemory / MemoryEvent /
+// RelationshipMemory types were removed. Character memories are modeled
+// exclusively by MemoryV2Record (src/lib/memory/v2/types.ts).
 
 // Summary data - compressed conversation history
 export interface SummaryData {
@@ -3269,7 +3243,7 @@ export interface QuestRewardTrigger {
 // Configuración de mensaje para recompensa (UMBRAL: mensaje automático al chat)
 // Al finalizar el turno, si se cumple la condición del umbral, se envía este
 // mensaje al chat como si fuera una respuesta rápida (mensaje del usuario).
-// El texto soporta tags: {{char}}, {{user}}, {{atributo}}, {{time}}, {{eventos}}, etc.
+// El texto soporta tags: {{char}}, {{user}}, {{atributo}}, {{time}}, {{last_events}}, etc.
 export interface QuestRewardMessage {
   text: string;               // Plantilla del mensaje con tags resolubles
 }
@@ -4662,7 +4636,6 @@ export interface SkillDefinition {
   id: string;
   name: string;              // "Golpe furioso"
   description: string;       // "Golpe con gran velocidad..."
-  completedDescription?: string; // "Descripción completado" - texto que se guarda y se inyecta cuando la acción se realiza
   key: string;               // Template key: "golpe_furioso" → {{golpe_furioso}}
   type?: ActionType;         // "preparacion" | "ejecucion" - determines action type
   requirements: StatRequirement[];
@@ -4714,7 +4687,6 @@ export interface SolicitudDefinition {
   solicitudKey: string;            // Key para completar la solicitud (quien la recibe escribe esto)
   peticionDescription: string;     // Descripción que ve quien hace la petición
   solicitudDescription: string;    // Descripción que ve quien recibe la solicitud
-  completionDescription?: string;  // Descripción que se guarda en ultima_solicitud_completada al completar
   requirements: StatRequirement[]; // Requisitos para que la solicitud esté disponible
   requirementOperator?: 'AND' | 'OR'; // Logic operator for requirements (default: 'AND')
 
@@ -4759,7 +4731,6 @@ export interface SolicitudInstance {
   fromCharacterId: string;   // Character who sent the petition
   fromCharacterName: string; // Display name of sender
   description: string;       // What is being requested
-  completionDescription?: string;  // Description of completion (what happened)
   status: 'pending' | 'completed' | 'expired';  // Current status
   createdAt: number;         // Timestamp when created
   completedAt?: number;      // Timestamp when completed
@@ -4923,7 +4894,7 @@ export interface CharacterSessionStats {
 // not per character like activeOutfitId. See SessionStats below.
 
 // ============================================
-// Session Event Log (ring buffer of recent events, for {{eventos}} key)
+// Session Event Log (ring buffer of recent events, for {{last_events}} key)
 // Extends the legacy "ultima_X" fields with a history that all
 // characters in a session can see and react to.
 // ============================================
@@ -4969,7 +4940,7 @@ export interface SessionRelationship {
   /** Bond points 0-100 */
   points: number;
   lastChangedAt: number;
-  /** Last change reason (for {{eventos}} and debugging) */
+  /** Last change reason (for {{last_events}} and debugging) */
   lastReason?: string;
 }
 
@@ -4987,7 +4958,9 @@ export interface SessionStats {
   // World clock (fictional time of the session)
   worldClock?: import('@/lib/world/time').WorldClock;
 
-  // Ring buffer of recent session events (newest last). Feeds {{eventos}}.
+  // Ring buffer of recent session events (newest last).
+  // Feeds the {{last_events}} key ([ULTIMOS EVENTOS EN LA ESCENA]) and every
+  // event is also saved to the character's persistent Memory V2 store.
   eventLog?: SessionEventLogEntry[];
 
   // ESCENARIO V2: id of the scenario location the scene is currently in.
@@ -4996,13 +4969,6 @@ export interface SessionStats {
   // Set by the manage_escenario tool (go), a quick reply's scenarioAction,
   // or automatically when a session starts with a greeting that pins a location.
   activeScenarioId?: string | null;
-
-  // Recent events (for {{eventos}} key)
-  ultimo_objetivo_completado?: string;  // Description of the last completed objective
-  ultima_solicitud_completada?: string; // Completion description of the last completed solicitud
-  ultima_solicitud_realizada?: string;  // Description of the last peticion activated
-  ultima_accion_realizada?: string;     // Descripción completado de la última acción realizada
-  ultima_accion_character?: string;     // Nombre del personaje que realizó la última acción
 
   // Metadata
   initialized: boolean;      // Whether stats were initialized from defaults

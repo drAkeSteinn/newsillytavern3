@@ -74,6 +74,76 @@ export async function* streamOllama(
 }
 
 /**
+ * Stream from Ollama API using /api/chat (chat-style, no tools).
+ *
+ * Unlike /api/generate (completion-style), /api/chat sends the messages array
+ * natively, so a `role: 'system'` message is transmitted as a REAL system
+ * message to the LLM instead of being flattened into the raw prompt.
+ */
+export async function* streamOllamaChat(
+  messages: ChatApiMessage[],
+  config: LLMConfig
+): AsyncGenerator<string> {
+  const endpoint = config.endpoint.replace(/\/$/, '');
+
+  const ollamaMessages = messages.map(m => ({
+    role: m.role,
+    content: m.content || '',
+  }));
+
+  const response = await fetch(`${endpoint}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model || 'llama2',
+      messages: ollamaMessages,
+      stream: true,
+      options: {
+        temperature: config.parameters.temperature,
+        top_p: config.parameters.topP,
+        top_k: config.parameters.topK,
+        num_predict: config.parameters.maxTokens,
+        stop: config.parameters.stopStrings?.length ? config.parameters.stopStrings : undefined
+      }
+    }),
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Ollama Error (${response.status}): ${errorText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response body');
+
+  const decoder = new TextDecoder();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const text = decoder.decode(value, { stream: true });
+      const lines = text.split('\n').filter(Boolean);
+
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.message?.content) {
+            yield parsed.message.content;
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
  * Stream from Ollama API using /api/chat WITH native tool calling support.
  *
  * Ollama's /api/chat endpoint supports tools natively.
@@ -208,6 +278,58 @@ export async function* streamOllamaWithTools(
   }
 
   console.log(`[Ollama+Tools] Stream complete. finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
+}
+
+/**
+ * Call Ollama API using /api/chat (chat-style, no tools, non-streaming).
+ * Sends the messages array natively so `role: 'system'` reaches the LLM
+ * as a real system message.
+ */
+export async function callOllamaChat(
+  messages: ChatApiMessage[],
+  config: LLMConfig
+): Promise<GenerateResponse> {
+  const endpoint = config.endpoint.replace(/\/$/, '');
+
+  const ollamaMessages = messages.map(m => ({
+    role: m.role,
+    content: m.content || '',
+  }));
+
+  const response = await fetch(`${endpoint}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model || 'llama2',
+      messages: ollamaMessages,
+      stream: false,
+      options: {
+        temperature: config.parameters.temperature,
+        top_p: config.parameters.topP,
+        top_k: config.parameters.topK,
+        num_predict: config.parameters.maxTokens,
+        stop: config.parameters.stopStrings?.length ? config.parameters.stopStrings : undefined
+      }
+    }),
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Ollama Error (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+
+  return {
+    message: data.message?.content || '',
+    usage: {
+      promptTokens: data.prompt_eval_count || 0,
+      completionTokens: data.eval_count || 0,
+      totalTokens: (data.prompt_eval_count || 0) + (data.eval_count || 0)
+    },
+    model: data.model || config.model
+  };
 }
 
 /**

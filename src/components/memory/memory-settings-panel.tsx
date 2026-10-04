@@ -60,14 +60,15 @@ import {
   Trash2,
   AlertTriangle,
   History,
+  Activity,
+  RefreshCw,
+  DatabaseZap,
 } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { DEFAULT_SUMMARY_SETTINGS } from '@/types';
-import { DEFAULT_MEMORY_EXTRACTION_PROMPT, DEFAULT_GROUP_MEMORY_EXTRACTION_PROMPT } from '@/lib/embeddings/memory-extraction-prompts';
 import { toast } from 'sonner';
 import { DEFAULT_EMBEDDINGS_CHAT } from '@/lib/embeddings/constants';
-import { CharacterMemoryEditor } from '@/components/memory/character-memory-editor';
 import { SummaryViewer } from '@/components/memory/summary-viewer';
 
 // ============================================
@@ -421,43 +422,7 @@ function ResumenesTab() {
   );
 }
 
-// ============================================
-// Sub-tab 2: Personaje
-// ============================================
-
-function PersonajeTab() {
-  const activeCharacterId = useTavernStore((s) => s.activeCharacterId);
-  const characters = useTavernStore((s) => s.characters);
-  const activeCharacter = characters.find((c: any) => c.id === activeCharacterId);
-
-  if (!activeCharacterId || !activeCharacter) {
-    return (
-      <Card className="border-dashed">
-        <CardContent className="py-12 text-center">
-          <User className="w-12 h-12 mx-auto mb-3 text-muted-foreground/50" />
-          <p className="text-muted-foreground text-sm">
-            Selecciona un personaje en el panel derecho para editar su memoria.
-          </p>
-          <p className="text-muted-foreground/70 text-xs mt-1">
-            Los eventos, relaciones y notas del personaje aparecerán aquí.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const characterName = activeCharacter.name || activeCharacter.data?.name || 'Personaje';
-
-  return (
-    <CharacterMemoryEditor
-      characterId={activeCharacterId}
-      characterName={characterName}
-    />
-  );
-}
-
-// ============================================
-// Sub-tab 3: Extracción
+// Sub-tab 2: Extracción
 // ============================================
 
 function ExtraccionTab() {
@@ -480,49 +445,6 @@ function ExtraccionTab() {
     });
   }, [contextSettings, updateSettings]);
 
-  // Prompt editor state
-  const [activePromptTab, setActivePromptTab] = useState<'normal' | 'group'>('normal');
-  const [localPrompt, setLocalPrompt] = useState(() => embeddingsChat.memoryExtractionPrompt || DEFAULT_MEMORY_EXTRACTION_PROMPT);
-  const [localGroupPrompt, setLocalGroupPrompt] = useState(() => embeddingsChat.groupMemoryExtractionPrompt || DEFAULT_GROUP_MEMORY_EXTRACTION_PROMPT);
-  const [showPreview, setShowPreview] = useState(false);
-
-  const isNormal = activePromptTab === 'normal';
-  const currentPrompt = isNormal ? localPrompt : localGroupPrompt;
-  const currentStored = isNormal
-    ? (embeddingsChat.memoryExtractionPrompt || DEFAULT_MEMORY_EXTRACTION_PROMPT)
-    : (embeddingsChat.groupMemoryExtractionPrompt || DEFAULT_GROUP_MEMORY_EXTRACTION_PROMPT);
-  const previewData = isNormal ? NORMAL_PREVIEW : GROUP_PREVIEW;
-
-  const handleSavePrompt = () => {
-    if (isNormal) {
-      updateSettings({ embeddingsChat: { ...embeddingsChat, memoryExtractionPrompt: localPrompt } });
-    } else {
-      updateSettings({ embeddingsChat: { ...embeddingsChat, groupMemoryExtractionPrompt: localGroupPrompt } });
-    }
-  };
-
-  const handleRestoreDefault = () => {
-    if (isNormal) {
-      setLocalPrompt(DEFAULT_MEMORY_EXTRACTION_PROMPT);
-      updateSettings({ embeddingsChat: { ...embeddingsChat, memoryExtractionPrompt: DEFAULT_MEMORY_EXTRACTION_PROMPT } });
-    } else {
-      setLocalGroupPrompt(DEFAULT_GROUP_MEMORY_EXTRACTION_PROMPT);
-      updateSettings({ embeddingsChat: { ...embeddingsChat, groupMemoryExtractionPrompt: DEFAULT_GROUP_MEMORY_EXTRACTION_PROMPT } });
-    }
-  };
-
-  const handleChange = (value: string) => {
-    if (isNormal) setLocalPrompt(value);
-    else setLocalGroupPrompt(value);
-  };
-
-  const previewText = currentPrompt
-    .replace('{characterName}', previewData.characterName)
-    .replace('{chatContext}', previewData.chatContext)
-    .replace('{lastMessage}', previewData.lastMessage);
-
-  const hasChanges = currentPrompt !== currentStored;
-
   return (
     <div className="space-y-6">
       {/* Note about needing Embeddings enabled */}
@@ -532,7 +454,7 @@ function ExtraccionTab() {
           <div className="space-y-1">
             <p className="text-sm font-medium text-amber-600 dark:text-amber-400">Requiere Embeddings</p>
             <p className="text-xs text-muted-foreground">
-              Estos ajustes requieren que Embeddings esté activado. Configúralo en la pestaña <strong>Base de Conocimiento</strong>.
+              Estos ajustes requieren la infraestructura de embeddings (Ollama + LanceDB). Configúralo en <strong>Ajustes → Conocimiento</strong>.
             </p>
           </div>
         </div>
@@ -543,10 +465,10 @@ function ExtraccionTab() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Brain className="w-4 h-4 text-violet-500" />
-            Extracción Automática de Memoria
+            Extracción Automática (Memoria V2)
           </CardTitle>
           <CardDescription>
-            Extrae hechos memorables de las respuestas del personaje y los guarda como embeddings
+            Memoria V2: tras cada N turnos, una única pasada LLM analiza el intercambio completo (usuario + personaje) y guarda hechos, eventos y emociones en la tienda unificada
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -554,7 +476,7 @@ function ExtraccionTab() {
             <div className="space-y-0.5">
               <Label className="text-sm">Activar Extracción</Label>
               <p className="text-[10px] text-muted-foreground">
-                Extrae automáticamente hechos memorables tras cada respuesta del personaje
+                Extrae automáticamente recuerdos (ops ADD/UPDATE/DELETE) del intercambio completo
               </p>
             </div>
             <Switch
@@ -637,39 +559,6 @@ function ExtraccionTab() {
                 </div>
               </div>
 
-              {/* User Message Extraction Toggle */}
-              <div className="flex items-center justify-between pt-2">
-                <div className="space-y-0.5">
-                  <Label className="text-sm">Extraer también de mensajes del usuario</Label>
-                  <p className="text-[10px] text-muted-foreground">
-                    Captura hechos, preferencias y datos personales que el jugador comparte en sus mensajes
-                  </p>
-                </div>
-                <Switch
-                  checked={!!embeddingsChat.memoryExtractionFromUserEnabled}
-                  onCheckedChange={(enabled) => {
-                    updateSettings({
-                      embeddingsChat: { ...embeddingsChat, memoryExtractionFromUserEnabled: enabled },
-                    });
-                  }}
-                />
-              </div>
-
-              {embeddingsChat.memoryExtractionFromUserEnabled && (
-                <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-lg p-3">
-                  <div className="flex items-start gap-2">
-                    <User className="w-4 h-4 text-cyan-500 mt-0.5 shrink-0" />
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-cyan-600 dark:text-cyan-400">Memoria del Usuario</p>
-                      <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
-                        <li>Se extraen hechos del último mensaje del jugador (nombre, preferencias, datos personales)</li>
-                        <li>Solo se procesan mensajes con más de 20 caracteres (se ignoran respuestas cortas)</li>
-                        <li>Las memorias del usuario se marcan con sujeto "usuario" para distinguirlas</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </CardContent>
@@ -814,225 +703,6 @@ function ExtraccionTab() {
         </Card>
       )}
 
-      {/* Memory Consolidation Section */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Layers className="w-4 h-4 text-violet-500" />
-            Consolidación de Memoria
-          </CardTitle>
-          <CardDescription>
-            Comprime memorias antiguas cuando un namespace excede el límite
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-sm">Activar Consolidación</Label>
-              <p className="text-[10px] text-muted-foreground">
-                Comprime automáticamente memorias antiguas para ahorrar espacio
-              </p>
-            </div>
-            <Switch
-              checked={!!embeddingsChat.memoryConsolidationEnabled}
-              onCheckedChange={(enabled) => {
-                updateSettings({
-                  embeddingsChat: { ...embeddingsChat, memoryConsolidationEnabled: enabled },
-                });
-              }}
-            />
-          </div>
-
-          {embeddingsChat.memoryConsolidationEnabled && (
-            <div className="space-y-3 pl-1 border-l-2 border-violet-300/30">
-              <div className="space-y-2">
-                <Label className="text-xs">Umbral de consolidación: {embeddingsChat.memoryConsolidationThreshold || 50} embeddings</Label>
-                <Slider
-                  value={[embeddingsChat.memoryConsolidationThreshold || 50]}
-                  min={20}
-                  max={200}
-                  step={10}
-                  onValueChange={([v]) => {
-                    updateSettings({
-                      embeddingsChat: { ...embeddingsChat, memoryConsolidationThreshold: v },
-                    });
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Cuando un namespace supera esta cantidad, se consolida automáticamente
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs">Memorias recientes protegidas: {embeddingsChat.memoryConsolidationKeepRecent || 10}</Label>
-                <Slider
-                  value={[embeddingsChat.memoryConsolidationKeepRecent || 10]}
-                  min={3}
-                  max={30}
-                  step={1}
-                  onValueChange={([v]) => {
-                    updateSettings({
-                      embeddingsChat: { ...embeddingsChat, memoryConsolidationKeepRecent: v },
-                    });
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Las N memorias más recientes nunca se consolidan
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs">Proteger importancia ≥ {embeddingsChat.memoryConsolidationKeepHighImportance || 4}/5</Label>
-                <Slider
-                  value={[embeddingsChat.memoryConsolidationKeepHighImportance || 4]}
-                  min={2}
-                  max={5}
-                  step={1}
-                  onValueChange={([v]) => {
-                    updateSettings({
-                      embeddingsChat: { ...embeddingsChat, memoryConsolidationKeepHighImportance: v },
-                    });
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Memorias con esta importancia o mayor nunca se consolidan
-                </p>
-              </div>
-
-              <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <Layers className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Consolidación Inteligente</p>
-                    <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
-                      <li>Agrupa memorias antiguas por tipo (hechos, eventos, relaciones...)</li>
-                      <li>El LLM combina hechos relacionados en resúmenes concisos</li>
-                      <li>Las memorias de alta importancia y recientes siempre se preservan</li>
-                      <li>Se ejecuta automáticamente después de cada extracción que supera el umbral</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Memory Reinforcement Section */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            Refuerzo de Memorias
-          </CardTitle>
-          <CardDescription>
-            Incrementa importancia cuando el LLM menciona memorias existentes
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-sm">Activar Refuerzo</Label>
-              <p className="text-[10px] text-muted-foreground">
-                Las memorias mencionadas se refuerzan automáticamente
-              </p>
-            </div>
-            <Switch
-              checked={!!embeddingsChat.memoryReinforcementEnabled}
-              onCheckedChange={(enabled) => {
-                updateSettings({
-                  embeddingsChat: { ...embeddingsChat, memoryReinforcementEnabled: enabled },
-                });
-              }}
-            />
-          </div>
-
-          {embeddingsChat.memoryReinforcementEnabled && (
-            <div className="space-y-3 pl-1 border-l-2 border-amber-300/30">
-              <div className="space-y-2">
-                <Label className="text-xs">Umbral de similitud: {Math.round((embeddingsChat.memoryReinforcementThreshold || 0.7) * 100)}%</Label>
-                <Slider
-                  value={[embeddingsChat.memoryReinforcementThreshold || 0.7]}
-                  min={0.3}
-                  max={0.95}
-                  step={0.05}
-                  onValueChange={([v]) => {
-                    updateSettings({
-                      embeddingsChat: { ...embeddingsChat, memoryReinforcementThreshold: v },
-                    });
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Cuánta similitud para considerar que una memoria fue mencionada. Más bajo = más memorias refuerzo, pero puede haber falsos positivos.
-                </p>
-              </div>
-              <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Refuerzo por Repetición</p>
-                    <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
-                      <li>Cuando el LLM menciona o parafrasea una memoria existente</li>
-                      <li>La importancia de esa memoria aumenta automáticamente</li>
-                      <li>Las memorias más reforzadas se preservan mejor en la consolidación</li>
-                      <li>Ayuda a que el sistema priorice memorias que el personaje "recuerda"</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Group Dynamics Extraction */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Layers className="w-4 h-4 text-fuchsia-500" />
-            Dinámicas Grupales
-          </CardTitle>
-          <CardDescription>
-            Extrae relaciones entre personajes en chats de grupo
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-sm">Activar Dinámicas Grupales</Label>
-              <p className="text-[10px] text-muted-foreground">
-                Detecta automáticamente interacciones y relaciones entre personajes
-              </p>
-            </div>
-            <Switch
-              checked={!!embeddingsChat.groupDynamicsExtraction}
-              onCheckedChange={(enabled) => {
-                updateSettings({
-                  embeddingsChat: { ...embeddingsChat, groupDynamicsExtraction: enabled },
-                });
-              }}
-            />
-          </div>
-
-          {embeddingsChat.groupDynamicsExtraction && (
-            <div className="bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg p-3">
-              <div className="flex items-start gap-2">
-                <Layers className="w-4 h-4 text-fuchsia-500 mt-0.5 shrink-0" />
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400">Dinámicas de Grupo</p>
-                  <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
-                    <li>Analiza todo el turno de conversación para detectar interacciones entre personajes</li>
-                    <li>Extrae alianzas, conflictos, y tendencias de relación</li>
-                    <li>Se ejecuta automáticamente cuando 2+ personajes responden en el mismo turno</li>
-                    <li>Las dinámicas se guardan en el namespace del grupo</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Search Context Depth */}
       <Card>
         <CardHeader className="pb-3">
@@ -1082,416 +752,7 @@ function ExtraccionTab() {
         </div>
       </div>
 
-      {/* Prompts Editor */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Pencil className="w-4 h-4 text-violet-500" />
-            Prompts de Extracción
-          </CardTitle>
-          <CardDescription>
-            Personaliza los prompts que el LLM usa para extraer hechos memorables
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Prompt type info */}
-          <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg p-3">
-            <div className="flex items-start gap-2">
-              <Pencil className="w-4 h-4 text-violet-500 mt-0.5 shrink-0" />
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-violet-600 dark:text-violet-400">Prompts de Extracción de Memoria</p>
-                <p className="text-[10px] text-muted-foreground">
-                  Personaliza los prompts que el LLM usa para extraer hechos memorables. Puedes configurar un prompt diferente para chat normal y chats de grupo.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Sub-tabs for normal vs group */}
-          <div className="flex gap-1 p-1 bg-muted rounded-lg">
-            <button
-              className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                isNormal ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-              onClick={() => setActivePromptTab('normal')}
-            >
-              <MessageSquare className="w-3 h-3" />
-              Chat Normal
-              {embeddingsChat.memoryExtractionPrompt && embeddingsChat.memoryExtractionPrompt !== DEFAULT_MEMORY_EXTRACTION_PROMPT && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Personalizado" />
-              )}
-            </button>
-            <button
-              className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                !isNormal ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-              onClick={() => setActivePromptTab('group')}
-            >
-              <Layers className="w-3 h-3" />
-              Chat Grupo
-              {embeddingsChat.groupMemoryExtractionPrompt && embeddingsChat.groupMemoryExtractionPrompt !== DEFAULT_GROUP_MEMORY_EXTRACTION_PROMPT && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Personalizado" />
-              )}
-            </button>
-          </div>
-
-          {/* Info box for current prompt type */}
-          {isNormal ? (
-            <div className="text-[10px] text-muted-foreground space-y-1 bg-blue-500/5 border border-blue-500/20 rounded-lg p-2.5">
-              <p className="font-medium text-blue-600 dark:text-blue-400">Chat Normal (1:1)</p>
-              <p>Optimizado para la relación entre el jugador y un único personaje. Se enfoca en hechos sobre el usuario, preferencias y eventos compartidos.</p>
-              <p>Variables: <code className="bg-muted px-1 py-0.5 rounded">{'{characterName}'}</code> <code className="bg-muted px-1 py-0.5 rounded">{'{lastMessage}'}</code> <code className="bg-muted px-1 py-0.5 rounded">{'{chatContext}'}</code></p>
-            </div>
-          ) : (
-            <div className="text-[10px] text-muted-foreground space-y-1 bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg p-2.5">
-              <p className="font-medium text-fuchsia-600 dark:text-fuchsia-400">Chat Grupo (individual por personaje)</p>
-              <p>Optimizado para capturar interacciones entre personajes. Presta atención a reacciones, opiniones sobre otros y dinámicas interpersonales del contexto grupal.</p>
-              <p>Variables: <code className="bg-muted px-1 py-0.5 rounded">{'{characterName}'}</code> <code className="bg-muted px-1 py-0.5 rounded">{'{lastMessage}'}</code> <code className="bg-muted px-1 py-0.5 rounded">{'{chatContext}'}</code> (incluye respuestas de otros personajes)</p>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Prompt personalizado</Label>
-              <div className="flex gap-1.5">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-[10px] px-2"
-                  onClick={() => setShowPreview(!showPreview)}
-                >
-                  <Eye className="w-3 h-3 mr-1" />
-                  {showPreview ? 'Ocultar Vista Previa' : 'Vista Previa'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-[10px] px-2 text-muted-foreground hover:text-foreground"
-                  onClick={handleRestoreDefault}
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" />
-                  Restaurar Predeterminado
-                </Button>
-              </div>
-            </div>
-            <Textarea
-              value={currentPrompt}
-              onChange={(e) => handleChange(e.target.value)}
-              rows={18}
-              className="text-xs font-mono leading-relaxed"
-              placeholder={isNormal ? "Escribe el prompt personalizado para extracción de memoria en chat normal..." : "Escribe el prompt personalizado para extracción de memoria en chat de grupo..."}
-            />
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] text-muted-foreground">
-                {currentPrompt.length} caracteres
-                {hasChanges && (
-                  <span className="text-amber-500 ml-2">● Sin guardar</span>
-                )}
-              </p>
-              <Button
-                size="sm"
-                disabled={!hasChanges}
-                onClick={handleSavePrompt}
-              >
-                Guardar Prompt
-              </Button>
-            </div>
-          </div>
-
-          {showPreview && (
-            <div className="space-y-2">
-              <Label className="text-xs flex items-center gap-1.5">
-                <Eye className="w-3 h-3" />
-                Vista Previa — {isNormal ? 'Chat Normal' : 'Chat Grupo'} (con variables reemplazadas)
-              </Label>
-              <div className="p-3 rounded-lg border bg-muted/30 max-h-96 overflow-y-auto">
-                <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">{previewText}</pre>
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Variables reemplazadas: <code className="bg-muted px-1 py-0.5 rounded text-[10px]">{'{characterName}'}</code> → &quot;{previewData.characterName}&quot;,
-                <code className="bg-muted px-1 py-0.5 rounded text-[10px] ml-1">{'{chatContext}'}</code> → contexto de ejemplo,
-                <code className="bg-muted px-1 py-0.5 rounded text-[10px] ml-1">{'{lastMessage}'}</code> → un mensaje de ejemplo.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Límites de Contexto — moved from old ContextoTab */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Database className="w-4 h-4 text-cyan-500" />
-            Límites de Contexto
-          </CardTitle>
-          <CardDescription>
-            Controla cuántos mensajes se envían al LLM. Un contexto más pequeño ahorra tokens,
-            mientras que un contexto más grande mantiene más historial.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Max Messages Slider */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <Label>Máximo de Mensajes</Label>
-              <span className="text-muted-foreground">{contextSettings.maxMessages}</span>
-            </div>
-            <Slider
-              value={[contextSettings.maxMessages]}
-              min={2}
-              max={200}
-              step={1}
-              onValueChange={([maxMessages]) => updateContextSettings({ maxMessages })}
-            />
-            <p className="text-xs text-muted-foreground">
-              Ventana deslizante de mensajes (mínimo 2). Los mensajes más antiguos se excluyen.
-              Este es el límite duro: se envían como máximo esta cantidad de mensajes al LLM.
-            </p>
-          </div>
-
-          {/* Max Tokens Slider */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <Label>Límite de Tokens</Label>
-              <span className="text-muted-foreground">{contextSettings.maxTokens}</span>
-            </div>
-            <Slider
-              value={[contextSettings.maxTokens]}
-              min={1024}
-              max={128000}
-              step={512}
-              onValueChange={([maxTokens]) => updateContextSettings({ maxTokens })}
-            />
-            <p className="text-xs text-muted-foreground">
-              Presupuesto de tokens para el historial. Se ajusta según el proveedor.
-            </p>
-          </div>
-
-          {/* Keep First/Last N */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-xs">Conservar Primeros N</Label>
-              <Input
-                type="number"
-                value={contextSettings.keepFirstN}
-                onChange={(e) => updateContextSettings({ keepFirstN: parseInt(e.target.value) || 1 })}
-                min={0}
-                max={10}
-                className="h-9"
-              />
-              <p className="text-xs text-muted-foreground">Mensaje de saludo</p>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Conservar Últimos N</Label>
-              <Input
-                type="number"
-                value={contextSettings.keepLastN}
-                onChange={(e) => updateContextSettings({ keepLastN: parseInt(e.target.value) || 20 })}
-                min={2}
-                max={50}
-                className="h-9"
-              />
-              <p className="text-xs text-muted-foreground">Mensajes recientes (mínimo 2)</p>
-            </div>
-          </div>
-
-          {/* Info box */}
-          <div className="p-3 rounded-lg bg-muted/30 text-xs space-y-1">
-            <p className="font-medium">¿Cómo funciona la ventana deslizante?</p>
-            <ul className="text-muted-foreground space-y-1">
-              <li>• «Máximo de Mensajes» es un límite duro: nunca se envían más mensajes que ese número.</li>
-              <li>• Los mensajes se excluyen del centro cuando exceden el límite.</li>
-              <li>• El mensaje de saludo se conserva solo si hay espacio (los recientes tienen prioridad).</li>
-              <li>• Los últimos N mensajes recientes siempre se incluyen (se ajustan al límite).</li>
-              <li>• El límite de tokens tiene prioridad sobre el conteo de mensajes.</li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Límites de Memoria Enviada — controls how many memories reach the LLM */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Brain className="w-4 h-4 text-violet-500" />
-            Límites de Memoria Enviada
-          </CardTitle>
-          <CardDescription>
-            Controla cuántas memorias se inyectan en el prompt del LLM en cada mensaje.
-            Las memorias se seleccionan por relevancia (similitud con el mensaje actual),
-            importancia y recencia — nunca se envían todas.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Max memories retrieved via embeddings search */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <Label>Memorias Relevantes Inyectadas</Label>
-              <span className="text-muted-foreground">{embeddingsChat.memoryMaxResults ?? 5}</span>
-            </div>
-            <Slider
-              value={[embeddingsChat.memoryMaxResults ?? 5]}
-              min={2}
-              max={20}
-              step={1}
-              onValueChange={([v]) => {
-                updateSettings({
-                  embeddingsChat: { ...embeddingsChat, memoryMaxResults: v },
-                });
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Máximo de memorias recuperadas por búsqueda semántica e inyectadas como
-              [MEMORIA RELEVANTE]. Se eligen las más relevantes al contexto del mensaje actual
-              (reranking por similitud + decaimiento temporal + importancia + calor).
-            </p>
-          </div>
-
-          {/* Max character memory events injected */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <Label>Eventos de Memoria del Personaje</Label>
-              <span className="text-muted-foreground">{embeddingsChat.memoryMaxEventsInPrompt ?? 20}</span>
-            </div>
-            <Slider
-              value={[embeddingsChat.memoryMaxEventsInPrompt ?? 20]}
-              min={2}
-              max={50}
-              step={1}
-              onValueChange={([v]) => {
-                updateSettings({
-                  embeddingsChat: { ...embeddingsChat, memoryMaxEventsInPrompt: v },
-                });
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Máximo de eventos de la lista «Eventos Recordados» (pestaña Personaje) que se
-              inyectan en el prompt. Se eligen por importancia y recencia. Estos eventos solo se
-              inyectan cuando la búsqueda semántica no encuentra memorias relevantes.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-lg bg-violet-500/5 border border-violet-500/20 text-xs space-y-1">
-            <p className="font-medium text-violet-600 dark:text-violet-400">Prioridad de selección</p>
-            <ul className="text-muted-foreground space-y-1">
-              <li>• 1º: Similitud con el mensaje actual (búsqueda vectorial en LanceDB)</li>
-              <li>• 2º: Importancia (1-5, configurada al extraer o crear la memoria)</li>
-              <li>• 3º: Recencia y «calor» (memorias usadas recientemente suben de prioridad)</li>
-              <li>• 4º: Decaimiento temporal (memorias antiguas pierden relevancia gradualmente)</li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Contexto de Embeddings en Chat — moved from old ContextoTab */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Brain className="w-4 h-4 text-purple-500" />
-            Contexto de Embeddings en Chat
-          </CardTitle>
-          <CardDescription>
-            Recupera automáticamente embeddings relevantes al chatear y los inyecta como contexto en el prompt de la IA.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-sm">Activar en Chat</Label>
-              <p className="text-[10px] text-muted-foreground">
-                Busca embeddings en cada mensaje y agrega contexto al prompt
-              </p>
-            </div>
-            <Switch
-              checked={embeddingsChat.enabled}
-              onCheckedChange={(enabled) => {
-                updateSettings({
-                  embeddingsChat: { ...embeddingsChat, enabled },
-                });
-              }}
-            />
-          </div>
-
-          {embeddingsChat.enabled && (
-            <>
-              <Separator />
-
-              <div className="space-y-2">
-                <Label className="text-xs">Estrategia de Búsqueda por Namespace</Label>
-                <Select
-                  value={embeddingsChat.namespaceStrategy}
-                  onValueChange={(v) => {
-                    updateSettings({
-                      embeddingsChat: { ...embeddingsChat, namespaceStrategy: v as 'global' | 'character' | 'session' },
-                    });
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="character">
-                      <div className="flex flex-col">
-                        <span>Por Personaje</span>
-                        <span className="text-[10px] text-muted-foreground">Busca namespaces específicos del personaje + default + mundo</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="session">
-                      <div className="flex flex-col">
-                        <span>Por Sesión</span>
-                        <span className="text-[10px] text-muted-foreground">Busca namespaces de sesión + personaje + default</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="global">
-                      <div className="flex flex-col">
-                        <span>Global (Todos)</span>
-                        <span className="text-[10px] text-muted-foreground">Busca todos los namespaces sin importar personaje o sesión</span>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs">Presupuesto de Tokens de Contexto: ~{embeddingsChat.maxTokenBudget} tokens</Label>
-                <Slider
-                  value={[embeddingsChat.maxTokenBudget]}
-                  min={128}
-                  max={4096}
-                  step={128}
-                  onValueChange={([v]) => {
-                    updateSettings({
-                      embeddingsChat: { ...embeddingsChat, maxTokenBudget: v },
-                    });
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Limita cuántos tokens de contexto de embeddings se agregan al prompt. Valores más altos dan más contexto pero usan más de la ventana de contexto.
-                </p>
-              </div>
-
-              {/* How it works info box for context retrieval */}
-              <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <Brain className="w-4 h-4 text-violet-500 mt-0.5 shrink-0" />
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-violet-600 dark:text-violet-400">Cómo funciona la recuperación de contexto</p>
-                    <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
-                      <li>Cuando envías un mensaje, el sistema genera un vector embedding de tu texto</li>
-                      <li>Si hay contexto de búsqueda, se concatena con tu mensaje para encontrar resultados más relevantes</li>
-                      <li>Busca en los namespaces seleccionados embeddings similares</li>
-                      <li>Los mejores resultados se inyectan en el prompt de la IA como contexto</li>
-                      <li>La IA usa este contexto para generar respuestas más informadas</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {/* NOTE (Memory V2): los prompts de extracción legacy fueron eliminados. La extracción V2 usa un prompt interno optimizado (merged pass, ops ADD/UPDATE/DELETE). */}
     </div>
   );
 }
@@ -1504,26 +765,21 @@ export function MemorySettingsPanel() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="resumenes" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="resumenes" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <FileText className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Resúmenes</span>
             <span className="sm:hidden">Resum.</span>
-          </TabsTrigger>
-          <TabsTrigger value="personaje" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <User className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Personaje</span>
-            <span className="sm:hidden">Pers.</span>
           </TabsTrigger>
           <TabsTrigger value="extraccion" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Brain className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Extracción y Contexto</span>
             <span className="sm:hidden">Ext. Ctx.</span>
           </TabsTrigger>
-          <TabsTrigger value="decaimiento" className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <History className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Decaimiento</span>
-            <span className="sm:hidden">Decay</span>
+          <TabsTrigger value="v2" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <DatabaseZap className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Memoria V2</span>
+            <span className="sm:hidden">V2</span>
           </TabsTrigger>
         </TabsList>
 
@@ -1531,16 +787,12 @@ export function MemorySettingsPanel() {
           <ResumenesTab />
         </TabsContent>
 
-        <TabsContent value="personaje" className="mt-4">
-          <PersonajeTab />
-        </TabsContent>
-
         <TabsContent value="extraccion" className="mt-4">
           <ExtraccionTab />
         </TabsContent>
 
-        <TabsContent value="decaimiento" className="mt-4">
-          <DecaimientoTab />
+        <TabsContent value="v2" className="mt-4">
+          <MemoryV2Tab />
         </TabsContent>
       </Tabs>
     </div>
@@ -1548,16 +800,54 @@ export function MemorySettingsPanel() {
 }
 
 // ============================================
-// FASE 14: Memory Decay Tab
+// Memory V2 Tab — unified memory system status
 // ============================================
-// Cross-session memory + temporal decay + cleanup script (no LLM).
+// Health (backend/model/dim/counts), manual legacy→V2 migration and reinit
+// after model changes. Records browser for the active character.
 
-function DecaimientoTab() {
+interface V2HealthData {
+  backend: 'lancedb' | 'json';
+  lancedbNative: boolean;
+  model: string;
+  dimension: number;
+  meta: { model: string; dimension: number; needsReembed: boolean } | null;
+  counts: { total: number; active: number; superseded: number; byType: Record<string, number> };
+  ollama?: { reachable: boolean; model: string; dimension: number; contextLength?: number };
+  error?: string;
+}
+
+interface V2RecordLite {
+  id: string;
+  type: string;
+  content: string;
+  source: 'auto' | 'curada';
+  importance: number;
+  eventDate: string;
+  supersededBy: string;
+}
+
+const V2_TYPE_LABELS: Record<string, string> = {
+  evento: 'Eventos',
+  hecho: 'Hechos',
+  preferencia: 'Preferencias',
+  relacion: 'Relación',
+  nota: 'Notas',
+  resumen_escena: 'Resúmenes de escena',
+};
+
+function MemoryV2Tab() {
   const settings = useTavernStore((s) => (s.settings as any)?.embeddingsChat) || DEFAULT_EMBEDDINGS_CHAT;
   const updateSettings = useTavernStore((s) => s.updateSettings);
-  const [cleanupRunning, setCleanupRunning] = useState(false);
-  const [preview, setPreview] = useState<{ totalMemories: number; wouldArchive: number; oldestMemoryDate: string | null } | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(false);
+  const activeCharacterId = useTavernStore((s) => s.activeCharacterId);
+  const activeCharacter = useTavernStore((s) => s.characters)?.find((c: any) => c.id === activeCharacterId);
+
+  const [health, setHealth] = useState<V2HealthData | null>(null);
+  const [records, setRecords] = useState<V2RecordLite[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [reiniting, setReiniting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<V2RecordLite[] | null>(null);
 
   const updateEmbeddingsChat = (updates: Record<string, unknown>) => {
     updateSettings({
@@ -1565,240 +855,315 @@ function DecaimientoTab() {
     } as any);
   };
 
-  const loadPreview = useCallback(async () => {
-    setLoadingPreview(true);
+  const loadHealth = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await fetch(`/api/embeddings/cleanup-old?decayDays=${settings.memoryDecayDays ?? 14}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setPreview(data.preview);
-        }
-      }
-    } catch (err) {
-      console.warn('[DecaimientoTab] Preview error:', err);
+      const res = await fetch('/api/memory/v2?action=health');
+      const data = await res.json();
+      if (data.success) setHealth(data.health);
+    } catch {
+      /* silent */
     } finally {
-      setLoadingPreview(false);
+      setLoading(false);
     }
-  }, [settings.memoryDecayDays]);
+  }, []);
 
-  const runCleanup = async () => {
-    setCleanupRunning(true);
+  const loadRecords = useCallback(async () => {
+    if (!activeCharacterId) return;
     try {
-      const res = await fetch('/api/embeddings/cleanup-old', {
+      const res = await fetch(`/api/memory/v2?action=records&charId=${encodeURIComponent(activeCharacterId)}&limit=200`);
+      const data = await res.json();
+      if (data.success) setRecords(data.records || []);
+    } catch {
+      /* silent */
+    }
+  }, [activeCharacterId]);
+
+  // Initial load
+  useEffect(() => {
+    loadHealth();
+    loadRecords();
+  }, [loadHealth, loadRecords]);
+
+  const runMigration = async () => {
+    setMigrating(true);
+    try {
+      const res = await fetch('/api/memory/v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          decayEnabled: settings.memoryDecayEnabled ?? true,
-          decayDays: settings.memoryDecayDays ?? 14,
-          cleanEventLog: true,
-        }),
+        body: JSON.stringify({ action: 'migrate', charId: activeCharacterId || undefined }),
       });
       const data = await res.json();
       if (data.success) {
-        const r = data.result;
-        toast.success('Limpieza completada', {
-          description: `${r.deleted} memorias eliminadas, ${r.eventLogCleaned} eventos limpiados (${(r.duration / 1000).toFixed(1)}s)`,
-        });
-        // Refresh preview
-        loadPreview();
+        toast.success(`Migración completada: ${data.migrated} nuevos, ${data.skipped} ya existentes`);
+        loadHealth();
+        loadRecords();
       } else {
-        toast.error('Error en limpieza', { description: data.error });
+        toast.error(data.error || 'Migración fallida');
       }
-    } catch (err) {
-      toast.error('Error de conexión', { description: 'No se pudo ejecutar la limpieza' });
+    } catch {
+      toast.error('Error de red durante la migración');
     } finally {
-      setCleanupRunning(false);
+      setMigrating(false);
     }
   };
 
+  const runReinit = async () => {
+    setReiniting(true);
+    try {
+      const res = await fetch('/api/memory/v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reinit' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setHealth(data.health);
+        toast.success(`Store reinicializado (backend: ${data.health?.backend || '?'})`);
+        loadRecords();
+      }
+    } catch {
+      toast.error('Error reinicializando el store');
+    } finally {
+      setReiniting(false);
+    }
+  };
+
+  const runSearch = async () => {
+    if (!activeCharacterId || !searchQuery.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/memory/v2?action=search&charId=${encodeURIComponent(activeCharacterId)}&query=${encodeURIComponent(searchQuery)}&limit=8`);
+      const data = await res.json();
+      if (data.success) {
+        setSearchResults(data.results || []);
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const v2On = settings.memoryV2Enabled !== false;
+
   return (
     <div className="space-y-4">
-      {/* Cross-Session Memory */}
+      {/* Toggle */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <History className="w-4 h-4" />
-            Memoria Cross-Session
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <DatabaseZap className="w-4 h-4" />
+            Memoria V2 (Sistema Unificado)
           </CardTitle>
-          <CardDescription className="text-xs">
-            Cuando está activado, los personajes recuerdan interacciones con el usuario y otros personajes entre sesiones.
-            Las memorias se almacenan sin sessionId en el namespace, persistiendo permanentemente.
+          <CardDescription>
+            Un solo almacén con extracción unificada (ADD/UPDATE/DELETE), fechas absolutas, eventos first-class e
+            inyección particionada [HECHOS]/[EVENTOS]/[RELACIÓN]. Reemplaza la doble capa Memoria del Personaje + embeddings.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-sm">Memoria cross-session</Label>
+            <div>
+              <Label className="text-sm font-medium">Memoria V2 activada</Label>
               <p className="text-xs text-muted-foreground">
-                Los personajes recuerdan entre sesiones (recomendado)
+                Interruptor maestro único del sistema de memoria (hechos, eventos, emociones):
+                controla la inyección en el prompt, la extracción automática y las tools del LLM.
+                No depende de ningún otro ajuste. El Conocimiento (archivos indexados) y los
+                Resúmenes (compresión de contexto) siguen funcionando por separado aunque la desactives.
               </p>
             </div>
             <Switch
-              checked={settings.crossSessionMemory ?? true}
+              checked={v2On}
+              onCheckedChange={(checked) => updateEmbeddingsChat({ memoryV2Enabled: checked })}
+            />
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border/40 pt-3">
+            <div>
+              <Label className="text-sm font-medium">Memoria entre sesiones</Label>
+              <p className="text-xs text-muted-foreground">
+                Al buscar recuerdos que inyectar, incluye también los guardados en sesiones
+                anteriores de este personaje (y de este grupo). Desactívalo para que cada sesión
+                tenga una memoria aislada — útil para roles independientes con el mismo personaje.
+              </p>
+            </div>
+            <Switch
+              checked={settings.crossSessionMemory !== false}
               onCheckedChange={(checked) => updateEmbeddingsChat({ crossSessionMemory: checked })}
             />
           </div>
-          {settings.crossSessionMemory === false && (
-            <div className="flex items-start gap-2 p-2 rounded-md bg-amber-500/5 border border-amber-500/20 text-xs">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-              <p className="text-muted-foreground">
-                <span className="text-amber-500 font-medium">Desactivado:</span> Las memorias se aislarán por sesión.
-                Los personajes no recordarán interacciones de sesiones anteriores.
-              </p>
+        </CardContent>
+      </Card>
+
+      {/* Health */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center justify-between text-base">
+            <span className="flex items-center gap-2">
+              <Activity className="w-4 h-4" />
+              Estado del Store
+            </span>
+            <div className="flex gap-1.5">
+              <Button variant="outline" size="sm" onClick={loadHealth} disabled={loading}>
+                <RefreshCw className={cn('w-3.5 h-3.5 mr-1', loading && 'animate-spin')} />
+                Actualizar
+              </Button>
+              <Button variant="outline" size="sm" onClick={runReinit} disabled={reiniting}>
+                <RotateCcw className={cn('w-3.5 h-3.5 mr-1', reiniting && 'animate-spin')} />
+                Reinit
+              </Button>
             </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {health ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground text-xs">Backend activo</p>
+                  <p className={cn('font-medium', health.backend === 'lancedb' ? 'text-green-600' : 'text-amber-600')}>
+                    {health.backend === 'lancedb' ? 'LanceDB (vectores)' : 'JSON (fallback léxico)'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Módulo nativo</p>
+                  <p className={cn('font-medium', health.lancedbNative ? 'text-green-600' : 'text-red-600')}>
+                    {health.lancedbNative ? 'Disponible' : 'No disponible'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Modelo / Dim</p>
+                  <p className="font-medium truncate">{health.model} · {health.dimension}d</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Ollama</p>
+                  <p className={cn('font-medium', health.ollama?.reachable ? 'text-green-600' : 'text-red-600')}>
+                    {health.ollama?.reachable ? 'Conectado' : 'Sin conexión'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Registros activos</p>
+                  <p className="font-medium">{health.counts.active} <span className="text-muted-foreground text-xs">({health.counts.total} totales, {health.counts.superseded} archivados)</span></p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Por tipo</p>
+                  <p className="font-medium text-xs leading-4">
+                    {Object.entries(health.counts.byType).map(([t, n]) => `${V2_TYPE_LABELS[t] || t}: ${n}`).join(' · ') || '—'}
+                  </p>
+                </div>
+              </div>
+              {health.meta?.needsReembed && (
+                <div className="flex items-start gap-2 p-2.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-xs">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                  <span>
+                    Cambio de modelo pendiente de re-embed (Ollama no estaba disponible). Pulsa <b>Reinit</b> cuando Ollama
+                    esté activo para regenerar los vectores.
+                  </span>
+                </div>
+              )}
+              {health.error && (
+                <p className="text-xs text-muted-foreground">Aviso de init: {health.error}</p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Cargando estado…</p>
           )}
         </CardContent>
       </Card>
 
-      {/* Temporal Decay */}
+      {/* Migration */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Clock className="w-4 h-4" />
-            Decaimiento Temporal
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Database className="w-4 h-4" />
+            Migración Legacy → V2
           </CardTitle>
-          <CardDescription className="text-xs">
-            Las memorias más antiguas que el período configurado se eliminan automáticamente.
-            El script de limpieza (sin LLM) las elimina de la base de datos vectorial y del log de eventos.
+          <CardDescription>
+            Importa la Memoria del Personaje (data/memory.json) y los embeddings legacy (namespaces) al store unificado.
+            Es idempotente: los registros ya migrados se omiten.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-sm">Decaimiento activado</Label>
-              <p className="text-xs text-muted-foreground">
-                Elimina memorias viejas según el período configurado
-              </p>
-            </div>
-            <Switch
-              checked={settings.memoryDecayEnabled ?? true}
-              onCheckedChange={(checked) => updateEmbeddingsChat({ memoryDecayEnabled: checked })}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-sm">Período de decaimiento (días)</Label>
-              <span className="text-sm font-mono text-muted-foreground">
-                {settings.memoryDecayDays ?? 14} días
-              </span>
-            </div>
-            <Slider
-              value={[settings.memoryDecayDays ?? 14]}
-              min={1}
-              max={90}
-              step={1}
-              onValueChange={(value) => updateEmbeddingsChat({ memoryDecayDays: value[0] })}
-              disabled={!(settings.memoryDecayEnabled ?? true)}
-            />
-            <div className="flex justify-between text-[10px] text-muted-foreground">
-              <span>1 día</span>
-              <span>2 semanas (estándar)</span>
-              <span>3 meses</span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-sm">Memory heat (refuerzo)</Label>
-              <p className="text-xs text-muted-foreground">
-                Las memorias recuperadas frecuentemente se priorizan
-              </p>
-            </div>
-            <Switch
-              checked={settings.memoryHeatEnabled ?? true}
-              onCheckedChange={(checked) => updateEmbeddingsChat({ memoryHeatEnabled: checked })}
-            />
-          </div>
+        <CardContent>
+          <Button size="sm" onClick={runMigration} disabled={migrating}>
+            <DatabaseZap className={cn('w-3.5 h-3.5 mr-1.5', migrating && 'animate-pulse')} />
+            {migrating ? 'Migrando…' : 'Migrar datos legacy'}
+          </Button>
         </CardContent>
       </Card>
 
-      {/* Cleanup Script */}
+      {/* Records browser + debug search */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Trash2 className="w-4 h-4" />
-            Script de Limpieza (sin LLM)
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Ejecuta la limpieza de memorias viejas. Esta operación es 100% interna (sin LLM),
-            elimina memorias de la base de datos vectorial y limpia el log de eventos de sesiones.
-          </CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Registros V2 de {activeCharacter?.name || '…'}</CardTitle>
+          <CardDescription>Lo que el personaje realmente recuerda (store unificado, activeOnly).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* Preview */}
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadPreview}
-              disabled={loadingPreview}
-            >
-              {loadingPreview ? <RotateCcw className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Eye className="w-3.5 h-3.5 mr-1" />}
-              Vista previa
+          <div className="flex gap-2">
+            <Input
+              placeholder="Buscar en la memoria (debug: prueba el reranking)…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+              className="text-sm"
+            />
+            <Button size="sm" variant="outline" onClick={runSearch} disabled={!searchQuery.trim() || loading}>
+              Buscar
             </Button>
           </div>
 
-          {preview && (
-            <div className="p-3 rounded-md border bg-muted/30 text-xs space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total memorias:</span>
-                <span className="font-mono">{preview.totalMemories}</span>
+          {searchResults && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Resultados de búsqueda ({searchResults.length})</p>
+              <div className="max-h-40 overflow-y-auto space-y-1">
+                {searchResults.length === 0 && <p className="text-xs text-muted-foreground">Sin resultados.</p>}
+                {searchResults.map((r) => (
+                  <div key={r.id} className="text-xs p-2 rounded bg-muted/50">
+                    <span className="font-medium">{r.type}</span> · score {(r as any).score?.toFixed(2) || '?'}
+                    <p>{r.content}</p>
+                  </div>
+                ))}
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Serían eliminadas:</span>
-                <span className="font-mono text-amber-500">{preview.wouldArchive}</span>
-              </div>
-              {preview.oldestMemoryDate && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Memoria más vieja:</span>
-                  <span className="font-mono">{new Date(preview.oldestMemoryDate).toLocaleDateString()}</span>
-                </div>
-              )}
             </div>
           )}
 
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" size="sm" disabled={cleanupRunning}>
-                {cleanupRunning ? (
-                  <><RotateCcw className="w-3.5 h-3.5 mr-1 animate-spin" /> Limpiando...</>
-                ) : (
-                  <><Trash2 className="w-3.5 h-3.5 mr-1" /> Ejecutar limpieza ahora</>
-                )}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>¿Ejecutar limpieza de memorias?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Esta acción eliminará permanentemente todas las memorias con más de{' '}
-                  <strong>{settings.memoryDecayDays ?? 14} días</strong> de antigüedad.
-                  También limpiará el log de eventos de las sesiones.
-                  <br /><br />
-                  Esta acción <strong>no se puede deshacer</strong>.
-                  Las memorias eliminadas no se pueden recuperar.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={runCleanup}>
-                  Sí, eliminar memorias viejas
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <Separator />
 
-          <div className="flex items-start gap-2 p-2 rounded-md bg-blue-500/5 border border-blue-500/20 text-xs">
-            <Info className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
-            <p className="text-muted-foreground">
-              La limpieza es 100% interna (sin LLM). Solo elimina memorias por fecha.
-              No requiere conexión a internet ni llamadas a la API.
-            </p>
+          <div className="max-h-96 overflow-y-auto space-y-3 custom-scrollbar">
+            {records.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Sin registros V2 todavía. Se crean automáticamente con la extracción de memoria, o migra los datos legacy.
+              </p>
+            ) : (
+              Object.entries(
+                records.reduce<Record<string, V2RecordLite[]>>((acc, r) => {
+                  (acc[r.type] ||= []).push(r);
+                  return acc;
+                }, {})
+              ).map(([type, recs]) => (
+                <div key={type} className="space-y-1">
+                  <p className="text-xs font-semibold">{V2_TYPE_LABELS[type] || type} ({recs.length})</p>
+                  {recs.map((r) => (
+                    <div key={r.id} className="text-xs p-2 rounded border bg-background">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        {r.source === 'curada' && (
+                          <span className="px-1 py-0.5 rounded bg-violet-500/15 text-violet-600 dark:text-violet-300 text-[10px] font-medium">
+                            fijado
+                          </span>
+                        )}
+                        <span className="text-muted-foreground">
+                          {r.eventDate ? new Date(r.eventDate).toLocaleDateString('es-MX') : '—'}
+                        </span>
+                      </div>
+                      <p>{r.content}</p>
+                    </div>
+                  ))}
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>
     </div>
   );
 }
+

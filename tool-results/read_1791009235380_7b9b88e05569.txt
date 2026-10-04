@@ -1,0 +1,1650 @@
+     1→// ============================================
+     2→// TTS Settings Panel - Configure TTS integration
+     3→// Supports TTS-WebUI and OmniVoice Studio providers
+     4→// ============================================
+     5→
+     6→'use client';
+     7→
+     8→import { useState, useEffect, useCallback } from 'react';
+     9→import { Button } from '@/components/ui/button';
+    10→import { Input } from '@/components/ui/input';
+    11→import { Label } from '@/components/ui/label';
+    12→import { Switch } from '@/components/ui/switch';
+    13→import { Slider } from '@/components/ui/slider';
+    14→import {
+    15→  Select,
+    16→  SelectContent,
+    17→  SelectItem,
+    18→  SelectTrigger,
+    19→  SelectValue,
+    20→} from '@/components/ui/select';
+    21→import {
+    22→  Card,
+    23→  CardContent,
+    24→  CardDescription,
+    25→  CardHeader,
+    26→  CardTitle,
+    27→} from '@/components/ui/card';
+    28→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    29→import {
+    30→  Collapsible,
+    31→  CollapsibleContent,
+    32→  CollapsibleTrigger,
+    33→} from '@/components/ui/collapsible';
+    34→import {
+    35→  Volume2,
+    36→  Mic,
+    37→  Upload,
+    38→  Play,
+    39→  Square,
+    40→  Trash2,
+    41→  RefreshCw,
+    42→  AlertCircle,
+    43→  CheckCircle,
+    44→  Loader2,
+    45→  Settings,
+    46→  Music,
+    47→  FileAudio,
+    48→  Save,
+    49→  Ear,
+    50→  Activity,
+    51→  Radio,
+    52→  Zap,
+    53→  ChevronDown,
+    54→  Globe,
+    55→  Sparkles,
+    56→} from 'lucide-react';
+    57→import { cn } from '@/lib/utils';
+    58→import type { TTSWebUIConfig, TTSProviderType, ASRConfig, WakeWordConfig, VADConfig, VoiceInfo, OmniVoiceProfile, OmniVoiceArchetype, OmniVoiceEngine } from '@/types';
+    59→
+    60→// Supported languages
+    61→const SUPPORTED_LANGUAGES = [
+    62→  { code: 'es', name: 'Español' },
+    63→  { code: 'en', name: 'English' },
+    64→  { code: 'ja', name: 'Japanese' },
+    65→  { code: 'zh', name: 'Chinese' },
+    66→  { code: 'ko', name: 'Korean' },
+    67→  { code: 'fr', name: 'French' },
+    68→  { code: 'de', name: 'German' },
+    69→  { code: 'it', name: 'Italian' },
+    70→  { code: 'pt', name: 'Portuguese' },
+    71→  { code: 'ru', name: 'Russian' },
+    72→  { code: 'ar', name: 'Arabic' },
+    73→  { code: 'hi', name: 'Hindi' },
+    74→];
+    75→
+    76→// Available TTS models per provider
+    77→const TTS_WEBUI_MODELS = [
+    78→  { id: 'multilingual', name: 'Chatterbox Multilingual', description: 'Multi-language TTS with voice cloning' },
+    79→  { id: 'chatterbox', name: 'Chatterbox', description: 'English TTS with voice cloning' },
+    80→  { id: 'chatterbox-turbo', name: 'Chatterbox Turbo', description: 'Fast TTS (350M params)' },
+    81→];
+    82→
+    83→const OMNIVOICE_MODELS = [
+    84→  { id: 'omnivoice', name: 'OmniVoice', description: 'Default multi-engine (646+ languages)' },
+    85→  { id: 'cosyvoice', name: 'CosyVoice 3', description: '9 langs + 18 dialects, voice cloning' },
+    86→  { id: 'voxcpm2', name: 'VoxCPM2', description: '30 languages, voice cloning + instruct' },
+    87→  { id: 'moss-tts-nano', name: 'MOSS-TTS-Nano', description: '20 languages, lightweight' },
+    88→  { id: 'kitten-tts', name: 'KittenTTS', description: 'English, CPU-friendly' },
+    89→  { id: 'gpt-sovits', name: 'GPT-SoVITS', description: 'Voice cloning + instruct' },
+    90→];
+    91→
+    92→// Provider configurations
+    93→const PROVIDER_CONFIGS: Record<TTSProviderType, { 
+    94→  name: string; 
+    95→  defaultUrl: string; 
+    96→  defaultModel: string;
+    97→  description: string;
+    98→}> = {
+    99→  'tts-webui': {
+   100→    name: 'TTS-WebUI',
+   101→    defaultUrl: 'http://localhost:7778',
+   102→    defaultModel: 'multilingual',
+   103→    description: 'Chatterbox TTS — Voice cloning, 23 languages',
+   104→  },
+   105→  'omnivoice': {
+   106→    name: 'OmniVoice Studio',
+   107→    defaultUrl: 'http://localhost:3900',
+   108→    defaultModel: 'omnivoice',
+   109→    description: 'Multi-engine TTS — 646+ languages, Voice Design',
+   110→  },
+   111→  'z-ai': {
+   112→    name: 'Z.ai',
+   113→    defaultUrl: '',
+   114→    defaultModel: 'default',
+   115→    description: 'Z.ai Cloud TTS',
+   116→  },
+   117→  'custom': {
+   118→    name: 'Custom',
+   119→    defaultUrl: 'http://localhost:8000',
+   120→    defaultModel: 'tts-1',
+   121→    description: 'OpenAI-compatible endpoint',
+   122→  },
+   123→};
+   124→
+   125→interface ServiceStatus {
+   126→  status: 'online' | 'offline' | 'checking';
+   127→  endpoint: string;
+   128→  error?: string;
+   129→}
+   130→
+   131→// Default configuration
+   132→const DEFAULT_TTS_CONFIG: TTSWebUIConfig = {
+   133→  enabled: false,
+   134→  autoGeneration: false,
+   135→  provider: 'tts-webui',
+   136→  baseUrl: 'http://localhost:7778',
+   137→  model: 'multilingual',
+   138→  whisperModel: 'whisper-large-v3',
+   139→  speed: 1.0,
+   140→  responseFormat: 'wav',
+   141→  language: 'es',
+   142→  exaggeration: 0.5,
+   143→  cfgWeight: 0.5,
+   144→  temperature: 0.8,
+   145→  generateDialogues: true,
+   146→  generateNarrations: true,
+   147→  generatePlainText: true,
+   148→  applyRegex: false,
+   149→  voiceDesign: '',
+   150→  instruct: '',
+   151→};
+   152→
+   153→const DEFAULT_ASR_CONFIG: ASRConfig = {
+   154→  enabled: false,
+   155→  provider: 'tts-webui',
+   156→  model: 'openai/whisper-small',
+   157→};
+   158→
+   159→const DEFAULT_KWS_CONFIG: WakeWordConfig = {
+   160→  enabled: false,
+   161→  wakeWords: [],
+   162→  sensitivity: 'medium',
+   163→  cooldownMs: 3000,
+   164→  language: 'es-ES',
+   165→};
+   166→
+   167→const DEFAULT_VAD_CONFIG: VADConfig = {
+   168→  enabled: true,
+   169→  silenceThreshold: 30,
+   170→  silenceDurationMs: 1500,
+   171→  minRecordingMs: 500,
+   172→  maxRecordingMs: 30000,
+   173→};
+   174→
+   175→export function TTSSettingsPanel() {
+   176→  const [ttsConfig, setTtsConfig] = useState<TTSWebUIConfig>(DEFAULT_TTS_CONFIG);
+   177→  const [asrConfig, setAsrConfig] = useState<ASRConfig>(DEFAULT_ASR_CONFIG);
+   178→  const [kwsConfig, setKwsConfig] = useState<WakeWordConfig>(DEFAULT_KWS_CONFIG);
+   179→  const [vadConfig, setVadConfig] = useState<VADConfig>(DEFAULT_VAD_CONFIG);
+   180→  const [serviceStatus, setServiceStatus] = useState<ServiceStatus>({
+   181→    status: 'checking',
+   182→    endpoint: DEFAULT_TTS_CONFIG.baseUrl,
+   183→  });
+   184→  const [availableVoices, setAvailableVoices] = useState<VoiceInfo[]>([]);
+   185→  const [omniVoiceProfiles, setOmniVoiceProfiles] = useState<OmniVoiceProfile[]>([]);
+   186→  const [omniVoiceArchetypes, setOmniVoiceArchetypes] = useState<OmniVoiceArchetype[]>([]);
+   187→  const [omniVoiceEngines, setOmniVoiceEngines] = useState<OmniVoiceEngine[]>([]);
+   188→  const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
+   189→  const [isLoadingArchetypes, setIsLoadingArchetypes] = useState(false);
+   190→  const [isLoading, setIsLoading] = useState(false);
+   191→  const [isSaving, setIsSaving] = useState(false);
+   192→  const [testText, setTestText] = useState('Hola, esta es una prueba de voz.');
+   193→  const [isPlaying, setIsPlaying] = useState(false);
+   194→  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+   195→  const [hasChanges, setHasChanges] = useState(false);
+   196→
+   197→  const isOmniVoice = ttsConfig.provider === 'omnivoice';
+   198→  const currentModels = isOmniVoice ? OMNIVOICE_MODELS : TTS_WEBUI_MODELS;
+   199→
+   200→  // Load saved config on mount
+   201→  useEffect(() => {
+   202→    loadSavedConfig();
+   203→  }, []);
+   204→
+   205→  // Check service status when URL changes
+   206→  useEffect(() => {
+   207→    if (ttsConfig.baseUrl) {
+   208→      checkServiceStatus();
+   209→      loadAvailableVoices();
+   210→      // Also load OmniVoice-specific data if that provider is selected
+   211→      if (ttsConfig.provider === 'omnivoice') {
+   212→        loadOmniVoiceProfiles();
+   213→        loadOmniVoiceArchetypes();
+   214→      }
+   215→    }
+   216→  }, [ttsConfig.baseUrl, ttsConfig.provider]);
+   217→
+   218→  // Load saved configuration
+   219→  const loadSavedConfig = async () => {
+   220→    try {
+   221→      const response = await fetch('/api/tts/config');
+   222→      const data = await response.json();
+   223→      if (data.success && data.config) {
+   224→        const loadedTts = { ...DEFAULT_TTS_CONFIG, ...data.config.tts };
+   225→        setTtsConfig(loadedTts);
+   226→        setAsrConfig(data.config.asr);
+   227→        if (data.config.kws) setKwsConfig(data.config.kws);
+   228→        if (data.config.vad) setVadConfig(data.config.vad);
+   229→      }
+   230→    } catch (error) {
+   231→      console.warn('[TTS Settings] Failed to load TTS config:', error);
+   232→    }
+   233→  };
+   234→
+   235→  // Save configuration
+   236→  const saveConfig = async () => {
+   237→    setIsSaving(true);
+   238→    try {
+   239→      const response = await fetch('/api/tts/config', {
+   240→        method: 'POST',
+   241→        headers: { 'Content-Type': 'application/json' },
+   242→        body: JSON.stringify({ 
+   243→          tts: ttsConfig, 
+   244→          asr: asrConfig,
+   245→          kws: kwsConfig,
+   246→          vad: vadConfig,
+   247→        }),
+   248→      });
+   249→      const data = await response.json();
+   250→      if (data.success) {
+   251→        setHasChanges(false);
+   252→      }
+   253→    } catch (error) {
+   254→      console.warn('[TTS Settings] Failed to save TTS config:', error);
+   255→    } finally {
+   256→      setIsSaving(false);
+   257→    }
+   258→  };
+   259→
+   260→  // Check service status
+   261→  const checkServiceStatus = useCallback(async () => {
+   262→    setServiceStatus(prev => ({ ...prev, status: 'checking' }));
+   263→
+   264→    try {
+   265→      const response = await fetch(`/api/tts/speech?endpoint=${encodeURIComponent(ttsConfig.baseUrl)}&provider=${ttsConfig.provider}`);
+   266→      const data = await response.json();
+   267→
+   268→      setServiceStatus({
+   269→        status: data.status,
+   270→        endpoint: ttsConfig.baseUrl,
+   271→        error: data.error,
+   272→      });
+   273→    } catch (error) {
+   274→      setServiceStatus({
+   275→        status: 'offline',
+   276→        endpoint: ttsConfig.baseUrl,
+   277→        error: error instanceof Error ? error.message : 'Cannot connect',
+   278→      });
+   279→    }
+   280→  }, [ttsConfig.baseUrl, ttsConfig.provider]);
+   281→
+   282→  // Load available voices from TTS service
+   283→  const loadAvailableVoices = async () => {
+   284→    try {
+   285→      const response = await fetch(`/api/tts/available-voices?endpoint=${encodeURIComponent(ttsConfig.baseUrl)}&provider=${ttsConfig.provider}`);
+   286→      const data = await response.json();
+   287→      if (data.success && data.voices && data.voices.length > 0) {
+   288→        setAvailableVoices(data.voices);
+   289→      } else {
+   290→        setAvailableVoices([]);
+   291→      }
+   292→      // Capture engines info from OmniVoice
+   293→      if (data.engines && Array.isArray(data.engines)) {
+   294→        setOmniVoiceEngines(data.engines);
+   295→      } else {
+   296→        setOmniVoiceEngines([]);
+   297→      }
+   298→    } catch (error) {
+   299→      console.warn('[TTS Settings] Failed to load available voices:', error);
+   300→      setAvailableVoices([]);
+   301→      setOmniVoiceEngines([]);
+   302→    }
+   303→  };
+   304→
+   305→  // Load OmniVoice voice profiles
+   306→  const loadOmniVoiceProfiles = async () => {
+   307→    setIsLoadingProfiles(true);
+   308→    try {
+   309→      const response = await fetch(`/api/tts/omnivoice/profiles?endpoint=${encodeURIComponent(ttsConfig.baseUrl)}`);
+   310→      const data = await response.json();
+   311→      if (data.success && data.profiles) {
+   312→        setOmniVoiceProfiles(data.profiles);
+   313→      } else {
+   314→        setOmniVoiceProfiles([]);
+   315→      }
+   316→    } catch (error) {
+   317→      console.warn('[TTS Settings] Failed to load OmniVoice profiles:', error);
+   318→      setOmniVoiceProfiles([]);
+   319→    } finally {
+   320→      setIsLoadingProfiles(false);
+   321→    }
+   322→  };
+   323→
+   324→  // Load OmniVoice archetypes (curated voice designs)
+   325→  const loadOmniVoiceArchetypes = async () => {
+   326→    setIsLoadingArchetypes(true);
+   327→    try {
+   328→      const response = await fetch(`/api/tts/omnivoice/archetypes?endpoint=${encodeURIComponent(ttsConfig.baseUrl)}`);
+   329→      const data = await response.json();
+   330→      if (data.success && data.archetypes) {
+   331→        setOmniVoiceArchetypes(data.archetypes);
+   332→      } else {
+   333→        setOmniVoiceArchetypes([]);
+   334→      }
+   335→    } catch (error) {
+   336→      console.warn('[TTS Settings] Failed to load OmniVoice archetypes:', error);
+   337→      setOmniVoiceArchetypes([]);
+   338→    } finally {
+   339→      setIsLoadingArchetypes(false);
+   340→    }
+   341→  };
+   342→
+   343→  // Apply an archetype to create a voice profile
+   344→  const applyArchetype = async (archetypeId: string, archetypeName: string) => {
+   345→    try {
+   346→      const response = await fetch('/api/tts/omnivoice/archetypes/use', {
+   347→        method: 'POST',
+   348→        headers: { 'Content-Type': 'application/json' },
+   349→        body: JSON.stringify({
+   350→          endpoint: ttsConfig.baseUrl,
+   351→          id: archetypeId,
+   352→          name: archetypeName,
+   353→        }),
+   354→      });
+   355→      const data = await response.json();
+   356→      if (data.success && data.profile) {
+   357→        // Refresh profiles after creating one from archetype
+   358→        await loadOmniVoiceProfiles();
+   359→        await loadAvailableVoices();
+   360→      }
+   361→    } catch (error) {
+   362→      console.warn('[TTS Settings] Failed to use archetype:', error);
+   363→    }
+   364→  };
+   365→
+   366→  // Update TTS config and mark as changed
+   367→  const updateTtsConfig = (updates: Partial<TTSWebUIConfig>) => {
+   368→    setTtsConfig(prev => ({ ...prev, ...updates }));
+   369→    setHasChanges(true);
+   370→  };
+   371→
+   372→  // Handle provider change
+   373→  const handleProviderChange = (newProvider: TTSProviderType) => {
+   374→    const providerConfig = PROVIDER_CONFIGS[newProvider];
+   375→    setTtsConfig(prev => ({
+   376→      ...prev,
+   377→      provider: newProvider,
+   378→      baseUrl: providerConfig.defaultUrl,
+   379→      model: providerConfig.defaultModel,
+   380→    }));
+   381→    setHasChanges(true);
+   382→  };
+   383→
+   384→  // Update ASR config and mark as changed
+   385→  const updateAsrConfig = (updates: Partial<ASRConfig>) => {
+   386→    setAsrConfig(prev => ({ ...prev, ...updates }));
+   387→    setHasChanges(true);
+   388→  };
+   389→
+   390→  // Update KWS config and mark as changed
+   391→  const updateKwsConfig = (updates: Partial<WakeWordConfig>) => {
+   392→    setKwsConfig(prev => ({ ...prev, ...updates }));
+   393→    setHasChanges(true);
+   394→  };
+   395→
+   396→  // Update VAD config and mark as changed
+   397→  const updateVadConfig = (updates: Partial<VADConfig>) => {
+   398→    setVadConfig(prev => ({ ...prev, ...updates }));
+   399→    setHasChanges(true);
+   400→  };
+   401→
+   402→  // Test TTS
+   403→  const handleTestTTS = async () => {
+   404→    if (!testText.trim()) return;
+   405→
+   406→    setIsLoading(true);
+   407→    try {
+   408→      const response = await fetch('/api/tts/speech', {
+   409→        method: 'POST',
+   410→        headers: { 'Content-Type': 'application/json' },
+   411→        body: JSON.stringify({
+   412→          text: testText,
+   413→          model: ttsConfig.model,
+   414→          voice: ttsConfig.defaultVoice,
+   415→          speed: ttsConfig.speed,
+   416→          response_format: ttsConfig.responseFormat,
+   417→          language: ttsConfig.language,
+   418→          endpoint: ttsConfig.baseUrl,
+   419→          provider: ttsConfig.provider,
+   420→          // TTS-WebUI specific
+   421→          exaggeration: ttsConfig.exaggeration,
+   422→          cfg_weight: ttsConfig.cfgWeight,
+   423→          temperature: ttsConfig.temperature,
+   424→          // OmniVoice specific
+   425→          voiceDesign: ttsConfig.voiceDesign,
+   426→          instruct: ttsConfig.instruct,
+   427→        }),
+   428→      });
+   429→
+   430→      const data = await response.json();
+   431→
+   432→      if (!response.ok) {
+   433→        const errorMsg = data.error || `Error del servidor (${response.status})`;
+   434→        console.warn('[TTS] Test error:', errorMsg);
+   435→        alert(`Error TTS: ${errorMsg}`);
+   436→      } else if (data.success && data.audio) {
+   437→        // Create audio blob URL
+   438→        const audioBlob = base64ToBlob(data.audio, `audio/${data.format}`);
+   439→        const url = URL.createObjectURL(audioBlob);
+   440→        setAudioUrl(url);
+   441→
+   442→        // Play audio — handle autoplay policy gracefully
+   443→        const audio = new Audio(url);
+   444→        setIsPlaying(true);
+   445→        audio.play().catch((error) => {
+   446→          const errorMsg = error?.message || String(error);
+   447→          if (errorMsg.includes("user didn't interact") || 
+   448→              errorMsg.includes('NotAllowedError') ||
+   449→              errorMsg.includes('play() failed')) {
+   450→            console.warn('[TTS] Autoplay blocked — click the Play button to hear the test');
+   451→            setIsPlaying(false);
+   452→          } else {
+   453→            console.warn('[TTS] Playback error:', error);
+   454→            setIsPlaying(false);
+   455→          }
+   456→        });
+   457→        audio.onended = () => setIsPlaying(false);
+   458→      } else {
+   459→        console.warn('[TTS] Test error:', data.error);
+   460→        alert(`Error TTS: ${data.error}`);
+   461→      }
+   462→    } catch (error) {
+   463→      console.warn('[TTS] Failed to test TTS:', error);
+   464→      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+   465→    } finally {
+   466→      setIsLoading(false);
+   467→    }
+   468→  };
+   469→
+   470→  // Stop playback
+   471→  const handleStopPlayback = () => {
+   472→    if (audioUrl) {
+   473→      URL.revokeObjectURL(audioUrl);
+   474→      setAudioUrl(null);
+   475→    }
+   476→    setIsPlaying(false);
+   477→  };
+   478→
+   479→  // Helper: base64 to blob
+   480→  const base64ToBlob = (base64: string, mimeType: string) => {
+   481→    const byteCharacters = atob(base64);
+   482→    const byteArrays: BlobPart[] = [];
+   483→
+   484→    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+   485→      const slice = byteCharacters.slice(offset, offset + 512);
+   486→      const byteNumbers = new Array(slice.length);
+   487→      for (let i = 0; i < slice.length; i++) {
+   488→        byteNumbers[i] = slice.charCodeAt(i);
+   489→      }
+   490→      const byteArray = new Uint8Array(byteNumbers);
+   491→      byteArrays.push(byteArray as BlobPart);
+   492→    }
+   493→
+   494→    return new Blob(byteArrays, { type: mimeType });
+   495→  };
+   496→
+   497→  return (
+   498→    <div className="space-y-4">
+   499→      {/* Service Status Banner */}
+   500→      <Card className={cn(
+   501→        'border-2',
+   502→        serviceStatus.status === 'online' ? 'border-green-500/30 bg-green-500/5' :
+   503→        serviceStatus.status === 'offline' ? 'border-red-500/30 bg-red-500/5' :
+   504→        'border-yellow-500/30 bg-yellow-500/5'
+   505→      )}>
+   506→        <CardContent className="p-4">
+   507→          <div className="flex items-center justify-between">
+   508→            <div className="flex items-center gap-3">
+   509→              {serviceStatus.status === 'checking' ? (
+   510→                <Loader2 className="w-5 h-5 animate-spin text-yellow-500" />
+   511→              ) : serviceStatus.status === 'online' ? (
+   512→                <CheckCircle className="w-5 h-5 text-green-500" />
+   513→              ) : (
+   514→                <AlertCircle className="w-5 h-5 text-red-500" />
+   515→              )}
+   516→              <div>
+   517→                <p className="font-medium">
+   518→                  {PROVIDER_CONFIGS[ttsConfig.provider].name} {serviceStatus.status === 'online' ? 'Conectado' : serviceStatus.status === 'checking' ? 'Verificando...' : 'Desconectado'}
+   519→                </p>
+   520→                <p className="text-xs text-muted-foreground">{serviceStatus.endpoint}</p>
+   521→              </div>
+   522→            </div>
+   523→            <Button
+   524→              variant="outline"
+   525→              size="sm"
+   526→              onClick={checkServiceStatus}
+   527→              disabled={serviceStatus.status === 'checking'}
+   528→            >
+   529→              <RefreshCw className={cn('w-4 h-4 mr-2', serviceStatus.status === 'checking' && 'animate-spin')} />
+   530→              Verificar
+   531→            </Button>
+   532→          </div>
+   533→          {serviceStatus.error && (
+   534→            <p className="mt-2 text-xs text-red-500">{serviceStatus.error}</p>
+   535→          )}
+   536→        </CardContent>
+   537→      </Card>
+   538→
+   539→      {/* Save Button */}
+   540→      {hasChanges && (
+   541→        <Button onClick={saveConfig} disabled={isSaving} className="w-full">
+   542→          {isSaving ? (
+   543→            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+   544→          ) : (
+   545→            <Save className="w-4 h-4 mr-2" />
+   546→          )}
+   547→          Guardar Configuración
+   548→        </Button>
+   549→      )}
+   550→
+   551→      <Tabs defaultValue="kws" className="w-full">
+   552→        <TabsList className="grid w-full grid-cols-3">
+   553→          <TabsTrigger value="kws" className="gap-2">
+   554→            <Ear className="w-4 h-4" />
+   555→            Voz (KWS)
+   556→          </TabsTrigger>
+   557→          <TabsTrigger value="tts" className="gap-2">
+   558→            <Volume2 className="w-4 h-4" />
+   559→            TTS
+   560→          </TabsTrigger>
+   561→          <TabsTrigger value="voices" className="gap-2">
+   562→            <Music className="w-4 h-4" />
+   563→            Voces
+   564→          </TabsTrigger>
+   565→        </TabsList>
+   566→
+   567→        {/* TTS Tab */}
+   568→        <TabsContent value="tts" className="space-y-4 mt-4">
+   569→          <Card>
+   570→            <CardHeader>
+   571→              <CardTitle className="text-sm flex items-center gap-2">
+   572→                <Settings className="w-4 h-4" />
+   573→                Configuración TTS
+   574→              </CardTitle>
+   575→              <CardDescription>
+   576→                Configura la síntesis de voz
+   577→              </CardDescription>
+   578→            </CardHeader>
+   579→            <CardContent className="space-y-4">
+   580→              {/* Enable TTS */}
+   581→              <div className="flex items-center justify-between">
+   582→                <div className="space-y-0.5">
+   583→                  <Label htmlFor="tts-enabled">Habilitar TTS</Label>
+   584→                  <p className="text-xs text-muted-foreground">
+   585→                    Activa el sistema de texto-a-voz
+   586→                  </p>
+   587→                </div>
+   588→                <Switch
+   589→                  id="tts-enabled"
+   590→                  checked={ttsConfig.enabled}
+   591→                  onCheckedChange={(checked) => updateTtsConfig({ enabled: checked })}
+   592→                />
+   593→              </div>
+   594→
+   595→              {/* Auto Generation */}
+   596→              <div className="flex items-center justify-between">
+   597→                <div className="space-y-0.5">
+   598→                  <Label htmlFor="auto-generation">Generación Automática</Label>
+   599→                  <p className="text-xs text-muted-foreground">
+   600→                    Reproducir audio automáticamente en nuevos mensajes
+   601→                  </p>
+   602→                </div>
+   603→                <Switch
+   604→                  id="auto-generation"
+   605→                  checked={ttsConfig.autoGeneration || false}
+   606→                  onCheckedChange={(checked) => updateTtsConfig({ autoGeneration: checked })}
+   607→                  disabled={!ttsConfig.enabled}
+   608→                />
+   609→              </div>
+   610→
+   611→              {/* Text Filtering Section */}
+   612→              <Collapsible defaultOpen>
+   613→                <div className="flex items-center justify-between pt-2 border-t">
+   614→                  <Label className="text-sm font-medium">Qué Generar</Label>
+   615→                  <CollapsibleTrigger asChild>
+   616→                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+   617→                      <ChevronDown className="w-3.5 h-3.5 transition-transform [[data-state=open]>rotate-180]" />
+   618→                      {ttsConfig.enabled ? 'Mostrando' : 'Colapsado'}
+   619→                    </Button>
+   620→                  </CollapsibleTrigger>
+   621→                </div>
+   622→                
+   623→                <CollapsibleContent>
+   624→                <div className="space-y-3 pt-3">
+   625→                <div className="flex items-center justify-between">
+   626→                  <div className="space-y-0.5">
+   627→                    <Label htmlFor="generate-dialogues" className="text-xs">
+   628→                      Diálogos ("texto entre comillas")
+   629→                    </Label>
+   630→                  </div>
+   631→                  <Switch
+   632→                    id="generate-dialogues"
+   633→                    checked={ttsConfig.generateDialogues ?? true}
+   634→                    onCheckedChange={(checked) => updateTtsConfig({ generateDialogues: checked })}
+   635→                    disabled={!ttsConfig.enabled}
+   636→                  />
+   637→                </div>
+   638→
+   639→                <div className="flex items-center justify-between">
+   640→                  <div className="space-y-0.5">
+   641→                    <Label htmlFor="generate-narrations" className="text-xs">
+   642→                      Narración (*texto entre asteriscos*)
+   643→                    </Label>
+   644→                  </div>
+   645→                  <Switch
+   646→                    id="generate-narrations"
+   647→                    checked={ttsConfig.generateNarrations ?? true}
+   648→                    onCheckedChange={(checked) => updateTtsConfig({ generateNarrations: checked })}
+   649→                    disabled={!ttsConfig.enabled}
+   650→                  />
+   651→                </div>
+   652→
+   653→                <div className="flex items-center justify-between">
+   654→                  <div className="space-y-0.5">
+   655→                    <Label htmlFor="generate-plain-text" className="text-xs">
+   656→                      Texto plano (sin formato)
+   657→                    </Label>
+   658→                  </div>
+   659→                  <Switch
+   660→                    id="generate-plain-text"
+   661→                    checked={ttsConfig.generatePlainText ?? true}
+   662→                    onCheckedChange={(checked) => updateTtsConfig({ generatePlainText: checked })}
+   663→                    disabled={!ttsConfig.enabled}
+   664→                  />
+   665→                </div>
+   666→
+   667→                <div className="text-[10px] bg-muted/50 p-2 rounded border">
+   668→                  <p className="text-muted-foreground mb-1">Ejemplo:</p>
+   669→                  <p className="font-mono">*Camina* "Hola" y sonríe.</p>
+   670→                  <div className="mt-1 space-y-0.5">
+   671→                    <p className="text-blue-600">✓ Diálogos: "Hola"</p>
+   672→                    <p className="text-purple-600">✓ Narración: Camina</p>
+   673→                    <p className="text-orange-600">✓ Texto plano: y sonríe.</p>
+   674→                  </div>
+   675→                </div>
+   676→                </div>
+   677→                </CollapsibleContent>
+   678→              </Collapsible>
+   679→
+   680→              {/* Provider Selection */}
+   681→              <div className="space-y-2 pt-2 border-t">
+   682→                <Label>Proveedor TTS</Label>
+   683→                <Select
+   684→                  value={ttsConfig.provider || 'tts-webui'}
+   685→                  onValueChange={(value: TTSProviderType) => handleProviderChange(value)}
+   686→                >
+   687→                  <SelectTrigger>
+   688→                    <SelectValue placeholder="Seleccionar proveedor" />
+   689→                  </SelectTrigger>
+   690→                  <SelectContent>
+   691→                    {(Object.entries(PROVIDER_CONFIGS) as [TTSProviderType, typeof PROVIDER_CONFIGS[TTSProviderType]][]).map(([key, config]) => (
+   692→                      <SelectItem key={key} value={key}>
+   693→                        <div className="flex flex-col">
+   694→                          <span>{config.name}</span>
+   695→                          <span className="text-xs text-muted-foreground">{config.description}</span>
+   696→                        </div>
+   697→                      </SelectItem>
+   698→                    ))}
+   699→                  </SelectContent>
+   700→                </Select>
+   701→                <p className="text-xs text-muted-foreground">
+   702→                  Selecciona el proveedor de TTS. Cambiar el proveedor actualizará la URL y el modelo por defecto.
+   703→                </p>
+   704→              </div>
+   705→
+   706→              {/* Endpoint */}
+   707→              <div className="space-y-2">
+   708→                <Label>URL del Servicio</Label>
+   709→                <Input
+   710→                  value={ttsConfig.baseUrl}
+   711→                  onChange={(e) => updateTtsConfig({ baseUrl: e.target.value })}
+   712→                  placeholder={PROVIDER_CONFIGS[ttsConfig.provider].defaultUrl}
+   713→                />
+   714→                <p className="text-xs text-muted-foreground">
+   715→                  URL base del servidor {PROVIDER_CONFIGS[ttsConfig.provider].name}
+   716→                </p>
+   717→              </div>
+   718→
+   719→              {/* Model Selection */}
+   720→              <div className="space-y-2">
+   721→                <Label>Modelo TTS</Label>
+   722→                <Select
+   723→                  value={ttsConfig.model}
+   724→                  onValueChange={(value) => updateTtsConfig({ model: value })}
+   725→                >
+   726→                  <SelectTrigger>
+   727→                    <SelectValue placeholder="Seleccionar modelo" />
+   728→                  </SelectTrigger>
+   729→                  <SelectContent>
+   730→                    {currentModels.map((model) => (
+   731→                      <SelectItem key={model.id} value={model.id}>
+   732→                        <div className="flex flex-col">
+   733→                          <span>{model.name}</span>
+   734→                          <span className="text-xs text-muted-foreground">{model.description}</span>
+   735→                        </div>
+   736→                      </SelectItem>
+   737→                    ))}
+   738→                  </SelectContent>
+   739→                </Select>
+   740→              </div>
+   741→
+   742→              {/* Language Selection */}
+   743→              <div className="space-y-2">
+   744→                <Label>Idioma</Label>
+   745→                <Select
+   746→                  value={ttsConfig.language || 'es'}
+   747→                  onValueChange={(value) => updateTtsConfig({ language: value })}
+   748→                >
+   749→                  <SelectTrigger>
+   750→                    <SelectValue placeholder="Seleccionar idioma" />
+   751→                  </SelectTrigger>
+   752→                  <SelectContent>
+   753→                    {SUPPORTED_LANGUAGES.map((lang) => (
+   754→                      <SelectItem key={lang.code} value={lang.code}>
+   755→                        {lang.name} ({lang.code.toUpperCase()})
+   756→                      </SelectItem>
+   757→                    ))}
+   758→                  </SelectContent>
+   759→                </Select>
+   760→                <p className="text-xs text-muted-foreground">
+   761→                  {isOmniVoice 
+   762→                    ? 'OmniVoice soporta 646+ idiomas' 
+   763→                    : 'Selecciona el idioma para el modelo multilingüe'}
+   764→                </p>
+   765→              </div>
+   766→
+   767→              {/* Voice Selection Dropdown */}
+   768→              <div className="space-y-2">
+   769→                <div className="flex items-center justify-between">
+   770→                  <Label>Voz de Referencia</Label>
+   771→                  <Button
+   772→                    variant="ghost"
+   773→                    size="sm"
+   774→                    onClick={loadAvailableVoices}
+   775→                    className="h-7 text-xs"
+   776→                  >
+   777→                    <RefreshCw className="w-3 h-3 mr-1" />
+   778→                    Actualizar
+   779→                  </Button>
+   780→                </div>
+   781→                <Select
+   782→                  value={ttsConfig.defaultVoice || 'none'}
+   783→                  onValueChange={(value) => updateTtsConfig({ 
+   784→                    defaultVoice: value === 'none' ? undefined : value 
+   785→                  })}
+   786→                >
+   787→                  <SelectTrigger>
+   788→                    <SelectValue placeholder="Seleccionar voz" />
+   789→                  </SelectTrigger>
+   790→                  <SelectContent>
+   791→                    <SelectItem value="none">
+   792→                      {isOmniVoice ? 'Por defecto (OmniVoice)' : 'Por defecto (sin voz de referencia)'}
+   793→                    </SelectItem>
+   794→                    {availableVoices.length === 0 && (
+   795→                      <SelectItem value="_loading" disabled>
+   796→                        Carga voces con el botón Actualizar
+   797→                      </SelectItem>
+   798→                    )}
+   799→                    {availableVoices.map((voice) => (
+   800→                      <SelectItem key={voice.id} value={voice.id}>
+   801→                        {voice.name}
+   802→                        {voice.language && (
+   803→                          <span className="text-xs text-muted-foreground ml-2">
+   804→                            ({voice.language})
+   805→                          </span>
+   806→                        )}
+   807→                      </SelectItem>
+   808→                    ))}
+   809→                  </SelectContent>
+   810→                </Select>
+   811→                <p className="text-xs text-muted-foreground">
+   812→                  {availableVoices.length > 0 
+   813→                    ? `${availableVoices.length} voces disponibles`
+   814→                    : `Presiona "Actualizar" para cargar las voces desde ${PROVIDER_CONFIGS[ttsConfig.provider].name}`
+   815→                  }
+   816→                </p>
+   817→              </div>
+   818→
+   819→              {/* Speed */}
+   820→              <div className="space-y-2">
+   821→                <div className="flex justify-between">
+   822→                  <Label>Velocidad</Label>
+   823→                  <span className="text-sm text-muted-foreground">{ttsConfig.speed.toFixed(1)}x</span>
+   824→                </div>
+   825→                <Slider
+   826→                  value={[ttsConfig.speed]}
+   827→                  min={0.25}
+   828→                  max={isOmniVoice ? 4.0 : 2.0}
+   829→                  step={0.1}
+   830→                  onValueChange={([value]) => updateTtsConfig({ speed: value })}
+   831→                />
+   832→              </div>
+   833→
+   834→              {/* Response Format */}
+   835→              <div className="space-y-2">
+   836→                <Label>Formato de Audio</Label>
+   837→                <Select
+   838→                  value={ttsConfig.responseFormat}
+   839→                  onValueChange={(value: 'mp3' | 'wav' | 'ogg' | 'flac') =>
+   840→                    updateTtsConfig({ responseFormat: value })
+   841→                  }
+   842→                >
+   843→                  <SelectTrigger>
+   844→                    <SelectValue />
+   845→                  </SelectTrigger>
+   846→                  <SelectContent>
+   847→                    <SelectItem value="mp3">MP3</SelectItem>
+   848→                    <SelectItem value="wav">WAV</SelectItem>
+   849→                    <SelectItem value="ogg">OGG</SelectItem>
+   850→                    <SelectItem value="flac">FLAC</SelectItem>
+   851→                  </SelectContent>
+   852→                </Select>
+   853→              </div>
+   854→            </CardContent>
+   855→          </Card>
+   856→
+   857→          {/* OmniVoice-specific: Voice Design */}
+   858→          {isOmniVoice && (
+   859→            <Card className="border-amber-500/20 bg-amber-500/5">
+   860→              <CardHeader>
+   861→                <CardTitle className="text-sm flex items-center gap-2">
+   862→                  <Sparkles className="w-4 h-4 text-amber-500" />
+   863→                  OmniVoice — Voice Design
+   864→                </CardTitle>
+   865→                <CardDescription>
+   866→                  Crea voces desde una descripción de texto (solo OmniVoice)
+   867→                </CardDescription>
+   868→              </CardHeader>
+   869→              <CardContent className="space-y-4">
+   870→                {/* Voice Design Description */}
+   871→                <div className="space-y-2">
+   872→                  <Label>Diseño de Voz</Label>
+   873→                  <Input
+   874→                    value={ttsConfig.voiceDesign || ''}
+   875→                    onChange={(e) => updateTtsConfig({ voiceDesign: e.target.value })}
+   876→                    placeholder="Ej: mujer joven, tono cálido, acento latino"
+   877→                  />
+   878→                  <p className="text-xs text-muted-foreground">
+   879→                    Describe la voz que quieres generar. Ej: "young female, warm tone", "hombre mayor, voz profunda"
+   880→                  </p>
+   881→                </div>
+   882→
+   883→                {/* Style Instruction */}
+   884→                <div className="space-y-2">
+   885→                  <Label>Instrucción de Estilo</Label>
+   886→                  <Input
+   887→                    value={ttsConfig.instruct || ''}
+   888→                    onChange={(e) => updateTtsConfig({ instruct: e.target.value })}
+   889→                    placeholder="Ej: habla lentamente, con emoción"
+   890→                  />
+   891→                  <p className="text-xs text-muted-foreground">
+   892→                    Instrucciones para el estilo de habla. Ej: "speak slowly", "whisper", "excited"
+   893→                  </p>
+   894→                </div>
+   895→
+   896→                {/* OmniVoice Info */}
+   897→                <div className="text-xs bg-muted/50 p-3 rounded border space-y-2">
+   898→                  <p className="font-medium text-amber-600 dark:text-amber-400">✨ Características OmniVoice</p>
+   899→                  <div className="space-y-1 text-muted-foreground">
+   900→                    <p>• <strong>646+ idiomas</strong> — Mayor soporte de idiomas que cualquier otro TTS</p>
+   901→                    <p>• <strong>Voice Design</strong> — Crea voces desde descripción de texto</p>
+   902→                    <p>• <strong>6+ motores</strong> — OmniVoice, CosyVoice, VoxCPM2, GPT-SoVITS, etc.</p>
+   903→                    <p>• <strong>Clonación zero-shot</strong> — Desde 3 segundos de audio</p>
+   904→                    <p>• <strong>100% local</strong> — Sin API keys, sin cloud</p>
+   905→                  </div>
+   906→                </div>
+   907→              </CardContent>
+   908→            </Card>
+   909→          )}
+   910→
+   911→          {/* Advanced TTS Parameters - Collapsible */}
+   912→          <Card>
+   913→            <Collapsible>
+   914→              <CardHeader className="pb-0">
+   915→                <div className="flex items-center justify-between">
+   916→                  <div className="space-y-1">
+   917→                    <CardTitle className="text-sm">Parámetros Avanzados</CardTitle>
+   918→                    <CardDescription>
+   919→                      {isOmniVoice 
+   920→                        ? 'Parámetros adicionales para OmniVoice' 
+   921→                        : 'Controla la expresividad y variabilidad de la voz (Chatterbox)'}
+   922→                    </CardDescription>
+   923→                  </div>
+   924→                  <CollapsibleTrigger asChild>
+   925→                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 shrink-0">
+   926→                      <ChevronDown className="w-3.5 h-3.5 transition-transform [[data-state=open]>rotate-180]" />
+   927→                      Ajustes
+   928→                    </Button>
+   929→                  </CollapsibleTrigger>
+   930→                </div>
+   931→              </CardHeader>
+   932→              <CollapsibleContent>
+   933→                <CardContent className="space-y-4 pt-4">
+   934→                  {/* Exaggeration - TTS-WebUI only */}
+   935→                  {!isOmniVoice && (
+   936→                    <div className="space-y-2">
+   937→                      <div className="flex justify-between">
+   938→                        <Label>Exageración</Label>
+   939→                        <span className="text-sm text-muted-foreground">{ttsConfig.exaggeration.toFixed(2)}</span>
+   940→                      </div>
+   941→                      <Slider
+   942→                        value={[ttsConfig.exaggeration]}
+   943→                        min={0}
+   944→                        max={1}
+   945→                        step={0.05}
+   946→                        onValueChange={([value]) => updateTtsConfig({ exaggeration: value })}
+   947→                      />
+   948→                      <p className="text-xs text-muted-foreground">
+   949→                        Controla la expresividad de la voz (0 = neutral, 1 = muy expresivo)
+   950→                      </p>
+   951→                    </div>
+   952→                  )}
+   953→
+   954→                  {/* CFG Weight - TTS-WebUI only */}
+   955→                  {!isOmniVoice && (
+   956→                    <div className="space-y-2">
+   957→                      <div className="flex justify-between">
+   958→                        <Label>Peso CFG</Label>
+   959→                        <span className="text-sm text-muted-foreground">{ttsConfig.cfgWeight.toFixed(2)}</span>
+   960→                      </div>
+   961→                      <Slider
+   962→                        value={[ttsConfig.cfgWeight]}
+   963→                        min={0}
+   964→                        max={1}
+   965→                        step={0.05}
+   966→                        onValueChange={([value]) => updateTtsConfig({ cfgWeight: value })}
+   967→                      />
+   968→                      <p className="text-xs text-muted-foreground">
+   969→                        Guía de flujo libre del clasificador (mayor = más adherencia al texto)
+   970→                      </p>
+   971→                    </div>
+   972→                  )}
+   973→
+   974→                  {/* Temperature */}
+   975→                  <div className="space-y-2">
+   976→                    <div className="flex justify-between">
+   977→                      <Label>Temperatura</Label>
+   978→                      <span className="text-sm text-muted-foreground">{ttsConfig.temperature.toFixed(2)}</span>
+   979→                    </div>
+   980→                    <Slider
+   981→                      value={[ttsConfig.temperature]}
+   982→                      min={0.1}
+   983→                      max={2}
+   984→                      step={0.1}
+   985→                      onValueChange={([value]) => updateTtsConfig({ temperature: value })}
+   986→                    />
+   987→                    <p className="text-xs text-muted-foreground">
+   988→                      Variabilidad de la muestra (menor = más consistente, mayor = más variado)
+   989→                    </p>
+   990→                  </div>
+   991→
+   992→                  {/* OmniVoice note for advanced params */}
+   993→                  {isOmniVoice && (
+   994→                    <div className="text-xs bg-muted/50 p-2 rounded border">
+   995→                      <p className="text-muted-foreground">
+   996→                        💡 OmniVoice no soporta Exageración ni Peso CFG. Usa "Diseño de Voz" e "Instrucción de Estilo" en su lugar para controlar la expresividad.
+   997→                      </p>
+   998→                    </div>
+   999→                  )}
+  1000→                </CardContent>
+  1001→              </CollapsibleContent>
+  1002→            </Collapsible>
+  1003→          </Card>
+  1004→
+  1005→          {/* Test TTS */}
+  1006→          <Card>
+  1007→            <CardHeader>
+  1008→              <CardTitle className="text-sm">Probar TTS</CardTitle>
+  1009→            </CardHeader>
+  1010→            <CardContent className="space-y-4">
+  1011→              <textarea
+  1012→                value={testText}
+  1013→                onChange={(e) => setTestText(e.target.value)}
+  1014→                placeholder="Texto a sintetizar..."
+  1015→                className="w-full h-24 p-3 text-sm rounded-md border resize-none bg-background"
+  1016→              />
+  1017→              <div className="flex gap-2">
+  1018→                <Button
+  1019→                  onClick={handleTestTTS}
+  1020→                  disabled={isLoading || isPlaying || !testText.trim()}
+  1021→                >
+  1022→                  {isLoading ? (
+  1023→                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+  1024→                  ) : (
+  1025→                    <Play className="w-4 h-4 mr-2" />
+  1026→                  )}
+  1027→                  {isLoading ? 'Generando...' : 'Probar'}
+  1028→                </Button>
+  1029→                {isPlaying && (
+  1030→                  <Button variant="destructive" onClick={handleStopPlayback}>
+  1031→                    <Square className="w-4 h-4 mr-2" />
+  1032→                    Detener
+  1033→                  </Button>
+  1034→                )}
+  1035→              </div>
+  1036→            </CardContent>
+  1037→          </Card>
+  1038→        </TabsContent>
+  1039→
+  1040→        {/* KWS Tab - Wake Word Detection (Alexa-style) */}
+  1041→        <TabsContent value="kws" className="space-y-4 mt-4">
+  1042→          {/* KWS Info Banner */}
+  1043→          <Card className="border-2 border-green-500/30 bg-green-500/5">
+  1044→            <CardContent className="p-4">
+  1045→              <div className="flex items-start gap-3">
+  1046→                <div className="p-2 bg-green-500/20 rounded-lg">
+  1047→                  <Radio className="w-5 h-5 text-green-500" />
+  1048→                </div>
+  1049→                <div className="flex-1">
+  1050→                  <h4 className="text-sm font-medium text-green-600 dark:text-green-400">
+  1051→                    Activación por Voz - Estilo Alexa
+  1052→                  </h4>
+  1053→                  <p className="text-xs text-muted-foreground mt-1">
+  1054→                    Di el nombre del personaje + tu mensaje + silencio. El mensaje se envía automáticamente.
+  1055→                    Funciona 100% en el navegador con Web Speech API (Chrome/Edge).
+  1056→                  </p>
+  1057→                </div>
+  1058→              </div>
+  1059→            </CardContent>
+  1060→          </Card>
+  1061→
+  1062→          <Card>
+  1063→            <CardHeader>
+  1064→              <CardTitle className="text-sm flex items-center gap-2">
+  1065→                <Ear className="w-4 h-4" />
+  1066→                Configuración de Voz
+  1067→              </CardTitle>
+  1068→              <CardDescription>
+  1069→                Configura cómo funciona la activación por voz
+  1070→              </CardDescription>
+  1071→            </CardHeader>
+  1072→            <CardContent className="space-y-4">
+  1073→              {/* Language */}
+  1074→              <div className="space-y-2">
+  1075→                <Label>Idioma de Reconocimiento</Label>
+  1076→                <Select
+  1077→                  value={kwsConfig.language || 'es-ES'}
+  1078→                  onValueChange={(value) => updateKwsConfig({ language: value })}
+  1079→                >
+  1080→                  <SelectTrigger>
+  1081→                    <SelectValue placeholder="Seleccionar idioma" />
+  1082→                  </SelectTrigger>
+  1083→                  <SelectContent>
+  1084→                    <SelectItem value="es-ES">Español (España)</SelectItem>
+  1085→                    <SelectItem value="es-MX">Español (México)</SelectItem>
+  1086→                    <SelectItem value="en-US">English (US)</SelectItem>
+  1087→                    <SelectItem value="en-GB">English (UK)</SelectItem>
+  1088→                    <SelectItem value="ja-JP">日本語</SelectItem>
+  1089→                    <SelectItem value="zh-CN">中文</SelectItem>
+  1090→                    <SelectItem value="ko-KR">한국어</SelectItem>
+  1091→                    <SelectItem value="fr-FR">Français</SelectItem>
+  1092→                    <SelectItem value="de-DE">Deutsch</SelectItem>
+  1093→                  </SelectContent>
+  1094→                </Select>
+  1095→                <p className="text-xs text-muted-foreground">
+  1096→                  Idioma para el reconocimiento de voz
+  1097→                </p>
+  1098→              </div>
+  1099→
+  1100→              {/* Silence Duration */}
+  1101→              <div className="space-y-2">
+  1102→                <div className="flex justify-between">
+  1103→                  <Label>Tiempo de Silencio para Enviar</Label>
+  1104→                  <span className="text-sm text-muted-foreground">{vadConfig.silenceDurationMs}ms</span>
+  1105→                </div>
+  1106→                <Slider
+  1107→                  value={[vadConfig.silenceDurationMs]}
+  1108→                  min={500}
+  1109→                  max={3000}
+  1110→                  step={100}
+  1111→                  onValueChange={([value]) => updateVadConfig({ silenceDurationMs: value })}
+  1112→                />
+  1113→                <p className="text-xs text-muted-foreground">
+  1114→                  Cuánto tiempo de silencio esperar antes de enviar el mensaje (recomendado: 1500ms)
+  1115→                </p>
+  1116→              </div>
+  1117→
+  1118→              {/* Sensitivity */}
+  1119→              <div className="space-y-2">
+  1120→                <Label>Sensibilidad de Detección</Label>
+  1121→                <Select
+  1122→                  value={kwsConfig.sensitivity}
+  1123→                  onValueChange={(value: 'low' | 'medium' | 'high') => 
+  1124→                    updateKwsConfig({ sensitivity: value })
+  1125→                  }
+  1126→                >
+  1127→                  <SelectTrigger>
+  1128→                    <SelectValue />
+  1129→                  </SelectTrigger>
+  1130→                  <SelectContent>
+  1131→                    <SelectItem value="low">
+  1132→                      <div className="flex flex-col">
+  1133→                        <span>Baja</span>
+  1134→                        <span className="text-xs text-muted-foreground">Menos falsos positivos</span>
+  1135→                      </div>
+  1136→                    </SelectItem>
+  1137→                    <SelectItem value="medium">
+  1138→                      <div className="flex flex-col">
+  1139→                        <span>Media ⭐ Recomendado</span>
+  1140→                        <span className="text-xs text-muted-foreground">Balance</span>
+  1141→                      </div>
+  1142→                    </SelectItem>
+  1143→                    <SelectItem value="high">
+  1144→                      <div className="flex flex-col">
+  1145→                        <span>Alta</span>
+  1146→                        <span className="text-xs text-muted-foreground">Más sensible</span>
+  1147→                      </div>
+  1148→                    </SelectItem>
+  1149→                  </SelectContent>
+  1150→                </Select>
+  1151→              </div>
+  1152→
+  1153→              {/* Cooldown */}
+  1154→              <div className="space-y-2">
+  1155→                <div className="flex justify-between">
+  1156→                  <Label>Tiempo entre Mensajes</Label>
+  1157→                  <span className="text-sm text-muted-foreground">{kwsConfig.cooldownMs}ms</span>
+  1158→                </div>
+  1159→                <Slider
+  1160→                  value={[kwsConfig.cooldownMs]}
+  1161→                  min={1000}
+  1162→                  max={10000}
+  1163→                  step={500}
+  1164→                  onValueChange={([value]) => updateKwsConfig({ cooldownMs: value })}
+  1165→                />
+  1166→                <p className="text-xs text-muted-foreground">
+  1167→                  Tiempo mínimo entre mensajes para evitar envíos accidentales
+  1168→                </p>
+  1169→              </div>
+  1170→            </CardContent>
+  1171→          </Card>
+  1172→
+  1173→          {/* Custom Wake Words */}
+  1174→          <Card>
+  1175→            <CardHeader>
+  1176→              <CardTitle className="text-sm flex items-center gap-2">
+  1177→                <Zap className="w-4 h-4" />
+  1178→                Palabras de Activación
+  1179→              </CardTitle>
+  1180→              <CardDescription>
+  1181→                Palabras que activan la captura del mensaje. El nombre del personaje actual siempre está incluido.
+  1182→              </CardDescription>
+  1183→            </CardHeader>
+  1184→            <CardContent className="space-y-4">
+  1185→              <div className="space-y-2">
+  1186→                <Label>Palabras Configuradas</Label>
+  1187→                <div className="flex flex-wrap gap-2">
+  1188→                  {kwsConfig.wakeWords.length > 0 ? (
+  1189→                    kwsConfig.wakeWords.map((word, index) => (
+  1190→                      <div 
+  1191→                        key={index}
+  1192→                        className="flex items-center gap-1 px-2 py-1 rounded-full bg-purple-500/20 text-purple-400 text-xs"
+  1193→                      >
+  1194→                        <span>{word}</span>
+  1195→                        <button
+  1196→                          onClick={() => {
+  1197→                            const newWords = kwsConfig.wakeWords.filter((_, i) => i !== index);
+  1198→                            updateKwsConfig({ wakeWords: newWords });
+  1199→                          }}
+  1200→                          className="ml-1 hover:text-red-400"
+  1201→                        >
+  1202→                          ×
+  1203→                        </button>
+  1204→                      </div>
+  1205→                    ))
+  1206→                  ) : (
+  1207→                    <span className="text-xs text-muted-foreground">
+  1208→                      Solo se usará el nombre del personaje activo
+  1209→                    </span>
+  1210→                  )}
+  1211→                </div>
+  1212→              </div>
+  1213→
+  1214→              <div className="flex gap-2">
+  1215→                <Input
+  1216→                  placeholder="Nueva palabra (ej: hey, oye, orden)"
+  1217→                  className="flex-1"
+  1218→                  onKeyDown={(e) => {
+  1219→                    if (e.key === 'Enter') {
+  1220→                      const input = e.target as HTMLInputElement;
+  1221→                      const word = input.value.trim().toLowerCase();
+  1222→                      if (word && !kwsConfig.wakeWords.includes(word)) {
+  1223→                        updateKwsConfig({ wakeWords: [...kwsConfig.wakeWords, word] });
+  1224→                        input.value = '';
+  1225→                      }
+  1226→                    }
+  1227→                  }}
+  1228→                />
+  1229→                <Button
+  1230→                  variant="outline"
+  1231→                  size="sm"
+  1232→                  onClick={(e) => {
+  1233→                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+  1234→                    const word = input.value.trim().toLowerCase();
+  1235→                    if (word && !kwsConfig.wakeWords.includes(word)) {
+  1236→                      updateKwsConfig({ wakeWords: [...kwsConfig.wakeWords, word] });
+  1237→                      input.value = '';
+  1238→                    }
+  1239→                  }}
+  1240→                >
+  1241→                  Agregar
+  1242→                </Button>
+  1243→              </div>
+  1244→              <p className="text-xs text-muted-foreground">
+  1245→                Presiona Enter o clic en Agregar. Estas palabras + el nombre del personaje activarán la captura.
+  1246→              </p>
+  1247→            </CardContent>
+  1248→          </Card>
+  1249→
+  1250→          {/* How it works */}
+  1251→          <Card>
+  1252→            <CardHeader>
+  1253→              <CardTitle className="text-sm">¿Cómo Funciona?</CardTitle>
+  1254→            </CardHeader>
+  1255→            <CardContent className="space-y-3 text-xs text-muted-foreground">
+  1256→              <div className="flex items-start gap-2">
+  1257→                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">1</span>
+  1258→                <p><strong>Activa el botón 🎧</strong> - Haz clic en el botón Ear junto al micrófono en el chat.</p>
+  1259→              </div>
+  1260→              <div className="flex items-start gap-2">
+  1261→                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">2</span>
+  1262→                <p><strong>Di el nombre + mensaje</strong> - Ejemplo: "Luna, ¿cómo estás hoy?" o "Hey Luna, cuéntame un chiste".</p>
+  1263→              </div>
+  1264→              <div className="flex items-start gap-2">
+  1265→                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center text-[10px] font-bold">3</span>
+  1266→                <p><strong>Espera el silencio</strong> - Deja de hablar y el mensaje se enviará automáticamente.</p>
+  1267→              </div>
+  1268→            </CardContent>
+  1269→          </Card>
+  1270→        </TabsContent>
+  1271→
+  1272→        {/* Voices Tab */}
+  1273→        <TabsContent value="voices" className="space-y-4 mt-4">
+  1274→          {/* Load Voices Button */}
+  1275→          <Button
+  1276→            variant="outline"
+  1277→            onClick={() => {
+  1278→              loadAvailableVoices();
+  1279→              if (isOmniVoice) {
+  1280→                loadOmniVoiceProfiles();
+  1281→                loadOmniVoiceArchetypes();
+  1282→              }
+  1283→            }}
+  1284→            className="w-full"
+  1285→            disabled={isLoading}
+  1286→          >
+  1287→            {isLoading || isLoadingProfiles || isLoadingArchetypes ? (
+  1288→              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+  1289→            ) : (
+  1290→              <RefreshCw className="w-4 h-4 mr-2" />
+  1291→            )}
+  1292→            Cargar Voces desde {PROVIDER_CONFIGS[ttsConfig.provider].name}
+  1293→          </Button>
+  1294→
+  1295→          {/* OMNIVOICE: Profiles + Archetypes */}
+  1296→          {isOmniVoice && (
+  1297→            <>
+  1298→              {/* Voice Profiles Section */}
+  1299→              <Card className="border-emerald-500/20">
+  1300→                <CardHeader>
+  1301→                  <CardTitle className="text-sm flex items-center gap-2">
+  1302→                    <Mic className="w-4 h-4 text-emerald-500" />
+  1303→                    Perfiles de Voz
+  1304→                    {omniVoiceProfiles.length > 0 && (
+  1305→                      <span className="text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full">
+  1306→                        {omniVoiceProfiles.length}
+  1307→                      </span>
+  1308→                    )}
+  1309→                  </CardTitle>
+  1310→                  <CardDescription>
+  1311→                    Perfiles de voz creados en OmniVoice Studio con audio de referencia y diseño
+  1312→                  </CardDescription>
+  1313→                </CardHeader>
+  1314→                <CardContent>
+  1315→                  {isLoadingProfiles ? (
+  1316→                    <div className="flex items-center justify-center py-8">
+  1317→                      <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+  1318→                      <span className="ml-2 text-sm text-muted-foreground">Cargando perfiles...</span>
+  1319→                    </div>
+  1320→                  ) : omniVoiceProfiles.length > 0 ? (
+  1321→                    <div className="space-y-2 max-h-96 overflow-y-auto">
+  1322→                      {omniVoiceProfiles.map((profile) => (
+  1323→                        <div
+  1324→                          key={profile.id}
+  1325→                          className={cn(
+  1326→                            'flex items-center justify-between p-3 rounded-lg border',
+  1327→                            ttsConfig.defaultVoice === profile.id
+  1328→                              ? 'bg-emerald-500/10 border-emerald-500/30'
+  1329→                              : 'bg-card hover:bg-muted/50'
+  1330→                          )}
+  1331→                        >
+  1332→                          <div className="flex-1 min-w-0">
+  1333→                            <div className="flex items-center gap-2">
+  1334→                              <p className="text-sm font-medium truncate">{profile.name}</p>
+  1335→                              {profile.is_demo === 1 && (
+  1336→                                <span className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+  1337→                                  Demo
+  1338→                                </span>
+  1339→                              )}
+  1340→                              {profile.is_locked === 1 && (
+  1341→                                <span className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">
+  1342→                                  Bloqueado
+  1343→                                </span>
+  1344→                              )}
+  1345→                            </div>
+  1346→                            <div className="flex flex-wrap gap-1.5 mt-1">
+  1347→                              {profile.language && profile.language !== 'Auto' && (
+  1348→                                <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
+  1349→                                  <Globe className="w-3 h-3 inline mr-0.5" />
+  1350→                                  {profile.language}
+  1351→                                </span>
+  1352→                              )}
+  1353→                              {profile.instruct && (
+  1354→                                <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+  1355→                                  {profile.instruct}
+  1356→                                </span>
+  1357→                              )}
+  1358→                            </div>
+  1359→                          </div>
+  1360→                          <Button
+  1361→                            variant={ttsConfig.defaultVoice === profile.id ? 'default' : 'outline'}
+  1362→                            size="sm"
+  1363→                            className="shrink-0 ml-2"
+  1364→                            onClick={() => updateTtsConfig({ defaultVoice: profile.id })}
+  1365→                          >
+  1366→                            {ttsConfig.defaultVoice === profile.id ? 'Activa' : 'Usar'}
+  1367→                          </Button>
+  1368→                        </div>
+  1369→                      ))}
+  1370→                    </div>
+  1371→                  ) : (
+  1372→                    <div className="text-center py-6 text-muted-foreground">
+  1373→                      <Mic className="w-8 h-8 mx-auto mb-2 opacity-30" />
+  1374→                      <p className="text-sm">No hay perfiles de voz</p>
+  1375→                      <p className="text-xs mt-1">Crea perfiles en OmniVoice Studio o usa un Arquetipo</p>
+  1376→                    </div>
+  1377→                  )}
+  1378→                </CardContent>
+  1379→              </Card>
+  1380→
+  1381→              {/* Archetypes Section */}
+  1382→              <Card className="border-purple-500/20">
+  1383→                <CardHeader>
+  1384→                  <CardTitle className="text-sm flex items-center gap-2">
+  1385→                    <Sparkles className="w-4 h-4 text-purple-500" />
+  1386→                    Arquetipos de Voz
+  1387→                    {omniVoiceArchetypes.length > 0 && (
+  1388→                      <span className="text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full">
+  1389→                        {omniVoiceArchetypes.length}
+  1390→                      </span>
+  1391→                    )}
+  1392→                  </CardTitle>
+  1393→                  <CardDescription>
+  1394→                    Voces pre-diseñadas listas para usar. Selecciona una para crear un perfil automáticamente.
+  1395→                  </CardDescription>
+  1396→                </CardHeader>
+  1397→                <CardContent>
+  1398→                  {isLoadingArchetypes ? (
+  1399→                    <div className="flex items-center justify-center py-8">
+  1400→                      <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
+  1401→                      <span className="ml-2 text-sm text-muted-foreground">Cargando arquetipos...</span>
+  1402→                    </div>
+  1403→                  ) : omniVoiceArchetypes.length > 0 ? (
+  1404→                    <div className="space-y-2 max-h-96 overflow-y-auto">
+  1405→                      {omniVoiceArchetypes.map((archetype) => (
+  1406→                        <div
+  1407→                          key={archetype.id}
+  1408→                          className="p-3 rounded-lg border bg-card hover:bg-muted/50"
+  1409→                        >
+  1410→                          <div className="flex items-center justify-between">
+  1411→                            <div className="flex items-center gap-2">
+  1412→                              <p className="text-sm font-medium">{archetype.name}</p>
+  1413→                              {archetype.is_featured && (
+  1414→                                <span className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">
+  1415→                                  Destacado
+  1416→                                </span>
+  1417→                              )}
+  1418→                            </div>
+  1419→                            <Button
+  1420→                              variant="outline"
+  1421→                              size="sm"
+  1422→                              onClick={() => applyArchetype(archetype.id, archetype.name)}
+  1423→                            >
+  1424→                              <Sparkles className="w-3 h-3 mr-1" />
+  1425→                              Usar
+  1426→                            </Button>
+  1427→                          </div>
+  1428→                          <div className="flex flex-wrap gap-1.5 mt-2">
+  1429→                            {archetype.facets.gender && (
+  1430→                              <span className="text-[10px] bg-pink-500/10 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded">
+  1431→                                {archetype.facets.gender}
+  1432→                              </span>
+  1433→                            )}
+  1434→                            {archetype.facets.age && (
+  1435→                              <span className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+  1436→                                {archetype.facets.age}
+  1437→                              </span>
+  1438→                            )}
+  1439→                            {archetype.facets.pitch && (
+  1440→                              <span className="text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded">
+  1441→                                {archetype.facets.pitch}
+  1442→                              </span>
+  1443→                            )}
+  1444→                            {archetype.facets.accent && (
+  1445→                              <span className="text-[10px] bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded">
+  1446→                                {archetype.facets.accent}
+  1447→                              </span>
+  1448→                            )}
+  1449→                            <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded">
+  1450→                              {archetype.use_case}
+  1451→                            </span>
+  1452→                          </div>
+  1453→                          {archetype.instruct && (
+  1454→                            <p className="text-xs text-muted-foreground mt-1 italic">
+  1455→                              {archetype.instruct}
+  1456→                            </p>
+  1457→                          )}
+  1458→                        </div>
+  1459→                      ))}
+  1460→                    </div>
+  1461→                  ) : (
+  1462→                    <div className="text-center py-6 text-muted-foreground">
+  1463→                      <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-30" />
+  1464→                      <p className="text-sm">No hay arquetipos disponibles</p>
+  1465→                      <p className="text-xs mt-1">Inicia OmniVoice Studio para ver los arquetipos</p>
+  1466→                    </div>
+  1467→                  )}
+  1468→                </CardContent>
+  1469→              </Card>
+  1470→            </>
+  1471→          )}
+  1472→
+  1473→          {/* System Voices (both providers) */}
+  1474→          <Card>
+  1475→            <CardHeader>
+  1476→              <CardTitle className="text-sm flex items-center gap-2">
+  1477→                <Music className="w-4 h-4" />
+  1478→                {isOmniVoice ? 'Voces del Sistema' : 'Voces Disponibles'}
+  1479→              </CardTitle>
+  1480→              <CardDescription>
+  1481→                {isOmniVoice
+  1482→                  ? 'Voces integradas y aliases de OpenAI disponibles en OmniVoice'
+  1483→                  : `Voces disponibles en ${PROVIDER_CONFIGS[ttsConfig.provider].name}`
+  1484→                }
+  1485→              </CardDescription>
+  1486→            </CardHeader>
+  1487→            <CardContent>
+  1488→              {availableVoices.length > 0 ? (
+  1489→                <div className="space-y-2 max-h-96 overflow-y-auto">
+  1490→                  {availableVoices.map((voice) => (
+  1491→                    <div
+  1492→                      key={voice.id}
+  1493→                      className={cn(
+  1494→                        'flex items-center justify-between p-3 rounded-lg border',
+  1495→                        ttsConfig.defaultVoice === voice.id
+  1496→                          ? 'bg-primary/10 border-primary/30'
+  1497→                          : 'bg-card hover:bg-muted/50'
+  1498→                      )}
+  1499→                    >
+  1500→                      <div className="flex-1 min-w-0">
+  1501→                        <div className="flex items-center gap-2">
+  1502→                          <p className="text-sm font-medium truncate">{voice.name}</p>
+  1503→                          {voice.type === 'profile' && (
+  1504→                            <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">
+  1505→                              Perfil
+  1506→                            </span>
+  1507→                          )}
+  1508→                          {voice.type === 'openai_alias' && (
+  1509→                            <span className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+  1510→                              OpenAI
+  1511→                            </span>
+  1512→                          )}
+  1513→                        </div>
+  1514→                        <div className="flex flex-wrap gap-2 mt-1">
+  1515→                          {voice.language && (
+  1516→                            <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
+  1517→                              <Globe className="w-3 h-3 inline mr-1" />
+  1518→                              {voice.language}
+  1519→                            </span>
+  1520→                          )}
+  1521→                          {voice.description && (
+  1522→                            <span className="text-xs text-muted-foreground truncate max-w-[250px]">
+  1523→                              {voice.description}
+  1524→                            </span>
+  1525→                          )}
+  1526→                          {!voice.description && (
+  1527→                            <span className="text-xs text-muted-foreground">{voice.id}</span>
+  1528→                          )}
+  1529→                        </div>
+  1530→                      </div>
+  1531→                      <Button
+  1532→                        variant={ttsConfig.defaultVoice === voice.id ? 'default' : 'outline'}
+  1533→                        size="sm"
+  1534→                        className="shrink-0 ml-2"
+  1535→                        onClick={() => updateTtsConfig({ defaultVoice: voice.id })}
+  1536→                      >
+  1537→                        {ttsConfig.defaultVoice === voice.id ? 'Activa' : 'Usar'}
+  1538→                      </Button>
+  1539→                    </div>
+  1540→                  ))}
+  1541→                </div>
+  1542→              ) : (
+  1543→                <div className="text-center py-8 text-muted-foreground">
+  1544→                  <Music className="w-12 h-12 mx-auto mb-3 opacity-30" />
+  1545→                  <p className="text-sm">No hay voces disponibles</p>
+  1546→                  <p className="text-xs mt-1">
+  1547→                    Haz clic en "Cargar Voces" para obtener las voces del servidor
+  1548→                  </p>
+  1549→                </div>
+  1550→              )}
+  1551→            </CardContent>
+  1552→          </Card>
+  1553→
+  1554→          {/* OmniVoice Engines Info */}
+  1555→          {isOmniVoice && omniVoiceEngines.length > 0 && (
+  1556→            <Card>
+  1557→              <CardHeader>
+  1558→                <CardTitle className="text-sm flex items-center gap-2">
+  1559→                  <Activity className="w-4 h-4" />
+  1560→                  Motores TTS Disponibles
+  1561→                </CardTitle>
+  1562→              </CardHeader>
+  1563→              <CardContent>
+  1564→                <div className="space-y-2">
+  1565→                  {omniVoiceEngines.map((engine) => (
+  1566→                    <div key={engine.id} className="flex items-center justify-between p-2 rounded border bg-card">
+  1567→                      <div>
+  1568→                        <p className="text-sm font-medium">{engine.display_name}</p>
+  1569→                        <p className="text-xs text-muted-foreground">{engine.id}</p>
+  1570→                      </div>
+  1571→                      <span className={cn(
+  1572→                        'text-xs px-2 py-0.5 rounded-full',
+  1573→                        engine.available
+  1574→                          ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+  1575→                          : 'bg-red-500/10 text-red-600 dark:text-red-400'
+  1576→                      )}>
+  1577→                        {engine.available ? 'Disponible' : engine.reason}
+  1578→                      </span>
+  1579→                    </div>
+  1580→                  ))}
+  1581→                </div>
+  1582→              </CardContent>
+  1583→            </Card>
+  1584→          )}
+  1585→
+  1586→          {/* Voice Upload */}
+  1587→          <Card>
+  1588→            <CardHeader>
+  1589→              <CardTitle className="text-sm flex items-center gap-2">
+  1590→                <Upload className="w-4 h-4" />
+  1591→                Subir Voz de Referencia
+  1592→              </CardTitle>
+  1593→              <CardDescription>
+  1594→                Sube un archivo de audio para usar como referencia de voz (clonación)
+  1595→              </CardDescription>
+  1596→            </CardHeader>
+  1597→            <CardContent className="space-y-4">
+  1598→              <div className="border-2 border-dashed rounded-lg p-6 text-center">
+  1599→                <FileAudio className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+  1600→                <p className="text-sm text-muted-foreground mb-2">
+  1601→                  Arrastra un archivo de audio o haz clic para seleccionar
+  1602→                </p>
+  1603→                <p className="text-xs text-muted-foreground">
+  1604→                  Formatos: WAV, MP3, OGG (máx. 10MB, 5-30 seg recomendado)
+  1605→                </p>
+  1606→                <input
+  1607→                  type="file"
+  1608→                  accept="audio/*"
+  1609→                  onChange={async (e) => {
+  1610→                    const file = e.target.files?.[0];
+  1611→                    if (!file) return;
+  1612→
+  1613→                    const formData = new FormData();
+  1614→                    formData.append('voice', file);
+  1615→
+  1616→                    try {
+  1617→                      const response = await fetch('/api/tts/voices', {
+  1618→                        method: 'POST',
+  1619→                        body: formData,
+  1620→                      });
+  1621→                      const data = await response.json();
+  1622→                      if (data.success) {
+  1623→                        updateTtsConfig({ defaultVoice: data.voice.id });
+  1624→                        loadAvailableVoices();
+  1625→                      }
+  1626→                    } catch (error) {
+  1627→                      console.error('Failed to upload voice:', error);
+  1628→                    }
+  1629→                  }}
+  1630→                  className="hidden"
+  1631→                  id="voice-upload"
+  1632→                />
+  1633→                <Button
+  1634→                  variant="outline"
+  1635→                  size="sm"
+  1636→                  className="mt-2"
+  1637→                  onClick={() => document.getElementById('voice-upload')?.click()}
+  1638→                >
+  1639→                  <Upload className="w-4 h-4 mr-2" />
+  1640→                  Seleccionar Archivo
+  1641→                </Button>
+  1642→              </div>
+  1643→            </CardContent>
+  1644→          </Card>
+  1645→        </TabsContent>
+  1646→      </Tabs>
+  1647→    </div>
+  1648→  );
+  1649→}
+  1650→

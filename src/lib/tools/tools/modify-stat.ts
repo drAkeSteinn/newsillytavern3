@@ -169,7 +169,14 @@ export async function modifyStatExecutor(
   let newValue: number | string;
   let operatorLabel = 'establecido a';
 
-  if (matchedAttr.type === 'number' || typeof oldValue === 'number') {
+  // Numeric path only for actual numeric attributes. A keyword/text attribute
+  // that happens to hold a numeric value (or numeric defaultValue) must NOT
+  // enter the numeric path — the LLM's "feliz" would error out with "Valor
+  // numérico inválido" (typeof oldValue === 'number' is not sufficient).
+  const treatAsNumeric = matchedAttr.type === 'number' ||
+    (matchedAttr.type !== 'keyword' && matchedAttr.type !== 'text' && typeof oldValue === 'number');
+
+  if (treatAsNumeric) {
     // Numeric attribute - parse operator
     if (rawValue.startsWith('+')) {
       // Add operation

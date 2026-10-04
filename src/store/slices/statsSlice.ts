@@ -21,6 +21,7 @@ import { evaluateThresholdEffects } from '@/lib/sprites/condition-evaluator';
 import { executeReward } from '@/lib/quest/quest-reward-executor';
 import { buildRewardStoreActions } from '@/lib/quest/reward-store-actions';
 import { appendEventLogEntry } from '@/lib/stats/event-log';
+import { buildEventMemoryContent, defaultEventMemoryImportance, reportSceneEventToMemory } from '@/lib/stats/scene-events';
 import {
   relationshipPairKey,
   clampRelationshipPoints,
@@ -266,7 +267,6 @@ export interface StatsSlice {
     targetCharacterId: string,
     solicitudKey: string,
     description: string,
-    completionDescription: string | undefined,
     userName: string,
     expirationTurns?: number,
     expirationMinutes?: number
@@ -292,16 +292,29 @@ export interface StatsSlice {
     currentTurn?: number
   ) => SolicitudInstance[];
 
-  // Session Events (for {{eventos}} key)
-  // These track recent important events in the session
-  updateSessionEvent: (
+  // Session Events (for {{last_events}} key + persistent memory)
+  // Records a scene event into the session ring buffer AND saves it to the
+  // character's (or group's) persistent Memory V2 store as type 'evento'.
+  recordSceneEvent: (
     sessionId: string,
-    eventType: 'ultimo_objetivo_completado' | 'ultima_solicitud_completada' | 'ultima_solicitud_realizada' | 'ultima_accion_realizada' | 'ultima_accion_character',
-    description: string
+    entry: {
+      type: import('@/types').SessionEventLogType;
+      description: string;
+      characterId?: string;
+      characterName?: string;
+      targetName?: string;
+    },
+    memory?: {
+      /** Override the auto-built memory sentence (see buildEventMemoryContent) */
+      content?: string;
+      subject?: 'usuario' | 'personaje' | 'pareja' | 'mundo';
+      importance?: number;
+    }
   ) => void;
 
-  // Push a custom entry into the session event log ({{eventos}} ring buffer).
-  // Used for scene changes (enter/leave/focus) and future event sources.
+  // Push a custom entry into the session event log ({{last_events}} ring buffer).
+  // Used for scene changes (enter/leave/focus) and other low-level events that
+  // don't need a memory write. For gameplay events prefer recordSceneEvent.
   pushSessionEvent: (
     sessionId: string,
     entry: {
@@ -399,6 +412,12 @@ function clampAttributeValue(
 ): number | string {
   // Only clamp numeric values
   if (typeof value !== 'number') {
+    return value;
+  }
+
+  // Reject non-finite numbers (NaN/Infinity poisoning from bad detections
+  // would otherwise stick forever: Math.max(NaN, min) → NaN).
+  if (!Number.isFinite(value)) {
     return value;
   }
 
@@ -583,10 +602,6 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           characterSolicitudes: {},
           lastModified: Date.now(),
         },
-        ultimo_objetivo_completado: undefined,
-        ultima_solicitud_completada: undefined,
-        ultima_solicitud_realizada: undefined,
-        ultima_accion_realizada: undefined,
         initialized: true,
         lastModified: Date.now(),
       };
@@ -649,6 +664,21 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       );
     }
 
+    // Reject non-finite numeric writes (NaN/Infinity poisoning from bad
+    // detections or LLM tool calls would otherwise stick forever).
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      console.warn(`[StatsSlice] Rejected non-finite value for ${attributeKey}: ${value}`);
+      return defaultResult;
+    }
+    // Numeric attributes must never receive raw text (e.g. KWS storing "/2").
+    if (attributeDef?.type === 'number' && typeof value !== 'number') {
+      const asNum = parseFloat(String(value));
+      if (!Number.isFinite(asNum)) {
+        console.warn(`[StatsSlice] Rejected non-numeric value for numeric attribute ${attributeKey}: ${value}`);
+        return defaultResult;
+      }
+    }
+
     // Clamp value to min/max bounds
     const clampedValue = clampAttributeValue(value, attributeDef);
     const clamped = clampedValue !== value;
@@ -684,8 +714,36 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           tempSessionStats,
           characterId
         );
-        
+
+        // Edge detection: non-message rewards must fire only when the
+        // effect's condition CROSSES from false → true. Without this, a
+        // sound/background/quest effect re-fired on EVERY update while the
+        // condition held. (Message rewards are unaffected — they are
+        // consumed independently by collectThresholdMessages with its own
+        // persisted edge state.)
+        let beforeMatchedIds = new Set<string>();
+        if (matchingEffects.length > 0) {
+          const beforeStats: SessionStats = {
+            ...sessionStats,
+            characterStats: {
+              ...sessionStats.characterStats,
+              [characterId]: {
+                ...stats,
+                attributeValues: {
+                  ...stats.attributeValues,
+                  [attributeKey]: oldValue, // value BEFORE this update
+                },
+              },
+            },
+          };
+          beforeMatchedIds = new Set(
+            evaluateThresholdEffects(attributeDef.thresholdEffects, beforeStats, characterId)
+              .map(e => e.id)
+          );
+        }
+
         for (const effect of matchingEffects) {
+          if (beforeMatchedIds.has(effect.id)) continue; // already matched before this update — not a crossing
           thresholdsReached.push({
             attributeKey: attributeDef.key,
             attributeName: attributeDef.name,
@@ -702,31 +760,49 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       // Legacy: Check old onMinReached/onMaxReached (only if no thresholdEffects defined)
       if (!attributeDef.thresholdEffects || attributeDef.thresholdEffects.length === 0) {
         if (typeof clampedValue === 'number') {
+          // Normalize bounds: legacy data may store min/max as strings, and
+          // strict `clampedValue === attributeDef.min` then NEVER fired.
+          // Also require a crossing (previous value ≠ bound) so rewards
+          // don't re-fire on every update while sitting at the bound.
+          const prevNum = typeof oldValue === 'number'
+            ? oldValue
+            : parseFloat(String(oldValue));
+
           // Check if reached minimum
-          if (attributeDef.min !== undefined && clampedValue === attributeDef.min) {
-            if (attributeDef.onMinReached?.enabled && attributeDef.onMinReached.rewards.length > 0) {
-              thresholdsReached.push({
-                attributeKey: attributeDef.key,
-                attributeName: attributeDef.name,
-                thresholdType: 'min',
-                thresholdValue: attributeDef.min,
-                rewards: attributeDef.onMinReached.rewards,
-              });
-              console.log(`[StatsSlice] Threshold reached: ${attributeDef.name} hit minimum (${attributeDef.min})`);
+          if (attributeDef.min !== undefined) {
+            const minNum = typeof attributeDef.min === 'number'
+              ? attributeDef.min
+              : parseFloat(String(attributeDef.min));
+            if (Number.isFinite(minNum) && clampedValue === minNum && prevNum !== minNum) {
+              if (attributeDef.onMinReached?.enabled && attributeDef.onMinReached.rewards.length > 0) {
+                thresholdsReached.push({
+                  attributeKey: attributeDef.key,
+                  attributeName: attributeDef.name,
+                  thresholdType: 'min',
+                  thresholdValue: attributeDef.min,
+                  rewards: attributeDef.onMinReached.rewards,
+                });
+                console.log(`[StatsSlice] Threshold reached: ${attributeDef.name} hit minimum (${attributeDef.min})`);
+              }
             }
           }
-          
+
           // Check if reached maximum
-          if (attributeDef.max !== undefined && clampedValue === attributeDef.max) {
-            if (attributeDef.onMaxReached?.enabled && attributeDef.onMaxReached.rewards.length > 0) {
-              thresholdsReached.push({
-                attributeKey: attributeDef.key,
-                attributeName: attributeDef.name,
-                thresholdType: 'max',
-                thresholdValue: attributeDef.max,
-                rewards: attributeDef.onMaxReached.rewards,
-              });
-              console.log(`[StatsSlice] Threshold reached: ${attributeDef.name} hit maximum (${attributeDef.max})`);
+          if (attributeDef.max !== undefined) {
+            const maxNum = typeof attributeDef.max === 'number'
+              ? attributeDef.max
+              : parseFloat(String(attributeDef.max));
+            if (Number.isFinite(maxNum) && clampedValue === maxNum && prevNum !== maxNum) {
+              if (attributeDef.onMaxReached?.enabled && attributeDef.onMaxReached.rewards.length > 0) {
+                thresholdsReached.push({
+                  attributeKey: attributeDef.key,
+                  attributeName: attributeDef.name,
+                  thresholdType: 'max',
+                  thresholdValue: attributeDef.max,
+                  rewards: attributeDef.onMaxReached.rewards,
+                });
+                console.log(`[StatsSlice] Threshold reached: ${attributeDef.name} hit maximum (${attributeDef.max})`);
+              }
             }
           }
         }
@@ -841,10 +917,6 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
             characterSolicitudes: {},
             lastModified: Date.now(),
           },
-          ultimo_objetivo_completado: undefined,
-          ultima_solicitud_completada: undefined,
-          ultima_solicitud_realizada: undefined,
-          ultima_accion_realizada: undefined,
           initialized: true,
           lastModified: Date.now(),
         };
@@ -905,6 +977,9 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       const newAttributeValues = { ...stats.attributeValues };
       const newLastUpdated = { ...stats.lastUpdated };
       const newChangeLog = [...(stats.changeLog || [])];
+      // Snapshot of pre-batch values — used for threshold edge detection
+      // (fire only on false→true crossings) after the store update.
+      const beforeBatchValues = { ...stats.attributeValues };
 
       for (const update of updates) {
         const oldValue = newAttributeValues[update.attributeKey];
@@ -989,9 +1064,32 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           );
           if (!attributeDef?.thresholdEffects || attributeDef.thresholdEffects.length === 0) continue;
           const matching = evaluateThresholdEffects(attributeDef.thresholdEffects, freshSession.sessionStats, characterId);
+          // Edge detection (same as updateCharacterStat): skip effects whose
+          // condition was ALREADY matched before this batch — otherwise
+          // non-message rewards re-fired on every batch update.
+          let beforeMatchedIds = new Set<string>();
+          if (matching.length > 0) {
+            const beforeStats: SessionStats = {
+              ...freshSession.sessionStats,
+              characterStats: {
+                ...freshSession.sessionStats.characterStats,
+                [characterId]: {
+                  ...freshStats,
+                  attributeValues: {
+                    ...freshStats.attributeValues,
+                    [update.attributeKey]: beforeBatchValues[update.attributeKey],
+                  },
+                },
+              },
+            };
+            beforeMatchedIds = new Set(
+              evaluateThresholdEffects(attributeDef.thresholdEffects, beforeStats, characterId).map(e => e.id)
+            );
+          }
           for (const effect of matching) {
             const dedupKey = `${attributeDef.key}:${effect.id}`;
             if (seenEffects.has(dedupKey)) continue;
+            if (beforeMatchedIds.has(effect.id)) continue; // not a false→true crossing
             seenEffects.add(dedupKey);
             allThresholds.push({
               attributeKey: attributeDef.key,
@@ -1155,10 +1253,6 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           characterSolicitudes: {},
           lastModified: Date.now(),
         },
-        ultimo_objetivo_completado: undefined,
-        ultima_solicitud_completada: undefined,
-        ultima_solicitud_realizada: undefined,
-        ultima_accion_realizada: undefined,
         initialized: true,
         lastModified: Date.now(),
       };
@@ -1197,7 +1291,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       (c: { id: string }) => c.id === targetCharacterId
     )?.name;
     
-    const newSessionStats: SessionStats = appendEventLogEntry({
+    const newSessionStats: SessionStats = {
       ...sessionStats,
       solicitudes: {
         characterSolicitudes: {
@@ -1206,16 +1300,8 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
         },
         lastModified: Date.now(),
       },
-      // Save event for {{eventos}} key - peticion was activated
-      ultima_solicitud_realizada: solicitudData.description,
       lastModified: Date.now(),
-    }, {
-      type: 'solicitud_created',
-      description: solicitudData.description,
-      characterId: solicitudData.fromCharacterId,
-      characterName: solicitudData.fromCharacterName,
-      targetName: targetCharacterName,
-    });
+    };
     
     set((state: any) => ({
       sessions: state.sessions.map((s: any) =>
@@ -1228,6 +1314,15 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           : s
       ),
     }));
+    
+    // Record the scene event: session ring buffer ({{last_events}}) + memory
+    get().recordSceneEvent?.(sessionId, {
+      type: 'solicitud_created',
+      description: solicitudData.description,
+      characterId: solicitudData.fromCharacterId,
+      characterName: solicitudData.fromCharacterName,
+      targetName: targetCharacterName,
+    });
     
     console.log(`[Solicitud] Created solicitud "${solicitudData.key}" for character ${targetCharacterId} from ${solicitudData.fromCharacterName}`);
     return newSolicitud;
@@ -1269,7 +1364,9 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     };
     updatedSolicitudes[solicitudIndex] = completedSolicitud;
     
-    const newSessionStats: SessionStats = appendEventLogEntry({
+    const eventDescription = `Solicitud "${solicitudKey}" completada por ${completedSolicitud.fromCharacterName}`;
+    
+    const newSessionStats: SessionStats = {
       ...sessionStats,
       solicitudes: {
         characterSolicitudes: {
@@ -1278,16 +1375,8 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
         },
         lastModified: Date.now(),
       },
-      // Save event for {{eventos}} key
-      ultima_solicitud_completada: completedSolicitud.completionDescription || 
-        `Solicitud "${solicitudKey}" completada por ${completedSolicitud.fromCharacterName}`,
       lastModified: Date.now(),
-    }, {
-      type: 'solicitud_completed',
-      description: completedSolicitud.completionDescription ||
-        `Solicitud "${solicitudKey}" completada por ${completedSolicitud.fromCharacterName}`,
-      characterId,
-    });
+    };
     
     set((state: any) => ({
       sessions: state.sessions.map((s: any) =>
@@ -1300,6 +1389,13 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           : s
       ),
     }));
+    
+    // Record the scene event: session ring buffer ({{last_events}}) + memory
+    get().recordSceneEvent?.(sessionId, {
+      type: 'solicitud_completed',
+      description: eventDescription,
+      characterId,
+    });
     
     console.log(`[Solicitud] Completed solicitud "${solicitudKey}" for character ${characterId}`);
     return completedSolicitud;
@@ -1341,7 +1437,6 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     targetCharacterId: string,
     solicitudKey: string,
     description: string,
-    completionDescription: string | undefined,
     userName: string,
     expirationTurns?: number,
     expirationMinutes?: number
@@ -1366,10 +1461,6 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           characterSolicitudes: {},
           lastModified: Date.now(),
         },
-        ultimo_objetivo_completado: undefined,
-        ultima_solicitud_completada: undefined,
-        ultima_solicitud_realizada: undefined,
-        ultima_accion_realizada: undefined,
         initialized: true,
         lastModified: Date.now(),
       };
@@ -1406,7 +1497,6 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       fromCharacterId: '__user__',
       fromCharacterName: userName || 'Usuario',
       description,
-      completionDescription,
       status: 'pending',
       createdAt: now,
       expiresAt: expirationMinutes && expirationMinutes > 0 ? now + expirationMinutes * 60 * 1000 : undefined,
@@ -1420,7 +1510,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       (c: { id: string }) => c.id === targetCharacterId
     )?.name;
     
-    const newSessionStats: SessionStats = appendEventLogEntry({
+    const newSessionStats: SessionStats = {
       ...sessionStats,
       solicitudes: {
         characterSolicitudes: {
@@ -1429,16 +1519,8 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
         },
         lastModified: Date.now(),
       },
-      // Save event for {{eventos}} key - user made a peticion to a character
-      ultima_solicitud_realizada: description,
       lastModified: Date.now(),
-    }, {
-      type: 'solicitud_user',
-      description,
-      characterId: '__user__',
-      characterName: userName || 'Usuario',
-      targetName: targetCharacterName,
-    });
+    };
     
     set((state: any) => ({
       sessions: state.sessions.map((s: any) =>
@@ -1451,6 +1533,15 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           : s
       ),
     }));
+    
+    // Record the scene event: session ring buffer ({{last_events}}) + memory
+    get().recordSceneEvent?.(sessionId, {
+      type: 'solicitud_user',
+      description,
+      characterId: '__user__',
+      characterName: userName || 'Usuario',
+      targetName: targetCharacterName,
+    });
     
     console.log(`[UserPeticion] Created solicitud "${solicitudKey}" for character ${targetCharacterId}`);
     return newSolicitud;
@@ -1506,9 +1597,6 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
         },
         lastModified: Date.now(),
       },
-      // Save event for {{eventos}} key - use completionDescription if available
-      ultima_solicitud_completada: completedSolicitud.completionDescription || 
-        `${completedSolicitud.fromCharacterName} recibió respuesta del usuario`,
       lastModified: Date.now(),
     };
     
@@ -1523,6 +1611,16 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
           : s
       ),
     }));
+    
+    // Record the scene event: session ring buffer ({{last_events}}) + memory.
+    // (Previously this path only set a legacy scalar and never reached the
+    // event log — fixed as part of the memory migration.)
+    get().recordSceneEvent?.(sessionId, {
+      type: 'solicitud_completed',
+      description: `${completedSolicitud.fromCharacterName} vio completada su petición (el usuario aceptó): ${completedSolicitud.description}`,
+      characterId: completedSolicitud.fromCharacterId,
+      characterName: completedSolicitud.fromCharacterName,
+    });
     
     console.log(`[UserSolicitud] Accepted solicitud "${completedSolicitud.key}"`);
     return completedSolicitud;
@@ -1698,96 +1796,47 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
   },
 
   /**
-   * Update session event (for {{eventos}} key)
-   * Saves recent important events to session stats
+   * Record a scene event (for the {{last_events}} key + persistent memory).
+   *
+   * 1. Appends the entry to the session's eventLog ring buffer (ephemeral —
+   *    rendered by {{last_events}} as [ULTIMOS EVENTOS EN LA ESCENA]).
+   * 2. Fire-and-forget save into Memory V2 (type 'evento') so the character
+   *    remembers it beyond the session. Group sessions save a group-wide
+   *    record; 1-on-1 sessions save to the acting character's memory
+   *    (user-driven events go to the session's main character).
    */
-  updateSessionEvent: (sessionId, eventType, description) => {
-    set((state: any) => {
-      const sessions = state.sessions as Array<{ 
-        id: string; 
-        sessionStats?: SessionStats;
-      }>;
-      const sessionIndex = sessions.findIndex(s => s.id === sessionId);
-      
-      if (sessionIndex === -1) return state;
-      
-      const session = sessions[sessionIndex];
-      let sessionStats = session.sessionStats;
-      
-      // Auto-initialize sessionStats if missing (includes event fields)
-      if (!sessionStats) {
-        sessionStats = {
-          characterStats: {},
-          solicitudes: {
-            characterSolicitudes: {},
-            lastModified: Date.now(),
-          },
-          ultimo_objetivo_completado: undefined,
-          ultima_solicitud_completada: undefined,
-          ultima_solicitud_realizada: undefined,
-          ultima_accion_realizada: undefined,
-          ultima_accion_character: undefined,
-          initialized: true,
-          lastModified: Date.now(),
-        };
-      }
-      
-      // Update the specific event field
-      let newSessionStats: SessionStats = {
-        ...sessionStats,
-        [eventType]: description,
-        lastModified: Date.now(),
-      };
+  recordSceneEvent: (sessionId, entry, memory) => {
+    // 1) Ephemeral ring buffer
+    get().pushSessionEvent?.(sessionId, entry);
 
-      // Push to the event log ring buffer ({{eventos}} history)
-      try {
-        const turn = get().getTurnCount?.(sessionId) || undefined;
-        if (eventType === 'ultimo_objetivo_completado') {
-          newSessionStats = appendEventLogEntry(newSessionStats, {
-            type: 'quest_objective', description, turn,
-          });
-        } else if (eventType === 'ultima_solicitud_realizada') {
-          newSessionStats = appendEventLogEntry(newSessionStats, {
-            type: 'solicitud_created', description, turn,
-          });
-        } else if (eventType === 'ultima_solicitud_completada') {
-          newSessionStats = appendEventLogEntry(newSessionStats, {
-            type: 'solicitud_completed', description, turn,
-          });
-        } else if (eventType === 'ultima_accion_character') {
-          // Arrives right after 'ultima_accion_realizada' — build the full entry here
-          const actionDesc = sessionStats.ultima_accion_realizada || newSessionStats.ultima_accion_realizada;
-          if (actionDesc) {
-            newSessionStats = appendEventLogEntry(newSessionStats, {
-              type: 'action',
-              description: actionDesc,
-              characterName: description, // description param carries the author name here
-              turn,
-            });
-          }
-        }
-      } catch (e) {
-        console.warn('[SessionEvent] Failed to append event log entry:', e);
-      }
-      
-      return {
-        sessions: state.sessions.map((s: any) =>
-          s.id === sessionId
-            ? { 
-                ...s, 
-                sessionStats: newSessionStats,
-                updatedAt: new Date().toISOString() 
-              }
-            : s
-        ),
-      };
-    });
-    
-    console.log(`[SessionEvent] Updated ${eventType}: ${description}`);
+    // 2) Persistent memory
+    try {
+      const session = (get().sessions as Array<{ id: string; characterId?: string; groupId?: string }>)
+        ?.find(s => s.id === sessionId);
+      const isGroup = !!session?.groupId;
+      const actorId = entry.characterId;
+      const charId = isGroup
+        ? '' // group-wide record (charId='' + groupId set)
+        : (actorId && actorId !== '__user__' ? actorId : (session?.characterId || ''));
+
+      const content = memory?.content?.trim() || buildEventMemoryContent(entry);
+      if (!content || (!charId && !session?.groupId)) return;
+
+      reportSceneEventToMemory({
+        charId,
+        groupId: session?.groupId || undefined,
+        sessionId,
+        content,
+        subject: memory?.subject || (entry.characterId === '__user__' ? 'usuario' : 'personaje'),
+        importance: memory?.importance ?? defaultEventMemoryImportance(entry.type),
+      });
+    } catch (e) {
+      console.warn('[recordSceneEvent] memory report failed:', e);
+    }
   },
 
   /**
-   * Push a custom entry into the session event log ({{eventos}} ring buffer).
+   * Push a custom entry into the session event log ({{last_events}} ring buffer).
    */
   pushSessionEvent: (sessionId, entry) => {
     set((state: any) => {
@@ -1799,7 +1848,26 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       if (sessionIndex === -1) return state;
 
       const session = sessions[sessionIndex];
-      if (!session.sessionStats) return state; // events require initialized stats
+      // Auto-initialize minimal sessionStats instead of silently dropping
+      // the event: Director world events and scene enter/leave were lost on
+      // sessions whose stats were never initialized.
+      if (!session.sessionStats) {
+        const now = Date.now();
+        const seededStats: SessionStats = {
+          characterStats: {},
+          solicitudes: { characterSolicitudes: {}, lastModified: now },
+          initialized: false,
+          lastModified: now,
+        };
+        const seeded = appendEventLogEntry(seededStats, { ...entry, turn: undefined });
+        return {
+          sessions: state.sessions.map((s: any) =>
+            s.id === sessionId
+              ? { ...s, sessionStats: seeded, updatedAt: new Date().toISOString() }
+              : s
+          ),
+        };
+      }
 
       const turn = get().getTurnCount?.(sessionId) || undefined;
       const newSessionStats = appendEventLogEntry(session.sessionStats, { ...entry, turn });
@@ -2338,24 +2406,31 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     const oldState = charStats.emotionalState;
     if (oldState === newState) return; // No change needed
 
-    charStats.emotionalState = newState;
-    charStats.emotionalStateLastEval = Date.now();
+    // Immutable update — mutate-then-spread kept the same sessionStats
+    // object reference, so identity-based selectors never re-rendered.
+    const now = Date.now();
+    const updatedStats: SessionStats = {
+      ...session.sessionStats,
+      characterStats: {
+        ...session.sessionStats.characterStats,
+        [characterId]: {
+          ...charStats,
+          emotionalState: newState,
+          emotionalStateLastEval: now,
+          attributeValues: { ...(charStats.attributeValues || {}), emocion: newState },
+          emotionalStateTurnCount: (charStats.emotionalStateTurnCount || 0) + 1,
+        },
+      },
+      lastModified: now,
+    };
 
-    // Also sync to attributeValues for {{emocion}} key resolution
-    if (!charStats.attributeValues) {
-      charStats.attributeValues = {};
-    }
-    charStats.attributeValues['emocion'] = newState;
-
-    // Increment turn counter
-    charStats.emotionalStateTurnCount = (charStats.emotionalStateTurnCount || 0) + 1;
-
-    session.sessionStats.lastModified = Date.now();
-
-    // FIX: spread into a NEW array. `{ ...state.sessions }` converted the
-    // array into a plain object, which would break every `sessions.find()`
-    // / `sessions.map()` call app-wide (including setActiveOutfit).
-    set({ sessions: [...state.sessions] });
+    set((state: any) => ({
+      sessions: state.sessions.map((s: any) =>
+        s.id === sessionId
+          ? { ...s, sessionStats: updatedStats }
+          : s
+      ),
+    }));
 
     console.log(`[Emotion] ${characterId}: "${oldState || '(none)'}" → "${newState}"`);
   },
@@ -2363,7 +2438,8 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
   // FASE 5: Get emotional state for a character
   getEmotionalState: (sessionId, characterId) => {
     const state = get();
-    const session = state.sessions?.[sessionId];
+    // sessions is an ARRAY — string-indexing it always yields undefined.
+    const session = state.sessions?.find((s: any) => s.id === sessionId);
     if (!session?.sessionStats) return null;
 
     return session.sessionStats.characterStats?.[characterId]?.emotionalState || null;
@@ -2376,29 +2452,31 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     const session = sessions.find(s => s.id === sessionId);
     if (!session?.sessionStats) return;
 
-    // Ensure the character entry exists (avoid silent failures when stats
-    // were never initialized for this character in the session)
-    if (!session.sessionStats.characterStats) {
-      session.sessionStats.characterStats = {};
-    }
-    if (!session.sessionStats.characterStats[characterId]) {
-      session.sessionStats.characterStats[characterId] = {
-        attributeValues: {},
-        lastUpdated: {},
-      };
-    }
-
-    const charStats = session.sessionStats.characterStats[characterId];
-    const previousOutfitId = charStats.activeOutfitId ?? null;
+    const existingCharStats = session.sessionStats.characterStats?.[characterId];
+    const previousOutfitId = existingCharStats?.activeOutfitId ?? null;
     if (previousOutfitId === outfitId) return; // No change
 
-    charStats.activeOutfitId = outfitId;
-    session.sessionStats.lastModified = Date.now();
+    // Immutable update (previous code mutated sessionStats in place —
+    // identity-based subscribers never saw the change).
+    const now = Date.now();
+    const updatedStats: SessionStats = {
+      ...session.sessionStats,
+      characterStats: {
+        ...session.sessionStats.characterStats,
+        [characterId]: {
+          attributeValues: {},
+          lastUpdated: {},
+          ...existingCharStats,
+          activeOutfitId: outfitId,
+        },
+      },
+      lastModified: now,
+    };
 
     set((state: any) => ({
       sessions: state.sessions.map((s: any) =>
         s.id === sessionId
-          ? { ...s, sessionStats: session.sessionStats, updatedAt: new Date().toISOString() }
+          ? { ...s, sessionStats: updatedStats, updatedAt: new Date().toISOString() }
           : s
       ),
     }));
@@ -2422,27 +2500,25 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
-    // Ensure sessionStats exists (characters without statsConfig may have no
-    // sessionStats, but the scenario location still needs to persist)
-    if (!session.sessionStats) {
-      session.sessionStats = {
-        characterStats: {},
-        solicitudes: { characterSolicitudes: {}, lastModified: Date.now() },
-        initialized: false,
-        lastModified: Date.now(),
-      };
-    }
-
-    const previousScenarioId = session.sessionStats.activeScenarioId ?? null;
+    const previousScenarioId = session.sessionStats?.activeScenarioId ?? null;
     if (previousScenarioId === scenarioId) return; // No change
 
-    session.sessionStats.activeScenarioId = scenarioId;
-    session.sessionStats.lastModified = Date.now();
+    // Immutable update (previous code mutated sessionStats in place —
+    // identity-based subscribers never saw the change).
+    const now = Date.now();
+    const updatedStats: SessionStats = {
+      characterStats: {},
+      solicitudes: { characterSolicitudes: {}, lastModified: now },
+      initialized: false,
+      ...session.sessionStats,
+      activeScenarioId: scenarioId,
+      lastModified: now,
+    };
 
     set((state: any) => ({
       sessions: state.sessions.map((s: any) =>
         s.id === sessionId
-          ? { ...s, sessionStats: session.sessionStats, updatedAt: new Date().toISOString() }
+          ? { ...s, sessionStats: updatedStats, updatedAt: new Date().toISOString() }
           : s
       ),
     }));

@@ -138,6 +138,12 @@ function applyNumericTimerOperation(
 ): { newValue: number; clamped: boolean } {
   let result = currentValue;
 
+  // Guard non-finite inputs (a NaN/Infinity already in the value must not
+  // propagate further, and value=0 would poison multiply/divide below).
+  if (!Number.isFinite(result)) {
+    return { newValue: result, clamped: false };
+  }
+
   switch (operation) {
     case 'add':
       result = currentValue + (value * ticks);
@@ -147,18 +153,27 @@ function applyNumericTimerOperation(
       break;
     case 'multiply':
       // For multiply/divide, apply iteratively (compound effect)
+      if (!Number.isFinite(value) || value === 0) break; // ×0 collapses stats — skip
       for (let i = 0; i < ticks; i++) {
         result = result * value;
+        if (!Number.isFinite(result)) break;
       }
       break;
     case 'divide':
+      // Division by zero → Infinity/NaN stored forever. Skip instead.
+      if (!Number.isFinite(value) || value === 0) break;
       for (let i = 0; i < ticks; i++) {
         result = result / value;
+        if (!Number.isFinite(result)) break;
       }
       break;
     case 'set':
       result = value; // set doesn't compound with ticks
       break;
+  }
+
+  if (!Number.isFinite(result)) {
+    return { newValue: currentValue, clamped: false }; // never persist non-finite values
   }
 
   // Clamp to min/max
@@ -328,9 +343,23 @@ export function evaluateTimerTicks(
 
       // Check threshold transitions
       if (clamped) {
-        // V2: Check new thresholdEffects first
+        // V2: Check new thresholdEffects first.
+        // Evaluate against a TEMP sessionStats that contains the ticked
+        // value: the raw sessionStats still holds the pre-tick value
+        // (attributeValues above is a copy), so effects like ">= 80" fired
+        // based on the OLD value instead of the new one.
+        const tempSessionStatsForEffects: SessionStats = {
+          ...sessionStats,
+          characterStats: {
+            ...sessionStats.characterStats,
+            [characterId]: {
+              ...charStats,
+              attributeValues: { ...attributeValues },
+            },
+          },
+        };
         if (attr.thresholdEffects && attr.thresholdEffects.length > 0) {
-          const matchingEffects = evaluateThresholdEffects(attr.thresholdEffects, sessionStats, characterId);
+          const matchingEffects = evaluateThresholdEffects(attr.thresholdEffects, tempSessionStatsForEffects, characterId);
           for (const effect of matchingEffects) {
             tickDetail.thresholdTriggered = 'custom';
             result.thresholdsReached.push({

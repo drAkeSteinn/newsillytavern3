@@ -7,7 +7,7 @@
 // tool/action support, embeddings, key resolution, etc.
 
 import { NextRequest } from 'next/server';
-import type { ChatMessage, CharacterCard, LLMConfig, Persona, PromptSection, Lorebook, SessionStats, HUDContextConfig, QuestSettings, QuestTemplate, SessionQuestInstance, SessionSummary, SoundTrigger, AppSettings, CharacterStatsConfig, CharacterMemory } from '@/types';
+import type { ChatMessage, CharacterCard, LLMConfig, Persona, PromptSection, Lorebook, SessionStats, HUDContextConfig, QuestSettings, QuestTemplate, SessionQuestInstance, SessionSummary, SoundTrigger, AppSettings, CharacterStatsConfig } from '@/types';
 import { DEFAULT_QUEST_SETTINGS } from '@/types';
 import {
   DEFAULT_CHARACTER,
@@ -28,7 +28,6 @@ import {
   streamTextGenerationWebUI,
   streamGrok,
   buildLorebookSectionForPrompt,
-  buildMemorySection,
   buildHUDContextSection,
   injectHUDContextIntoMessages,
   injectHUDContextIntoSections,
@@ -47,7 +46,6 @@ import {
   type ContextConfig
 } from '@/lib/context-manager';
 import { retrieveEmbeddingsContext, formatEmbeddingsForSSE } from '@/lib/embeddings/chat-context';
-import { processResponseAndReinforceMemories, isReinforcementEnabled } from '@/lib/embeddings/memory-reinforcement';
 import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
 import { selectProactiveCase, type UsedCaseIndices } from '@/lib/proactive/case-selector';
 import {
@@ -110,7 +108,6 @@ async function executeToolCallsAndContinue(
   statsConfig?: CharacterStatsConfig,
   sessionStats?: SessionStats,
   allCharacters?: CharacterCard[],
-  characterMemory?: CharacterMemory,
   lorebooks?: Lorebook[],
 ): Promise<{ newContent: string; shouldContinue: boolean; toolResults: Array<{ success: boolean; displayMessage: string }>; questActivations: QuestActivation[]; toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> }> {
   if (toolCalls.length === 0 || currentRound >= maxRounds) {
@@ -153,7 +150,6 @@ async function executeToolCallsAndContinue(
         statsConfig: character.statsConfig,
         sessionStats,
         allCharacters,
-        characterMemory,
         lorebooks,
         character,  // needed by manage_wardrobe / manage_escenario tools
       },
@@ -292,26 +288,7 @@ async function executeToolCallsAndContinue(
         fromCharacterId: sol.fromCharacterId,
         fromCharacterName: sol.fromCharacterName,
         description: sol.description,
-        completionDescription: sol.completionDescription,
         peticionKey: sol.peticionKey,
-      }));
-    }
-
-    // Check for memory activation (sync to client-side Character Memory)
-    if (toolResult.memoryActivation) {
-      const mem = toolResult.memoryActivation;
-      console.log(`[Tools] Memory activation from ${tc.name}:`, mem.type);
-
-      controller.enqueue(createSSEJSON({
-        type: 'memory_activation',
-        toolName: tc.name,
-        activationType: mem.type,
-        characterId: mem.characterId,
-        eventData: mem.eventData,
-        relationshipData: mem.relationshipData,
-        noteContent: mem.noteContent,
-        deleteEventId: mem.deleteEventId,
-        deleteEmbeddingId: mem.deleteEmbeddingId,
       }));
     }
 
@@ -485,7 +462,6 @@ export async function POST(request: NextRequest) {
 
     // Extract embeddings chat settings
     const embeddingsChat: Partial<EmbeddingsChatSettings> = body.embeddingsChat || {};
-    const characterMemory: CharacterMemory | undefined = body.characterMemory;
     const sessionId: string | undefined = body.sessionId;
     const characterId: string | undefined = body.characterId;
     const inventoryData: InventoryPromptData | undefined = body.inventoryData;
@@ -593,13 +569,7 @@ export async function POST(request: NextRequest) {
       }
     } catch { /* fallback: Ollama client handles truncation */ }
 
-    // Retrieve relevant embeddings based on enriched query and settings
-    // Pass Character Memory events for deduplication (avoid duplicate memory in prompt)
-    const existingMemoryEvents = characterMemory?.events?.map(e => ({
-      content: e.content,
-      importance: e.importance,
-    }));
-
+    // Retrieve relevant embeddings (knowledge only — memory lives in V2)
     // Extract last assistant message for bidirectional search
     const lastAssistantMsg = messages
       .filter(m => !m.isDeleted && m.role === 'assistant')
@@ -611,12 +581,36 @@ export async function POST(request: NextRequest) {
       sessionId,
       embeddingsChat,
       undefined, // groupId
-      existingMemoryEvents, // for deduplication
       lastAssistantMsg, // bidirectional search with last assistant message
     );
     
     if (embeddingsResult.found) {
       console.log(`[Proactive Route] Retrieved ${embeddingsResult.count} embeddings from namespaces: ${embeddingsResult.searchedNamespaces.join(', ')}`);
+    }
+
+    // ========================================
+    // Memory V2 — unified store (the ONLY memory system)
+    // ========================================
+    // Memory V2 gating — SINGLE switch (see stream/route.ts). No dependency on
+    // the deprecated embeddingsChat.enabled flag.
+    const memoryV2Active = embeddingsChat?.memoryV2Enabled !== false;
+    let v2MemoryContext = '';
+    if (memoryV2Active) {
+      try {
+        const { buildV2MemoryContext } = await import('@/lib/memory/v2');
+        const v2 = await buildV2MemoryContext({
+          charId: characterId || effectiveCharacter.id,
+          charName: effectiveCharacter.name || 'Character',
+          userName: effectiveUserName,
+          sessionId,
+          crossSession: embeddingsChat?.crossSessionMemory !== false,
+          query: enrichedSearchQuery || '',
+          maxTokenBudget: embeddingsChat?.maxTokenBudget,
+        });
+        v2MemoryContext = v2.context;
+      } catch (v2Err) {
+        console.warn('[Proactive Route] Memory V2 failed — continuing without memory this turn:', v2Err);
+      }
     }
 
     // ========================================
@@ -758,18 +752,22 @@ export async function POST(request: NextRequest) {
     const prePersonaSections = personaIndex >= 0 ? systemSections.slice(0, personaIndex + 1) : systemSections;
     const postPersonaSections = personaIndex >= 0 ? systemSections.slice(personaIndex + 1) : [];
 
-    // Build character memory section from Zustand store data (events, relationships, notes)
-    const characterMemorySection = characterMemory
-      ? buildMemorySection(characterMemory, effectiveCharacter.name || 'Character', embeddingsChat?.memoryMaxEventsInPrompt)
+    // Memory V2 viewer section
+    const v2ViewerSection: PromptSection | null = memoryV2Active
+      ? {
+          type: 'character_note',
+          label: `Memoria V2 (${effectiveCharacter.name || 'Character'})`,
+          content: v2MemoryContext || '(sin registros de memoria V2 aún)',
+          color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+        }
       : null;
 
     let allPromptSections: PromptSection[] = [
       ...prePersonaSections,
       ...postPersonaSections,
       ...(summarySection ? [summarySection] : []),
-      ...(characterMemorySection ? [characterMemorySection] : []),  // Character memory: before embeddings
-      ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),
-      ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []),
+      ...(v2ViewerSection ? [v2ViewerSection] : []),  // V2 partitioned memory
+      ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),  // Knowledge
       ...chatHistorySections,
       ...(postHistorySection ? [postHistorySection] : [])
     ];
@@ -779,21 +777,15 @@ export async function POST(request: NextRequest) {
       allPromptSections = injectHUDContextIntoSections(allPromptSections, hudContextSection, hudContext.position);
     }
 
-    // Build combined embeddings context
-    // If embeddings found memory results, skip Character Memory content here to avoid duplication
-    // (Character Memory is still shown in the prompt viewer as a separate section)
+    // Build combined embeddings context.
+    // V2: partitioned blocks are the memory; knowledge stays as [CONTEXTO RELEVANTE].
     const contextParts: string[] = [];
-
-    const embeddingsFoundMemory = embeddingsResult.found && embeddingsResult.memoryCount > 0;
-    if (characterMemorySection && !embeddingsFoundMemory) {
-      contextParts.push(characterMemorySection.content);
-    }
 
     if (embeddingsResult.nonMemoryContextString?.trim()) {
       contextParts.push(embeddingsResult.nonMemoryContextString);
     }
-    if (embeddingsResult.memoryContextString?.trim()) {
-      contextParts.push(embeddingsResult.memoryContextString);
+    if (memoryV2Active && v2MemoryContext.trim()) {
+      contextParts.push(v2MemoryContext);
     }
     const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
 
@@ -826,9 +818,8 @@ export async function POST(request: NextRequest) {
         ...prePersonaSections,
         ...postPersonaSections,
         ...(summarySection ? [summarySection] : []),
-        ...(characterMemorySection ? [characterMemorySection] : []),
-        ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),
-        ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []),
+        ...(v2ViewerSection ? [v2ViewerSection] : []),  // V2 partitioned memory
+        ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),  // Knowledge
         ...finalChatHistorySections,
         ...(postHistorySection ? [postHistorySection] : [])
       ];
@@ -1155,7 +1146,7 @@ export async function POST(request: NextRequest) {
                   console.log(`[Z.ai+Tools] Round 0 buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, nativeToolCalls=${accumulator.toolCalls.length}`);
 
                   // Check for native tool calls
-                  if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                  if (hasToolCalls(accumulator)) {  // FIX: execute on accumulated deltas regardless of finish_reason
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1165,7 +1156,7 @@ export async function POST(request: NextRequest) {
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1205,7 +1196,7 @@ export async function POST(request: NextRequest) {
                         nativeCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1236,13 +1227,23 @@ export async function POST(request: NextRequest) {
                 } else if (isToolRound && toolContextMessages.length > 0) {
                   // Follow-up call after tool execution
                   console.log(`[Z.ai+Tools] Tool round ${toolRound}: sending ${toolContextMessages.length} messages (incl. tool results)`);
-                  generator = streamZAI(toolContextMessages, zaiRuntimeToken);
+                  generator = streamZAI(toolContextMessages, zaiRuntimeToken, {
+                    temperature: llmConfig.parameters?.temperature,
+                    topP: llmConfig.parameters?.topP,
+                    maxTokens: llmConfig.parameters?.maxTokens,
+                    stop: llmConfig.parameters?.stopStrings,
+                  });
                   for await (const chunk of generator) {
                     controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
                   }
                 } else {
                   // No tools enabled - normal streaming
-                  generator = streamZAI(chatMessages, zaiRuntimeToken);
+                  generator = streamZAI(chatMessages, zaiRuntimeToken, {
+                    temperature: llmConfig.parameters?.temperature,
+                    topP: llmConfig.parameters?.topP,
+                    maxTokens: llmConfig.parameters?.maxTokens,
+                    stop: llmConfig.parameters?.stopStrings,
+                  });
                   for await (const chunk of generator) {
                     controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
                   }
@@ -1286,7 +1287,7 @@ export async function POST(request: NextRequest) {
                   console.log(`[Tools] Round 0 buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, nativeToolCalls=${accumulator.toolCalls.length}`);
 
                   // Check for native tool calls first
-                  if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                  if (hasToolCalls(accumulator)) {  // FIX: execute on accumulated deltas regardless of finish_reason
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1296,7 +1297,7 @@ export async function POST(request: NextRequest) {
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1336,7 +1337,7 @@ export async function POST(request: NextRequest) {
                         nativeCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1404,7 +1405,7 @@ export async function POST(request: NextRequest) {
                   }
 
                   const toolCalls = anthropicStateToToolCalls(toolState);
-                  if (toolCalls.length > 0 && (toolState.stopReason === 'tool_use')) {
+                  if (toolCalls.length > 0) {  // FIX: execute on emitted tool_use blocks regardless of stop_reason
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1414,7 +1415,7 @@ export async function POST(request: NextRequest) {
                       toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1454,7 +1455,7 @@ export async function POST(request: NextRequest) {
                         nativeCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1527,7 +1528,7 @@ export async function POST(request: NextRequest) {
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1563,7 +1564,7 @@ export async function POST(request: NextRequest) {
                         nativeCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1640,7 +1641,7 @@ export async function POST(request: NextRequest) {
 
                   console.log(`[Grok+Tools] Round 0 buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, nativeToolCalls=${accumulator.toolCalls.length}`);
 
-                  if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                  if (hasToolCalls(accumulator)) {  // FIX: execute on accumulated deltas regardless of finish_reason
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1650,7 +1651,7 @@ export async function POST(request: NextRequest) {
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1689,7 +1690,7 @@ export async function POST(request: NextRequest) {
                         nativeCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1752,7 +1753,7 @@ export async function POST(request: NextRequest) {
 
                   console.log(`[TextGenWebUI+Tools] Round buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
 
-                  if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                  if (hasToolCalls(accumulator)) {  // FIX: execute on accumulated deltas regardless of finish_reason
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1762,7 +1763,7 @@ export async function POST(request: NextRequest) {
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1882,45 +1883,16 @@ export async function POST(request: NextRequest) {
             break;
           }
 
-          // ========================================
-          // Memory Reinforcement
-          // ========================================
-          if (accumulatedContent.length > 50 && embeddingsResult?.searchedNamespaces?.length > 0) {
-            const reinforcementEnabled = isReinforcementEnabled(embeddingsChat);
-            if (reinforcementEnabled) {
-              const reinforcementNamespaces = embeddingsResult.searchedNamespaces.filter(
-                ns => ns.startsWith('memory-')
-              );
-              
-              if (reinforcementNamespaces.length > 0) {
-                // Fire and forget - don't block the response
-                setTimeout(async () => {
-                  try {
-                    const threshold = embeddingsChat.memoryReinforcementThreshold || 0.7;
-                    const result = await processResponseAndReinforceMemories(
-                      accumulatedContent,
-                      reinforcementNamespaces,
-                      true,
-                      threshold
-                    );
-                    
-                    if (result.reinforced > 0) {
-                      console.log(`[MemoryReinforcement] Reinforced ${result.reinforced} memories`);
-                    }
-                  } catch (err) {
-                    console.warn('[MemoryReinforcement] Failed:', err);
-                  }
-                }, 0);
-              }
-            }
-          }
-
           // Check if memory extraction should trigger
           // The client will handle the actual extraction call after receiving 'done'.
           const userMessages = messages.filter(m => m.role === 'user' && !m.isDeleted);
           const turnCount = userMessages.length;
           const extractionFrequency = embeddingsChat.memoryExtractionFrequency || 5;
-          const extractionEnabled = embeddingsChat.memoryExtractionEnabled === true;
+          // Extraction runs on the V2 pipeline only — it must also respect the
+          // memoryV2Enabled master switch (see stream/route.ts).
+          const extractionEnabled =
+            embeddingsChat.memoryExtractionEnabled === true &&
+            embeddingsChat.memoryV2Enabled !== false;
           const shouldExtract =
             extractionEnabled &&
             accumulatedContent.length > 50 &&

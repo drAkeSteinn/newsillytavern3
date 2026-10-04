@@ -261,17 +261,17 @@ export function NamespaceSelector({
           <Tooltip>
             <TooltipTrigger asChild>
               <p className="text-xs text-muted-foreground cursor-help underline decoration-dotted underline-offset-2">
-                Sin seleccionar — se usarán solo los namespaces automáticos (sesión + personaje + mundo).
+                Sin seleccionar — se usarán solo los namespaces automáticos (personaje/grupo + resúmenes indexados).
               </p>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
-              <p>Los namespaces automáticos incluyen:</p>
+              <p>Los namespaces automáticos que se buscan al chatear son:</p>
               <ul className="text-xs mt-1 space-y-0.5 list-disc list-inside">
-                <li><code className="text-[10px]">memory-character-*</code> — Memorias de sesión</li>
-                <li><code className="text-[10px]">character-*</code> — Lore del personaje</li>
-                <li><code className="text-[10px]">world</code>, <code className="text-[10px]">world-building</code> — Mundo global</li>
+                <li><code className="text-[10px]">character-*</code> — Conocimiento subido al personaje</li>
+                <li><code className="text-[10px]">group-*</code> — Conocimiento del grupo</li>
+                <li><code className="text-[10px]">memory-character-*</code> — Resúmenes indexados del chat</li>
               </ul>
-              <p className="text-xs mt-1">Crea namespaces personalizados para agregar contexto especializado.</p>
+              <p className="text-xs mt-1">Crea namespaces personalizados para agregar contexto especializado (se suman siempre).</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

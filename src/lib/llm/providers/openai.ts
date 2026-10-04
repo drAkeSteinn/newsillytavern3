@@ -33,7 +33,10 @@ export async function* streamOpenAICompatible(
     stream: true
   };
 
-  if (provider === 'openai') {
+  // FIX: apply stop strings and penalties to ALL OpenAI-compatible providers.
+  // Before, vllm/lm-studio/custom silently lost these params (only 'openai' got them),
+  // so stop strings configured in the UI were ignored on local backends.
+  if (['openai', 'vllm', 'lm-studio', 'custom'].includes(provider)) {
     requestBody.frequency_penalty = config.parameters.frequencyPenalty;
     requestBody.presence_penalty = config.parameters.presencePenalty;
     if (config.parameters.stopStrings?.length) {
@@ -132,7 +135,10 @@ export async function* streamOpenAIWithTools(
     tools: openAITools,
   };
 
-  if (provider === 'openai') {
+  // FIX: apply stop strings and penalties to ALL OpenAI-compatible providers.
+  // Before, vllm/lm-studio/custom silently lost these params (only 'openai' got them),
+  // so stop strings configured in the UI were ignored on local backends.
+  if (['openai', 'vllm', 'lm-studio', 'custom'].includes(provider)) {
     requestBody.frequency_penalty = config.parameters.frequencyPenalty;
     requestBody.presence_penalty = config.parameters.presencePenalty;
     if (config.parameters.stopStrings?.length) {
@@ -235,7 +241,10 @@ export async function callOpenAICompatible(
     stream: false
   };
 
-  if (provider === 'openai') {
+  // FIX: apply stop strings and penalties to ALL OpenAI-compatible providers.
+  // Before, vllm/lm-studio/custom silently lost these params (only 'openai' got them),
+  // so stop strings configured in the UI were ignored on local backends.
+  if (['openai', 'vllm', 'lm-studio', 'custom'].includes(provider)) {
     requestBody.frequency_penalty = config.parameters.frequencyPenalty;
     requestBody.presence_penalty = config.parameters.presencePenalty;
     if (config.parameters.stopStrings?.length) {

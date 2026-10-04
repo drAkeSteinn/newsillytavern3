@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Brain, ChevronDown, ChevronUp, User, Sparkles } from 'lucide-react';
+import { Brain, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -9,9 +9,6 @@ interface EmbeddingsContextData {
   count: number;
   namespaces: string[];
   nonMemoryCount?: number;
-  memoryCount?: number;
-  userMemoryCount?: number;
-  characterMemoryCount?: number;
   topResults: Array<{
     content: string;
     similarity: number;
@@ -32,8 +29,6 @@ export function EmbeddingsContextIndicator({
   onDismiss,
 }: EmbeddingsContextIndicatorProps) {
   const [expanded, setExpanded] = useState(false);
-
-  const hasSplit = data.userMemoryCount !== undefined && data.characterMemoryCount !== undefined;
 
   return (
     <div className="mx-auto max-w-lg my-2">
@@ -60,28 +55,6 @@ export function EmbeddingsContextIndicator({
         >
           {data.count}
         </Badge>
-        {hasSplit && (
-          <div className="flex gap-1">
-            {data.userMemoryCount! > 0 && (
-              <Badge
-                variant="outline"
-                className="text-[9px] h-4 px-1.5 border-blue-500/30 text-blue-600 dark:text-blue-400 gap-0.5"
-              >
-                <User className="w-2.5 h-2.5" />
-                {data.userMemoryCount}
-              </Badge>
-            )}
-            {data.characterMemoryCount! > 0 && (
-              <Badge
-                variant="outline"
-                className="text-[9px] h-4 px-1.5 border-amber-500/30 text-amber-600 dark:text-amber-400 gap-0.5"
-              >
-                <Sparkles className="w-2.5 h-2.5" />
-                {data.characterMemoryCount}
-              </Badge>
-            )}
-          </div>
-        )}
         <div className="flex gap-0.5">
           {data.namespaces.slice(0, 2).map(ns => (
             <Badge key={ns} variant="outline" className="text-[9px] h-4 px-1 border-violet-500/20 text-violet-500/70">

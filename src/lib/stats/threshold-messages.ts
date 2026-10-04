@@ -18,7 +18,7 @@
 // state resets so a future crossing fires again.
 //
 // Tag support: the message text is resolved with the same key resolver used
-// across the app — {{char}}, {{user}}, {{time}}, {{eventos}}, {{relacion}},
+// across the app — {{char}}, {{user}}, {{time}}, {{last_events}}, {{relacion}},
 // {{escenario}}, attribute keys ({{fuerza}}, {{vida}}, ...), etc.
 
 import type {

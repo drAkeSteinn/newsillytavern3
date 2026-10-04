@@ -9,7 +9,7 @@
 //  - While idle (every checkInterval, respecting minIntervalMinutes)
 //
 // Applies decisions through existing store primitives:
-//  - world_event  → pushSessionEvent (all characters see it via {{eventos}})
+//  - world_event  → pushSessionEvent (all characters see it via {{last_events}})
 //  - scene_change → applySceneChange (groups) + event log + toast
 //  - tension_shift → console telemetry only (future HUD indicator)
 //  - toolResults  → apply stat/scene/relationship/memory activations directly
@@ -195,22 +195,10 @@ export function useDirector(activeSessionId: string | null | undefined) {
             }
           }
 
-          // memory_activation → addMemoryEvent
-          if (tr.memoryActivation) {
-            const ma = tr.memoryActivation;
-            const anyStore = store as any;
-            if (typeof anyStore.addMemoryEvent === 'function') {
-              anyStore.addMemoryEvent(sessionId, ma.characterId || charId, {
-                type: ma.eventType || 'world_event',
-                description: ma.description || ma.content || '',
-                importance: ma.importance || 'medium',
-              });
-              console.log(`[Director] Tool ${tr.toolName}: memory added for char ${ma.characterId || charId}`);
-            }
-          }
+          // (Memory V2: memory tools write directly to the V2 store — no client mirror)
 
           // Show a toast for tool usage so the user sees the Director acting
-          if (tr.success && (tr.statActivation || tr.sceneActivation || tr.relationshipActivation || tr.memoryActivation)) {
+          if (tr.success && (tr.statActivation || tr.sceneActivation || tr.relationshipActivation)) {
             toast.info(`🎬 Director usó: ${tr.toolName}`);
           }
         }

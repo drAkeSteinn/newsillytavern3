@@ -6,6 +6,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CharacterCard, Persona } from '@/types';
 import { normalizeWardrobeConfig } from '@/lib/wardrobe';
+import { migrateEmbeddingsChatLegacyKeys } from '@/lib/embeddings/constants';
 
 // Import all slices
 import {
@@ -149,7 +150,6 @@ export const useTavernStore = create<TavernState>()(
         // Memory state
         summaries: state.summaries,
         summarySettings: state.summarySettings,
-        characterMemories: state.characterMemories,
         sessionTracking: state.sessionTracking,
         // Quest state
         quests: state.quests,
@@ -201,11 +201,12 @@ export const useTavernStore = create<TavernState>()(
             ...currentState.settings.context,
             ...((persistedSettings?.context as Record<string, unknown>) || {})
           },
-          // Ensure embeddingsChat settings exist with defaults
-          embeddingsChat: {
+          // Ensure embeddingsChat settings exist with defaults, and migrate
+          // legacy knowledge-param keys (memory* → knowledge*) from localStorage.
+          embeddingsChat: migrateEmbeddingsChatLegacyKeys({
             ...currentState.settings.embeddingsChat,
             ...((persistedSettings?.embeddingsChat as Record<string, unknown>) || {})
-          },
+          }),
           // Ensure chatboxAppearance settings exist with defaults
           chatboxAppearance: {
             ...DEFAULT_CHATBOX_APPEARANCE,

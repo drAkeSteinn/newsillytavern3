@@ -10,8 +10,8 @@
 // This is DIFFERENT from memory:
 // - Knowledge (uploaded files): static background, lore, world-building
 //   → injected as [CONTEXTO RELEVANTE] via source_type='file'
-// - Memory (auto-extracted): dynamic facts from the conversation
-//   → injected as [MEMORIA RELEVANTE] via source_type='memory'
+// - Memory V2 (auto-extracted): dynamic facts from the conversation, stored in
+//   its own memories_v2 store and injected as [HECHOS]/[EVENTOS]/[RELACIÓN]
 
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';

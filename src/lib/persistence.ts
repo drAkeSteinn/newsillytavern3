@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { migrateEmbeddingsChatLegacyKeys } from '@/lib/embeddings/constants';
 
 // Data directory path
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -234,7 +235,6 @@ export const DEFAULT_DATA = {
       autoSummarize: false,
       threshold: 50
     },
-    characterMemories: {},
     sessionTracking: {}
   },
   quests: {
@@ -321,6 +321,13 @@ function migrateSettings(settings: any): any {
   // Quick replies are now per-character, but clean up any old settings data
   if ('quickReplies' in settings) {
     delete (settings as Record<string, unknown>).quickReplies;
+  }
+
+  // Memory/Knowledge audit: rename embeddingsChat knowledge params
+  // (memoryMaxResults → knowledgeMaxResults, memoryDecay* → knowledgeDecay*,
+  // memoryHeatEnabled → knowledgeHeatEnabled) preserving persisted values.
+  if (settings.embeddingsChat) {
+    settings.embeddingsChat = migrateEmbeddingsChatLegacyKeys(settings.embeddingsChat);
   }
   
   return settings;

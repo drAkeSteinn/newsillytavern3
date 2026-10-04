@@ -1,0 +1,888 @@
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveSoundKeys] Resolving {{sonidos}} for character: {
+  characterId: "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+  hasSoundTriggers: false,
+  soundTriggersCount: 0,
+  soundTriggersData: undefined,
+}
+[resolveSoundKeys] No sound triggers configured, removing {{sonidos}}
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[1] safety-net sin keys → GESTIÓN x1 | lista: true | reglas: true OK
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[2] keys en card → GESTIÓN x1 | reglas x1 | nota contiene lista: true | nota contiene reglas: true OK
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[3] directo (mayúsculas) → lista: true | principal: true | reglas: true | sin literal: true OK
+    línea principal: El atributo PRINCIPAL de este personaje es "Adicción" (key: adiccion). Los cambi
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[4] stats off → vacío sin leak: OK
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[5] {{scenario}} clásico: true | {{escenario}} V2: true OK
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[6] {{#if}}: OK
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveSoundKeys] Resolving {{sonidos}} for character: {
+  characterId: "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+  hasSoundTriggers: false,
+  soundTriggersCount: 0,
+  soundTriggersData: undefined,
+}
+[resolveSoundKeys] No sound triggers configured, removing {{sonidos}}
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[7a] grupo sin keys → GESTIÓN x1 OK
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[7b] grupo con {{attributes_rulz}} en nota → reglas x1 | auto-inyect x0 OK
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[resolveEventKeys] sessionStats received for {{eventos}}: {
+  hasUltimoObjetivo: false,
+  hasUltimaSolicitudRealizada: false,
+  hasUltimaSolicitudCompletada: false,
+  hasUltimaAccion: false,
+  ultimoObjetivoValue: undefined,
+  ultimaSolicitudRealizadaValue: undefined,
+}
+[resolveEventKeys] Built eventosBlock: 
+[8] lorebook con key interna → lista: true OK

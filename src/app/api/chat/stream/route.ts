@@ -8,7 +8,7 @@
 // - All sections are processed consistently
 
 import { NextRequest } from 'next/server';
-import type { ChatMessage, CharacterCard, LLMConfig, Persona, PromptSection, Lorebook, SessionStats, HUDContextConfig, QuestSettings, QuestTemplate, SessionQuestInstance, SessionSummary, SoundTrigger, AppSettings, CharacterStatsConfig, CharacterMemory, InventoryV2Settings, PersonaInventoryEntry, Item, ActiveConsumableEffect, SessionEquipmentEntry } from '@/types';
+import type { ChatMessage, CharacterCard, LLMConfig, Persona, PromptSection, Lorebook, SessionStats, HUDContextConfig, QuestSettings, QuestTemplate, SessionQuestInstance, SessionSummary, SoundTrigger, AppSettings, CharacterStatsConfig, InventoryV2Settings, PersonaInventoryEntry, Item, ActiveConsumableEffect, SessionEquipmentEntry } from '@/types';
 import { DEFAULT_QUEST_SETTINGS } from '@/types';
 import {
   DEFAULT_CHARACTER,
@@ -25,13 +25,11 @@ import {
   streamZAI,
   streamOpenAICompatible,
   streamAnthropic,
-  streamOllama,
+  streamOllamaChat,
   streamTextGenerationWebUI,
   streamGrok,
   buildLorebookSectionForPrompt,
-  buildMemorySection,
   buildHUDContextSection,
-  buildInventorySection,
   injectHUDContextIntoMessages,
   injectHUDContextIntoSections,
   resolveAllKeys,
@@ -50,8 +48,8 @@ import {
   type ContextConfig
 } from '@/lib/context-manager';
 import { retrieveEmbeddingsContext, formatEmbeddingsForSSE } from '@/lib/embeddings/chat-context';
-import { processResponseAndReinforceMemories, isReinforcementEnabled } from '@/lib/embeddings/memory-reinforcement';
 import { isWardrobeAvailable } from '@/lib/wardrobe';
+import { isScenarioAvailable } from '@/lib/scenario';
 import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
 
 import {
@@ -114,7 +112,6 @@ async function executeToolCallsAndContinue(
   statsConfig?: CharacterStatsConfig,
   sessionStats?: SessionStats,
   allCharacters?: CharacterCard[],
-  characterMemory?: CharacterMemory,
   lorebooks?: Lorebook[],
 ): Promise<{ newContent: string; shouldContinue: boolean; toolResults: Array<{ success: boolean; displayMessage: string }>; questActivations: QuestActivation[]; toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> }> {
   if (toolCalls.length === 0 || currentRound >= maxRounds) {
@@ -157,7 +154,6 @@ async function executeToolCallsAndContinue(
         statsConfig: character.statsConfig,
         sessionStats,
         allCharacters,
-        characterMemory,
         lorebooks,
         character,  // FASE 12: needed by manage_wardrobe tool
       },
@@ -267,7 +263,7 @@ async function executeToolCallsAndContinue(
     if (toolResult.statActivation) {
       const stat = toolResult.statActivation;
       console.log(`[Tools] Stat activation from ${tc.name}:`, stat.attributeKey, stat.oldValue, '→', stat.newValue);
-      
+
       controller.enqueue(createSSEJSON({
         type: 'stat_activation',
         toolName: tc.name,
@@ -279,6 +275,30 @@ async function executeToolCallsAndContinue(
         newValue: stat.newValue,
         reason: stat.reason,
       }));
+
+      // Keep the working sessionStats in sync so SUBSEQUENT tool calls read
+      // up-to-date values. Without this, every tool round received the same
+      // request-start snapshot: two modify_stat("+10") calls both computed
+      // base+10 (the second overwrote the first), and a following check_stat
+      // reported the pre-modification value, misleading the LLM.
+      // The object is per-request (parsed from this request's body), so
+      // in-place mutation is safe and visible to the outer multi-round loop,
+      // which passes the same reference.
+      if (sessionStats) {
+        if (!sessionStats.characterStats) sessionStats.characterStats = {};
+        if (!sessionStats.characterStats[stat.characterId]) {
+          sessionStats.characterStats[stat.characterId] = {
+            attributeValues: {},
+            lastUpdated: {},
+          } as any;
+        }
+        const charStats = sessionStats.characterStats[stat.characterId];
+        charStats.attributeValues = charStats.attributeValues || {};
+        charStats.attributeValues[stat.attributeKey] = stat.newValue;
+        charStats.lastUpdated = charStats.lastUpdated || {};
+        charStats.lastUpdated[stat.attributeKey] = Date.now();
+        sessionStats.lastModified = Date.now();
+      }
     }
 
     // Check for solicitud activation/completion and send SSE event
@@ -296,28 +316,10 @@ async function executeToolCallsAndContinue(
         fromCharacterId: sol.fromCharacterId,
         fromCharacterName: sol.fromCharacterName,
         description: sol.description,
-        completionDescription: sol.completionDescription,
         peticionKey: sol.peticionKey,
       }));
     }
 
-    // Check for memory activation (sync to client-side Character Memory)
-    if (toolResult.memoryActivation) {
-      const mem = toolResult.memoryActivation;
-      console.log(`[Tools] Memory activation from ${tc.name}:`, mem.type);
-      
-      controller.enqueue(createSSEJSON({
-        type: 'memory_activation',
-        toolName: tc.name,
-        activationType: mem.type,
-        characterId: mem.characterId,
-        eventData: mem.eventData,
-        relationshipData: mem.relationshipData,
-        noteContent: mem.noteContent,
-        deleteEventId: mem.deleteEventId,
-        deleteEmbeddingId: mem.deleteEmbeddingId,
-      }));
-    }
 
     // Check for wardrobe activation and send SSE event (GUARDARROPA V2)
     if (toolResult.wardrobeActivation) {
@@ -436,8 +438,8 @@ export async function POST(request: NextRequest) {
     const sessionId: string | undefined = body.sessionId;
     const characterId: string | undefined = body.characterId;
     
-    // Extract character memory (events, relationships, notes from Zustand store)
-    const characterMemory: CharacterMemory | undefined = body.characterMemory;
+    // (Memory V2: client-side CharacterMemory mirror removed — memories are
+    // managed exclusively in the V2 store.)
     
     // Extract tools settings for tool/action system (native tool calling only)
     const toolsSettings: ToolsSettings = {
@@ -587,12 +589,7 @@ export async function POST(request: NextRequest) {
       }
     } catch { /* fallback: no truncation at this level, Ollama client handles it */ }
 
-    // Retrieve relevant embeddings based on enriched query and settings
-    // Pass Character Memory events for deduplication (avoid duplicate memory in prompt)
-    const existingMemoryEvents = characterMemory?.events?.map(e => ({
-      content: e.content,
-      importance: e.importance,
-    }));
+    // Retrieve relevant embeddings (knowledge only — memory lives in V2)
 
     // Extract last assistant message for bidirectional search
     const lastAssistantMsg = messages
@@ -605,7 +602,6 @@ export async function POST(request: NextRequest) {
       sessionId,
       embeddingsChat,
       undefined, // groupId
-      existingMemoryEvents, // for deduplication
       lastAssistantMsg, // bidirectional search with last assistant message
       // FASE 14: pass main attribute key for importance boost in reranking
       effectiveCharacter.statsConfig?.attributes?.find(a => a.isMain === true)?.key,
@@ -613,6 +609,40 @@ export async function POST(request: NextRequest) {
     
     if (embeddingsResult.found) {
       console.log(`[Stream Route] Retrieved ${embeddingsResult.count} embeddings from namespaces: ${embeddingsResult.searchedNamespaces.join(', ')}`);
+    }
+
+    // ========================================
+    // Memory V2 — unified store (the ONLY memory system; provides the
+    // partitioned blocks [HECHOS]/[EVENTOS]/[ESTADO DE LA RELACIÓN]).
+    // Knowledge ([CONTEXTO RELEVANTE]) comes from the knowledge retrieval above.
+    // ========================================
+    // Memory V2 gating — SINGLE switch. memoryV2Enabled is the master switch of
+    // the whole memory pipeline (injection + extraction + tools). It no longer
+    // depends on the deprecated embeddingsChat.enabled flag (which had no UI and
+    // defaulted to false, silently killing V2 on fresh installs).
+    const memoryV2Active = embeddingsChat?.memoryV2Enabled !== false;
+    let v2MemoryContext = '';
+    if (memoryV2Active) {
+      try {
+        const { buildV2MemoryContext } = await import('@/lib/memory/v2');
+        const v2 = await buildV2MemoryContext({
+          charId: characterId || effectiveCharacter.id,
+          charName: effectiveCharacter.name || 'Character',
+          userName: effectiveUserName,
+          sessionId,
+          crossSession: embeddingsChat?.crossSessionMemory !== false,
+          query: enrichedSearchQuery || sanitizedMessage || '',
+          maxTokenBudget: embeddingsChat?.maxTokenBudget,
+        });
+        v2MemoryContext = v2.context;
+        if (v2.context) {
+          console.log(`[Stream Route] Memory V2: ${v2.stats.injected} records injected (backend: ${v2.stats.backend}, curated: ${v2.stats.curatedInjected})`);
+        }
+      } catch (v2Err) {
+        // No legacy fallback anymore: on V2 failure this turn continues without
+        // semantic memory (knowledge retrieval is unaffected).
+        console.warn('[Stream Route] Memory V2 failed — continuing without memory this turn:', v2Err);
+      }
     }
 
     // ========================================
@@ -679,7 +709,7 @@ export async function POST(request: NextRequest) {
       effectiveUserName,
       persona,
       resolvedStats,
-      sessionStats,  // Pass sessionStats for {{eventos}} key resolution
+      sessionStats,  // Pass sessionStats for {{last_events}} key resolution
       soundTriggers,   // Pass soundTriggers for {{sonidos}} key resolution
       soundSettings,  // Pass sound settings for {{sonidos}} template
       streamPersonaResolvedStats,  // Pass persona resolved stats
@@ -702,6 +732,13 @@ export async function POST(request: NextRequest) {
     const _rawPostHistoryInstructions = effectiveCharacter.postHistoryInstructions?.trim();
     const resolvedPostHistoryInstructions: string | undefined = _rawPostHistoryInstructions
       ? resolveAllKeys(_rawPostHistoryInstructions, keyContext)
+      : undefined;
+
+    // FIX: authorNote was never injected — every buildChatMessages call passed
+    // `undefined`, silently dropping a user-filled field. Resolve macros and pass it.
+    const _rawAuthorNote = effectiveCharacter.authorNote?.trim();
+    const resolvedAuthorNote: string | undefined = _rawAuthorNote
+      ? resolveAllKeys(_rawAuthorNote, keyContext)
       : undefined;
 
 
@@ -743,23 +780,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Combine all sections in order for prompt viewer
-    // Order: System -> Summary -> Quest -> Character Memory -> [CONTEXTO] non-memory -> [MEMORIA] memory -> Chat History -> Post-History
+    // Order: System -> Summary -> Quest -> Memoria V2 -> [CONTEXTO] knowledge -> Chat History -> Post-History
     const personaIndex = systemSections.findIndex(s => s.type === 'persona');
     const prePersonaSections = personaIndex >= 0 ? systemSections.slice(0, personaIndex + 1) : systemSections;
     const postPersonaSections = personaIndex >= 0 ? systemSections.slice(personaIndex + 1) : [];
 
-    // Build character memory section from Zustand store data (events, relationships, notes)
-    const characterMemorySection = characterMemory
-      ? buildMemorySection(characterMemory, effectiveCharacter.name || 'Character', embeddingsChat?.memoryMaxEventsInPrompt, effectiveUserName)
+    // Memory V2 viewer section (partitioned blocks)
+    const v2ViewerSection: PromptSection | null = memoryV2Active
+      ? {
+          type: 'character_note',
+          label: `Memoria V2 (${effectiveCharacter.name || 'Character'})`,
+          content: v2MemoryContext || '(sin registros de memoria V2 aún)',
+          color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+        }
       : null;
 
     let allPromptSections: PromptSection[] = [
       ...prePersonaSections,
       ...postPersonaSections,
       ...(summarySection ? [summarySection] : []),
-      ...(characterMemorySection ? [characterMemorySection] : []),  // Character memory: before embeddings
-      ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),  // Non-memory: before chat
-      ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []),  // Memory: before chat
+      ...(v2ViewerSection ? [v2ViewerSection] : []),  // V2 partitioned memory
+      ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),  // Knowledge: before chat
       ...chatHistorySections,
       ...(postHistorySection ? [postHistorySection] : [])
     ];
@@ -769,31 +810,16 @@ export async function POST(request: NextRequest) {
       allPromptSections = injectHUDContextIntoSections(allPromptSections, hudContextSection, hudContext.position);
     }
 
-    // Build combined embeddings context
-    // If embeddings found memory results, skip Character Memory content here to avoid duplication
-    // (Character Memory is still shown in the prompt viewer as a separate section)
+    // Build combined embeddings context.
+    // V2: partitioned blocks [HECHOS]/[EVENTOS]/[RELACIÓN] are the memory;
+    // knowledge stays as [CONTEXTO RELEVANTE].
     const contextParts: string[] = [];
-
-    // Only include Character Memory content if embeddings didn't find any memory results,
-    // or if embeddings are disabled. When embeddings ARE active and found memory, the
-    // dedup already ensures we don't have exact duplicates, but there can be semantic overlap.
-    // The [MEMORIA RELEVANTE] section from embeddings is more targeted/relevant.
-    const embeddingsFoundMemory = embeddingsResult.found && embeddingsResult.memoryCount > 0;
-    if (characterMemorySection && !embeddingsFoundMemory) {
-      contextParts.push(characterMemorySection.content);
-    }
 
     if (embeddingsResult.nonMemoryContextString?.trim()) {
       contextParts.push(embeddingsResult.nonMemoryContextString);
     }
-    if (embeddingsResult.memoryContextString?.trim()) {
-      contextParts.push(embeddingsResult.memoryContextString);
-    }
-    // FASE 14: Abstention directive — when memories are low-relevance, inject a hint
-    // telling the LLM to admit it doesn't remember rather than confabulating.
-    if (embeddingsResult.abstentionDirective) {
-      contextParts.push(embeddingsResult.abstentionDirective);
-      console.log('[Stream Route] Abstention directive injected (low memory relevance)');
+    if (v2MemoryContext.trim()) {
+      contextParts.push(v2MemoryContext);
     }
     const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
 
@@ -827,6 +853,16 @@ export async function POST(request: NextRequest) {
     if (availableTools.length > 0) {
       if (!isWardrobeAvailable(effectiveCharacter)) {
         availableTools = availableTools.filter(t => t.id !== 'manage_wardrobe');
+      }
+    }
+
+    // ESCENARIO V2: Filter out the manage_escenario tool if the character doesn't
+    // have a usable scenarioConfig (enabled + ≥1 location). Same pattern as
+    // manage_wardrobe and as the group route — otherwise the LLM gets a tool
+    // (and instructions) for a system this character doesn't use.
+    if (availableTools.length > 0) {
+      if (!isScenarioAvailable(effectiveCharacter)) {
+        availableTools = availableTools.filter(t => t.id !== 'manage_escenario');
       }
     }
     
@@ -896,9 +932,9 @@ export async function POST(request: NextRequest) {
         ...prePersonaSections,
         ...postPersonaSections,
         ...(summarySection ? [summarySection] : []),
-        ...(characterMemorySection ? [characterMemorySection] : []),
+        ...(v2ViewerSection ? [v2ViewerSection] : []),  // V2 partitioned memory
         ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),
-        ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []),
+        ...(!memoryV2Active && embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []),  // Legacy memory: skipped in V2
         ...finalChatHistorySections,
         ...(postHistorySection ? [postHistorySection] : [])
       ];
@@ -966,6 +1002,14 @@ export async function POST(request: NextRequest) {
           let toolRound = 0;
           let toolContextMessages: Array<Record<string, unknown>> = []; // for tool result messages
 
+          // FIX: forward user-configured sampling params to Z.ai (before: silently dropped)
+          const zaiSampling = {
+            temperature: llmConfig.parameters?.temperature,
+            topP: llmConfig.parameters?.topP,
+            maxTokens: llmConfig.parameters?.maxTokens,
+            stop: llmConfig.parameters?.stopStrings,
+          };
+
           // Build the initial chat messages once (shared across tool rounds for OpenAI/Anthropic)
           let baseChatMessages: import('@/lib/llm/types').ChatApiMessage[] | null = null;
           let baseSystemPrompt: string | null = null;
@@ -1022,7 +1066,7 @@ Y cambiar mi expresión:
                   effectiveCharacter,
                   effectiveUserName,
                   resolvedPostHistoryInstructions,
-                  undefined, true, embeddingsContext,
+                  resolvedAuthorNote, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
                 );
@@ -1060,7 +1104,7 @@ Y cambiar mi expresión:
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1094,7 +1138,8 @@ Y cambiar mi expresión:
                         textToolCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
+                        lorebooks
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1124,7 +1169,7 @@ Y cambiar mi expresión:
                   if (canUseMoreTools) {
                     console.log(`[Z.ai+Tools] Tool round ${toolRound}: sending ${toolContextMessages.length} messages with tools (character can chain actions)`);
                     const accumulator = createToolCallAccumulator(availableTools);
-                    generator = streamZAIWithTools(toolContextMessages, availableTools, accumulator, zaiRuntimeToken);
+                    generator = streamZAIWithTools(toolContextMessages, availableTools, accumulator, zaiRuntimeToken, zaiSampling);
 
                     // Buffer content for potential tool call detection
                     let roundContent = '';
@@ -1148,7 +1193,7 @@ Y cambiar mi expresión:
                         accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
                         lorebooks
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1179,14 +1224,14 @@ Y cambiar mi expresión:
                     }
                   } else {
                     console.log(`[Z.ai+Tools] Tool round ${toolRound}: sending ${toolContextMessages.length} messages (final round, no tools)`);
-                    generator = streamZAI(toolContextMessages, zaiRuntimeToken);
+                    generator = streamZAI(toolContextMessages, zaiRuntimeToken, zaiSampling);
                     for await (const chunk of generator) {
                       controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
                     }
                   }
                 } else {
                   // No tools enabled - normal streaming
-                  generator = streamZAI(chatMessages, zaiRuntimeToken);
+                  generator = streamZAI(chatMessages, zaiRuntimeToken, zaiSampling);
                   for await (const chunk of generator) {
                     controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
                   }
@@ -1207,7 +1252,7 @@ Y cambiar mi expresión:
                   effectiveCharacter,
                   effectiveUserName,
                   resolvedPostHistoryInstructions,
-                  undefined, true, embeddingsContext,
+                  resolvedAuthorNote, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
                 );
@@ -1233,7 +1278,10 @@ Y cambiar mi expresión:
                   console.log(`[Tools] Round 0 buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, nativeToolCalls=${accumulator.toolCalls.length}`);
 
                   // Check for native tool calls first
-                  if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                  // FIX: execute whenever the model emitted tool_calls deltas.
+                  // Requiring finishReason==='tool_calls'|'stop' silently dropped calls on
+                  // providers that omit finish_reason or end with 'length' (truncated JSON args).
+                  if (hasToolCalls(accumulator)) {
                     // Stream any text content alongside tool calls
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
@@ -1245,7 +1293,7 @@ Y cambiar mi expresión:
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1295,7 +1343,8 @@ Y cambiar mi expresión:
                         nativeCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
+                        lorebooks
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1345,8 +1394,8 @@ Y cambiar mi expresión:
                       accumulatedContent += chunk;
                     }
 
-                    // FIX: finalizeToolCalls returns void — use hasToolCalls(accumulator) + accumulator.toolCalls
-                    if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                    // FIX: execute on accumulated deltas regardless of finish_reason (same rationale as round 0)
+                    if (hasToolCalls(accumulator)) {
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {
                           controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1356,7 +1405,7 @@ Y cambiar mi expresión:
                         accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
                         lorebooks
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1403,7 +1452,7 @@ Y cambiar mi expresión:
                   effectiveCharacter,
                   effectiveUserName,
                   resolvedPostHistoryInstructions,
-                  undefined, true, embeddingsContext,
+                  resolvedAuthorNote, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
                 );
@@ -1424,7 +1473,9 @@ Y cambiar mi expresión:
                   }
 
                   const toolCalls = anthropicStateToToolCalls(toolState);
-                  if (toolCalls.length > 0 && (toolState.stopReason === 'tool_use')) {
+                  // FIX: execute whenever tool_use blocks were emitted — stop_reason can be
+                  // 'max_tokens' (truncated turn) or missing while the tool call is still valid.
+                  if (toolCalls.length > 0) {
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1434,7 +1485,7 @@ Y cambiar mi expresión:
                       toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1474,7 +1525,8 @@ Y cambiar mi expresión:
                         nativeCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
+                        lorebooks
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1517,7 +1569,8 @@ Y cambiar mi expresión:
                     }
 
                     const toolCalls = anthropicStateToToolCalls(toolState);
-                    if (toolCalls.length > 0 && toolState.stopReason === 'tool_use') {
+                    // FIX: execute on emitted tool_use blocks regardless of stop_reason
+                    if (toolCalls.length > 0) {
                       if (roundContent.trim()) {
                         for (const chunk of splitIntoChunks(roundContent)) {
                           controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1527,7 +1580,7 @@ Y cambiar mi expresión:
                         toolCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
                         lorebooks
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1575,7 +1628,7 @@ Y cambiar mi expresión:
                     effectiveCharacter,
                     effectiveUserName,
                     resolvedPostHistoryInstructions,
-                    undefined, true, embeddingsContext,
+                    resolvedAuthorNote, true, embeddingsContext,
                     lorebookChatInjections,
                   exampleMessages
                   );
@@ -1605,7 +1658,7 @@ Y cambiar mi expresión:
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1641,7 +1694,8 @@ Y cambiar mi expresión:
                         nativeCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
+                        lorebooks
                       );
                       allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...toolResult.questActivations];
@@ -1696,7 +1750,7 @@ Y cambiar mi expresión:
                       toolFollowAccumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1723,18 +1777,22 @@ Y cambiar mi expresión:
                     accumulatedContent = cleanModelArtifacts(accumulatedContent);
                   }
                 } else {
-                  // No tools - use standard completion endpoint
-                  const prompt = buildCompletionPrompt({
-                    systemPrompt: baseSystemPrompt || finalSystemPrompt,
-                    messages: allMessages,
-                    character: effectiveCharacter,
-                    userName: effectiveUserName,
-                    postHistoryInstructions: resolvedPostHistoryInstructions,
-                    embeddingsContext: embeddingsContext,
-                    exampleMessages: exampleMessages,
-                    allCharacters: allCharacters  // Pass all characters for proper speaker attribution
-                  });
-                  generator = streamOllama(prompt, llmConfig);
+                  // No tools - use /api/chat (native messages) so the system
+                  // block is sent as a real 'system' role message instead of
+                  // being flattened into a completion-style prompt.
+                  const chatMessages = buildChatMessages(
+                    baseSystemPrompt || finalSystemPrompt,
+                    allMessages,
+                    effectiveCharacter,
+                    effectiveUserName,
+                    resolvedPostHistoryInstructions,
+                    resolvedAuthorNote,
+                    true,
+                    embeddingsContext,
+                    lorebookChatInjections,
+                    exampleMessages
+                  );
+                  generator = streamOllamaChat(chatMessages, llmConfig);
                 }
                 break;
               }
@@ -1747,7 +1805,7 @@ Y cambiar mi expresión:
                   effectiveCharacter,
                   effectiveUserName,
                   resolvedPostHistoryInstructions,
-                  undefined, true, embeddingsContext,
+                  resolvedAuthorNote, true, embeddingsContext,
                   lorebookChatInjections,
                   exampleMessages
                 );
@@ -1768,7 +1826,8 @@ Y cambiar mi expresión:
 
                   console.log(`[Grok+Tools] Round 0 buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, nativeToolCalls=${accumulator.toolCalls.length}`);
 
-                  if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                  // FIX: execute on accumulated deltas regardless of finish_reason (same rationale as round 0)
+                  if (hasToolCalls(accumulator)) {
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1778,7 +1837,7 @@ Y cambiar mi expresión:
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1811,7 +1870,8 @@ Y cambiar mi expresión:
                         textToolCalls, availableTools, toolRound, maxToolRounds,
                         effectiveCharacter, sessionId || '', effectiveUserName, controller,
                         sessionQuests, questTemplates,
-                        effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
+                        lorebooks
                       );
                       allToolsUsed = [...allToolsUsed, ...textToolResult.toolsUsed];
                       allQuestActivations = [...allQuestActivations, ...textToolResult.questActivations];
@@ -1851,7 +1911,8 @@ Y cambiar mi expresión:
                     accumulatedContent += chunk;
                   }
 
-                  if (canUseMoreTools && hasToolCalls(toolFollowAccumulator) && (toolFollowAccumulator.finishReason === 'tool_calls' || toolFollowAccumulator.finishReason === 'stop')) {
+                  // FIX: execute on accumulated deltas regardless of finish_reason
+                  if (canUseMoreTools && hasToolCalls(toolFollowAccumulator)) {
                     // Another tool call detected - stream content and execute
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
@@ -1862,7 +1923,7 @@ Y cambiar mi expresión:
                       toolFollowAccumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1906,7 +1967,7 @@ Y cambiar mi expresión:
                     effectiveCharacter,
                     effectiveUserName,
                     resolvedPostHistoryInstructions,
-                    undefined, true, embeddingsContext,
+                    resolvedAuthorNote, true, embeddingsContext,
                     lorebookChatInjections,
                   exampleMessages
                   );
@@ -1925,7 +1986,8 @@ Y cambiar mi expresión:
 
                   console.log(`[TextGenWebUI+Tools] Round buffered ${roundContent.length} chars, finishReason=${accumulator.finishReason}, toolCalls=${accumulator.toolCalls.length}`);
 
-                  if (hasToolCalls(accumulator) && (accumulator.finishReason === 'tool_calls' || accumulator.finishReason === 'stop')) {
+                  // FIX: execute on accumulated deltas regardless of finish_reason (same rationale as round 0)
+                  if (hasToolCalls(accumulator)) {
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1935,7 +1997,7 @@ Y cambiar mi expresión:
                       accumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -1981,7 +2043,8 @@ Y cambiar mi expresión:
                     accumulatedContent += chunk;
                   }
 
-                  if (canUseMoreTools && hasToolCalls(toolFollowAccumulator) && (toolFollowAccumulator.finishReason === 'tool_calls' || toolFollowAccumulator.finishReason === 'stop')) {
+                  // FIX: execute on accumulated deltas regardless of finish_reason
+                  if (canUseMoreTools && hasToolCalls(toolFollowAccumulator)) {
                     if (roundContent.trim()) {
                       for (const chunk of splitIntoChunks(roundContent)) {
                         controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
@@ -1991,7 +2054,7 @@ Y cambiar mi expresión:
                       toolFollowAccumulator.toolCalls, availableTools, toolRound, maxToolRounds,
                       effectiveCharacter, sessionId || '', effectiveUserName, controller,
                       sessionQuests, questTemplates,
-                      effectiveCharacter.statsConfig, sessionStats, allCharacters, characterMemory,
+                      effectiveCharacter.statsConfig, sessionStats, allCharacters,
                       lorebooks
                     );
                     allToolsUsed = [...allToolsUsed, ...toolResult.toolsUsed];
@@ -2040,7 +2103,9 @@ Y cambiar mi expresión:
                   messages: allMessages,
                   character: effectiveCharacter,
                   userName: effectiveUserName,
-                  postHistoryInstructions: effectiveCharacter.postHistoryInstructions?.trim(),
+                  // FIX: use the resolved PHI (macro-resolved) like every other provider branch —
+                  // the raw field leaked {{user}}/{{char}}/{{entryKey}} etc. to the LLM.
+                  postHistoryInstructions: resolvedPostHistoryInstructions,
                   embeddingsContext: embeddingsContext,
                   exampleMessages: exampleMessages,
                   allCharacters: allCharacters  // Pass all characters for proper speaker attribution
@@ -2111,41 +2176,6 @@ Y cambiar mi expresión:
             break;
           }
 
-          // ========================================
-          // Memory Reinforcement
-          // Check if LLM referenced any existing memories and boost their importance
-          // ========================================
-          if (accumulatedContent.length > 50 && embeddingsResult?.searchedNamespaces?.length > 0) {
-            const reinforcementEnabled = isReinforcementEnabled(embeddingsChat);
-            if (reinforcementEnabled) {
-              // Get namespaces to check for memory reinforcement
-              const reinforcementNamespaces = embeddingsResult.searchedNamespaces.filter(
-                ns => ns.startsWith('memory-')
-              );
-              
-              if (reinforcementNamespaces.length > 0) {
-                // Fire and forget - don't block the response
-                setTimeout(async () => {
-                  try {
-                    const threshold = embeddingsChat.memoryReinforcementThreshold || 0.7;
-                    const result = await processResponseAndReinforceMemories(
-                      accumulatedContent,
-                      reinforcementNamespaces,
-                      true,
-                      threshold
-                    );
-                    
-                    if (result.reinforced > 0) {
-                      console.log(`[MemoryReinforcement] Reinforced ${result.reinforced} memories`);
-                    }
-                  } catch (err) {
-                    console.warn('[MemoryReinforcement] Failed:', err);
-                  }
-                }, 0);
-              }
-            }
-          }
-
           // Check if memory extraction should trigger
           // Count by TURNS (user messages) instead of individual messages.
           // A turn = 1 user message + N assistant responses.
@@ -2153,7 +2183,12 @@ Y cambiar mi expresión:
           const userMessages = messages.filter(m => m.role === 'user' && !m.isDeleted);
           const turnCount = userMessages.length;
           const extractionFrequency = embeddingsChat.memoryExtractionFrequency || 5;
-          const extractionEnabled = embeddingsChat.memoryExtractionEnabled === true;
+          // Extraction runs on the V2 pipeline only — it must also respect the
+          // memoryV2Enabled master switch (otherwise records would be written
+          // to the V2 store while injection is disabled).
+          const extractionEnabled =
+            embeddingsChat.memoryExtractionEnabled === true &&
+            embeddingsChat.memoryV2Enabled !== false;
           const shouldExtract =
             extractionEnabled &&
             accumulatedContent.length > 50 &&

@@ -2174,7 +2174,7 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
                       />
                       <p className="text-[10px] text-muted-foreground leading-relaxed">
                         💬 Se envía como mensaje del usuario al finalizar el turno en que se cruza el umbral (solo la primera vez, hasta que la condición deje de cumplirse).
-                        Tags: <code className="text-pink-300">{'{{char}}'}</code>, <code className="text-pink-300">{'{{user}}'}</code>, <code className="text-pink-300">{'{{time}}'}</code>, atributos del personaje (<code className="text-pink-300">{'{{fuerza}}'}</code>), <code className="text-pink-300">{'{{eventos}}'}</code>, <code className="text-pink-300">{'{{relacion}}'}</code>...
+                        Tags: <code className="text-pink-300">{'{{char}}'}</code>, <code className="text-pink-300">{'{{user}}'}</code>, <code className="text-pink-300">{'{{time}}'}</code>, atributos del personaje (<code className="text-pink-300">{'{{fuerza}}'}</code>), <code className="text-pink-300">{'{{last_events}}'}</code>, <code className="text-pink-300">{'{{relacion}}'}</code>...
                       </p>
                     </div>
                   )}
@@ -2802,29 +2802,11 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
               placeholder="Descripción de la habilidad..."
               className="min-h-[60px] text-sm"
             />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Cuando la acción se ejecuta se registra como evento de escena (key <code className="font-mono">{'{{last_events}}'}</code>) y se guarda en la memoria del personaje.
+            </p>
           </div>
 
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <Label className="text-xs">Descripción completado</Label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  <p>Texto que se guarda y se inyecta en el LLM cuando la acción se realiza.</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Si se deja vacío, se usará la Descripción normal.</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <Textarea
-              value={skill.completedDescription || ''}
-              onChange={(e) => onChange(index, { completedDescription: e.target.value || undefined })}
-              placeholder="Texto que aparece cuando la acción se realiza..."
-              className="min-h-[60px] text-sm"
-            />
-          </div>
-          
           <div>
             <div className="flex items-center gap-1.5 mb-1">
               <Label className="text-xs">Categoría</Label>
@@ -4228,27 +4210,6 @@ function SolicitudDefinitionEditor({ solicitud, index, availableAttributes, avai
             />
           </div>
 
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <Label className="text-xs">Descripción de Completado</Label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  <p>Texto que se guardará en el evento "ultima_solicitud_completada" cuando se complete esta solicitud.</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Describe la acción completada. Se usará en el key {'{{'}eventos{'}}'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <Textarea
-              value={solicitud.completionDescription || ''}
-              onChange={(e) => onChange(index, { completionDescription: e.target.value })}
-              placeholder="Has entregado madera al solicitante..."
-              className="min-h-[50px] text-sm"
-            />
-          </div>
-
           {/* Requirements Section */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -5055,6 +5016,12 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
                     <p>• <strong>Intenciones:</strong> Comportamientos que puede adoptar</p>
                     <p>• <strong>Invitaciones:</strong> Formas de invitar al usuario</p>
                   </div>
+                  <div className="text-xs space-y-1 text-muted-foreground pt-2 border-t">
+                    <p className="font-medium text-foreground">Keys del prompt:</p>
+                    <p>• <code className="text-emerald-400">{'{{attributes}}'}</code> — se expande al bloque [GESTIÓN DE ATRIBUTOS]: lista de atributos con sus valores actuales (se actualiza en cada turno).</p>
+                    <p>• <code className="text-emerald-400">{'{{attributes_rulz}}'}</code> — se expande a la explicación del atributo PRINCIPAL 👑 y a las reglas para que el LLM use la herramienta <code>modify_stat</code> (+10 / -5 / =50, estados, reason...).</p>
+                    <p className="text-muted-foreground/80">Colócalas donde quieras que aparezcan: en cualquier sección de la card (descripción, personalidad, escenario, nota del personaje, Author's Note, Post-History Instructions...) o en entradas de lorebook de cualquier posición. Si no las colocas en ninguna parte, el LLM NO recibe la sección de atributos.</p>
+                  </div>
                 </div>
               </PopoverContent>
             </Popover>
@@ -5201,8 +5168,14 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
                         Valores que representan el estado del personaje. Pueden cambiar durante el roleplay.
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        El LLM puede modificarlos automáticamente si configuras los "Tags de detección".
+                        El LLM puede modificarlos automáticamente con la herramienta <code>modify_stat</code> o con los "Tags de detección".
                       </p>
+                      <div className="text-xs space-y-1 text-muted-foreground pt-1.5 border-t">
+                        <p className="font-medium text-foreground">Inyección en el prompt (manual):</p>
+                        <p>• <code className="text-emerald-400">{'{{attributes}}'}</code> — bloque [GESTIÓN DE ATRIBUTOS] con la lista y valores actuales.</p>
+                        <p>• <code className="text-emerald-400">{'{{attributes_rulz}}'}</code> — atributo PRINCIPAL 👑 + reglas de modify_stat.</p>
+                        <p className="text-muted-foreground/80">Escríbelas en cualquier sección de la card o en una entrada de lorebook (cualquier posición). Sin ellas, el LLM no recibe el bloque de atributos.</p>
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>
@@ -5591,6 +5564,8 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
         <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3 space-y-2">
           <p className="font-medium">Uso de keys en el personaje:</p>
           <div className="space-y-1 pl-2">
+            <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{attributes}}'}</code> → Bloque [GESTIÓN DE ATRIBUTOS]: lista de atributos con sus valores actuales (se actualiza en cada turno)</p>
+            <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{attributes_rulz}}'}</code> → Atributo PRINCIPAL 👑 + reglas para que el LLM use la herramienta modify_stat</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{vida}}'}</code> → Muestra el valor del atributo</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{acciones}}'}</code> → Lista de acciones disponibles</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{intenciones}}'}</code> → Lista de intenciones disponibles</p>
@@ -5598,11 +5573,14 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{solicitudes}}'}</code> → Solicitudes recibidas de otros personajes</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{solicitante}}'}</code> → Nombre del personaje que hizo la solicitud</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{solicitado}}'}</code> → Nombre del personaje que recibe la solicitud</p>
-            <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{eventos}}'}</code> → Estado reciente de eventos</p>
+            <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{last_events}}'}</code> → Últimos eventos de la escena en formato [ULTIMOS EVENTOS EN LA ESCENA] (nº configurable en la pestaña Memoria). Cada evento también se guarda en la memoria del personaje. Alias legacy: {'{{eventos}}'}</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{emocion}}'}</code> → Estado emocional actual del personaje</p>
           </div>
           <p className="text-xs opacity-75 mt-2">
             Funcionan igual que <code className="bg-muted px-1 rounded">{'{{char}}'}</code> y <code className="bg-muted px-1 rounded">{'{{user}}'}</code> de SillyTavern.
+          </p>
+          <p className="text-xs opacity-75">
+            <code className="bg-muted px-1 rounded">{'{{attributes}}'}</code> y <code className="bg-muted px-1 rounded">{'{{attributes_rulz}}'}</code> se colocan manualmente donde quieras que aparezcan: en cualquier sección de la card o en entradas de lorebook (cualquier posición). Sin ellas, el LLM no recibe el bloque de atributos.
           </p>
         </div>
       </div>

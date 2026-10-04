@@ -135,7 +135,9 @@ export function buildLorebookInjectionPlan(
   const groupFiltered = applyGroupScoring(probabilityFiltered);
 
   // Determine effective token budget:
-  // Priority: options.tokenBudget > minimum of all active lorebooks' budgets > default 2048
+  // Priority: options.tokenBudget > maximum of all active lorebooks' budgets > default 2048
+  // NOTE: max, not min — taking the min meant binding ANY second book with a
+  // default 2048 budget silently shrank a character book configured as 4096.
   let effectiveTokenBudget: number;
   if (options.tokenBudget != null && options.tokenBudget > 0) {
     effectiveTokenBudget = options.tokenBudget;
@@ -144,7 +146,7 @@ export function buildLorebookInjectionPlan(
       .filter(lb => lb.settings.tokenBudget > 0)
       .map(lb => lb.settings.tokenBudget);
     effectiveTokenBudget = activeBudgets.length > 0
-      ? Math.min(...activeBudgets)
+      ? Math.max(...activeBudgets)
       : 2048;
   }
 

@@ -3,19 +3,17 @@
 // ============================================
 //
 // Pure functions to append entries to SessionStats.eventLog
-// (a ring buffer of recent events injected via the {{eventos}} key).
+// (a ring buffer of recent events injected via the {{last_events}} key as
+// [ULTIMOS EVENTOS EN LA ESCENA]).
 //
-// The legacy "ultima_X" scalar fields keep working for backwards
-// compatibility — every new write should update BOTH the scalar
-// (when it applies) and push a log entry.
+// Every semantic event (action, solicitud, quest objective, scene change...)
+// is appended here AND reported to the character's persistent Memory V2
+// store — see src/lib/stats/scene-events.ts.
 
 import type { SessionStats, SessionEventLogEntry, SessionEventLogType } from '@/types';
 
 /** Max entries kept in the ring buffer */
 export const MAX_EVENT_LOG_ENTRIES = 30;
-
-/** Max entries rendered into the {{eventos}} prompt block */
-export const MAX_EVENT_LOG_IN_PROMPT = 8;
 
 let eventLogCounter = 0;
 
@@ -64,7 +62,7 @@ export function appendEventLogEntry(
   } as SessionStats;
 }
 
-/** Short label for an event type, used inside the {{eventos}} prompt block */
+/** Short label for an event type, used inside the {{last_events}} prompt block */
 export function eventLogTypeLabel(type: SessionEventLogType): string {
   switch (type) {
     case 'action': return 'ACCION';

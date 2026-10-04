@@ -15,89 +15,6 @@
     "maxSummaries": 10,
     "threshold": 50
   },
-  "characterMemories": [
-    {
-      "id": "memory-6eac1133-e2ec-499b-b5b0-a990d297aa12",
-      "characterId": "6eac1133-e2ec-499b-b5b0-a990d297aa12",
-      "events": [
-        {
-          "id": "mem_1780173160354_0_6ahoru",
-          "type": "fact",
-          "content": "Decemone ofrece sexo oral a cambio de que el jugador le compre un set de lencería negra caro",
-          "importance": 3,
-          "timestamp": "2026-05-30T20:32:40.436Z",
-          "embeddingId": "77a8f738-4f4c-4471-b4a0-0a23c768e3a8",
-          "sessionId": "3f783096-05fb-414e-a170-d70d9111c421"
-        }
-      ],
-      "relationships": [],
-      "notes": "",
-      "lastUpdated": "2026-05-30T20:32:40.436Z"
-    },
-    {
-      "id": "memory-35d2971f-6c61-4416-bbe2-945c734545cb",
-      "characterId": "35d2971f-6c61-4416-bbe2-945c734545cb",
-      "events": [
-        {
-          "id": "mem_1786138292223_0_ylzm3e",
-          "type": "fact",
-          "content": "Pinky Vane ofrece sexo oral mientras cuenta anécdotas sexuales explícitas",
-          "importance": 3,
-          "timestamp": "2026-08-07T21:31:32.238Z",
-          "embeddingId": "e491f942-c0be-4e80-a061-e7bf8373d802",
-          "sessionId": "e4de6c79-ed07-4995-bf0b-29354c221630"
-        }
-      ],
-      "relationships": [],
-      "notes": "",
-      "lastUpdated": "2026-08-07T21:31:32.238Z"
-    },
-    {
-      "id": "memory-03061a3d-3fe7-4d58-a9f6-9775ec62d2a0",
-      "characterId": "03061a3d-3fe7-4d58-a9f6-9775ec62d2a0",
-      "events": [
-        {
-          "id": "mem_1786140461544_0_ocxeb8",
-          "type": "fact",
-          "content": "Pinky Vane experimenta placer extremo cuando le atraviesan la cabeza con una verga",
-          "importance": 5,
-          "timestamp": "2026-08-07T22:07:41.560Z",
-          "embeddingId": "d50c1d8c-1d52-42ed-96b6-cc1519059299",
-          "sessionId": "91daab48-a4af-4895-82d0-143bea36d109"
-        },
-        {
-          "id": "mem_1786140461544_1_3k0xl9",
-          "type": "fact",
-          "content": "Pinky Vane disfruta ser usada como agujero personal y putita de orejas",
-          "importance": 5,
-          "timestamp": "2026-08-07T22:07:41.573Z",
-          "embeddingId": "85841432-831c-413d-8e71-66740d14c382",
-          "sessionId": "91daab48-a4af-4895-82d0-143bea36d109"
-        },
-        {
-          "id": "mem_1786140461544_2_cgnnll",
-          "type": "fact",
-          "content": "Pinky Vane pierde la capacidad de pensar cuando le follan el cerebro",
-          "importance": 4,
-          "timestamp": "2026-08-07T22:07:41.589Z",
-          "embeddingId": "46ef22bc-7cf1-42d3-9b94-535aabeb059e",
-          "sessionId": "91daab48-a4af-4895-82d0-143bea36d109"
-        },
-        {
-          "id": "mem_1786140461544_3_54ctyi",
-          "type": "fact",
-          "content": "Pinky Vane tiene una fijación sexual con la penetración craneal",
-          "importance": 5,
-          "timestamp": "2026-08-07T22:07:41.603Z",
-          "embeddingId": "4f84a35b-7b55-4c82-b59b-2bfe29a3a99e",
-          "sessionId": "91daab48-a4af-4895-82d0-143bea36d109"
-        }
-      ],
-      "relationships": [],
-      "notes": "",
-      "lastUpdated": "2026-08-07T22:07:41.603Z"
-    }
-  ],
   "sessionTracking": {
     "38ed7a4a-0805-47bb-93d3-dd0fb985d853": {
       "sessionId": "38ed7a4a-0805-47bb-93d3-dd0fb985d853",
@@ -461,7 +378,7 @@
     },
     "e121f50b-aee5-4db5-b4e8-2a5188e5491f": {
       "sessionId": "e121f50b-aee5-4db5-b4e8-2a5188e5491f",
-      "messagesSinceLastSummary": 8,
+      "messagesSinceLastSummary": 10,
       "lastSummaryMessageIndex": 0,
       "isGroupChat": false
     },
@@ -599,7 +516,7 @@
     },
     "357ffb73-b180-4c54-bf35-e6ea7433bf2d": {
       "sessionId": "357ffb73-b180-4c54-bf35-e6ea7433bf2d",
-      "messagesSinceLastSummary": 14,
+      "messagesSinceLastSummary": 18,
       "lastSummaryMessageIndex": 0,
       "isGroupChat": true
     }

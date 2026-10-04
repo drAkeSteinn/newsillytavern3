@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTavernStore } from '@/store/tavern-store';
 import { ChatMessageBubble } from './chat-message';
+import { MemoryV2Manager } from '@/components/memory/memory-v2-manager';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -13,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { EmojiPicker } from './emoji-picker';
 import { StreamingText } from './streaming-text';
 import { evaluateStatConditions } from '@/lib/sprites/condition-evaluator';
+import { eventLogTypeLabel } from '@/lib/stats/event-log';
 import { toast } from 'sonner';
 import { useHotkeys, formatHotkey } from '@/hooks/use-hotkeys';
 import {
@@ -30,6 +32,7 @@ import {
   ChevronRight,
   Sparkles,
   Database,
+  DatabaseZap,
   ScrollText,
   Check,
   Circle,
@@ -100,7 +103,6 @@ import { pauseAllTimelines, resumeAllTimelines } from '@/hooks/use-timeline-spri
 import { stopAllSoundTriggers } from '@/hooks/use-sound-triggers';
 import { ttsService } from '@/lib/tts';
 import { resolveTemplateVariables } from '@/lib/key-resolver';
-import { personalizeMemoryContent } from '@/lib/memory/personalize';
 import type { CharacterQuickReply, GroupQuickReply, QuickReplyAttributeModifier, QuickReplySpriteActivation, QuickReplyWardrobeAction, QuickReplyScenarioAction, SpritePackV2, TriggerCollection } from '@/types';
 import { evaluatePackConditionalSprites, evaluateConditionalEntries } from '@/lib/sprites/condition-evaluator';
 import { evaluateRequirements } from '@/store/slices/statsSlice';
@@ -178,82 +180,6 @@ function formatMemoryDate(date: Date): string {
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 }
 
-// Memory type labels and colors (outside component to avoid re-creation)
-const MEMORY_TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
-  hecho: { label: 'Hecho', color: 'text-blue-400', bgColor: 'bg-blue-500/20' },
-  evento: { label: 'Evento', color: 'text-amber-400', bgColor: 'bg-amber-500/20' },
-  relacion: { label: 'Relación', color: 'text-pink-400', bgColor: 'bg-pink-500/20' },
-  preferencia: { label: 'Preferencia', color: 'text-green-400', bgColor: 'bg-green-500/20' },
-  secreto: { label: 'Secreto', color: 'text-violet-400', bgColor: 'bg-violet-500/20' },
-  otro: { label: 'Otro', color: 'text-gray-400', bgColor: 'bg-gray-500/20' },
-};
-
-// Character memory event type labels and colors
-const CHARACTER_MEM_EVENT_TYPE_CONFIG: Record<string, { label: string; textColor: string; bgColor: string; barColor: string }> = {
-  fact: { label: 'Hecho', textColor: 'text-blue-400', bgColor: 'bg-blue-500/20', barColor: 'bg-blue-500/60' },
-  relationship: { label: 'Relación', textColor: 'text-pink-400', bgColor: 'bg-pink-500/20', barColor: 'bg-pink-500/60' },
-  event: { label: 'Evento', textColor: 'text-amber-400', bgColor: 'bg-amber-500/20', barColor: 'bg-amber-500/60' },
-  emotion: { label: 'Emoción', textColor: 'text-rose-400', bgColor: 'bg-rose-500/20', barColor: 'bg-rose-500/60' },
-  location: { label: 'Ubicación', textColor: 'text-green-400', bgColor: 'bg-green-500/20', barColor: 'bg-green-500/60' },
-  item: { label: 'Objeto', textColor: 'text-cyan-400', bgColor: 'bg-cyan-500/20', barColor: 'bg-cyan-500/60' },
-  state_change: { label: 'Cambio', textColor: 'text-violet-400', bgColor: 'bg-violet-500/20', barColor: 'bg-violet-500/60' },
-  default: { label: 'Otro', textColor: 'text-gray-400', bgColor: 'bg-gray-500/20', barColor: 'bg-gray-500/60' },
-};
-
-// Memory item component (outside main component for stable identity)
-function MemoryItem({ memory, onDelete }: {
-  memory: { id: string; content: string; namespace: string; metadata: Record<string, any>; created_at: string };
-  onDelete: (id: string) => void;
-}) {
-  const memType = memory.metadata?.memory_type || 'otro';
-  const typeConfig = MEMORY_TYPE_CONFIG[memType] || MEMORY_TYPE_CONFIG.otro;
-  const importance = memory.metadata?.importance || 3;
-  const isConsolidated = memory.metadata?.is_consolidated;
-  const createdDate = memory.created_at ? new Date(memory.created_at) : null;
-
-  return (
-    <div className="group flex items-start gap-2 p-2 rounded-md bg-white/5 hover:bg-white/10 transition-colors">
-      {/* Type indicator bar */}
-      <div className={cn("w-1 h-full min-h-[2rem] rounded-full flex-shrink-0 mt-0.5", typeConfig.bgColor.replace('/20', '/60'))} />
-
-      <div className="flex-1 min-w-0">
-        {/* Top row: type badge + importance + date */}
-        <div className="flex items-center gap-1.5 mb-1">
-          <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", typeConfig.bgColor, typeConfig.color)}>
-            {typeConfig.label}
-          </span>
-          {/* Importance stars */}
-          <span className="text-[10px] text-amber-400">
-            {'★'.repeat(Math.min(importance, 5))}{'☆'.repeat(Math.max(0, 5 - importance))}
-          </span>
-          {isConsolidated && (
-            <span className="text-[9px] text-cyan-400 bg-cyan-500/20 px-1 py-0.5 rounded">
-              Consolidada
-            </span>
-          )}
-          <span className="text-[9px] text-muted-foreground ml-auto">
-            {createdDate ? formatMemoryDate(createdDate) : ''}
-          </span>
-        </div>
-
-        {/* Memory content */}
-        <p className="text-xs leading-relaxed text-foreground/90 line-clamp-3">
-          {memory.content}
-        </p>
-      </div>
-
-      {/* Delete button (appears on hover) */}
-      <button
-        onClick={() => onDelete(memory.id)}
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 flex-shrink-0"
-        title="Eliminar memoria"
-      >
-        <Trash2 className="w-3 h-3" />
-      </button>
-    </div>
-  );
-}
-
 export function NovelChatBox({
   onSendMessage,
   isGenerating,
@@ -315,35 +241,19 @@ export function NovelChatBox({
   const [showAutoQuestConfig, setShowAutoQuestConfig] = useState(false);
   const [expandedQuestId, setExpandedQuestId] = useState<string | null>(null);
   
-  // Memories tab state
-  const [memoriesLoading, setMemoriesLoading] = useState(false);
-  const [memories, setMemories] = useState<Array<{
-    id: string;
-    content: string;
-    namespace: string;
-    metadata: Record<string, any>;
-    created_at: string;
-  }>>([]);
-  const [memoriesLoaded, setMemoriesLoaded] = useState(false);
-  
-  // Add memory dialog state
-  const [addMemoryOpen, setAddMemoryOpen] = useState(false);
-  const [addMemoryContent, setAddMemoryContent] = useState('');
-  const [addMemoryType, setAddMemoryType] = useState<string>('hecho');
-  const [addMemoryImportance, setAddMemoryImportance] = useState<number>(3);
-  const [addMemorySubject, setAddMemorySubject] = useState<string>('personaje');
-  const [addMemoryCharacterId, setAddMemoryCharacterId] = useState<string>('');
-  const [addingMemory, setAddingMemory] = useState(false);
-  
   // Unified Memorias tab state
+  // (Memory V2: the legacy semantic-memories browser and the CharacterMemory
+  //  mirror were removed. The tab shows: Memoria V2, Resúmenes and
+  //  Resúmenes indexados.)
   const [localSummaries, setLocalSummaries] = useState<Array<{id: string; content: string; createdAt: string; tokens: number; messageRange: {start: number; end: number}}>>([]);
-  const [characterMemList, setCharacterMemList] = useState<Array<{id: string; type: string; content: string; importance: number; timestamp: string; characterId?: string; metadata?: Record<string, unknown>}>>([]);
-  const [characterRelationships, setCharacterRelationships] = useState<Array<{targetId: string; targetName: string; relationship: string; sentiment: number; notes: string}>>([]);
-  const [characterNotes, setCharacterNotes] = useState<string>('');
   const [embeddingsStatus, setEmbeddingsStatus] = useState<'unknown' | 'connected' | 'disconnected'>('unknown');
   const [summaryEmbeddings, setSummaryEmbeddings] = useState<Array<{id: string; content: string; namespace: string; metadata: Record<string, any>; created_at: string}>>([]);
-  const [expandedMemSections, setExpandedMemSections] = useState<Record<string, boolean>>({ resumenes: true, semanticas: true, personaje: true });
+  const [expandedMemSections, setExpandedMemSections] = useState<Record<string, boolean>>({ resumenes: true, v2: true });
   const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
+  // Memory V2 — unified store records (shown when the V2 pipeline is active)
+  const [v2Count, setV2Count] = useState(0);
+  const [v2RefreshTick, setV2RefreshTick] = useState(0);
+  const [v2Backend, setV2Backend] = useState<string>('');
   
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -378,10 +288,8 @@ export function NovelChatBox({
     // Memory slice selectors
     summaries: storeSummaries,
     getSessionSummaries,
-    getCharacterMemory,
     summarySettings,
     deleteSummary,
-    removeMemoryEvent,
   } = useTavernStore();
 
   // ASR config state (loaded from API)
@@ -412,45 +320,63 @@ export function NovelChatBox({
     wakeWords: [],
   });
 
-  // Get wake words from active character OR group members + global config
-  const characterWakeWords = useMemo(() => {
+  // Get wake words from active character OR group members + global config.
+  // Also builds a wake-word → character map so voice messages can be routed to
+  // the right character: each character's full name (highest priority) and its
+  // custom KWS keywords ("palabras clave") map to the character's canonical name.
+  const { characterWakeWords, wakeWordOwnerMap } = useMemo(() => {
     const words: string[] = [];
-    
+    const ownerMap = new Map<string, string>(); // lowercase word -> canonical character name
+
+    const registerWord = (word: string, ownerName?: string) => {
+      const key = word.toLowerCase().trim();
+      if (!key) return;
+      if (ownerName && !ownerMap.has(key)) ownerMap.set(key, ownerName);
+      words.push(word);
+    };
+
+    // Collect relevant characters: group members or the active character
+    const relevantChars: CharacterCard[] = [];
     if (isGroupMode && activeGroup && characters.length > 0) {
-      // GROUP MODE: Add all group members' names as wake words
-      // This allows the user to address any character in the group
+      // GROUP MODE: all group members can be addressed by voice
       const groupCharacterIds = activeGroup.members?.map(m => m.characterId) || activeGroup.characterIds || [];
-      
+
       for (const charId of groupCharacterIds) {
         const char = characters.find(c => c.id === charId);
         if (char?.name) {
-          words.push(char.name);
-          // Add alternate names if available
-          if (char.data?.alternate_names) {
-            words.push(...char.data.alternate_names);
-          }
+          relevantChars.push(char);
         }
       }
-      
-      console.log('[KWS] Group mode - wake words:', words);
+
+      console.log('[KWS] Group mode - characters:', relevantChars.map(c => c.name));
     } else if (activeCharacter?.name) {
-      // SINGLE CHARACTER MODE: Add only the active character's name
-      words.push(activeCharacter.name);
-      // Add alternate names if available
-      if (activeCharacter.data?.alternate_names) {
-        words.push(...activeCharacter.data.alternate_names);
+      // SINGLE CHARACTER MODE: only the active character
+      relevantChars.push(activeCharacter);
+      console.log('[KWS] Single mode - character:', activeCharacter.name);
+    }
+
+    // First pass: register each character's full name (highest priority)
+    for (const char of relevantChars) {
+      registerWord(char.name, char.name);
+    }
+
+    // Second pass: register per-character KWS keywords ("palabras clave")
+    // e.g. Aitana la Licuadora → ["Aitana", "licuadora"]
+    for (const char of relevantChars) {
+      for (const keyword of char.kwsKeywords ?? []) {
+        registerWord(keyword, char.name);
       }
-      
-      console.log('[KWS] Single mode - wake words:', words);
     }
-    
-    // Add global wake words from config (case-preserved, comparison is case-insensitive)
+
+    // Add global wake words from config (no specific owner - routed as before)
     if (kwsConfig.wakeWords && kwsConfig.wakeWords.length > 0) {
-      words.push(...kwsConfig.wakeWords);
+      for (const word of kwsConfig.wakeWords) {
+        registerWord(word);
+      }
     }
-    
+
     // Remove duplicates
-    return [...new Set(words)];
+    return { characterWakeWords: [...new Set(words)], wakeWordOwnerMap: ownerMap };
   }, [isGroupMode, activeGroup, activeCharacter, characters, kwsConfig.wakeWords]);
 
   // Wake Word Detection hook - Uses only Web Speech API (no Whisper needed)
@@ -483,8 +409,14 @@ export function NovelChatBox({
         // In group mode, prepend the detected wake word so the backend
         // can detect which character was mentioned
         if (isGroupMode && detectedWakeWord) {
-          const messageWithWakeWord = `${detectedWakeWord} ${message.trim()}`;
-          console.log('[KWS] Group mode - sending with wake word:', messageWithWakeWord);
+          // If the wake word is a KWS keyword (or the name) of a character,
+          // prepend the character's CANONICAL name so the server-side mention
+          // detection routes the message to them: the mentioned character
+          // responds first according to the group's activation strategy.
+          const ownerName = wakeWordOwnerMap.get(detectedWakeWord.toLowerCase().trim());
+          const prefix = ownerName || detectedWakeWord;
+          const messageWithWakeWord = `${prefix} ${message.trim()}`;
+          console.log('[KWS] Group mode - sending with wake word:', messageWithWakeWord, '→ owner:', ownerName || '(none)');
           onSendMessage(messageWithWakeWord);
         } else {
           // Single mode - send message as-is
@@ -1207,8 +1139,7 @@ export function NovelChatBox({
   const handleActivatePeticion = (
     targetCharacterId: string,
     solicitudKey: string,
-    description: string,
-    completionDescription?: string
+    description: string
   ) => {
     if (!activeSessionId) return;
     
@@ -1217,7 +1148,6 @@ export function NovelChatBox({
       targetCharacterId,
       solicitudKey,
       description,
-      completionDescription,
       activePersona?.name || 'Usuario'
     );
   };
@@ -1295,86 +1225,6 @@ export function NovelChatBox({
 
   const themeColors = getThemeColors();
 
-  // ============================================
-  // MEMORIES TAB - Load, Add & Delete memories
-  // ============================================
-  const loadMemories = useCallback(async (forceRefresh = false) => {
-    if (memoriesLoaded && !forceRefresh) return;
-    setMemoriesLoading(true);
-    try {
-      const sessionSuffix = sessionId ? `-${sessionId}` : '';
-      let namespacesToFetch: string[] = [];
-      if (isGroupMode && activeGroup) {
-        // Group mode: fetch session-scoped MEMORY namespaces + each member's character namespace
-        // NEW FORMAT: memory-group-{id}-{session}, memory-character-{id}-{session}
-        const memberIds = activeGroup.members?.map(m => m.characterId) || activeGroup.characterIds || [];
-        // Primary: session-scoped memory namespaces (auto-extracted + manual)
-        const sessionNS = sessionSuffix 
-          ? [
-              `memory-group-${activeGroup.id}${sessionSuffix}`,
-              `memory-character-${activeGroup.id}${sessionSuffix}`,
-              ...memberIds.map(id => `memory-character-${id}${sessionSuffix}`)
-            ]
-          : [];
-        // Fallback: generic memory namespaces (manually created without session)
-        const genericNS = [
-          `memory-group-${activeGroup.id}`,
-          `memory-character-${activeGroup.id}`,
-          ...memberIds.map(id => `memory-character-${id}`)
-        ];
-        namespacesToFetch = [...sessionNS, ...genericNS];
-      } else if (activeCharacter) {
-        // Single mode: fetch session-scoped character MEMORY namespace
-        // NEW FORMAT: memory-character-{id}-{session}
-        namespacesToFetch = [`memory-character-${activeCharacter.id}${sessionSuffix}`];
-        if (sessionSuffix) {
-          namespacesToFetch.push(`memory-character-${activeCharacter.id}`);
-        }
-        // Also include generic namespace for backward compat
-        namespacesToFetch.push(`character-${activeCharacter.id}`);
-      }
-
-      if (namespacesToFetch.length === 0) {
-        setMemoriesLoaded(true);
-        setMemoriesLoading(false);
-        return;
-      }
-
-      // Deduplicate namespaces
-      const uniqueNamespaces = [...new Set(namespacesToFetch)];
-
-      // Fetch all namespaces in parallel
-      const results = await Promise.all(
-        uniqueNamespaces.map(ns =>
-          fetch(`/api/embeddings?namespace=${encodeURIComponent(ns)}&source_type=memory&limit=200`)
-            .then(r => r.json())
-            .then(data => (data.success ? data.data.embeddings : []))
-            .catch(() => [])
-        )
-      );
-
-      // Flatten, deduplicate by id, and sort by created_at (newest first)
-      const seenIds = new Set<string>();
-      const allMemories = results
-        .flat()
-        .filter((m: any) => {
-          if (seenIds.has(m.id)) return false;
-          seenIds.add(m.id);
-          return true;
-        })
-        .sort((a: any, b: any) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-
-      setMemories(allMemories);
-      setMemoriesLoaded(true);
-    } catch (error) {
-      console.error('[NovelChatBox] Failed to load memories:', error);
-    } finally {
-      setMemoriesLoading(false);
-    }
-  }, [isGroupMode, activeGroup, activeCharacter, memoriesLoaded, sessionId]);
-
   // Load summaries from Zustand store
   const loadSummaries = useCallback(() => {
     if (!sessionId) {
@@ -1397,42 +1247,6 @@ export function NovelChatBox({
       messageRange: s.messageRange,
     })));
   }, [sessionId, storeSummaries, getSessionSummaries]);
-
-  // Load character memory events from Zustand store
-  const loadCharacterMemory = useCallback(() => {
-    if (!activeCharacter) {
-      setCharacterMemList([]);
-      setCharacterRelationships([]);
-      setCharacterNotes('');
-      return;
-    }
-    const mem = getCharacterMemory(activeCharacter.id);
-    if (mem) {
-      // Personalize at display time so stored memories never show "el Jugador"
-      const personaName = activePersona?.name || '';
-      setCharacterMemList(mem.events.map(e => ({
-        id: e.id,
-        type: e.type,
-        content: personaName ? personalizeMemoryContent(e.content, personaName) : e.content,
-        importance: e.importance,
-        timestamp: e.timestamp,
-        characterId: e.characterId,
-        metadata: e.metadata,
-      })));
-      setCharacterRelationships(mem.relationships.map(r => ({
-        targetId: r.targetId,
-        targetName: r.targetName,
-        relationship: r.relationship,
-        sentiment: r.sentiment,
-        notes: personaName && r.notes ? personalizeMemoryContent(r.notes, personaName) : r.notes,
-      })));
-      setCharacterNotes(mem.notes);
-    } else {
-      setCharacterMemList([]);
-      setCharacterRelationships([]);
-      setCharacterNotes('');
-    }
-  }, [activeCharacter, getCharacterMemory, activePersona]);
 
   // Check embeddings / Ollama status
   const checkEmbeddingsStatus = useCallback(async () => {
@@ -1505,141 +1319,62 @@ export function NovelChatBox({
     }
   }, [isGroupMode, activeGroup, activeCharacter, sessionId]);
 
-  // Add memory function
-  const addMemory = useCallback(async () => {
-    if (!addMemoryContent.trim()) return;
-    setAddingMemory(true);
-    
-    try {
-      // Determine which character to add memory for
-      let targetCharacterId = activeCharacter?.id || '';
-      let targetCharacterName = activeCharacter?.name || '';
-      
-      if (isGroupMode) {
-        // In group mode, use the selected character from dropdown
-        // or default to activeCharacter if not specified
-        if (addMemoryCharacterId) {
-          const selectedChar = characters.find(c => c.id === addMemoryCharacterId);
-          if (selectedChar) {
-            targetCharacterId = selectedChar.id;
-            targetCharacterName = selectedChar.name;
-          }
-        } else if (activeCharacter) {
-          targetCharacterId = activeCharacter.id;
-          targetCharacterName = activeCharacter.name;
-        }
-      }
-      
-      if (!targetCharacterId) {
-        console.error('[NovelChatBox] No character selected for memory');
-        setAddingMemory(false);
-        return;
-      }
-
-      // Build namespace: memory-character-{id}-{session}
-      const namespace = `memory-character-${targetCharacterId}${sessionId ? `-${sessionId}` : ''}`;
-      
-      // Personalize: replace "el Jugador"/"el usuario" with the persona's name ({{user}})
-      const personalizedContent = activePersona?.name
-        ? personalizeMemoryContent(addMemoryContent.trim(), activePersona.name)
-        : addMemoryContent.trim();
-      
-      const response = await fetch('/api/embeddings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: personalizedContent,
-          namespace,
-          source_type: 'memory',
-          source_id: sessionId || 'unknown',
-          metadata: {
-            memory_type: addMemoryType,
-            memory_subject: addMemorySubject,
-            importance: addMemoryImportance,
-            manually_created: true,
-            character_id: targetCharacterId,
-            session_id: sessionId,
-            created_at: new Date().toISOString(),
-          },
-        }),
-      });
-      
-      if (response.ok) {
-        // Reset form
-        setAddMemoryContent('');
-        setAddMemoryType('hecho');
-        setAddMemoryImportance(3);
-        setAddMemorySubject('personaje');
-        setAddMemoryCharacterId('');
-        setAddMemoryOpen(false);
-        
-        // Refresh memories list
-        setMemoriesLoaded(false);
-        loadMemories(true);
-      } else {
-        console.error('[NovelChatBox] Failed to add memory:', response.status);
-      }
-    } catch (error) {
-      console.error('[NovelChatBox] Error adding memory:', error);
-    } finally {
-      setAddingMemory(false);
-    }
-  }, [addMemoryContent, addMemoryType, addMemoryImportance, addMemorySubject, addMemoryCharacterId, activeCharacter, isGroupMode, sessionId, characters, loadMemories, activePersona]);
-
   const deleteMemory = useCallback(async (memoryId: string) => {
     try {
       const response = await fetch(`/api/embeddings/${memoryId}`, { method: 'DELETE' });
       if (response.ok) {
-        setMemories(prev => prev.filter(m => m.id !== memoryId));
+        setSummaryEmbeddings(prev => prev.filter(m => m.id !== memoryId));
       }
     } catch (error) {
-      console.error('[NovelChatBox] Failed to delete memory:', error);
+      console.error('[NovelChatBox] Failed to delete summary embedding:', error);
     }
   }, []);
 
-  // Reset memories when character/group/session changes
+  // Reset memory counts when character/group/session changes
   useEffect(() => {
-    setMemoriesLoaded(false);
-    setMemories([]);
+    setV2Count(0);
   }, [activeCharacter?.id, activeGroup?.id, isGroupMode, sessionId]);
+
+  // Memory V2 — signal the compact manager (inside the Memorias tab) to reload.
+  // Also refresh the backend badge for the section header.
+  const loadV2Records = useCallback(async () => {
+    const hasScope = isGroupMode ? !!activeGroup?.id : !!activeCharacter?.id;
+    if (!hasScope) return;
+    setV2RefreshTick(t => t + 1);
+    try {
+      const res = await fetch('/api/memory/v2?action=health');
+      const data = await res.json();
+      if (data.success && data.health) setV2Backend(data.health.backend || '');
+    } catch {
+      /* silent — V2 records are informational */
+    }
+  }, [isGroupMode, activeCharacter?.id, activeGroup?.id]);
 
   // Load memories when tab is selected
   useEffect(() => {
     if (activeTab === 'memorias') {
-      loadMemories();
       loadSummaries();
-      loadCharacterMemory();
       checkEmbeddingsStatus();
       loadSummaryEmbeddings();
+      loadV2Records();
     }
-  }, [activeTab, loadMemories, loadSummaries, loadCharacterMemory, checkEmbeddingsStatus, loadSummaryEmbeddings]);
+  }, [activeTab, loadSummaries, checkEmbeddingsStatus, loadSummaryEmbeddings, loadV2Records]);
 
-  // Auto-refresh memories after extraction completes
+  // Auto-refresh Memoria V2 after extraction completes
   // When memoryExtracting goes from true → false, wait a few seconds then refresh
   const prevExtractingRef = useRef(memoryExtracting);
   useEffect(() => {
     if (prevExtractingRef.current && !memoryExtracting) {
-      // Extraction just finished — refresh memories after a delay
+      // Extraction just finished — refresh after a delay
       const timer = setTimeout(() => {
-        setMemoriesLoaded(false);
-        loadMemories(true);
+        loadV2Records();
+        loadSummaryEmbeddings();
       }, 3000);
       return () => clearTimeout(timer);
     }
     prevExtractingRef.current = memoryExtracting;
-  }, [memoryExtracting, loadMemories]);
+  }, [memoryExtracting, loadV2Records, loadSummaryEmbeddings]);
 
-  // Get character name for a namespace
-  const getCharacterNameForNamespace = useCallback((ns: string) => {
-    if (ns.startsWith('character-')) {
-      const charId = ns.replace('character-', '');
-      return characters.find(c => c.id === charId)?.name || ns;
-    }
-    if (ns.startsWith('group-')) {
-      return activeGroup?.name || 'Grupo';
-    }
-    return ns;
-  }, [characters, activeGroup]);
 
   if (!activeSession) return null;
 
@@ -1853,7 +1588,7 @@ export function NovelChatBox({
                     {t('chatbox.sessionVariables')}
                   </h4>
                   
-                  {!sessionStats?.initialized ? (
+                  {!sessionStats?.initialized && !sessionStats?.eventLog?.length ? (
                     <div className="text-center py-4 text-muted-foreground text-xs">
                       <Database className="w-6 h-6 mx-auto mb-2 opacity-50" />
                       {t('chatbox.noVariables')}
@@ -1923,33 +1658,47 @@ export function NovelChatBox({
                         );
                       })}
                       
-                      {/* Session Events Section */}
+                      {/* Session Events Section — ring buffer ({{last_events}} + memoria) */}
                       <div className="space-y-2 pt-2 border-t">
                         <div className="flex items-center gap-2 pb-1">
                           <span className="text-xs font-medium text-amber-400">Eventos de Sesión</span>
+                          <span className="text-[10px] text-muted-foreground ml-auto font-mono">{'{{last_events}}'}</span>
                         </div>
-                        <div className="space-y-1.5">
-                          {/* ultimo_objetivo_completado */}
-                          <div className="flex items-start gap-1.5 px-2 py-1.5 rounded border bg-amber-500/10 border-amber-500/20 text-xs">
-                            <span className="text-muted-foreground shrink-0">Objetivo completado:</span>
-                            <span className="text-amber-400">{sessionStats.ultimo_objetivo_completado || 'N/A'}</span>
+                        {(sessionStats.eventLog?.length ?? 0) === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Sin eventos todavía. Se registran acciones, peticiones, objetivos, escenas y cambios de relación — y se guardan en la memoria del personaje.
+                          </p>
+                        ) : (
+                          <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                            {[...(sessionStats.eventLog || [])].reverse().slice(0, 12).map(e => {
+                              const d = new Date(e.timestamp);
+                              const clock = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                              return (
+                                <div key={e.id} className="px-2 py-1.5 rounded border bg-amber-500/5 border-amber-500/15 text-xs">
+                                  <div className="flex items-center gap-1.5">
+                                    <Badge variant="outline" className="h-4 px-1 text-[9px] border-amber-500/30 text-amber-400 font-normal">
+                                      {eventLogTypeLabel(e.type)}
+                                    </Badge>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {clock}{typeof e.turn === 'number' ? ` · turno ${e.turn}` : ''}
+                                    </span>
+                                  </div>
+                                  <div className="mt-0.5 leading-snug">
+                                    {e.characterName && (
+                                      <span className="font-medium">
+                                        {e.characterName}{e.targetName ? ` → ${e.targetName}` : ''}:{' '}
+                                      </span>
+                                    )}
+                                    {e.description}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                          {/* ultima_solicitud_realizada */}
-                          <div className="flex items-start gap-1.5 px-2 py-1.5 rounded border bg-emerald-500/10 border-emerald-500/20 text-xs">
-                            <span className="text-muted-foreground shrink-0">Solicitud realizada:</span>
-                            <span className="text-emerald-400">{sessionStats.ultima_solicitud_realizada || 'N/A'}</span>
-                          </div>
-                          {/* ultima_solicitud_completada */}
-                          <div className="flex items-start gap-1.5 px-2 py-1.5 rounded border bg-cyan-500/10 border-cyan-500/20 text-xs">
-                            <span className="text-muted-foreground shrink-0">Solicitud completada:</span>
-                            <span className="text-cyan-400">{sessionStats.ultima_solicitud_completada || 'N/A'}</span>
-                          </div>
-                          {/* ultima_accion_realizada */}
-                          <div className="flex items-start gap-1.5 px-2 py-1.5 rounded border bg-purple-500/10 border-purple-500/20 text-xs">
-                            <span className="text-muted-foreground shrink-0">Acción realizada{sessionStats.ultima_accion_character ? ` (${sessionStats.ultima_accion_character})` : ''}:</span>
-                            <span className="text-purple-400">{sessionStats.ultima_accion_realizada || 'N/A'}</span>
-                          </div>
-                        </div>
+                        )}
+                        <p className="text-[10px] text-muted-foreground/70">
+                          Los eventos se inyectan con <code className="font-mono">{'{{last_events}}'}</code> y se guardan en la memoria persistente del personaje.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -2174,9 +1923,9 @@ export function NovelChatBox({
             >
               <Brain className="w-3.5 h-3.5" />
               <span>Memorias</span>
-              {memories.length > 0 && (
+              {v2Count > 0 && (
                 <span className="ml-0.5 text-[9px] tabular-nums text-muted-foreground/70">
-                  {memories.length}
+                  {v2Count}
                 </span>
               )}
             </button>
@@ -3299,6 +3048,70 @@ export function NovelChatBox({
                 </div>
 
                 {/* ============================================ */}
+                {/* Section 0: Memoria V2 (unified store)       */}
+                {/* En grupo muestra los recuerdos de TODOS los */}
+                {/* miembros extraídos en este chat grupal.     */}
+                {/* ============================================ */}
+                <Collapsible
+                  open={expandedMemSections.v2}
+                  onOpenChange={(open) => setExpandedMemSections(prev => ({ ...prev, v2: open }))}
+                >
+                    <div className="flex items-center justify-between">
+                      <CollapsibleTrigger asChild>
+                        <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                          {expandedMemSections.v2 ? (
+                            <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                          )}
+                          <DatabaseZap className="w-4 h-4 text-violet-500" />
+                          <h4 className="font-medium text-sm">Memoria V2{isGroupMode ? ' (grupo)' : ''}</h4>
+                          {v2Count > 0 && (
+                            <Badge variant="secondary" className="text-xs">{v2Count}</Badge>
+                          )}
+                          {v2Backend && (
+                            <Badge variant="outline" className="text-[9px] font-normal">
+                              {v2Backend === 'lancedb' ? 'LanceDB' : 'JSON fallback'}
+                            </Badge>
+                          )}
+                        </button>
+                      </CollapsibleTrigger>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={loadV2Records}
+                        title="Recargar memoria V2"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                    <CollapsibleContent>
+                      <div className="pl-9 pt-2">
+                        {isGroupMode ? (
+                          <MemoryV2Manager
+                            compact
+                            groupId={activeGroup?.id || ''}
+                            charName={activeGroup?.name || 'Grupo'}
+                            userName={activePersona?.name || undefined}
+                            refreshSignal={v2RefreshTick}
+                            onCountChange={setV2Count}
+                          />
+                        ) : (
+                          <MemoryV2Manager
+                            compact
+                            charId={activeCharacter?.id || ''}
+                            charName={activeCharacter?.name || 'Personaje'}
+                            userName={activePersona?.name || undefined}
+                            refreshSignal={v2RefreshTick}
+                            onCountChange={setV2Count}
+                          />
+                        )}
+                      </div>
+                    </CollapsibleContent>
+                </Collapsible>
+
+                {/* ============================================ */}
                 {/* Section 1: Resúmenes (Summaries from Zustand) */}
                 {/* ============================================ */}
                 <Collapsible
@@ -3373,136 +3186,6 @@ export function NovelChatBox({
                         })}
                       </div>
                     )}
-                  </CollapsibleContent>
-                </Collapsible>
-
-                {/* ============================================ */}
-                {/* Section 2: Memorias Semánticas (LanceDB) */}
-                {/* ============================================ */}
-                <Collapsible
-                  open={expandedMemSections.semanticas}
-                  onOpenChange={(open) => setExpandedMemSections(prev => ({ ...prev, semanticas: open }))}
-                >
-                  <div className="flex items-center justify-between">
-                    <CollapsibleTrigger asChild>
-                      <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                        {expandedMemSections.semanticas ? (
-                          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                        )}
-                        <Brain className="w-4 h-4 text-violet-500" />
-                        <h4 className="font-medium text-sm">Memorias Semánticas</h4>
-                        {(memories.length + summaryEmbeddings.length) > 0 && (
-                          <Badge variant="secondary" className="text-xs">{memories.length + summaryEmbeddings.length}</Badge>
-                        )}
-                      </button>
-                    </CollapsibleTrigger>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0"
-                        onClick={() => { setMemoriesLoaded(false); loadMemories(true); loadSummaryEmbeddings(); }}
-                        title="Recargar memorias"
-                        disabled={memoriesLoading}
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${memoriesLoading ? 'animate-spin' : ''}`} />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs gap-1"
-                        onClick={() => setAddMemoryOpen(true)}
-                      >
-                        <Plus className="w-3 h-3" />
-                        Agregar
-                      </Button>
-                    </div>
-                  </div>
-                  <CollapsibleContent>
-                    {/* Group mode hint */}
-                    {isGroupMode && (
-                      <div className="text-[10px] text-muted-foreground bg-violet-500/10 rounded-lg p-2 mt-2">
-                        En chats de grupo, usa el botón "Agregar" para añadir memorias a cada personaje.
-                      </div>
-                    )}
-
-                    {/* Loading */}
-                    {memoriesLoading && (
-                      <div className="flex items-center justify-center py-6 text-muted-foreground text-xs">
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Cargando memorias...
-                      </div>
-                    )}
-
-                    {/* Empty State */}
-                    {!memoriesLoading && memories.length === 0 && summaryEmbeddings.length === 0 && (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <Brain className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-xs">
-                          {isGroupMode 
-                            ? 'Sin memorias extraídas para este grupo'
-                            : 'Sin memorias extraídas para este personaje'
-                          }
-                        </p>
-                        <p className="text-xs mt-1 opacity-70">
-                          Las memorias se extraen automáticamente durante la conversación
-                        </p>
-                        <div className="mt-3 bg-muted/30 rounded-lg p-2.5 space-y-1.5 text-left">
-                          <p className="text-[10px] font-medium text-foreground">Para activar la extracción automática:</p>
-                          <ol className="text-[10px] text-muted-foreground space-y-0.5 list-decimal list-inside">
-                            <li>Ollama debe estar corriendo con un modelo de embeddings</li>
-                            <li>Configuración → Embeddings → Usar embeddings en chat ✅</li>
-                            <li>Configuración → Embeddings → Extracción Automática ✅</li>
-                          </ol>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Memories List */}
-                    {!memoriesLoading && memories.length > 0 && (
-                      <div className="space-y-2 mt-2">
-                        {/* Group memories by character in group mode */}
-                        {isGroupMode ? (
-                          Object.entries(
-                            memories.reduce<Record<string, typeof memories>>((acc, mem) => {
-                              if (!acc[mem.namespace]) acc[mem.namespace] = [];
-                              acc[mem.namespace].push(mem);
-                              return acc;
-                            }, {})
-                          ).map(([namespace, nsMemories]) => (
-                            <div key={namespace} className="space-y-1.5">
-                              <div className="flex items-center gap-1.5 px-1 py-0.5">
-                                <div className="w-1.5 h-1.5 rounded-full bg-violet-400" />
-                                <span className="text-xs font-medium text-violet-400">
-                                  {getCharacterNameForNamespace(namespace)}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  ({nsMemories.length})
-                                </span>
-                              </div>
-                              {nsMemories.map(memory => (
-                                <MemoryItem
-                                  key={memory.id}
-                                  memory={memory}
-                                  onDelete={deleteMemory}
-                                />
-                              ))}
-                            </div>
-                          ))
-                        ) : (
-                          memories.map(memory => (
-                            <MemoryItem
-                              key={memory.id}
-                              memory={memory}
-                              onDelete={deleteMemory}
-                            />
-                          ))
-                        )}
-                      </div>
-                    )}
-
                     {/* Summary Embeddings Sub-section */}
                     {summaryEmbeddings.length > 0 && (
                       <div className="mt-3 space-y-1.5">
@@ -3541,162 +3224,12 @@ export function NovelChatBox({
                       </div>
                     )}
 
-                    {/* Namespace Info */}
-                    {!memoriesLoading && (
-                      <div className="pt-2 border-t mt-3 space-y-2">
-                        <div className="bg-violet-500/5 rounded-lg p-2 space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <Database className="w-3 h-3 text-violet-400" />
-                            <span className="text-[10px] font-medium text-violet-400">Namespace Activo</span>
-                          </div>
-                          <p className="text-[10px] text-muted-foreground font-mono break-all" title={isGroupMode && activeGroup ? `memory-group-${activeGroup.id}${sessionId ? `-${sessionId}` : ''}` : activeCharacter ? `memory-character-${activeCharacter.id}${sessionId ? `-${sessionId}` : ''}` : ''}>
-                            {isGroupMode && activeGroup 
-                              ? `memory-group-${activeGroup.id}${sessionId ? `-${sessionId.slice(0, 8)}...` : ''}`
-                              : activeCharacter 
-                                ? `memory-character-${activeCharacter.id.slice(0, 8)}...${sessionId ? `-${sessionId.slice(0, 8)}...` : ''}`
-                                : '—'
-                            }
-                          </p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {isGroupMode 
-                              ? `Las memorias se guardan por personaje del grupo en esta sesión`
-                              : `Las memorias de ${activeCharacter?.name || 'este personaje'} se guardan aquí`
-                            }
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
-
-                {/* ============================================ */}
-                {/* Section 3: Memoria del Personaje (Zustand) */}
-                {/* ============================================ */}
-                <Collapsible
-                  open={expandedMemSections.personaje}
-                  onOpenChange={(open) => setExpandedMemSections(prev => ({ ...prev, personaje: open }))}
-                >
-                  <div className="flex items-center gap-2">
-                    <CollapsibleTrigger asChild>
-                      <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                        {expandedMemSections.personaje ? (
-                          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                        )}
-                        <Sparkles className="w-4 h-4 text-amber-500" />
-                        <h4 className="font-medium text-sm">Memoria del Personaje</h4>
-                        {characterMemList.length > 0 && (
-                          <Badge variant="secondary" className="text-xs">{characterMemList.length}</Badge>
-                        )}
-                      </button>
-                    </CollapsibleTrigger>
-                  </div>
-                  <CollapsibleContent>
-                    {!activeCharacter ? (
-                      <p className="text-xs text-muted-foreground pl-9 pt-2">Selecciona un personaje para ver su memoria</p>
-                    ) : characterMemList.length === 0 && characterRelationships.length === 0 && !characterNotes ? (
-                      <p className="text-xs text-muted-foreground pl-9 pt-2">Sin eventos en memoria del personaje</p>
-                    ) : (
-                      <div className="space-y-2 pl-9 pt-2">
-                        {/* Events */}
-                        {characterMemList.length > 0 && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Eventos</span>
-                              <span className="text-[10px] text-muted-foreground">({characterMemList.length})</span>
-                            </div>
-                            {/* Scrollable list so many events never overflow the tab */}
-                            <div className="max-h-72 overflow-y-auto scrollbar-thin pr-1 space-y-1.5">
-                            {characterMemList.map(event => {
-                              const typeConfig = CHARACTER_MEM_EVENT_TYPE_CONFIG[event.type] || CHARACTER_MEM_EVENT_TYPE_CONFIG.default;
-                              return (
-                                <div key={event.id} className="group flex items-start gap-2 p-2 rounded-md bg-white/5 hover:bg-white/10 transition-colors">
-                                  <div className={cn("w-1 h-full min-h-[1.5rem] rounded-full flex-shrink-0 mt-0.5", typeConfig.barColor)} />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5 mb-0.5">
-                                      <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", typeConfig.bgColor, typeConfig.textColor)}>
-                                        {typeConfig.label}
-                                      </span>
-                                      <span className="text-[10px] text-amber-400">
-                                        {'★'.repeat(Math.min(event.importance, 5))}{'☆'.repeat(Math.max(0, 5 - event.importance))}
-                                      </span>
-                                      <span className="text-[9px] text-muted-foreground ml-auto">
-                                        {formatMemoryDate(new Date(event.timestamp))}
-                                      </span>
-                                    </div>
-                                    <p className="text-xs leading-relaxed text-foreground/90 line-clamp-2">
-                                      {event.content}
-                                    </p>
-                                  </div>
-                                  <button
-                                    onClick={() => {
-                                      if (activeCharacter) {
-                                        removeMemoryEvent(activeCharacter.id, event.id);
-                                        loadCharacterMemory();
-                                      }
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400 flex-shrink-0"
-                                    title="Eliminar evento"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              );
-                            })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Relationships */}
-                        {characterRelationships.length > 0 && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Relaciones</span>
-                              <span className="text-[10px] text-muted-foreground">({characterRelationships.length})</span>
-                            </div>
-                            <div className="max-h-56 overflow-y-auto scrollbar-thin pr-1 space-y-1.5">
-                            {characterRelationships.map((rel, idx) => {
-                              const sentimentColor = rel.sentiment > 30 ? 'text-green-400' : rel.sentiment < -30 ? 'text-red-400' : 'text-yellow-400';
-                              const sentimentBg = rel.sentiment > 30 ? 'bg-green-500/20' : rel.sentiment < -30 ? 'bg-red-500/20' : 'bg-yellow-500/20';
-                              return (
-                                <div key={`${rel.targetId}-${idx}`} className="p-2 rounded-md bg-white/5">
-                                  <div className="flex items-center gap-2 mb-0.5">
-                                    <span className="text-xs font-medium text-foreground/90">{rel.targetName}</span>
-                                    <span className={cn("text-[10px] px-1.5 py-0.5 rounded", sentimentBg, sentimentColor)}>
-                                      {rel.relationship}
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground ml-auto">
-                                      Sentimiento: {rel.sentiment > 0 ? '+' : ''}{rel.sentiment}
-                                    </span>
-                                  </div>
-                                  {rel.notes && (
-                                    <p className="text-[10px] text-muted-foreground line-clamp-2">{rel.notes}</p>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Notes */}
-                        {characterNotes && (
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Notas</span>
-                            <div className="p-2 rounded-md bg-white/5">
-                              <p className="text-xs text-foreground/80 whitespace-pre-wrap">{characterNotes}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </CollapsibleContent>
                 </Collapsible>
 
                 {/* Bottom hint */}
                 <p className="text-[10px] text-muted-foreground text-center pt-1">
-                  💡 Usa "Agregar" para guardar memorias manualmente o déjalas extraer automáticamente
+                  💡 Crea o edita recuerdos en Memoria V2; los Resúmenes comprimen automáticamente el contexto
                 </p>
               </div>
             </ScrollArea>
@@ -3803,146 +3336,6 @@ export function NovelChatBox({
             </ScrollArea>
           )}
 
-          {/* Add Memory Dialog */}
-          <Dialog open={addMemoryOpen} onOpenChange={setAddMemoryOpen}>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-violet-500" />
-                  Agregar Memoria
-                </DialogTitle>
-                <DialogDescription>
-                  {isGroupMode 
-                    ? 'Guarda una memoria para un personaje específico del grupo.'
-                    : `Guarda una memoria para ${activeCharacter?.name || 'el personaje'}.`
-                  }
-                </DialogDescription>
-                <div className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground bg-violet-500/5 rounded px-2 py-1">
-                  <Database className="w-3 h-3 text-violet-400 shrink-0" />
-                  <span className="font-mono truncate">
-                    {(() => {
-                      const targetCharId = isGroupMode && addMemoryCharacterId ? addMemoryCharacterId : activeCharacter?.id;
-                      return targetCharId 
-                        ? `memory-character-${targetCharId.slice(0, 8)}...${sessionId ? `-${sessionId.slice(0, 8)}...` : ''}`
-                        : '—';
-                    })()}
-                  </span>
-                </div>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                {/* Character selector for group mode */}
-                {isGroupMode && (
-                  <div className="space-y-2">
-                    <Label className="text-xs">Personaje</Label>
-                    <Select value={addMemoryCharacterId} onValueChange={setAddMemoryCharacterId}>
-                      <SelectTrigger className="h-9 text-sm">
-                        <SelectValue placeholder="Selecciona un personaje..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(activeGroup?.members?.map(m => m.characterId) || activeGroup?.characterIds || [])
-                          .map(charId => characters.find(c => c.id === charId))
-                          .filter(Boolean)
-                          .map(char => (
-                            <SelectItem key={char!.id} value={char!.id}>
-                              {char!.name}
-                            </SelectItem>
-                          ))
-                        }
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                {/* Memory content */}
-                <div className="space-y-2">
-                  <Label className="text-xs">Contenido de la memoria</Label>
-                  <Textarea
-                    value={addMemoryContent}
-                    onChange={(e) => setAddMemoryContent(e.target.value)}
-                    placeholder="Escribe la memoria que quieres guardar..."
-                    rows={4}
-                    className="text-sm resize-none"
-                  />
-                </div>
-
-                {/* Memory type */}
-                <div className="space-y-2">
-                  <Label className="text-xs">Tipo de memoria</Label>
-                  <Select value={addMemoryType} onValueChange={setAddMemoryType}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hecho">🧠 Hecho</SelectItem>
-                      <SelectItem value="evento">📅 Evento</SelectItem>
-                      <SelectItem value="relacion">💜 Relación</SelectItem>
-                      <SelectItem value="preferencia">⭐ Preferencia</SelectItem>
-                      <SelectItem value="secreto">🔒 Secreto</SelectItem>
-                      <SelectItem value="otro">📝 Otro</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Subject */}
-                <div className="space-y-2">
-                  <Label className="text-xs">Sujeto</Label>
-                  <Select value={addMemorySubject} onValueChange={setAddMemorySubject}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="personaje">🧑 Sobre el personaje</SelectItem>
-                      <SelectItem value="usuario">👤 Sobre el usuario</SelectItem>
-                      <SelectItem value="otro">🌐 Sobre otro personaje</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[10px] text-muted-foreground">
-                    Indica de quién trata esta memoria
-                  </p>
-                </div>
-
-                {/* Importance */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">Importancia: {addMemoryImportance}/5</Label>
-                  </div>
-                  <Slider
-                    value={[addMemoryImportance]}
-                    min={1}
-                    max={5}
-                    step={1}
-                    onValueChange={([v]) => setAddMemoryImportance(v)}
-                    className="py-1"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>Baja</span>
-                    <span>Alta</span>
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setAddMemoryOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button 
-                  onClick={addMemory} 
-                  disabled={addingMemory || !addMemoryContent.trim() || (isGroupMode && !addMemoryCharacterId && !activeCharacter)}
-                >
-                  {addingMemory ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                      Guardando...
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="w-4 h-4 mr-1" />
-                      Guardar Memoria
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
 
           {/* Resize Handles - hidden on mobile since chat is full-screen */}
           {!isMobile && (

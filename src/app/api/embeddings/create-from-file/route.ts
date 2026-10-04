@@ -37,10 +37,25 @@ export async function POST(request: NextRequest) {
     const { getEmbeddingClient, resetEmbeddingClient } = await import('@/lib/embeddings/client');
 
     const splitterInfo = SPLITTER_INFO[splitterType as keyof typeof SPLITTER_INFO];
-    const config = {
+    let config = {
       chunkSize: chunkSize || splitterInfo?.defaultChunkSize || 1000,
       chunkOverlap: chunkOverlap || splitterInfo?.defaultOverlap || 200,
     };
+
+    // FIX: clamp chunkSize to the embedding model's safe input size. Before, a user
+    // setting larger than the model context (e.g. 2000 chars on nomic-embed @512 tokens)
+    // silently TRUNCATED the tail of every chunk at embed time — permanent data loss.
+    try {
+      const { getSafeChunkSize } = await import('@/lib/embeddings/types');
+      const safeChunkSize = getSafeChunkSize(persistedConfig.model, persistedConfig.dimension);
+      if (config.chunkSize > safeChunkSize) {
+        console.warn(`[CreateFromFile] chunkSize ${config.chunkSize} > safe ${safeChunkSize} for model ${persistedConfig.model} — clamping`);
+        config = {
+          chunkSize: safeChunkSize,
+          chunkOverlap: Math.min(config.chunkOverlap, Math.floor(safeChunkSize * 0.25)),
+        };
+      }
+    } catch { /* if detection fails, proceed with requested size */ }
 
     // Split text
     const splitResult = splitText(content, splitterType, config);
@@ -101,6 +116,8 @@ export async function POST(request: NextRequest) {
         namespace,
         totalChunks: splitResult.chunks.length,
         embeddingIds: createdIds,
+        appliedChunkSize: config.chunkSize,
+        appliedChunkOverlap: config.chunkOverlap,
       },
     });
   } catch (error: any) {

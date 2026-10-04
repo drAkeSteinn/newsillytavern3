@@ -1,0 +1,1303 @@
+     1→// ============================================
+     2→// Unified Key Resolver - Single system for all template resolution
+     3→// ============================================
+     4→//
+     5→// This module unifies the resolution of ALL template keys:
+     6→// - Template variables: {{user}}, {{char}}, {{userpersona}}, {{persona}}, {{description}}, etc.
+     7→// - Conditional blocks: {{#if}}, {{#user}}, {{#char}}
+     8→// - Stats keys: {{attributeKey}}, {{habilidades}}, {{intenciones}}, {{invitaciones}}
+     9→//
+    10→// The key resolution happens in two phases:
+    11→// 1. Template Phase: Resolve {{user}}, {{char}}, {{userpersona}}, {{persona}}, conditionals
+    12→// 2. Stats Phase: Resolve attribute values and stat blocks
+    13→//
+    14→// This ensures that lorebooks injected after template processing
+    15→// still get their keys resolved properly.
+    16→
+    17→import type { CharacterCard, Persona, SessionStats, SoundTrigger, AppSettings, QuestTemplate, SessionQuestInstance, QuestSettings, Item, PersonaInventoryEntry, ActiveConsumableEffect, InventoryV2Settings, SessionEquipmentEntry } from '@/types';
+    18→import type { ResolvedStats } from '@/types';
+    19→import { resolveStatsInText } from '@/lib/stats/stats-resolver';
+    20→import { resolveWardrobeKey } from '@/lib/wardrobe';
+    21→import { resolveScenarioKey } from '@/lib/scenario';
+    22→import { MAX_EVENT_LOG_IN_PROMPT, eventLogTypeLabel } from '@/lib/stats/event-log';
+    23→import { getRelationship, computeRelationshipStage, DEFAULT_RELATIONSHIP_POINTS } from '@/lib/relationships';
+    24→import {
+    25→  formatHour as formatWorldHour,
+    26→  computeHour,
+    27→  computeMinute,
+    28→  computeMoment,
+    29→  computeDay,
+    30→  formatWorldClock,
+    31→} from '@/lib/world/time';
+    32→import { buildQuestPromptSection } from '@/lib/triggers/handlers/quest-handler';
+    33→import { getExampleKey } from '@/lib/quest/quest-detector';
+    34→import { DEFAULT_QUEST_SETTINGS } from '@/types';
+    35→
+    36→// ============================================
+    37→// Types
+    38→// ============================================
+    39→
+    40→/**
+    41→ * Context for key resolution
+    42→ * Contains all data needed to resolve any key type
+    43→ */
+    44→export interface KeyResolutionContext {
+    45→  // Basic template context
+    46→  user: string;
+    47→  char: string;
+    48→  userpersona?: string;
+    49→
+    50→  // Character reference (for {{description}}, {{personality}}, etc.)
+    51→  character?: CharacterCard;
+    52→  persona?: Persona;
+    53→
+    54→  // Stats resolution
+    55→  resolvedStats?: ResolvedStats | null;
+    56→
+    57→  // Persona stats resolution (attributes from user's persona)
+    58→  personaResolvedStats?: ResolvedStats | null;
+    59→
+    60→  // Session stats for event keys ({{solicitante}}, {{solicitado}}, {{eventos}})
+    61→  sessionStats?: SessionStats | null;
+    62→  characterId?: string;  // ID of the current character for looking up solicitudes
+    63→
+    64→  // Sound triggers for {{sonidos}} key
+    65→  soundTriggers?: SoundTrigger[];
+    66→  soundSettings?: AppSettings['sound'];
+    67→
+    68→  // Quest data for {{activeQuests}} key
+    69→  questTemplates?: QuestTemplate[];
+    70→  sessionQuests?: SessionQuestInstance[];
+    71→  questSettings?: QuestSettings;
+    72→
+    73→  // Lorebook outlet sections for {{outlet::name}} macro resolution
+    74→  // Map of outlet name → formatted content string
+    75→  outletSections?: Record<string, string>;
+    76→
+    77→  // Lorebook attribute keys resolved from attribute-type entries
+    78→  // Map of injectionKey → resolved content (resolved server-side by attribute-resolver)
+    79→  lorebookAttributeKeys?: Record<string, string>;
+    80→
+    81→  // Lorebook entry keys resolved from traditional (non-attribute) lorebook entries
+    82→  // Map of key → content, used to resolve {{key}} in action descriptions and other text
+    83→  // Built by buildLorebookEntryKeyMap() from active lorebooks
+    84→  lorebookEntryKeys?: Record<string, string>;
+    85→
+    86→  // Inventory data for {{slots}} and {{currency}} key resolution
+    87→  inventoryData?: {
+    88→    personaItems: Array<{ entry: PersonaInventoryEntry; item: Item }>;
+    89→    sessionEquipment: SessionEquipmentEntry[];  // Per-session equipment state
+    90→    activeEffects: ActiveConsumableEffect[];
+    91→    currency: number;
+    92→    currencyName: string;
+    93→    currencyIcon: string;
+    94→    inventorySettings: InventoryV2Settings;
+    95→  };
+    96→
+    97→  // Group chat context (ESCENARIO V2): when the group has its own scenarioConfig,
+    98→  // the {{escenario}} key resolves against the GROUP's locations instead of the
+    99→  // character's ones (group scenario replaces member scenarios).
+   100→  group?: { scenarioConfig?: import('@/types').ScenarioConfig } | null;
+   101→}
+   102→
+   103→// ============================================
+   104→// Phase 1: Template Variable Resolution
+   105→// ============================================
+   106→
+   107→/**
+   108→ * Resolve template variables in text
+   109→ * Handles: {{user}}, {{char}}, {{userpersona}}, {{persona}}, {{description}}, {{personality}}, {{scenario}}
+   110→ * Also handles conditionals: {{#if}}, {{#user}}, {{#char}}
+   111→ */
+   112→export function resolveTemplateVariables(
+   113→  text: string,
+   114→  context: KeyResolutionContext
+   115→): string {
+   116→  if (!text) return text;
+   117→
+   118→  let result = text;
+   119→
+   120→  // Basic variable replacements
+   121→  result = result.replace(/\{\{user\}\}/gi, context.user);
+   122→  result = result.replace(/\{\{char\}\}/gi, context.char);
+   123→
+   124→  // Current date and time: {{time}} → DD/MM/YYYY, HH:MMam/pm
+   125→  const now = new Date();
+   126→  const day = String(now.getDate()).padStart(2, '0');
+   127→  const month = String(now.getMonth() + 1).padStart(2, '0');
+   128→  const year = now.getFullYear();
+   129→  let hours = now.getHours();
+   130→  const minutes = String(now.getMinutes()).padStart(2, '0');
+   131→  const ampm = hours >= 12 ? 'pm' : 'am';
+   132→  hours = hours % 12 || 12;
+   133→  const timeStr = `${day}/${month}/${year}, ${hours}:${minutes}${ampm}`;
+   134→  result = result.replace(/\{\{time\}\}/gi, timeStr);
+   135→
+   136→  // User persona (if available)
+   137→  if (context.userpersona) {
+   138→    result = result.replace(/\{\{userpersona\}\}/gi, context.userpersona);
+   139→  } else {
+   140→    // Remove {{userpersona}} if not available
+   141→    result = result.replace(/\{\{userpersona\}\}/gi, '');
+   142→  }
+   143→
+   144→  // {{persona}} key - injects persona description content
+   145→  // Resolved early in Phase 1 so that the injected content can contain
+   146→  // other keys ({{user}}, {{char}}, {{attributeKey}}, etc.) that will be
+   147→  // resolved in subsequent phases.
+   148→  if (context.persona?.description) {
+   149→    result = result.replace(/\{\{persona\}\}/gi, context.persona.description);
+   150→  } else {
+   151→    // Remove {{persona}} if not available
+   152→    result = result.replace(/\{\{persona\}\}/gi, '');
+   153→  }
+   154→
+   155→  // Handle conditional blocks {{#if variable}}...{{/if}}
+   156→  result = processConditionals(result, context);
+   157→
+   158→  // Handle {{#user}}...{{/user}} blocks (only show if user is set)
+   159→  result = result.replace(/\{\{#user\}\}([\s\S]*?)\{\{\/user\}\}/gi, (_, content) => {
+   160→    return context.user ? content : '';
+   161→  });
+   162→
+   163→  // Handle {{#char}}...{{/char}} blocks (only show if char is set)
+   164→  result = result.replace(/\{\{#char\}\}([\s\S]*?)\{\{\/char\}\}/gi, (_, content) => {
+   165→    return context.char ? content : '';
+   166→  });
+   167→
+   168→  // Character-specific variables
+   169→  if (context.character) {
+   170→    result = result.replace(/\{\{description\}\}/gi, context.character.description || '');
+   171→    result = result.replace(/\{\{personality\}\}/gi, context.character.personality || '');
+   172→    result = result.replace(/\{\{scenario\}\}/gi, context.character.scenario || '');
+   173→  }
+   174→
+   175→  // Lorebook outlet macro: {{outlet::name}}
+   176→  if (context.outletSections && Object.keys(context.outletSections).length > 0) {
+   177→    result = result.replace(/\{\{outlet::([^}]+)\}\}/gi, (_, outletName) => {
+   178→      return context.outletSections![outletName.trim()] || '';
+   179→    });
+   180→  }
+   181→
+   182→  return result;
+   183→}
+   184→
+   185→/**
+   186→ * Process conditional blocks {{#if var}}content{{/if}}
+   187→ */
+   188→function processConditionals(text: string, context: KeyResolutionContext): string {
+   189→  const conditionalRegex = /\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/gi;
+   190→
+   191→  return text.replace(conditionalRegex, (_, varName, content) => {
+   192→    const value = getVariableValue(varName.toLowerCase(), context);
+   193→    return value ? content : '';
+   194→  });
+   195→}
+   196→
+   197→/**
+   198→ * Get variable value by name
+   199→ */
+   200→function getVariableValue(varName: string, context: KeyResolutionContext): string | undefined {
+   201→  switch (varName) {
+   202→    case 'user':
+   203→      return context.user;
+   204→    case 'char':
+   205→      return context.char;
+   206→    case 'userpersona':
+   207→      return context.userpersona;
+   208→    case 'persona':
+   209→      return context.persona?.description;
+   210→    case 'description':
+   211→      return context.character?.description;
+   212→    case 'personality':
+   213→      return context.character?.personality;
+   214→    case 'scenario':
+   215→      return context.character?.scenario;
+   216→    default:
+   217→      return undefined;
+   218→  }
+   219→}
+   220→
+   221→// ============================================
+   222→// Phase 2: Stats Key Resolution
+   223→// ============================================
+   224→
+   225→/**
+   226→ * Resolve stats keys in text
+   227→ * Delegates to stats-resolver module
+   228→ * Handles: {{attributeKey}}, {{habilidades}}, {{intenciones}}, {{invitaciones}}
+   229→ * Also resolves persona attributes if personaResolvedStats is provided
+   230→ */
+   231→export function resolveStatsKeys(
+   232→  text: string,
+   233→  resolvedStats: ResolvedStats | null | undefined,
+   234→  personaResolvedStats?: ResolvedStats | null | undefined
+   235→): string {
+   236→  let result = resolveStatsInText(text, resolvedStats ?? null);
+   237→  // If persona has stats, also resolve persona-specific attribute keys
+   238→  // (only attributes, not block keys like acciones/intenciones)
+   239→  if (personaResolvedStats?.attributes) {
+   240→    result = resolveStatsInText(result, { ...personaResolvedStats, skillsBlock: undefined, intentionsBlock: undefined, invitationsBlock: undefined, solicitudesBlock: undefined });
+   241→  }
+   242→  return result;
+   243→}
+   244→
+   245→// ============================================
+   246→// Phase 3: Event Key Resolution
+   247→// ============================================
+   248→
+   249→/**
+   250→ * Resolve event keys in text
+   251→ * Handles: {{solicitante}}, {{solicitado}}, {{eventos}}
+   252→ *
+   253→ * {{solicitante}} - Name of who made the solicitud (from pending solicitudes)
+   254→ * {{solicitado}} - Name of who received the solicitud (current character)
+   255→ * {{eventos}} - Recent events summary
+   256→ */
+   257→export function resolveEventKeys(
+   258→  text: string,
+   259→  context: KeyResolutionContext
+   260→): string {
+   261→  if (!text) return text;
+   262→
+   263→  let result = text;
+   264→  const { sessionStats, characterId, char } = context;
+   265→
+   266→  // {{solicitante}} - Who made the solicitud
+   267→  if (sessionStats?.solicitudes?.characterSolicitudes && characterId) {
+   268→    const pendingSolicitudes = sessionStats.solicitudes.characterSolicitudes[characterId]
+   269→      ?.filter(s => s.status === 'pending') || [];
+   270→    
+   271→    if (pendingSolicitudes.length > 0) {
+   272→      // Get the name of the first pending solicitud's sender
+   273→      const solicitante = pendingSolicitudes[0].fromCharacterName;
+   274→      result = result.replace(/\{\{solicitante\}\}/gi, solicitante);
+   275→    } else {
+   276→      // No pending solicitudes - replace with empty string
+   277→      result = result.replace(/\{\{solicitante\}\}/gi, '');
+   278→    }
+   279→  } else {
+   280→    result = result.replace(/\{\{solicitante\}\}/gi, '');
+   281→  }
+   282→
+   283→  // {{solicitado}} - Who received the solicitud (current character)
+   284→  // This is always the current character's name
+   285→  if (char) {
+   286→    result = result.replace(/\{\{solicitado\}\}/gi, char);
+   287→  } else {
+   288→    result = result.replace(/\{\{solicitado\}\}/gi, '');
+   289→  }
+   290→
+   291→  // {{relacion}} / {{relacion_etapa}} — bond between the current character and the user
+   292→  const bondSource = sessionStats?.relationships
+   293→    ? getRelationship(sessionStats.relationships, characterId || '__char__', '__user__')
+   294→    : null;
+   295→  const bondPoints = bondSource?.points
+   296→    ?? (typeof (sessionStats?.characterStats?.[characterId || '']?.attributeValues as Record<string, unknown> | undefined)?.['relacion'] === 'number'
+   297→      ? (sessionStats.characterStats[characterId || ''].attributeValues['relacion'] as number)
+   298→      : DEFAULT_RELATIONSHIP_POINTS);
+   299→  const bondStage = bondSource?.stage ?? computeRelationshipStage(bondPoints);
+   300→  result = result.replace(/\{\{relacion\}\}/gi, String(bondPoints));
+   301→  result = result.replace(/\{\{relacion_etapa\}\}/gi, bondStage.label);
+   302→
+   303→  // {{hora}} / {{momento}} / {{dia}} / {{estacion}} / {{tiempo_mundo}} — world clock
+   304→  const worldClock = sessionStats?.worldClock;
+   305→  const wTotal = worldClock?.totalMinutes;
+   306→  const wHour = computeHour(wTotal ?? 20 * 60);
+   307→  const wMoment = computeMoment(wHour);
+   308→  const wMinute = computeMinute(wTotal ?? 0);
+   309→  result = result.replace(/\{\{hora\}\}/gi, formatWorldHour(wTotal ?? 20 * 60));
+   310→  result = result.replace(/\{\{momento\}\}/gi, wMoment);
+   311→  result = result.replace(/\{\{dia\}\}/gi, String(computeDay(wTotal ?? 20 * 60)));
+   312→  result = result.replace(/\{\{estacion\}\}/gi, worldClock?.season || 'primavera');
+   313→  result = result.replace(/\{\{tiempo_mundo\}\}/gi, worldClock ? formatWorldClock(worldClock) : '');
+   314→
+   315→  // {{eventos}} - Recent events summary
+   316→  if (sessionStats) {
+   317→    console.log(`[resolveEventKeys] sessionStats received for {{eventos}}:`, {
+   318→      hasUltimoObjetivo: !!sessionStats.ultimo_objetivo_completado,
+   319→      hasUltimaSolicitudRealizada: !!sessionStats.ultima_solicitud_realizada,
+   320→      hasUltimaSolicitudCompletada: !!sessionStats.ultima_solicitud_completada,
+   321→      hasUltimaAccion: !!sessionStats.ultima_accion_realizada,
+   322→      ultimoObjetivoValue: sessionStats.ultimo_objetivo_completado,
+   323→      ultimaSolicitudRealizadaValue: sessionStats.ultima_solicitud_realizada,
+   324→    });
+   325→    const eventosBlock = buildEventosBlock(sessionStats);
+   326→    console.log(`[resolveEventKeys] Built eventosBlock:`, eventosBlock);
+   327→    result = result.replace(/\{\{eventos\}\}/gi, eventosBlock);
+   328→  } else {
+   329→    console.log(`[resolveEventKeys] No sessionStats provided for {{eventos}}`);
+   330→    result = result.replace(/\{\{eventos\}\}/gi, '');
+   331→  }
+   332→
+   333→  return result;
+   334→}
+   335→
+   336→/**
+   337→ * Build the eventos block showing recent events
+   338→ * Prefers the event log ring buffer ({{eventos}} history with authors) when available;
+   339→ * falls back to the legacy "ultima_X" scalar fields for backwards compatibility.
+   340→ */
+   341→function buildEventosBlock(sessionStats: SessionStats): string {
+   342→  // ── New: render from the event log ring buffer ──
+   343→  const log = sessionStats.eventLog;
+   344→  if (log && log.length > 0) {
+   345→    const recent = log.slice(-MAX_EVENT_LOG_IN_PROMPT); // oldest → newest
+   346→    const lines = recent.map((entry, idx) => {
+   347→      const label = eventLogTypeLabel(entry.type);
+   348→      let who = entry.characterName || '';
+   349→      const turnStr = typeof entry.turn === 'number' ? ` (turno ${entry.turn})` : '';
+   350→      if (entry.targetName) {
+   351→        who = who ? `${who} → ${entry.targetName}` : entry.targetName;
+   352→      }
+   353→      return `${idx + 1}. [${label}]${who ? ` ${who}:` : ''} ${entry.description}${turnStr}`;
+   354→    });
+   355→    return `[ULTIMOS EVENTOS]\n(Bitácora reciente, del más viejo al más nuevo — los personajes pueden reaccionar a estos eventos)\n${lines.join('\n')}`;
+   356→  }
+   357→
+   358→  // ── Legacy fallback: scalar fields ──
+   359→  const lines: string[] = [];
+   360→  
+   361→  // Only add fields that have actual values
+   362→  if (sessionStats.ultimo_objetivo_completado) {
+   363→    lines.push(`- ultimo_objetivo_completado : ${sessionStats.ultimo_objetivo_completado}`);
+   364→  }
+   365→  
+   366→  if (sessionStats.ultima_solicitud_realizada) {
+   367→    lines.push(`- ultima_solicitud_realizada : ${sessionStats.ultima_solicitud_realizada}`);
+   368→  }
+   369→  
+   370→  if (sessionStats.ultima_solicitud_completada) {
+   371→    lines.push(`- ultima_solicitud_completada : ${sessionStats.ultima_solicitud_completada}`);
+   372→  }
+   373→  
+   374→  if (sessionStats.ultima_accion_realizada) {
+   375→    const characterName = sessionStats.ultima_accion_character || '';
+   376→    if (characterName) {
+   377→      lines.push(`- ultima accion realizada de ${characterName}: "${sessionStats.ultima_accion_realizada}"`);
+   378→    } else {
+   379→      // Backward compatibility: if no character name stored, use old format
+   380→      lines.push(`- ultima_accion_realizada : ${sessionStats.ultima_accion_realizada}`);
+   381→    }
+   382→  }
+   383→  
+   384→  // Return empty string if no events to show
+   385→  if (lines.length === 0) {
+   386→    return '';
+   387→  }
+   388→  
+   389→  return `[ULTIMOS EVENTOS]\n${lines.join('\n')}`;
+   390→}
+   391→
+   392→// ============================================
+   393→// Phase 4: Sound Key Resolution
+   394→// ============================================
+   395→
+   396→/**
+   397→ * Resolve {{sonidos}} key in text
+   398→ * Shows a list of sounds available for the current character
+   399→ * 
+   400→ * Format:
+   401→ * [SONIDOS DISPONIBLES]
+   402→ * - keyword: descripción del sonido
+   403→ * - keyword2: otra descripción
+   404→ */
+   405→export function resolveSoundKeys(
+   406→  text: string,
+   407→  context: KeyResolutionContext
+   408→): string {
+   409→  if (!text) return text;
+   410→
+   411→  let result = text;
+   412→
+   413→  // Check if {{sonidos}} is present
+   414→  if (!/\{\{sonidos\}\}/gi.test(result)) {
+   415→    return result;
+   416→  }
+   417→
+   418→  // Get sound triggers for this character
+   419→  const { soundTriggers, soundSettings, characterId } = context;
+   420→
+   421→  console.log(`[resolveSoundKeys] Resolving {{sonidos}} for character:`, {
+   422→    characterId,
+   423→    hasSoundTriggers: !!soundTriggers,
+   424→    soundTriggersCount: soundTriggers?.length || 0,
+   425→    soundTriggersData: soundTriggers?.map(t => ({
+   426→      id: t.id,
+   427→      name: t.name,
+   428→      active: t.active,
+   429→      keywords: t.keywords,
+   430→      description: t.description,
+   431→      characterIds: t.characterIds
+   432→    }))
+   433→  });
+   434→
+   435→  if (!soundTriggers || soundTriggers.length === 0) {
+   436→    // No sound triggers configured - remove the key
+   437→    console.log(`[resolveSoundKeys] No sound triggers configured, removing {{sonidos}}`);
+   438→    return result.replace(/\{\{sonidos\}\}/gi, '');
+   439→  }
+   440→
+   441→  // Filter triggers for this character
+   442→  // A trigger is available to a character if:
+   443→  // 1. characterIds is empty (available to all), OR
+   444→  // 2. characterIds includes the current character's ID
+   445→  const characterTriggers = soundTriggers.filter(trigger => {
+   446→    if (!trigger.active) return false;
+   447→    if (!trigger.characterIds || trigger.characterIds.length === 0) return true;
+   448→    if (characterId && trigger.characterIds.includes(characterId)) return true;
+   449→    return false;
+   450→  });
+   451→
+   452→  console.log(`[resolveSoundKeys] Filtered triggers:`, {
+   453→    totalTriggers: soundTriggers.length,
+   454→    activeTriggers: soundTriggers.filter(t => t.active).length,
+   455→    characterTriggers: characterTriggers.length,
+   456→    characterTriggersData: characterTriggers.map(t => ({
+   457→      name: t.name,
+   458→      keywords: t.keywords,
+   459→      description: t.description
+   460→    }))
+   461→  });
+   462→
+   463→  // Build the sound list
+   464→  const soundList = buildSonidosBlock(characterTriggers, soundSettings);
+   465→
+   466→  console.log(`[resolveSoundKeys] Built sound list:`, soundList);
+   467→
+   468→  result = result.replace(/\{\{sonidos\}\}/gi, soundList);
+   469→
+   470→  return result;
+   471→}
+   472→
+   473→/**
+   474→ * Build the sonidos block showing available sounds for a character
+   475→ * Format:
+   476→ * [PREFIX]
+   477→ * - keyword: descripción del sonido
+   478→ * [SUFFIX]
+   479→ */
+   480→function buildSonidosBlock(
+   481→  triggers: SoundTrigger[],
+   482→  soundSettings?: AppSettings['sound']
+   483→): string {
+   484→  if (triggers.length === 0) {
+   485→    return '';
+   486→  }
+   487→
+   488→  const lines: string[] = [];
+   489→
+   490→  // Add prefix if configured
+   491→  const prefix = soundSettings?.soundListPrefix || '[SONIDOS DISPONIBLES]';
+   492→  if (prefix) {
+   493→    lines.push(prefix);
+   494→  }
+   495→
+   496→  // Add each sound
+   497→  triggers.forEach(trigger => {
+   498→    // Get the primary keyword for this trigger
+   499→    const primaryKeyword = trigger.keywords.find(kw => trigger.keywordsEnabled[kw] !== false) || trigger.keywords[0];
+   500→    
+   501→    if (primaryKeyword) {
+   502→      const description = trigger.description || `Sonido: ${trigger.name}`;
+   503→      lines.push(`- ${primaryKeyword}: ${description}`);
+   504→    }
+   505→  });
+   506→
+   507→  // Add suffix if configured
+   508→  const suffix = soundSettings?.soundListSuffix || '';
+   509→  if (suffix) {
+   510→    lines.push(suffix);
+   511→  }
+   512→
+   513→  return lines.join('\n');
+   514→}
+   515→
+   516→// ============================================
+   517→// Phase 5: Quest Key Resolution
+   518→// ============================================
+   519→
+   520→/**
+   521→ * Resolve {{availableQuests}} key in text
+   522→ * Replaces with a formatted block of AVAILABLE (not yet active) quests.
+   523→ * Inner keys in quest content ({{user}}, {{char}}, stats, etc.) are also resolved.
+   524→ *
+   525→ * Use {{activeQuests}} for active quests only, or {{availableQuests}} for available quests only.
+   526→ */
+   527→export function resolveAvailableQuestsKey(
+   528→  text: string,
+   529→  context: KeyResolutionContext
+   530→): string {
+   531→  if (!text) return text;
+   532→
+   533→  // Early exit if no {{availableQuests}} key present
+   534→  if (!/\{\{availableQuests\}\}/gi.test(text)) {
+   535→    return text;
+   536→  }
+   537→
+   538→  const { questTemplates, sessionQuests, questSettings, characterId } = context;
+   539→
+   540→  // No quest data available - remove the key
+   541→  if (!questTemplates?.length || !sessionQuests?.length) {
+   542→    return text.replace(/\{\{availableQuests\}\}/gi, '');
+   543→  }
+   544→
+   545→  // Only AVAILABLE quests (not active)
+   546→  const availableQuests = sessionQuests.filter(q => q.status === 'available');
+   547→  if (availableQuests.length === 0) {
+   548→    return text.replace(/\{\{availableQuests\}\}/gi, '');
+   549→  }
+   550→
+   551→  // Build available quests block
+   552→  const availableLines: string[] = [];
+   553→  availableQuests.forEach((q, index) => {
+   554→    const questTemplate = questTemplates.find(t => t.id === q.templateId);
+   555→    if (!questTemplate) return;
+   556→
+   557→    availableLines.push(`${index + 1}) ${questTemplate.name}`);
+   558→    availableLines.push(`   - descripción: ${questTemplate.description}`);
+   559→
+   560→    // Add activation key
+   561→    const activation = questTemplate.activation || {};
+   562→    const baseKey = activation.key || (activation.keys && activation.keys[0]);
+   563→    if (baseKey) {
+   564→      const activationKey = getExampleKey(questSettings?.questActivationPrefix, baseKey);
+   565→      availableLines.push(`   - key de activación: ${activationKey}`);
+   566→    }
+   567→  });
+   568→
+   569→  if (availableLines.length === 0) {
+   570→    return text.replace(/\{\{availableQuests\}\}/gi, '');
+   571→  }
+   572→
+   573→  const block = `[MISIONES DISPONIBLES]\n${availableLines.join('\n')}`;
+   574→
+   575→  // Resolve inner keys in the block ({{user}}, {{char}}, stats, events, sounds)
+   576→  // Use a context WITHOUT quest data to prevent recursion
+   577→  const innerContext: KeyResolutionContext = {
+   578→    ...context,
+   579→    questTemplates: undefined,
+   580→    sessionQuests: undefined,
+   581→  };
+   582→
+   583→  const resolvedBlock = resolveAllKeys(block, innerContext);
+   584→
+   585→  return text.replace(/\{\{availableQuests\}\}/gi, resolvedBlock);
+   586→}
+   587→
+   588→/**
+   589→ * Resolve {{activeQuests}} key in text
+   590→ * Replaces with a formatted block of active quests and their objectives.
+   591→ * Inner keys in quest content ({{user}}, {{char}}, stats, etc.) are also resolved.
+   592→ *
+   593→ * The key can be placed in ANY character section (description, scenario,
+   594→ * systemPrompt, characterNote, authorNote, postHistoryInstructions, etc.)
+   595→ *
+   596→ * Example usage in character description:
+   597→ *   {{char}} es un aventurero.
+   598→ *   [MISIONES ACTIVAS]
+   599→ *   {{activeQuests}}
+   600→ */
+   601→export function resolveQuestKeys(
+   602→  text: string,
+   603→  context: KeyResolutionContext
+   604→): string {
+   605→  if (!text) return text;
+   606→
+   607→  // Early exit if no {{activeQuests}} key present
+   608→  if (!/\{\{activeQuests\}\}/gi.test(text)) {
+   609→    return text;
+   610→  }
+   611→
+   612→  const { questTemplates, sessionQuests, questSettings, characterId, sessionStats: questSessionStats } = context;
+   613→
+   614→  // No quest data available - remove the key
+   615→  if (!questTemplates?.length || !sessionQuests?.length) {
+   616→    return text.replace(/\{\{activeQuests\}\}/gi, '');
+   617→  }
+   618→
+   619→  // Check if there are any active quests
+   620→  const activeQuests = sessionQuests.filter(q => q.status === 'active');
+   621→  if (activeQuests.length === 0) {
+   622→    return text.replace(/\{\{activeQuests\}\}/gi, '');
+   623→  }
+   624→
+   625→  // Build raw quest content using buildQuestPromptSection with a simple template
+   626→  // This gives us just the quest list items without any wrapping template
+   627→  const rawQuestContent = buildQuestPromptSection(
+   628→    questTemplates,
+   629→    sessionQuests,
+   630→    '{{activeQuests}}',  // Simple template — result is just the quest list
+   631→    characterId,
+   632→    false,  // not for narrator
+   633→    questSettings,
+   634→    questSessionStats ?? undefined
+   635→  );
+   636→
+   637→  if (!rawQuestContent) {
+   638→    return text.replace(/\{\{activeQuests\}\}/gi, '');
+   639→  }
+   640→
+   641→  // Resolve inner keys in quest content ({{user}}, {{char}}, stats, events, sounds)
+   642→  // Use a context WITHOUT quest data to prevent recursion
+   643→  const innerContext: KeyResolutionContext = {
+   644→    ...context,
+   645→    questTemplates: undefined,
+   646→    sessionQuests: undefined,
+   647→  };
+   648→
+   649→  const resolvedQuestContent = resolveAllKeys(rawQuestContent, innerContext);
+   650→
+   651→  // Replace all occurrences of {{activeQuests}} with the resolved content
+   652→  return text.replace(/\{\{activeQuests\}\}/gi, resolvedQuestContent);
+   653→}
+   654→
+   655→// ============================================
+   656→// Phase 6: Lorebook Attribute Key Resolution
+   657→// ============================================
+   658→
+   659→/**
+   660→ * Resolve lorebook attribute keys in text.
+   661→ *
+   662→ * Replaces {{injectionKey}} patterns with the resolved content from
+   663→ * attribute-type lorebook entries. These keys are pre-resolved server-side
+   664→ * by the attribute-resolver module and passed through the context.
+   665→ *
+   666→ * After replacement, the injected content itself may contain template keys
+   667→ * (e.g., {{char}}, {{user}}, {{time}}), so we re-resolve template variables
+   668→ * on the result.
+   669→ *
+   670→ * Example: if lorebookAttributeKeys = { 'estadoHeroe': '{{char}} está herido' },
+   671→ * then {{estadoHeroe}} in text becomes "Aitana está herido".
+   672→ */
+   673→export function resolveLorebookAttributeKeys(
+   674→  text: string,
+   675→  context: KeyResolutionContext
+   676→): string {
+   677→  if (!text) return text;
+   678→
+   679→  const keysCount = context.lorebookAttributeKeys ? Object.keys(context.lorebookAttributeKeys).length : 0;
+   680→
+   681→  if (!context.lorebookAttributeKeys || keysCount === 0) {
+   682→    return text;
+   683→  }
+   684→
+   685→  let result = text;
+   686→
+   687→  // Sort keys by length descending to avoid partial replacements
+   688→  // (e.g., 'estadoHeroe' before 'estado')
+   689→  const sortedKeys = Object.keys(context.lorebookAttributeKeys).sort(
+   690→    (a, b) => b.length - a.length
+   691→  );
+   692→
+   693→  for (const key of sortedKeys) {
+   694→    const content = context.lorebookAttributeKeys![key];
+   695→    if (content === undefined) continue;
+   696→
+   697→    // Replace all occurrences of {{key}} (case-insensitive)
+   698→    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+   699→    const regex = new RegExp(`\\{\\{${escapedKey}\\}\\}`, 'gi');
+   700→    const regexMatched = regex.test(result);
+   701→
+   702→    if (!regexMatched) {
+   703→      continue;
+   704→    }
+   705→
+   706→    // Reset regex lastIndex after test() with global flag
+   707→    regex.lastIndex = 0;
+   708→    result = result.replace(regex, content);
+   709→  }
+   710→
+   711→  // After injecting attribute content, re-resolve ALL keys because the injected
+   712→  // content may contain {{char}}, {{user}}, {{vida}}, {{eventos}}, {{sonidos}},
+   713→  // {{activeQuests}}, {{slots}}, or even nested {{injectionKey}} / {{entryKey}}.
+   714→  // FIX EXPLORE-3: antes solo se re-resolvían template vars + stats (Phase 1+2),
+   715→  // lo que causaba que {{eventos}}, {{sonidos}}, {{activeQuests}} en el contenido
+   716→  // inyectado se strippearan silenciosamente por Phase 7. Ahora usamos passes
+   717→  // múltiples con convergence check para resolver recursivamente.
+   718→  if (result !== text) {
+   719→    result = resolveAllKeysWithPasses(result, context, 3);
+   720→  }
+   721→
+   722→  return result;
+   723→}
+   724→
+   725→// ============================================
+   726→// Phase 6.1: Lorebook Entry Key Resolution
+   727→// ============================================
+   728→
+   729→/**
+   730→ * Resolve lorebook entry keys in text.
+   731→ *
+   732→ * Replaces {{key}} patterns with content from traditional (non-attribute) lorebook entries.
+   733→ * This enables action descriptions (and other text fields) to reference lorebook entries
+   734→ * via {{key}} syntax. For example, if a lorebook entry has "tecnica_fuego" in its key array
+   735→ * with content "Técnica de fuego ancestral...", then {{tecnica_fuego}} in an action description
+   736→ * will be replaced with that content.
+   737→ *
+   738→ * After replacement, the injected content itself may contain template keys
+   739→ * (e.g., {{char}}, {{user}}, {{time}}), so we re-resolve template variables
+   740→ * and stats keys on the result.
+   741→ */
+   742→export function resolveLorebookEntryKeys(
+   743→  text: string,
+   744→  context: KeyResolutionContext
+   745→): string {
+   746→  if (!text) return text;
+   747→
+   748→  const keysCount = context.lorebookEntryKeys ? Object.keys(context.lorebookEntryKeys).length : 0;
+   749→
+   750→  if (!context.lorebookEntryKeys || keysCount === 0) {
+   751→    return text;
+   752→  }
+   753→
+   754→  let result = text;
+   755→  let anyReplaced = false;
+   756→
+   757→  // Sort keys by length descending to avoid partial replacements
+   758→  const sortedKeys = Object.keys(context.lorebookEntryKeys).sort(
+   759→    (a, b) => b.length - a.length
+   760→  );
+   761→
+   762→  for (const key of sortedKeys) {
+   763→    const content = context.lorebookEntryKeys![key];
+   764→    if (content === undefined) continue;
+   765→
+   766→    // Replace all occurrences of {{key}} (case-insensitive)
+   767→    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+   768→    const regex = new RegExp(`\\{\\{${escapedKey}\\}\\}`, 'gi');
+   769→    const regexMatched = regex.test(result);
+   770→
+   771→    if (!regexMatched) {
+   772→      continue;
+   773→    }
+   774→
+   775→    // Reset regex lastIndex after test() with global flag
+   776→    regex.lastIndex = 0;
+   777→    result = result.replace(regex, content);
+   778→    anyReplaced = true;
+   779→  }
+   780→
+   781→  // After injecting lorebook content, re-resolve ALL keys because the injected
+   782→  // content may contain {{char}}, {{user}}, {{vida}}, {{eventos}}, {{sonidos}},
+   783→  // {{activeQuests}}, {{slots}}, or nested {{injectionKey}} / {{entryKey}}.
+   784→  // FIX EXPLORE-3: antes solo se re-resolvían template vars + stats (Phase 1+2),
+   785→  // lo que causaba pérdida silenciosa de otras keys en contenido de lorebook.
+   786→  // Ahora usamos passes múltiples con convergence check.
+   787→  if (anyReplaced) {
+   788→    result = resolveAllKeysWithPasses(result, context, 3);
+   789→  }
+   790→
+   791→  return result;
+   792→}
+   793→
+   794→// ============================================
+   795→// Phase 6.5: Inventory / Slots Key Resolution
+   796→// ============================================
+   797→
+   798→/**
+   799→ * Resolve {{slots}} and {{currency}} keys in text.
+   800→ *
+   801→ * {{slots}}    - Lists equipped items (with slot + effect) + active consumable effects.
+   802→ *                Shows "NINGUNO" if nothing is equipped and no active effects.
+   803→ * {{currency}} - Currency display string (e.g., "💰 Divisa: 100")
+   804→ *
+   805→ * The {{slots}} key format:
+   806→ *   - itemName - en "slotName": effectText   (equipped items, empty slots are skipped)
+   807→ *   [efectos persistentes]
+   808→ *   - consumableName: effectText  (active consumables with remaining turns)
+   809→ *
+   810→ * Example:
+   811→ *   - Espada maldita - en "mano derecha": Aumenta el daño de fuego
+   812→ *   [efectos persistentes]
+   813→ *   - Pocion de vida: aumenta tus puntos de vida (1/3 turnos)
+   814→ *
+   815→ * These keys can be placed in ANY character section (description, scenario,
+   816→ * systemPrompt, characterNote, authorNote, postHistoryInstructions, etc.)
+   817→ */
+   818→
+   819→/**
+   820→ * Resolve the {{vestuario}} key (alias {{wardrobe}}) to the description of the
+   821→ * outfit the character is currently wearing (GUARDARROPA V2).
+   822→ * The worn outfit is read from the session state (activeOutfitId), with a
+   823→ * fallback to the outfit flagged isDefault.
+   824→ */
+   825→export function resolveWardrobeKeyInText(
+   826→  text: string,
+   827→  context: KeyResolutionContext
+   828→): string {
+   829→  if (!text) return text;
+   830→  // Fast exit when neither key is present
+   831→  if (!/\{\{(?:vestuario|wardrobe)\}\}/gi.test(text)) return text;
+   832→
+   833→  const wardrobeContent = resolveWardrobeKey(
+   834→    context.character,
+   835→    context.sessionStats,
+   836→    context.characterId
+   837→  );
+   838→
+   839→  return text
+   840→    .replace(/\{\{vestuario\}\}/gi, wardrobeContent)
+   841→    .replace(/\{\{wardrobe\}\}/gi, wardrobeContent);
+   842→}
+   843→
+   844→/**
+   845→ * Resolve the {{escenario}} key (alias {{scenario}}) to the description of the
+   846→ * location where the scene currently takes place (ESCENARIO V2).
+   847→ * The active location is read from the SESSION state (activeScenarioId —
+   848→ * session-level, shared by all chat participants), with a fallback to the
+   849→ * location flagged isDefault.
+   850→ */
+   851→export function resolveScenarioKeyInText(
+   852→  text: string,
+   853→  context: KeyResolutionContext
+   854→): string {
+   855→  if (!text) return text;
+   856→  // Fast exit when neither key is present
+   857→  if (!/\{\{(?:escenario|scenario)\}\}/gi.test(text)) return text;
+   858→
+   859→  const scenarioContent = resolveScenarioKey(
+   860→    context.character,
+   861→    context.sessionStats,
+   862→    context.group
+   863→  );
+   864→
+   865→  return text
+   866→    .replace(/\{\{escenario\}\}/gi, scenarioContent)
+   867→    .replace(/\{\{scenario\}\}/gi, scenarioContent);
+   868→}
+   869→
+   870→export function resolveInventoryKeys(
+   871→  text: string,
+   872→  context: KeyResolutionContext
+   873→): string {
+   874→  if (!text) return text;
+   875→
+   876→  // Early exit if no inventory-related keys are present
+   877→  if (!/\{\{slots\}\}/gi.test(text) && !/\{\{currency\}\}/gi.test(text)) {
+   878→    return text;
+   879→  }
+   880→
+   881→  const { inventoryData } = context;
+   882→
+   883→  // No inventory data available - remove the keys
+   884→  if (!inventoryData || !inventoryData.inventorySettings.enabled) {
+   885→    return text
+   886→      .replace(/\{\{slots\}\}/gi, '')
+   887→      .replace(/\{\{currency\}\}/gi, '');
+   888→  }
+   889→
+   890→  let result = text;
+   891→
+   892→  // Resolve {{currency}} - simple currency display
+   893→  if (/\{\{currency\}\}/gi.test(result)) {
+   894→    const currencyDisplay = `${inventoryData.currencyIcon || '💰'} ${inventoryData.currencyName || 'Divisa'}: ${inventoryData.currency}`;
+   895→    result = result.replace(/\{\{currency\}\}/gi, currencyDisplay);
+   896→  }
+   897→
+   898→  // Resolve {{slots}} - equipment slots + active consumable effects
+   899→  if (/\{\{slots\}\}/gi.test(result)) {
+   900→    const { sessionEquipment = [], activeEffects, inventorySettings } = inventoryData;
+   901→    const equipmentSlots = inventorySettings.equipmentSlots || [];
+   902→    const items = inventoryData.personaItems.map(({ item }) => item);
+   903→
+   904→    const lines: string[] = [];
+   905→    let hasAnyEquipment = false;
+   906→
+   907→    // 1. List ONLY occupied equipment slots (skip empty ones)
+   908→    for (const slot of equipmentSlots) {
+   909→      // Find the equipped item in this slot from session equipment
+   910→      const eqEntry = sessionEquipment.find(e => e.equippedSlotId === slot.id);
+   911→
+   912→      if (eqEntry) {
+   913→        const item = items.find(i => i.id === eqEntry.itemId);
+   914→        // Use cached slotEffectText if available, otherwise look up from item
+   915→        const effectText = eqEntry.slotEffectText
+   916→          || item?.slotEffects?.find(se => se.slotId === slot.id)?.effectText
+   917→          || '';
+   918→        const itemName = item?.name || '???';
+   919→        // Format: "itemName - en slotName: effectText"
+   920→        if (effectText) {
+   921→          lines.push(`- ${itemName} - en "${slot.name}": ${effectText}`);
+   922→        } else {
+   923→          lines.push(`- ${itemName} - en "${slot.name}"`);
+   924→        }
+   925→        hasAnyEquipment = true;
+   926→      }
+   927→      // Empty slots are NOT shown
+   928→    }
+   929→
+   930→    // 2. List active consumable effects (persistent effects)
+   931→    if (activeEffects.length > 0) {
+   932→      lines.push('[efectos persistentes]');
+   933→      for (const effect of activeEffects) {
+   934→        const turnsLeft = effect.remainingTurns > 0 ? ` (${effect.remainingTurns}/${effect.totalTurns} turnos)` : '';
+   935→        const effectDesc = effect.consumableEffect
+   936→          || effect.effects.map(ef =>
+   937→              `${ef.operator}${ef.value} ${ef.attributeKey}${ef.targetId !== '__user__' ? ` → ${ef.targetName || ef.targetId}` : ''}`
+   938→            ).join(', ');
+   939→        lines.push(`- ${effect.itemName}: ${effectDesc}${turnsLeft}`);
+   940→      }
+   941→    }
+   942→
+   943→    // If nothing at all (no equipment and no active effects), show "NINGUNO"
+   944→    let slotsContent: string;
+   945→    if (!hasAnyEquipment && activeEffects.length === 0) {
+   946→      slotsContent = 'NINGUNO';
+   947→    } else {
+   948→      slotsContent = lines.join('\n');
+   949→    }
+   950→    result = result.replace(/\{\{slots\}\}/gi, slotsContent);
+   951→  }
+   952→
+   953→  return result;
+   954→}
+   955→
+   956→/**
+   957→ * Phase 7: Cleanup remaining unresolved {{key}} patterns
+   958→ *
+   959→ * After all resolution phases, any {{key}} still remaining is an unresolved key.
+   960→ * This can happen when:
+   961→ * - A lorebook attribute entry's injectionKey is used but the lorebook is not assigned to the character
+   962→ * - A custom key was added to text but has no resolver
+   963→ * - A stats key references an attribute that doesn't exist in the current config
+   964→ *
+   965→ * Strategy:
+   966→ * - Keys that match known attribute names in the character or persona statsConfig are KEPT as-is
+   967→ *   (user may want to see them for debugging or they might be added later)
+   968→ * - Keys that look like lorebook injection keys (lowercaseCamelCase, underscores) are replaced with empty
+   969→ * - All other remaining {{key}} patterns are replaced with empty string
+   970→ *
+   971→ * This ensures the LLM never sees raw {{key}} text in the prompt.
+   972→ */
+   973→function resolveRemainingKeys(
+   974→  text: string,
+   975→  context: KeyResolutionContext
+   976→): string {
+   977→  if (!text || !text.includes('{{')) return text;
+   978→
+   979→  // Collect all known stat attribute keys from character and persona configs
+   980→  const knownStatKeys = new Set<string>();
+   981→  if (context.character?.statsConfig?.attributes) {
+   982→    for (const attr of context.character.statsConfig.attributes) {
+   983→      knownStatKeys.add(attr.key);
+   984→    }
+   985→  }
+   986→  if (context.persona?.statsConfig?.attributes) {
+   987→    for (const attr of context.persona.statsConfig.attributes) {
+   988→      knownStatKeys.add(attr.key);
+   989→    }
+   990→  }
+   991→
+   992→  // Collect all known lorebook entry keys — these should NOT be cleaned up
+   993→  // because they may be resolved in a later pass (e.g., when lorebookEntryKeys
+   994→  // is not yet available but will be in a subsequent resolution pass)
+   995→  const knownLorebookKeys = new Set<string>();
+   996→  if (context.lorebookEntryKeys) {
+   997→    for (const key of Object.keys(context.lorebookEntryKeys)) {
+   998→      knownLorebookKeys.add(key.toLowerCase());
+   999→    }
+  1000→  }
+  1001→
+  1002→  // Collect all known lorebook attribute injection keys
+  1003→  const knownAttributeKeys = new Set<string>();
+  1004→  if (context.lorebookAttributeKeys) {
+  1005→    for (const key of Object.keys(context.lorebookAttributeKeys)) {
+  1006→      knownAttributeKeys.add(key.toLowerCase());
+  1007→    }
+  1008→  }
+  1009→
+  1010→  const pattern = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
+  1011→
+  1012→  return text.replace(pattern, (match, key) => {
+  1013→    const keyLower = key.toLowerCase();
+  1014→
+  1015→    // Keep known character/persona stat keys as-is (user might want to see them)
+  1016→    if (knownStatKeys.has(key)) {
+  1017→      return match;
+  1018→    }
+  1019→
+  1020→    // Keep lorebook entry keys — they should have been resolved by Phase 6.1,
+  1021→    // but if not (e.g., multi-pass resolution), don't clean them up yet
+  1022→    if (knownLorebookKeys.has(keyLower)) {
+  1023→      return match;
+  1024→    }
+  1025→
+  1026→    // Keep lorebook attribute injection keys — they should have been resolved by Phase 6,
+  1027→    // but if not, don't clean them up
+  1028→    if (knownAttributeKeys.has(keyLower)) {
+  1029→      return match;
+  1030→    }
+  1031→
+  1032→    // Replace all other unresolved keys with empty string
+  1033→    // This includes typo keys and any other unrecognized patterns
+  1034→    console.log(`[KeyResolver Phase 7] Cleaning unresolved key: {{${key}}}`);
+  1035→    return '';
+  1036→  });
+  1037→}
+  1038→
+  1039→// ============================================
+  1040→// Unified Resolution
+  1041→// ============================================
+  1042→
+  1043→/**
+  1044→ * Resolve ALL keys in text in the correct order
+  1045→ *
+  1046→ * Phase 1: Template variables ({{user}}, {{char}}, conditionals)
+  1047→ * Phase 2: Stats keys ({{resistencia}}, {{habilidades}}, etc.)
+  1048→ * Phase 3: Event keys ({{solicitante}}, {{solicitado}}, {{eventos}})
+  1049→ * Phase 4: Sound keys ({{sonidos}})
+  1050→ * Phase 5: Quest keys ({{activeQuests}}, {{availableQuests}})
+  1051→ * Phase 6: Lorebook attribute keys ({{injectionKey}} from attribute-type entries)
+  1052→ * Phase 6.5: Inventory keys ({{slots}}, {{currency}})
+  1053→ *
+  1054→ * This is the main function to use for resolving all keys
+  1055→ */
+  1056→export function resolveAllKeys(
+  1057→  text: string,
+  1058→  context: KeyResolutionContext
+  1059→): string {
+  1060→  if (!text) return text;
+  1061→
+  1062→  // Phase 1: Resolve template variables
+  1063→  let result = resolveTemplateVariables(text, context);
+  1064→
+  1065→  // Phase 2: Resolve stats keys (character + persona attributes)
+  1066→  result = resolveStatsKeys(result, context.resolvedStats, context.personaResolvedStats);
+  1067→
+  1068→  // Phase 3: Resolve event keys
+  1069→  result = resolveEventKeys(result, context);
+  1070→
+  1071→  // Phase 4: Resolve sound keys
+  1072→  result = resolveSoundKeys(result, context);
+  1073→
+  1074→  // Phase 5: Resolve quest keys ({{activeQuests}}, {{availableQuests}})
+  1075→  result = resolveQuestKeys(result, context);
+  1076→  result = resolveAvailableQuestsKey(result, context);
+  1077→
+  1078→  // Phase 5.9: Resolve wardrobe key ({{vestuario}} / {{wardrobe}})
+  1079→  // GUARDARROPA V2: resolved BEFORE lorebook keys so the session's active outfit
+  1080→  // is the canonical source (lorebook entries must not shadow {{vestuario}}).
+  1081→  result = resolveWardrobeKeyInText(result, context);
+  1082→
+  1083→  // Phase 5.95: Resolve scenario key ({{escenario}} / {{scenario}})
+  1084→  // ESCENARIO V2: same ordering rationale as the wardrobe — the session's
+  1085→  // active location is the canonical source (lorebook entries must not shadow
+  1086→  // {{escenario}}).
+  1087→  result = resolveScenarioKeyInText(result, context);
+  1088→
+  1089→  // Phase 6: Resolve lorebook attribute keys
+  1090→  result = resolveLorebookAttributeKeys(result, context);
+  1091→
+  1092→  // Phase 6.1: Resolve lorebook entry keys ({{key}} from traditional lorebook entries)
+  1093→  result = resolveLorebookEntryKeys(result, context);
+  1094→
+  1095→  // Phase 6.5: Resolve inventory keys ({{slots}}, {{currency}})
+  1096→  result = resolveInventoryKeys(result, context);
+  1097→
+  1098→  // Phase 7: Cleanup — replace any remaining unresolved {{key}} with empty string
+  1099→  // This prevents literal {{key}} text from reaching the LLM prompt.
+  1100→  // Known keys (like stats defined in config) are already handled in Phase 2,
+  1101→  // which returns the match as-is so the user sees them for debugging.
+  1102→  // But lorebook attribute keys from unassigned lorebooks should be silently cleaned.
+  1103→  result = resolveRemainingKeys(result, context);
+  1104→
+  1105→  return result;
+  1106→}
+  1107→
+  1108→/**
+  1109→ * Resolve all keys with multiple passes
+  1110→ *
+  1111→ * Sometimes, after resolving keys, new content may be injected
+  1112→ * (e.g., lorebooks that contain {{user}} or stats keys)
+  1113→ * This function runs resolution multiple times to catch those cases
+  1114→ *
+  1115→ * @param text - Text to resolve
+  1116→ * @param context - Resolution context
+  1117→ * @param maxPasses - Maximum number of resolution passes (default: 2)
+  1118→ */
+  1119→export function resolveAllKeysWithPasses(
+  1120→  text: string,
+  1121→  context: KeyResolutionContext,
+  1122→  maxPasses: number = 2
+  1123→): string {
+  1124→  if (!text) return text;
+  1125→
+  1126→  let result = text;
+  1127→  let previousResult = '';
+  1128→
+  1129→  for (let i = 0; i < maxPasses; i++) {
+  1130→    result = resolveAllKeys(result, context);
+  1131→
+  1132→    // If nothing changed, we're done
+  1133→    if (result === previousResult) {
+  1134→      break;
+  1135→    }
+  1136→    previousResult = result;
+  1137→  }
+  1138→
+  1139→  return result;
+  1140→}
+  1141→
+  1142→// ============================================
+  1143→// Context Builders
+  1144→// ============================================
+  1145→
+  1146→/**
+  1147→ * Build a key resolution context from character and persona
+  1148→ */
+  1149→export function buildKeyResolutionContext(
+  1150→  character: CharacterCard,
+  1151→  userName: string = 'User',
+  1152→  persona?: Persona,
+  1153→  resolvedStats?: ResolvedStats | null,
+  1154→  sessionStats?: SessionStats | null,
+  1155→  soundTriggers?: SoundTrigger[],
+  1156→  soundSettings?: AppSettings['sound'],
+  1157→  personaResolvedStats?: ResolvedStats | null,
+  1158→  questTemplates?: QuestTemplate[],
+  1159→  sessionQuests?: SessionQuestInstance[],
+  1160→  questSettings?: QuestSettings,
+  1161→  outletSections?: Record<string, string>,
+  1162→  lorebookAttributeKeys?: Record<string, string>,
+  1163→  inventoryData?: KeyResolutionContext['inventoryData'],
+  1164→  lorebookEntryKeys?: Record<string, string>
+  1165→): KeyResolutionContext {
+  1166→  return {
+  1167→    user: persona?.name || userName,
+  1168→    char: character.name,
+  1169→    userpersona: persona?.description,
+  1170→    character,
+  1171→    persona,
+  1172→    resolvedStats,
+  1173→    personaResolvedStats,
+  1174→    sessionStats,
+  1175→    characterId: character.id,
+  1176→    soundTriggers,
+  1177→    soundSettings,
+  1178→    questTemplates,
+  1179→    sessionQuests,
+  1180→    questSettings,
+  1181→    outletSections,
+  1182→    lorebookAttributeKeys,
+  1183→    inventoryData,
+  1184→    lorebookEntryKeys,
+  1185→  };
+  1186→}
+  1187→
+  1188→/**
+  1189→ * Build a key resolution context for group chat
+  1190→ * Uses the responding character as the main character
+  1191→ */
+  1192→export function buildGroupKeyResolutionContext(
+  1193→  character: CharacterCard,
+  1194→  userName: string = 'User',
+  1195→  persona?: Persona,
+  1196→  resolvedStats?: ResolvedStats | null,
+  1197→  sessionStats?: SessionStats | null,
+  1198→  personaResolvedStats?: ResolvedStats | null,
+  1199→  questTemplates?: QuestTemplate[],
+  1200→  sessionQuests?: SessionQuestInstance[],
+  1201→  questSettings?: QuestSettings,
+  1202→  lorebookAttributeKeys?: Record<string, string>,
+  1203→  inventoryData?: KeyResolutionContext['inventoryData'],
+  1204→  lorebookEntryKeys?: Record<string, string>
+  1205→): KeyResolutionContext {
+  1206→  return buildKeyResolutionContext(character, userName, persona, resolvedStats, sessionStats, undefined, undefined, personaResolvedStats, questTemplates, sessionQuests, questSettings, undefined, lorebookAttributeKeys, inventoryData, lorebookEntryKeys);
+  1207→}
+  1208→
+  1209→// ============================================
+  1210→// Convenience Functions for Character Processing
+  1211→// ============================================
+  1212→
+  1213→/**
+  1214→ * Process all character text fields with unified key resolution
+  1215→ * This replaces processCharacterTemplate from prompt-template.ts
+  1216→ */
+  1217→export function processCharacterKeys(
+  1218→  character: CharacterCard,
+  1219→  userName: string = 'User',
+  1220→  persona?: Persona,
+  1221→  resolvedStats?: ResolvedStats | null
+  1222→): CharacterCard {
+  1223→  const context = buildKeyResolutionContext(character, userName, persona, resolvedStats);
+  1224→
+  1225→  return {
+  1226→    ...character,
+  1227→    description: resolveAllKeys(character.description, context),
+  1228→    personality: resolveAllKeys(character.personality, context),
+  1229→    scenario: resolveAllKeys(character.scenario, context),
+  1230→    firstMes: resolveAllKeys(character.firstMes, context),
+  1231→    mesExample: resolveAllKeys(character.mesExample, context),
+  1232→    systemPrompt: resolveAllKeys(character.systemPrompt, context),
+  1233→    postHistoryInstructions: resolveAllKeys(character.postHistoryInstructions, context),
+  1234→    characterNote: resolveAllKeys(character.characterNote, context),
+  1235→    // Process alternate greetings
+  1236→    alternateGreetings: character.alternateGreetings.map(greeting =>
+  1237→      resolveAllKeys(greeting, context)
+  1238→    )
+  1239→  };
+  1240→}
+  1241→
+  1242→/**
+  1243→ * Process a single message with key resolution
+  1244→ */
+  1245→export function processMessageKeys(
+  1246→  message: string,
+  1247→  characterName: string,
+  1248→  userName: string = 'User',
+  1249→  resolvedStats?: ResolvedStats | null
+  1250→): string {
+  1251→  const context: KeyResolutionContext = {
+  1252→    user: userName,
+  1253→    char: characterName,
+  1254→    resolvedStats,
+  1255→  };
+  1256→
+  1257→  return resolveAllKeys(message, context);
+  1258→}
+  1259→
+  1260→// ============================================
+  1261→// Section Processing
+  1262→// ============================================
+  1263→
+  1264→import type { PromptSection } from '@/types';
+  1265→
+  1266→/**
+  1267→ * Resolve all keys in a prompt section
+  1268→ */
+  1269→export function resolveSectionKeys(
+  1270→  section: PromptSection,
+  1271→  context: KeyResolutionContext
+  1272→): PromptSection {
+  1273→  return {
+  1274→    ...section,
+  1275→    content: resolveAllKeys(section.content, context)
+  1276→  };
+  1277→}
+  1278→
+  1279→/**
+  1280→ * Resolve all keys in multiple prompt sections
+  1281→ */
+  1282→export function resolveSectionsKeys(
+  1283→  sections: PromptSection[],
+  1284→  context: KeyResolutionContext
+  1285→): PromptSection[] {
+  1286→  return sections.map(section => resolveSectionKeys(section, context));
+  1287→}
+  1288→
+  1289→/**
+  1290→ * Resolve all keys in sections with multiple passes
+  1291→ * Useful for sections that may contain dynamically injected content
+  1292→ */
+  1293→export function resolveSectionsKeysWithPasses(
+  1294→  sections: PromptSection[],
+  1295→  context: KeyResolutionContext,
+  1296→  maxPasses: number = 2
+  1297→): PromptSection[] {
+  1298→  return sections.map(section => ({
+  1299→    ...section,
+  1300→    content: resolveAllKeysWithPasses(section.content, context, maxPasses)
+  1301→  }));
+  1302→}
+  1303→

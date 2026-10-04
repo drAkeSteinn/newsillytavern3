@@ -5,7 +5,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import type { TTSWebUIConfig, ASRConfig } from '@/types';
+import type { TTSWebUIConfig, ASRConfig, WakeWordConfig, VADConfig } from '@/types';
+import { DEFAULT_WAKE_WORD_CONFIG, DEFAULT_VAD_CONFIG } from '@/types';
 
 const CONFIG_DIR = path.join(process.cwd(), 'data');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'tts-config.json');
@@ -41,6 +42,8 @@ const DEFAULT_ASR_CONFIG: ASRConfig = {
 interface TTSConfigFile {
   tts: TTSWebUIConfig;
   asr: ASRConfig;
+  kws?: WakeWordConfig;
+  vad?: VADConfig;
   updatedAt: string;
 }
 
@@ -88,6 +91,8 @@ async function readConfig(): Promise<TTSConfigFile> {
     return {
       tts: ttsConfig,
       asr: { ...DEFAULT_ASR_CONFIG, ...config.asr },
+      kws: { ...DEFAULT_WAKE_WORD_CONFIG, ...(config.kws || {}) },
+      vad: { ...DEFAULT_VAD_CONFIG, ...(config.vad || {}) },
       updatedAt: config.updatedAt || new Date().toISOString(),
     };
   } catch {
@@ -95,6 +100,8 @@ async function readConfig(): Promise<TTSConfigFile> {
     return {
       tts: DEFAULT_TTS_CONFIG,
       asr: DEFAULT_ASR_CONFIG,
+      kws: DEFAULT_WAKE_WORD_CONFIG,
+      vad: DEFAULT_VAD_CONFIG,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -131,8 +138,15 @@ export async function POST(request: NextRequest) {
     const existing = await readConfig();
 
     const newConfig: TTSConfigFile = {
-      tts: { ...DEFAULT_TTS_CONFIG, ...existing.tts, ...body.tts },
-      asr: { ...DEFAULT_ASR_CONFIG, ...existing.asr, ...body.asr },
+      tts: { ...DEFAULT_TTS_CONFIG, ...existing.tts, ...(body.tts || {}) },
+      asr: { ...DEFAULT_ASR_CONFIG, ...existing.asr, ...(body.asr || {}) },
+      // Persist global KWS (wake word) and VAD config — previously discarded (bug)
+      kws: body.kws
+        ? { ...DEFAULT_WAKE_WORD_CONFIG, ...existing.kws, ...body.kws }
+        : { ...DEFAULT_WAKE_WORD_CONFIG, ...existing.kws },
+      vad: body.vad
+        ? { ...DEFAULT_VAD_CONFIG, ...existing.vad, ...body.vad }
+        : { ...DEFAULT_VAD_CONFIG, ...existing.vad },
       updatedAt: new Date().toISOString(),
     };
 

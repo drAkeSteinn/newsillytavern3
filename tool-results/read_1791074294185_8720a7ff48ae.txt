@@ -1,0 +1,562 @@
+   441→    const characterId: string | undefined = body.characterId;
+   442→    
+   443→    // (Memory V2: client-side CharacterMemory mirror removed — memories are
+   444→    // managed exclusively in the V2 store.)
+   445→    
+   446→    // Extract tools settings for tool/action system (native tool calling only)
+   447→    const toolsSettings: ToolsSettings = {
+   448→      enabled: body.toolsSettings?.enabled ?? true,
+   449→      maxToolCallsPerTurn: body.toolsSettings?.maxToolCallsPerTurn ?? 4,
+   450→      characterConfigs: body.toolsSettings?.characterConfigs || [],
+   451→      usePromptBasedFallback: body.toolsSettings?.usePromptBasedFallback ?? false,
+   452→      disabledTools: body.toolsSettings?.disabledTools || [],
+   453→    };
+   454→
+   455→    // Extract inventory data for Inventory V2 system
+   456→    const inventoryData: InventoryPromptData | undefined = body.inventoryData;
+   457→
+   458→    if (!llmConfig) {
+   459→      return createErrorResponse('No LLM configuration provided', 400);
+   460→    }
+   461→
+   462→    // Validate API key for providers that require one
+   463→    const providersRequiringApiKey = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'grok'];
+   464→    if (providersRequiringApiKey.includes(llmConfig.provider) && !llmConfig.apiKey) {
+   465→      return createErrorResponse(
+   466→        `API Key is required for ${llmConfig.provider} provider. Please configure it in Settings.`,
+   467→        400
+   468→      );
+   469→    }
+   470→
+   471→    // Validate endpoint for providers that require one
+   472→    const providersRequiringEndpoint = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'ollama', 'text-generation-webui', 'koboldcpp'];
+   473→    if (providersRequiringEndpoint.includes(llmConfig.provider) && !llmConfig.endpoint) {
+   474→      return createErrorResponse(
+   475→        `Endpoint URL is required for ${llmConfig.provider} provider. Please configure it in Settings.`,
+   476→        400
+   477→      );
+   478→    }
+   479→
+   480→    // If using Z.ai provider, collect gateway-forwarded auth headers
+   481→    // The SDK v0.0.17+ reads config from /etc/.z-ai-config and uses the "token" field for X-Token.
+   482→    // Gateway headers are passed as runtime overrides to the provider.
+   483→    let zaiRuntimeToken: string | undefined;
+   484→    if (llmConfig.provider === 'z-ai') {
+   485→      // Only use actual auth tokens (not session IDs)
+   486→      const gatewayToken = incomingXToken || fcSecurityToken || undefined;
+   487→      if (gatewayToken) {
+   488→        zaiRuntimeToken = gatewayToken;
+   489→        console.log(`[Stream Route] Z.ai runtime token available (${gatewayToken.length} chars, source: ${incomingXToken ? 'X-Token' : 'fc-security-token'})`);
+   490→      } else {
+   491→        console.log(`[Stream Route] Z.ai: no gateway token available, using config file only`);
+   492→      }
+   493→    }
+   494→
+   495→    // Sanitize user message
+   496→    const sanitizedMessage = sanitizeInput(message);
+   497→
+   498→    // Create default character if none provided
+   499→    const effectiveCharacter: CharacterCard = character || DEFAULT_CHARACTER;
+   500→
+   501→    // Get effective user name from persona or use provided userName
+   502→    const effectiveUserName = getEffectiveUserName(persona, userName);
+   503→
+   504→    // Build context configuration from request or use defaults
+   505→    const contextConfig: Partial<ContextConfig> = body.contextConfig || {};
+   506→
+   507→    // Apply sliding window to messages
+   508→    const contextWindow = selectContextMessages(messages, llmConfig, contextConfig);
+   509→
+   510→    // Log context stats (for debugging)
+   511→    const stats = getContextStats(messages);
+   512→
+   513→    // Process lorebooks and get matched entries
+   514→    const { plan: lorebookPlan, lorebookAttributeKeys, lorebookEntryKeyMap, lorebookDebugEntries } = buildLorebookSectionForPrompt(
+   515→      messages,
+   516→      lorebooks,
+   517→      {
+   518→        scanDepth: contextConfig.scanDepth,
+   519→        userName: effectiveUserName,
+   520→        charName: effectiveCharacter?.name,
+   521→      },
+   522→      { sessionStats, characterId: effectiveCharacter?.id, characters: allCharacters }
+   523→    );
+   524→
+   525→    // ========================================
+   526→    // DEBUG: Build lorebook debug data for SSE event
+   527→    // ========================================
+   528→    const lorebookDebugData = {
+   529→      lorebookAttributeKeys,
+   530→      debugEntries: lorebookDebugEntries,
+   531→      availableStats: sessionStats
+   532→        ? Object.fromEntries(
+   533→            Object.entries(sessionStats.characterStats || {}).map(([charId, cs]) => [
+   534→              charId,
+   535→              cs?.attributeValues ? { ...cs.attributeValues } : '(no values)',
+   536→            ])
+   537→          )
+   538→        : '(no sessionStats)',
+   539→    };
+   540→
+   541→    // ========================================
+   542→    // Embeddings Context Retrieval
+   543→    // ========================================
+   544→    // Enrich search query with recent context for better semantic matching
+   545→    const searchContextDepth = embeddingsChat.searchContextDepth || 0;
+   546→    let enrichedSearchQuery = sanitizedMessage;
+   547→    if (searchContextDepth > 0) {
+   548→      // Collect recent messages from history for context enrichment
+   549→      const recentHistory = messages
+   550→        .filter(m => !m.isDeleted)
+   551→        .slice(-(searchContextDepth * 2 + 1)) // user+assistant pairs
+   552→        .map(m => m.content?.trim())
+   553→        .filter(Boolean)
+   554→        .slice(0, -1); // exclude current message (already in sanitizedMessage)
+   555→      
+   556→      if (recentHistory.length > 0) {
+   557→        enrichedSearchQuery = recentHistory.join(' ') + ' ' + sanitizedMessage;
+   558→      }
+   559→    }
+   560→
+   561→    // Smart truncation: limit query to the embedding model's context window.
+   562→    // Prioritize the user's CURRENT message over history when truncating.
+   563→    // The Ollama client also handles truncation, but this avoids sending huge payloads.
+   564→    try {
+   565→      const { MODEL_CONTEXT_LENGTHS, DEFAULT_CONTEXT_LENGTH, CHARS_PER_TOKEN } = await import('@/lib/embeddings/types');
+   566→      const { loadConfig } = await import('@/lib/embeddings/config-persistence');
+   567→      const embConfig = loadConfig();
+   568→      const modelKey = embConfig.model || 'bge-m3:567m';
+   569→      const modelCtx = MODEL_CONTEXT_LENGTHS[modelKey]
+   570→        || MODEL_CONTEXT_LENGTHS[modelKey.split(':')[0]]
+   571→        || DEFAULT_CONTEXT_LENGTH;
+   572→      const maxQueryChars = Math.floor(modelCtx * 0.75 * CHARS_PER_TOKEN);
+   573→
+   574→      if (enrichedSearchQuery.length > maxQueryChars) {
+   575→        // Smart: keep the user's message intact, truncate history prefix
+   576→        const userMsgLen = sanitizedMessage.length;
+   577→        if (userMsgLen >= maxQueryChars) {
+   578→          // User message alone exceeds limit — truncate it
+   579→          enrichedSearchQuery = sanitizedMessage.slice(0, maxQueryChars);
+   580→        } else {
+   581→          // Keep full user message + as much recent history as fits
+   582→          const budgetForHistory = maxQueryChars - userMsgLen - 1; // -1 for separator
+   583→          enrichedSearchQuery = enrichedSearchQuery.slice(
+   584→            Math.max(0, enrichedSearchQuery.length - maxQueryChars)
+   585→          );
+   586→        }
+   587→        console.warn(
+   588→          `[Stream Route] Search query trimmed to ${enrichedSearchQuery.length} chars ` +
+   589→          `(model: ${modelKey}, context: ${modelCtx} tokens)`
+   590→        );
+   591→      }
+   592→    } catch { /* fallback: no truncation at this level, Ollama client handles it */ }
+   593→
+   594→    // Retrieve relevant embeddings (knowledge only — memory lives in V2)
+   595→
+   596→    // Extract last assistant message for bidirectional search
+   597→    const lastAssistantMsg = messages
+   598→      .filter(m => !m.isDeleted && m.role === 'assistant')
+   599→      .pop()?.content;
+   600→
+   601→    const embeddingsResult = await retrieveEmbeddingsContext(
+   602→      enrichedSearchQuery,
+   603→      characterId || effectiveCharacter.id,
+   604→      sessionId,
+   605→      embeddingsChat,
+   606→      undefined, // groupId
+   607→      lastAssistantMsg, // bidirectional search with last assistant message
+   608→      // FASE 14: pass main attribute key for importance boost in reranking
+   609→      effectiveCharacter.statsConfig?.attributes?.find(a => a.isMain === true)?.key,
+   610→    );
+   611→    
+   612→    if (embeddingsResult.found) {
+   613→      console.log(`[Stream Route] Retrieved ${embeddingsResult.count} embeddings from namespaces: ${embeddingsResult.searchedNamespaces.join(', ')}`);
+   614→    }
+   615→
+   616→    // ========================================
+   617→    // Memory V2 — unified store (the ONLY memory system; provides the
+   618→    // partitioned blocks [HECHOS]/[EVENTOS]/[ESTADO DE LA RELACIÓN]).
+   619→    // Knowledge ([CONTEXTO RELEVANTE]) comes from the knowledge retrieval above.
+   620→    // ========================================
+   621→    // Memory V2 gating — SINGLE switch. memoryV2Enabled is the master switch of
+   622→    // the whole memory pipeline (injection + extraction + tools). It no longer
+   623→    // depends on the deprecated embeddingsChat.enabled flag (which had no UI and
+   624→    // defaulted to false, silently killing V2 on fresh installs).
+   625→    const memoryV2Active = embeddingsChat?.memoryV2Enabled !== false;
+   626→    let v2MemoryContext = '';
+   627→    if (memoryV2Active) {
+   628→      try {
+   629→        const { buildV2MemoryContext } = await import('@/lib/memory/v2');
+   630→        const v2 = await buildV2MemoryContext({
+   631→          charId: characterId || effectiveCharacter.id,
+   632→          charName: effectiveCharacter.name || 'Character',
+   633→          userName: effectiveUserName,
+   634→          sessionId,
+   635→          crossSession: embeddingsChat?.crossSessionMemory !== false,
+   636→          query: enrichedSearchQuery || sanitizedMessage || '',
+   637→          maxTokenBudget: embeddingsChat?.maxTokenBudget,
+   638→        });
+   639→        v2MemoryContext = v2.context;
+   640→        if (v2.context) {
+   641→          console.log(`[Stream Route] Memory V2: ${v2.stats.injected} records injected (backend: ${v2.stats.backend}, curated: ${v2.stats.curatedInjected})`);
+   642→        }
+   643→      } catch (v2Err) {
+   644→        // No legacy fallback anymore: on V2 failure this turn continues without
+   645→        // semantic memory (knowledge retrieval is unaffected).
+   646→        console.warn('[Stream Route] Memory V2 failed — continuing without memory this turn:', v2Err);
+   647→      }
+   648→    }
+   649→
+   650→    // ========================================
+   651→    // Build system prompt with unified key resolution
+   652→    // ========================================
+   653→    // This handles ALL key resolution internally:
+   654→    // - Template variables: {{user}}, {{char}}, {{userpersona}}
+   655→    // - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+   656→    // - Sound keys: {{sonidos}}
+   657→    // - All sections including post-history instructions
+   658→    const { prompt: systemPrompt, sections: systemSections, lorebookChatInjections, exampleMessages } = buildSystemPrompt(
+   659→      effectiveCharacter,
+   660→      effectiveUserName,
+   661→      persona,
+   662→      lorebookPlan,
+   663→      sessionStats,
+   664→      allCharacters, // Pass all characters for peticiones/solicitudes resolution
+   665→      soundTriggers, // Pass soundTriggers for {{sonidos}} resolution
+   666→      soundSettings,  // Pass sound settings for {{sonidos}} template
+   667→      questTemplates,  // Pass quest templates for {{activeQuests}} key resolution
+   668→      sessionQuests,   // Pass session quests for {{activeQuests}} key resolution
+   669→      questSettings,    // Pass quest settings for {{activeQuests}} key resolution
+   670→      lorebookAttributeKeys,
+   671→      inventoryData,    // Pass inventory data for Inventory V2 section
+   672→      lorebookEntryKeyMap // Pass lorebook entry key map for {{entryKey}} resolution
+   673→    );
+   674→
+   675→    // Session stats now already include item effects (applied directly to SessionStats
+   676→    // when items are activated/equipped in the store). No need for virtual overlay.
+   677→    const effectiveSessionStats = sessionStats;
+   678→
+   679→    // Resolve persona stats first for comprehensive key resolution
+   680→    let streamPersonaResolvedStats: import('@/types').ResolvedStats | null = null;
+   681→    if (persona?.statsConfig?.enabled && effectiveSessionStats) {
+   682→      streamPersonaResolvedStats = resolveStats({
+   683→        characterId: '__user__',
+   684→        statsConfig: persona.statsConfig,
+   685→        sessionStats: effectiveSessionStats,
+   686→      });
+   687→    }
+   688→    const resolvedStats = resolveStats({
+   689→      characterId: effectiveCharacter.id,
+   690→      statsConfig: effectiveCharacter.statsConfig,
+   691→      sessionStats: effectiveSessionStats,
+   692→      allCharacters,
+   693→      userName: effectiveUserName,
+   694→      characterName: effectiveCharacter.name,
+   695→      questTemplates,
+   696→      personaDescription: persona?.description,
+   697→      personaResolvedStats: streamPersonaResolvedStats,
+   698→    });
+   699→    // Build outlet sections map from lorebook plan for {{outlet::name}} macro resolution
+   700→    const outletSections: Record<string, string> = {};
+   701→    if (lorebookPlan?.outletSections.length) {
+   702→      for (const outletSection of lorebookPlan.outletSections) {
+   703→        const match = outletSection.label.match(/^World Info \((.+)\)$/);
+   704→        const outletName = match ? match[1] : outletSection.label;
+   705→        outletSections[outletName] = outletSection.content;
+   706→      }
+   707→    }
+   708→
+   709→    const keyContext = buildKeyResolutionContext(
+   710→      effectiveCharacter,
+   711→      effectiveUserName,
+   712→      persona,
+   713→      resolvedStats,
+   714→      sessionStats,  // Pass sessionStats for {{eventos}} key resolution
+   715→      soundTriggers,   // Pass soundTriggers for {{sonidos}} key resolution
+   716→      soundSettings,  // Pass sound settings for {{sonidos}} template
+   717→      streamPersonaResolvedStats,  // Pass persona resolved stats
+   718→      questTemplates,  // Pass quest templates for {{activeQuests}}
+   719→      sessionQuests,   // Pass session quests for {{activeQuests}}
+   720→      questSettings,    // Pass quest settings
+   721→      outletSections,   // Pass outlet sections for {{outlet::name}}
+   722→      lorebookAttributeKeys,  // Pass lorebook attribute keys for {{injectionKey}}
+   723→      inventoryData,    // Pass inventory data for {{inventory}} and {{currency}} key resolution
+   724→      lorebookEntryKeyMap // FIX EXPLORE-3: {{entryKey}} de lorebook tradicional (Phase 6.1)
+   725→    );
+   726→
+   727→    // Build HUD context section if enabled (now resolves keys!)
+   728→    const hudContextSection = hudContext ? buildHUDContextSection(hudContext, keyContext) : null;
+   729→
+   730→    // FIX EXPLORE-3: Resolver post-history instructions con resolveAllKeys antes de pasarlas
+   731→    // a buildChatMessages/buildCompletionPrompt. buildChatMessages NO resuelve keys internamente
+   732→    // (las pushea crudas), por eso el LLM recibía {{user}}, {{char}}, {{vida}}, {{entryKey}},
+   733→    // {{injectionKey}}, {{activeQuests}}, etc. literales. Resolvemos una vez aquí y reusamos.
+   734→    const _rawPostHistoryInstructions = effectiveCharacter.postHistoryInstructions?.trim();
+   735→    const resolvedPostHistoryInstructions: string | undefined = _rawPostHistoryInstructions
+   736→      ? resolveAllKeys(_rawPostHistoryInstructions, keyContext)
+   737→      : undefined;
+   738→
+   739→
+   740→    // Build chat history sections (for prompt viewer)
+   741→    const chatHistorySections = buildChatHistorySections(
+   742→      contextWindow.messages,
+   743→      effectiveCharacter.name,
+   744→      effectiveUserName
+   745→    );
+   746→
+   747→    // Build post-history instructions section (for prompt viewer)
+   748→    // Pass keyContext to resolve all {{keys}} like {{user}}, {{char}}, {{stats}}, etc.
+   749→    const postHistorySection = buildPostHistorySection(
+   750→      effectiveCharacter.postHistoryInstructions,
+   751→      keyContext
+   752→    );
+   753→
+   754→    // Build summary section if summary exists (memory/context compression)
+   755→    let summarySection: PromptSection | null = null;
+   756→    let summaryMessage: ChatMessage | null = null;
+   757→    if (summary) {
+   758→      summarySection = {
+   759→        type: 'system',
+   760→        label: 'Recuerdos Anteriores',
+   761→        content: `[RECUERDOS ANTERIORES]\n${summary.content}`,
+   762→        color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+   763→      };
+   764→      // Create a synthetic message for chat history injection
+   765→      summaryMessage = {
+   766→        id: 'summary-' + Date.now(),
+   767→        role: 'assistant',
+   768→        content: `[RECUERDOS ANTERIORES]\n${summary.content}`,
+   769→        characterId: effectiveCharacter.id,
+   770→        isDeleted: false,
+   771→        timestamp: summary.createdAt,
+   772→        swipeId: 'summary',
+   773→        swipeIndex: 0
+   774→      };
+   775→    }
+   776→
+   777→    // Combine all sections in order for prompt viewer
+   778→    // Order: System -> Summary -> Quest -> Memoria V2 -> [CONTEXTO] knowledge -> Chat History -> Post-History
+   779→    const personaIndex = systemSections.findIndex(s => s.type === 'persona');
+   780→    const prePersonaSections = personaIndex >= 0 ? systemSections.slice(0, personaIndex + 1) : systemSections;
+   781→    const postPersonaSections = personaIndex >= 0 ? systemSections.slice(personaIndex + 1) : [];
+   782→
+   783→    // Memory V2 viewer section (partitioned blocks)
+   784→    const v2ViewerSection: PromptSection | null = memoryV2Active
+   785→      ? {
+   786→          type: 'character_note',
+   787→          label: `Memoria V2 (${effectiveCharacter.name || 'Character'})`,
+   788→          content: v2MemoryContext || '(sin registros de memoria V2 aún)',
+   789→          color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+   790→        }
+   791→      : null;
+   792→
+   793→    let allPromptSections: PromptSection[] = [
+   794→      ...prePersonaSections,
+   795→      ...postPersonaSections,
+   796→      ...(summarySection ? [summarySection] : []),
+   797→      ...(v2ViewerSection ? [v2ViewerSection] : []),  // V2 partitioned memory
+   798→      ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),  // Knowledge: before chat
+   799→      ...chatHistorySections,
+   800→      ...(postHistorySection ? [postHistorySection] : [])
+   801→    ];
+   802→
+   803→    // Inject HUD context into sections if enabled
+   804→    if (hudContextSection && hudContext) {
+   805→      allPromptSections = injectHUDContextIntoSections(allPromptSections, hudContextSection, hudContext.position);
+   806→    }
+   807→
+   808→    // Build combined embeddings context.
+   809→    // V2: partitioned blocks [HECHOS]/[EVENTOS]/[RELACIÓN] are the memory;
+   810→    // knowledge stays as [CONTEXTO RELEVANTE].
+   811→    const contextParts: string[] = [];
+   812→
+   813→    if (embeddingsResult.nonMemoryContextString?.trim()) {
+   814→      contextParts.push(embeddingsResult.nonMemoryContextString);
+   815→    }
+   816→    if (v2MemoryContext.trim()) {
+   817→      contextParts.push(v2MemoryContext);
+   818→    }
+   819→    const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
+   820→
+   821→    // Build the final system prompt (tools only, quest content resolved via {{activeQuests}} key)
+   822→    let finalSystemPrompt = systemPrompt;
+   823→
+   824→    // ===== TOOL/ACTION SYSTEM (Native + Prompt-Based Tool Calling) =====
+   825→    // Build available tools for this character
+   826→    const characterToolConfig = toolsSettings.characterConfigs.find(
+   827→      c => c.characterId === effectiveCharacter.id
+   828→    );
+   829→    const enabledToolIds = characterToolConfig?.enabledTools || [];
+   830→    let availableTools = enabledToolIds.length > 0
+   831→      ? getToolDefinitionsByIds(enabledToolIds)
+   832→      : getAllToolDefinitions(); // All tools enabled if no specific config
+   833→    
+   834→    // Filter out globally disabled tools
+   835→    const globalDisabled = toolsSettings.disabledTools || [];
+   836→    if (globalDisabled.length > 0) {
+   837→      availableTools = availableTools.filter(t => !globalDisabled.includes(t.id));
+   838→    }
+   839→
+   840→    // Filter out group-only tools (this is a 1-on-1 chat route — no scene management here)
+   841→    if (availableTools.length > 0) {
+   842→      availableTools = availableTools.filter(t => !GROUP_ONLY_TOOL_IDS.includes(t.id));
+   843→    }
+   844→
+   845→    // FASE 12: Filter out the manage_wardrobe tool if the character doesn't have
+   846→    // a wardrobeConfig with levels + a main attribute. This auto-enables the tool
+   847→    // only for characters that actually use the wardrobe system.
+   848→    if (availableTools.length > 0) {
+   849→      if (!isWardrobeAvailable(effectiveCharacter)) {
+   850→        availableTools = availableTools.filter(t => t.id !== 'manage_wardrobe');
+   851→      }
+   852→    }
+   853→
+   854→    // ESCENARIO V2: Filter out the manage_escenario tool if the character doesn't
+   855→    // have a usable scenarioConfig (enabled + ≥1 location). Same pattern as
+   856→    // manage_wardrobe and as the group route — otherwise the LLM gets a tool
+   857→    // (and instructions) for a system this character doesn't use.
+   858→    if (availableTools.length > 0) {
+   859→      if (!isScenarioAvailable(effectiveCharacter)) {
+   860→        availableTools = availableTools.filter(t => t.id !== 'manage_escenario');
+   861→      }
+   862→    }
+   863→    
+   864→    const toolsEnabled = toolsSettings.enabled && availableTools.length > 0;
+   865→
+   866→    // Resolve {{keys}} in tool descriptions and parameter descriptions
+   867→    // This ensures {{user}}, {{char}}, {{userpersona}}, stats keys, etc.
+   868→    // are properly replaced before tools are sent to the LLM (both native and prompt-based)
+   869→    if (toolsEnabled && availableTools.length > 0) {
+   870→      availableTools = resolveToolDefinitionsKeys(availableTools, keyContext);
+   871→    }
+   872→
+   873→    // Determine if the current provider supports native tool calling
+   874→    const supportsNativeTools = ['openai', 'vllm', 'lm-studio', 'custom', 'anthropic', 'ollama', 'z-ai', 'grok', 'text-generation-webui', 'koboldcpp'].includes(llmConfig.provider);
+   875→    // If usePromptBasedFallback is true, disable native tools so prompt-based injection is used instead
+   876→    const shouldUseTools = toolsEnabled && supportsNativeTools && !toolsSettings.usePromptBasedFallback;
+   877→
+   878→    // Only inject text-based tool instructions into the system prompt when the provider
+   879→    // does NOT support native tool calling. Models with native tool calling (Ollama, OpenAI,
+   880→    // Anthropic) will receive tools via the API body, and injecting text instructions
+   881→    // CONFUSES them — they end up outputting ```tool_call``` as text instead of using
+   882→    // the native tool_calls mechanism.
+   883→    if (toolsEnabled && availableTools.length > 0 && !shouldUseTools) {
+   884→      const toolPromptSection = buildPromptBasedToolsSection(availableTools, effectiveCharacter.name);
+   885→      if (toolPromptSection) {
+   886→        finalSystemPrompt += `\n\n${toolPromptSection}`;
+   887→      }
+   888→    }
+   889→
+   890→    if (shouldUseTools) {
+   891→      console.log(`[Tools] Native tool calling enabled for ${effectiveCharacter.name} (${llmConfig.provider}):`, availableTools.map(t => t.name));
+   892→    } else if (toolsEnabled && toolsSettings.usePromptBasedFallback) {
+   893→      console.log(`[Tools] Prompt-based fallback enabled for ${effectiveCharacter.name} (${llmConfig.provider}) - using text instructions in system prompt`);
+   894→    } else if (toolsEnabled && !supportsNativeTools) {
+   895→      console.log(`[Tools] Tools enabled but provider ${llmConfig.provider} does not support native tool calling - using prompt-based instructions`);
+   896→    } else if (!toolsEnabled) {
+   897→      console.log(`[Tools] Tools DISABLED. toolsSettings.enabled=${toolsSettings.enabled}, availableTools=${availableTools.length}`);
+   898→    }
+   899→
+   900→    // Re-evaluate context window with reserved tokens for summary + embeddings
+   901→    // This reduces chat history when summary/embeddings use significant budget
+   902→    const summaryTokens = summary?.content ? estimateContentTokens(`[RECUERDOS ANTERIORES]\n${summary.content}`) : 0;
+   903→    const embeddingsTokens = embeddingsContext ? estimateContentTokens(embeddingsContext) : 0;
+   904→    const reservedTokens = summaryTokens + embeddingsTokens;
+   905→    
+   906→    let finalContextWindow = contextWindow;
+   907→    if (reservedTokens > 200) {
+   908→      // Re-apply context window with reduced budget
+   909→      const adjustedConfig: Partial<ContextConfig> = {
+   910→        ...contextConfig,
+   911→        reservedTokens,
+   912→      };
+   913→      finalContextWindow = selectContextMessages(messages, llmConfig, adjustedConfig);
+   914→      console.log(`[Context Budget] Reserved ${reservedTokens} tokens (summary: ${summaryTokens}, embeddings: ${embeddingsTokens}). Chat messages: ${contextWindow.messages.length} → ${finalContextWindow.messages.length}`);
+   915→    }
+   916→
+   917→    // Update prompt viewer sections if context window was re-evaluated
+   918→    let finalChatHistorySections = chatHistorySections;
+   919→    let finalAllPromptSections = allPromptSections;
+   920→    if (finalContextWindow !== contextWindow) {
+   921→      finalChatHistorySections = buildChatHistorySections(
+   922→        finalContextWindow.messages,
+   923→        effectiveCharacter.name,
+   924→        effectiveUserName
+   925→      );
+   926→      finalAllPromptSections = [
+   927→        ...prePersonaSections,
+   928→        ...postPersonaSections,
+   929→        ...(summarySection ? [summarySection] : []),
+   930→        ...(v2ViewerSection ? [v2ViewerSection] : []),  // V2 partitioned memory
+   931→        ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),
+   932→        ...(!memoryV2Active && embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []),  // Legacy memory: skipped in V2
+   933→        ...finalChatHistorySections,
+   934→        ...(postHistorySection ? [postHistorySection] : [])
+   935→      ];
+   936→      if (hudContextSection && hudContext) {
+   937→        finalAllPromptSections = injectHUDContextIntoSections(finalAllPromptSections, hudContextSection, hudContext.position);
+   938→      }
+   939→    }
+   940→
+   941→    // Prepare messages with new user message (use context-windowed messages)
+   942→    // Check if the last message is already the user's current message to avoid duplicates.
+   943→    // The frontend adds the message to the store BEFORE sending the request, so the
+   944→    // messages array may already contain the user's message. Without this check, the
+   945→    // message gets duplicated → buildChatMessages merges them → LLM sees "hola\nhola".
+   946→    const lastCtxMessage = finalContextWindow.messages[finalContextWindow.messages.length - 1];
+   947→    const isLastMessageCurrentUser = lastCtxMessage?.role === 'user' &&
+   948→      lastCtxMessage?.content === sanitizedMessage;
+   949→
+   950→    // Inject summary at the START of chat history if it exists
+   951→    let allMessages = summaryMessage
+   952→      ? [summaryMessage, ...finalContextWindow.messages]
+   953→      : [...finalContextWindow.messages];
+   954→
+   955→    if (!isLastMessageCurrentUser) {
+   956→      allMessages = [...allMessages, createUserMessage(sanitizedMessage)];
+   957→    }
+   958→
+   959→    // Create a TransformStream for SSE
+   960→    const stream = new ReadableStream({
+   961→      async start(controller) {
+   962→        // FIX: Declare these OUTSIDE the try block so the catch block can access them
+   963→        // for graceful error recovery (sending partial content as 'done' instead of 'error').
+   964→        let accumulatedContent = '';
+   965→        let allToolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+   966→        let allQuestActivations: import('@/types').QuestActivation[] = [];
+   967→        try {
+   968→          // Send prompt data at the start
+   969→          controller.enqueue(createSSEJSON({
+   970→            type: 'prompt_data',
+   971→            promptSections: finalAllPromptSections
+   972→          }));
+   973→
+   974→          // DEBUG: Send lorebook attribute resolution debug data
+   975→          if (lorebookDebugEntries && lorebookDebugEntries.length > 0) {
+   976→            controller.enqueue(createSSEJSON({
+   977→              type: 'lorebook_debug',
+   978→              ...lorebookDebugData,
+   979→            }));
+   980→          }
+   981→          
+   982→          // Send embeddings context metadata to the client for UI display
+   983→          if (embeddingsResult.found) {
+   984→            controller.enqueue(createSSEJSON({
+   985→              type: 'embeddings_context',
+   986→              data: formatEmbeddingsForSSE(embeddingsResult)
+   987→            }));
+   988→          }
+   989→
+   990→          let generator: AsyncGenerator<string>;
+   991→
+   992→          // Route to appropriate provider
+   993→          // If tools are enabled and provider supports native tool calling,
+   994→          // use the tool-aware streaming functions.
+   995→          // FIX EXPLORE-3: resolvedPostHistoryInstructions ya está resuelto arriba (nivel handler).
+   996→          const maxToolRounds = toolsSettings.maxToolCallsPerTurn || 2;
+   997→          let toolRound = 0;
+   998→          let toolContextMessages: Array<Record<string, unknown>> = []; // for tool result messages
+   999→
+  1000→          // Build the initial chat messages once (shared across tool rounds for OpenAI/Anthropic)
+
+[showing lines 441-1000 of 2229; use offset=1001 with limit to continue reading]

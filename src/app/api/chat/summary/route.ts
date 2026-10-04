@@ -20,6 +20,7 @@ interface SummaryRequest {
   settings: SummarySettings;
   previousSummary?: string;
   characterId?: string;
+  groupId?: string;
   sessionId?: string;
   apiConfig: {
     provider: string;
@@ -118,7 +119,7 @@ function estimateTokens(text: string): number {
 export async function POST(request: NextRequest): Promise<NextResponse<SummaryResponse>> {
   try {
     const body: SummaryRequest = await request.json();
-    const { messages, characterName, userName, settings, previousSummary, apiConfig, characterId, sessionId } = body;
+    const { messages, characterName, userName, settings, previousSummary, apiConfig, characterId, groupId, sessionId } = body;
 
     if (!settings.enabled) {
       return NextResponse.json({
@@ -273,9 +274,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<SummaryRe
     // - Only the latest summary gets `is_latest: true` in metadata — older ones are demoted
     try {
       const client = getEmbeddingClient();
-      const effectiveCharId = characterId || 'default';
       const effectiveSessId = sessionId || 'unknown';
-      const namespace = `memory-character-${effectiveCharId}-${effectiveSessId}`;
+      // Per-scope namespace: 1:1 chats → memory-character-{charId}-{sessionId};
+      // group chats → memory-group-{groupId}-{sessionId}. Falls back to the legacy
+      // shared bucket only when the client sends no scope at all.
+      const effectiveCharId = characterId || (groupId ? `group:${groupId}` : 'default');
+      const namespace = groupId
+        ? `memory-group-${groupId}-${effectiveSessId}`
+        : `memory-character-${effectiveCharId}-${effectiveSessId}`;
 
       // Demote any previous "latest" summary for this session (set is_latest=false)
       // This preserves old summaries for semantic search while marking only the newest as latest
@@ -288,16 +294,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<SummaryRe
         for (const existing of existingSummaries) {
           if (existing.metadata?.session_id === effectiveSessId && existing.metadata?.is_latest) {
             // Demote: update metadata to mark as not-latest
+            // FIX: updateEmbedding's signature is (id, content, metadata) — an object
+            // was passed as content, embedText threw, and the fallback DELETED the
+            // previous summary. Old summaries were destroyed on every new summary.
             try {
-              await client.updateEmbedding(existing.id, {
-                ...existing,
-                metadata: { ...existing.metadata, is_latest: false },
-              });
+              await client.updateEmbedding(
+                existing.id,
+                existing.content,
+                { ...existing.metadata, is_latest: false },
+              );
               console.log(`[Summary] Demoted previous summary: ${existing.id} (is_latest=false)`);
             } catch (updateErr) {
-              console.warn('[Summary] Could not demote previous summary, deleting instead:', updateErr);
-              // Fallback: if update fails, delete the old one (better than duplication)
-              await client.deleteEmbedding(existing.id);
+              // FIX: never delete on failure — the old summary is still valuable
+              // semantic memory. A stale is_latest flag at worst keeps it excluded
+              // from RAG search alongside the newest one (already injected directly).
+              console.warn('[Summary] Could not demote previous summary — keeping it:', updateErr);
             }
           }
         }

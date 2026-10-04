@@ -300,19 +300,23 @@ function checkKeyMatch(
   }
 
   // Apply select logic
+  // NOTE: cases 1 and 3 additionally require at least ONE matched key.
+  // Without that guard, NOT_ALL (0 < N) and AND_ALL with an empty key list
+  // (0 === 0) matched EVERY message, injecting entries constantly.
+  const nonEmptyKeys = keys.filter(k => k.trim());
   switch (selectLogic) {
     case 0: // AND_ANY - Match ANY key
       return { matched: matchedKeys.length > 0, keys: matchedKeys };
-    
-    case 1: // NOT_ALL - NOT match ALL keys (inverse)
-      return { matched: matchedKeys.length < keys.filter(k => k.trim()).length, keys: matchedKeys };
-    
+
+    case 1: // NOT_ALL - NOT match ALL keys (inverse, but require ≥1 match)
+      return { matched: matchedKeys.length > 0 && matchedKeys.length < nonEmptyKeys.length, keys: matchedKeys };
+
     case 2: // NOT_ANY - NOT match ANY key
       return { matched: matchedKeys.length === 0, keys: [] };
-    
+
     case 3: // AND_ALL - Match ALL keys
-      return { matched: matchedKeys.length === keys.filter(k => k.trim()).length, keys: matchedKeys };
-    
+      return { matched: nonEmptyKeys.length > 0 && matchedKeys.length === nonEmptyKeys.length, keys: matchedKeys };
+
     default:
       return { matched: matchedKeys.length > 0, keys: matchedKeys };
   }
@@ -462,12 +466,16 @@ export function applyGroupScoring(
 
 /**
  * Apply token budget to results
+ * Constant (always-on) entries are never dropped by the budget — they are
+ * the user's explicit "always include" contract. Dropped entries are logged
+ * so silent lore loss is diagnosable.
  */
 export function applyTokenBudget(
   results: LorebookScanResult[],
   tokenBudget: number
 ): LorebookScanResult[] {
   const filtered: LorebookScanResult[] = [];
+  const dropped: string[] = [];
   let totalTokens = 0;
 
   // Sort by order (lower = higher priority)
@@ -475,11 +483,20 @@ export function applyTokenBudget(
 
   for (const result of sorted) {
     const entryTokens = estimateTokens(result.entry.content);
-    
-    if (totalTokens + entryTokens <= tokenBudget) {
+    const isConstant = result.entry.constant === true;
+
+    if (isConstant || totalTokens + entryTokens <= tokenBudget) {
       filtered.push(result);
       totalTokens += entryTokens;
+    } else {
+      dropped.push(result.entry.comment || result.entry.key?.[0] || `uid ${result.entry.uid}`);
     }
+  }
+
+  if (dropped.length > 0) {
+    console.warn(
+      `[Lorebook] Token budget (${tokenBudget}) exceeded — dropped ${dropped.length} entrada(s): ${dropped.slice(0, 5).join(', ')}${dropped.length > 5 ? '…' : ''}`
+    );
   }
 
   return filtered;

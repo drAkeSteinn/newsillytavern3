@@ -2,7 +2,7 @@
 // Pre-LLM Types - Unified scanning system types
 // ============================================
 
-import type { ChatMessage, Lorebook, Persona, PromptSection, CharacterMemory } from '@/types';
+import type { ChatMessage, Lorebook, Persona, PromptSection } from '@/types';
 
 /**
  * Result of a single Pre-LLM handler match
@@ -60,7 +60,6 @@ export interface PreLLMInput {
   messages: ChatMessage[];
   lorebooks?: Lorebook[];
   activeLorebookIds?: string[];
-  memory?: CharacterMemory;
   characterName?: string;
   options: PreLLMScanOptions;
 }

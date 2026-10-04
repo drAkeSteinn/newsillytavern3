@@ -1,0 +1,2002 @@
+     1→// ============================================
+     2→// Prompt Builder - Unified prompt construction
+     3→// ============================================
+     4→
+     5→import { formatWorldClock, createDefaultWorldClock } from '@/lib/world/time';
+     6→import { buildTextActionsSection } from '@/lib/tools/text-actions';
+     7→import type {
+     8→  CharacterCard,
+     9→  ChatMessage,
+    10→  Persona,
+    11→  PromptSection,
+    12→  CharacterGroup,
+    13→  Lorebook,
+    14→  SummaryData,
+    15→  SessionStats,
+    16→  HUDContextConfig,
+    17→  QuestTemplate,
+    18→  SessionQuestInstance,
+    19→  SoundTrigger,
+    20→  AppSettings,
+    21→  ResolvedStats,
+    22→  QuestSettings,
+    23→  Item,
+    24→  PersonaInventoryEntry,
+    25→  ItemAttributeEffect,
+    26→  ActiveConsumableEffect,
+    27→  InventoryV2Settings,
+    28→  SessionEquipmentEntry,
+    29→} from '@/types';
+    30→import type { ChatApiMessage, CompletionPromptConfig, GroupPromptBuildResult } from './types';
+    31→import { processExampleDialogue } from '@/lib/prompt-template';
+    32→import {
+    33→  buildLorebookInjectionPlan,
+    34→  resolveLorebookAttributeKeys,
+    35→  buildLorebookEntryKeyMap,
+    36→  type LorebookInjectOptions,
+    37→  type LorebookInjectionPlan,
+    38→  type LorebookChatInjection,
+    39→  type LorebookAttributeContext,
+    40→} from '@/lib/lorebook';
+    41→import {
+    42→  resolveStats,
+    43→  type StatsResolutionContext,
+    44→} from '@/lib/stats';
+    45→import { isWardrobeAvailable, getWardrobeInfo } from '@/lib/wardrobe';
+    46→import { isScenarioAvailable, getScenarioInfo } from '@/lib/scenario';
+    47→import { buildAttributesListBlock, buildAttributesRulesBlock, cardUsesAttributesKeys } from '@/lib/stats/attributes-prompt';
+    48→import {
+    49→  resolveAllKeys,
+    50→  resolveSectionsKeys,
+    51→  resolveSectionsKeysWithPasses,
+    52→  buildKeyResolutionContext,
+    53→  type KeyResolutionContext,
+    54→} from '@/lib/key-resolver';
+    55→import {
+    56→  buildQuestPromptSection,
+    57→  buildQuestKeysPrompt,
+    58→} from '@/lib/triggers/handlers/quest-handler';
+    59→
+    60→// ============================================
+    61→// Section Colors for Prompt Viewer
+    62→// ============================================
+    63→
+    64→export const SECTION_COLORS = {
+    65→  system: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+    66→  persona: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    67→  character_description: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    68→  personality: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+    69→  scenario: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+    70→  example_dialogue: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:bg-cyan-300',
+    71→  character_note: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+    72→  lorebook: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+    73→  author_note: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300',
+    74→  post_history: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+    75→  chat_history: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+    76→  instructions: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+    77→  summary: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300',
+    78→  memory: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+    79→  relationship: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
+    80→  hud_context: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+    81→  quest: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    82→  inventory: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+    83→} as const;
+    84→
+    85→// ============================================
+    86→// HUD Context Injection
+    87→// ============================================
+    88→
+    89→/**
+    90→ * Build a HUD context section for prompt injection
+    91→ * 
+    92→ * Now resolves ALL keys including:
+    93→ * - Template variables: {{user}}, {{char}}, {{userpersona}}
+    94→ * - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+    95→ */
+    96→export function buildHUDContextSection(
+    97→  contextConfig: HUDContextConfig,
+    98→  keyContext?: KeyResolutionContext
+    99→): PromptSection | null {
+   100→  if (!contextConfig.enabled || !contextConfig.content.trim()) {
+   101→    return null;
+   102→  }
+   103→
+   104→  // Resolve all keys in the context content
+   105→  let resolvedContent = contextConfig.content;
+   106→  if (keyContext) {
+   107→    resolvedContent = resolveAllKeys(contextConfig.content, keyContext);
+   108→  }
+   109→
+   110→  return {
+   111→    type: 'hud_context',
+   112→    label: 'HUD Context',
+   113→    content: resolvedContent,
+   114→    color: SECTION_COLORS.hud_context
+   115→  };
+   116→}
+   117→
+   118→/**
+   119→ * Inject HUD context at the specified position
+   120→ *
+   121→ * Positions:
+   122→ * 0 = After system prompt
+   123→ * 1 = After user message (after last user message)
+   124→ * 2 = Before user message (before last user message)
+   125→ * 3 = After assistant message (after last assistant message)
+   126→ * 4 = Before assistant message (before last assistant message)
+   127→ * 5 = At top of chat (before chat history)
+   128→ * 6 = At bottom of chat (after all messages)
+   129→ * 7 = After lorebook / Author's Note position
+   130→ */
+   131→export function injectHUDContextIntoMessages(
+   132→  messages: ChatApiMessage[],
+   133→  contextSection: PromptSection,
+   134→  position: number
+   135→): ChatApiMessage[] {
+   136→  if (!contextSection.content.trim()) {
+   137→    return messages;
+   138→  }
+   139→
+   140→  const contextContent = `[${contextSection.label}]\n${contextSection.content}`;
+   141→  const result: ChatApiMessage[] = [...messages];
+   142→
+   143→  switch (position) {
+   144→    case 0: // After system prompt
+   145→      // Find the first system/assistant message (the system prompt)
+   146→      const sysIdx = result.findIndex(m => m.role === 'assistant' || m.role === 'system');
+   147→      if (sysIdx >= 0) {
+   148→        result[sysIdx] = {
+   149→          ...result[sysIdx],
+   150→          content: result[sysIdx].content + '\n\n' + contextContent
+   151→        };
+   152→      }
+   153→      break;
+   154→
+   155→    case 1: // After user message
+   156→      // Find the last user message
+   157→      const lastUserIdx = result.map((m, i) => m.role === 'user' ? i : -1).filter(i => i >= 0).pop();
+   158→      if (lastUserIdx !== undefined && lastUserIdx >= 0) {
+   159→        result[lastUserIdx] = {
+   160→          ...result[lastUserIdx],
+   161→          content: result[lastUserIdx].content + '\n\n' + contextContent
+   162→        };
+   163→      }
+   164→      break;
+   165→
+   166→    case 2: // Before user message
+   167→      const lastUserIdx2 = result.map((m, i) => m.role === 'user' ? i : -1).filter(i => i >= 0).pop();
+   168→      if (lastUserIdx2 !== undefined && lastUserIdx2 >= 0) {
+   169→        result[lastUserIdx2] = {
+   170→          ...result[lastUserIdx2],
+   171→          content: contextContent + '\n\n' + result[lastUserIdx2].content
+   172→        };
+   173→      }
+   174→      break;
+   175→
+   176→    case 3: // After assistant message
+   177→      const lastAsstIdx = result.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0).pop();
+   178→      if (lastAsstIdx !== undefined && lastAsstIdx >= 0) {
+   179→        result[lastAsstIdx] = {
+   180→          ...result[lastAsstIdx],
+   181→          content: result[lastAsstIdx].content + '\n\n' + contextContent
+   182→        };
+   183→      }
+   184→      break;
+   185→
+   186→    case 4: // Before assistant message
+   187→      const lastAsstIdx4 = result.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0).pop();
+   188→      if (lastAsstIdx4 !== undefined && lastAsstIdx4 >= 0) {
+   189→        result[lastAsstIdx4] = {
+   190→          ...result[lastAsstIdx4],
+   191→          content: contextContent + '\n\n' + result[lastAsstIdx4].content
+   192→        };
+   193→      }
+   194→      break;
+   195→
+   196→    case 5: // At top of chat (after system, before first message)
+   197→      // Merge into the first system message to avoid breaking alternation
+   198→      {
+   199→        const sysMsgIdx5 = result.findIndex(m => m.role === 'system');
+   200→        if (sysMsgIdx5 >= 0) {
+   201→          result[sysMsgIdx5] = {
+   202→            ...result[sysMsgIdx5],
+   203→            content: result[sysMsgIdx5].content + '\n\n' + contextContent
+   204→          };
+   205→        }
+   206→      }
+   207→      break;
+   208→
+   209→    case 6: // At bottom of chat (after all messages)
+   210→      // Merge into the first system message to avoid breaking alternation
+   211→      {
+   212→        const sysMsgIdx6 = result.findIndex(m => m.role === 'system');
+   213→        if (sysMsgIdx6 >= 0) {
+   214→          result[sysMsgIdx6] = {
+   215→            ...result[sysMsgIdx6],
+   216→            content: result[sysMsgIdx6].content + '\n\n' + contextContent
+   217→          };
+   218→        }
+   219→      }
+   220→      break;
+   221→
+   222→    case 7: // After lorebook / Author's Note position
+   223→      // Merge into the first system message to avoid breaking alternation
+   224→      {
+   225→        const sysMsgIdx7 = result.findIndex(m => m.role === 'system' || m.role === 'assistant');
+   226→        if (sysMsgIdx7 >= 0) {
+   227→          result[sysMsgIdx7] = {
+   228→            ...result[sysMsgIdx7],
+   229→            content: result[sysMsgIdx7].content + '\n\n' + contextContent
+   230→          };
+   231→        }
+   232→      }
+   233→      break;
+   234→
+   235→    default:
+   236→      // Merge into the first system message to avoid breaking alternation
+   237→      {
+   238→        const sysMsgIdxDef = result.findIndex(m => m.role === 'system');
+   239→        if (sysMsgIdxDef >= 0) {
+   240→          result[sysMsgIdxDef] = {
+   241→            ...result[sysMsgIdxDef],
+   242→            content: result[sysMsgIdxDef].content + '\n\n' + contextContent
+   243→          };
+   244→        } else {
+   245→          result.push({
+   246→            role: 'system',
+   247→            content: contextContent
+   248→          });
+   249→        }
+   250→      }
+   251→      break;
+   252→  }
+   253→
+   254→  return result;
+   255→}
+   256→
+   257→/**
+   258→ * Inject HUD context into prompt sections
+   259→ * This is for the prompt viewer display
+   260→ *
+   261→ * Positions:
+   262→ * 0 = After system prompt
+   263→ * 1 = After user message (not applicable to sections, uses chat_history)
+   264→ * 2 = Before user message (not applicable to sections, uses chat_history)
+   265→ * 3 = After assistant message (not applicable to sections, uses chat_history)
+   266→ * 4 = Before assistant message (not applicable to sections, uses chat_history)
+   267→ * 5 = At top of chat (before chat history)
+   268→ * 6 = At bottom of chat (after all sections)
+   269→ * 7 = After lorebook
+   270→ */
+   271→export function injectHUDContextIntoSections(
+   272→  sections: PromptSection[],
+   273→  contextSection: PromptSection,
+   274→  position: number
+   275→): PromptSection[] {
+   276→  if (!contextSection.content.trim()) {
+   277→    return sections;
+   278→  }
+   279→
+   280→  const result: PromptSection[] = [...sections];
+   281→
+   282→  switch (position) {
+   283→    case 0: // After system prompt
+   284→      const sysSectionIdx = result.findIndex(s => s.type === 'system');
+   285→      if (sysSectionIdx >= 0) {
+   286→        result.splice(sysSectionIdx + 1, 0, contextSection);
+   287→      } else {
+   288→        result.unshift(contextSection);
+   289→      }
+   290→      break;
+   291→
+   292→    case 1: // After user message - inject before chat history
+   293→    case 2: // Before user message - inject before chat history
+   294→    case 3: // After assistant message - inject before chat history
+   295→    case 4: // Before assistant message - inject before chat history
+   296→      // These positions apply to messages, for sections we inject before chat history
+   297→      const chatHistoryIdx = result.findIndex(s => s.type === 'chat_history');
+   298→      if (chatHistoryIdx >= 0) {
+   299→        result.splice(chatHistoryIdx, 0, contextSection);
+   300→      } else {
+   301→        result.push(contextSection);
+   302→      }
+   303→      break;
+   304→
+   305→    case 5: // At top of chat (before chat history)
+   306→      const chatIdx = result.findIndex(s => s.type === 'chat_history');
+   307→      if (chatIdx >= 0) {
+   308→        result.splice(chatIdx, 0, contextSection);
+   309→      } else {
+   310→        result.push(contextSection);
+   311→      }
+   312→      break;
+   313→
+   314→    case 7: // After lorebook
+   315→      const lorebookIdx = result.findIndex(s => s.type === 'lorebook');
+   316→      if (lorebookIdx >= 0) {
+   317→        result.splice(lorebookIdx + 1, 0, contextSection);
+   318→      } else {
+   319→        // If no lorebook, insert after system prompt
+   320→        const sysIdx = result.findIndex(s => s.type === 'system');
+   321→        if (sysIdx >= 0) {
+   322→          result.splice(sysIdx + 1, 0, contextSection);
+   323→        } else {
+   324→          result.unshift(contextSection);
+   325→        }
+   326→      }
+   327→      break;
+   328→
+   329→    case 6: // At bottom of chat
+   330→    default:
+   331→      result.push(contextSection);
+   332→      break;
+   333→  }
+   334→
+   335→  return result;
+   336→}
+   337→
+   338→// ============================================
+   339→// Inventory V2 Section
+   340→// ============================================
+   341→
+   342→/**
+   343→ * Build an inventory section for prompt injection.
+   344→ *
+   345→ * Shows:
+   346→ * - Current currency
+   347→ * - Equipped items and their effects
+   348→ * - Active consumable effects with remaining turns
+   349→ * - Available (non-equipped) items in inventory
+   350→ *
+   351→ * Uses the `promptTemplate` from `inventorySettings` for formatting.
+   352→ * If no template is provided or the template is empty, a default format is used.
+   353→ *
+   354→ * Returns null if inventory data is empty or invalid.
+   355→ */
+   356→export function buildInventorySection(
+   357→  inventoryData: InventoryPromptData,
+   358→  keyContext?: KeyResolutionContext
+   359→): PromptSection | null {
+   360→  const {
+   361→    personaItems,
+   362→    equippedItems,
+   363→    sessionEquipment,
+   364→    activeEffects,
+   365→    currency,
+   366→    currencyName,
+   367→    currencyIcon,
+   368→    inventorySettings,
+   369→  } = inventoryData;
+   370→
+   371→  // If no items and no effects and no currency, skip section
+   372→  if (personaItems.length === 0 && activeEffects.length === 0 && currency === 0) {
+   373→    return null;
+   374→  }
+   375→
+   376→  // Use the template from inventory settings, or fall back to default
+   377→  const template = inventorySettings.promptTemplate?.trim() || `[Inventario Activo]
+   378→{{activeItems}}
+   379→
+   380→[Efectos Activos]
+   381→{{activeEffects}}
+   382→
+   383→[Divisa]
+   384→{{currency}}`;
+   385→
+   386→  // Build items list (all items in inventory)
+   387→  const itemLines = personaItems.map(({ entry, item }) => {
+   388→    const qty = entry.quantity > 1 ? ` x${entry.quantity}` : '';
+   389→    const eq = entry.equipped ? ' [Equipado]' : '';
+   390→    const effects = (item.attributeEffects && item.attributeEffects.length > 0)
+   391→      ? ` (${item.attributeEffects.map(e => `${e.operator}${e.value} ${e.attributeKey}`).join(', ')})`
+   392→      : '';
+   393→    return `- ${item.icon || ''} ${item.name}${qty}${eq}${effects}`;
+   394→  }).join('\n');
+   395→
+   396→  // Build active effects list
+   397→  const effectLines = activeEffects.map(e => {
+   398→    const turnsLeft = e.remainingTurns > 0 ? ` (${e.remainingTurns}/${e.totalTurns} turnos)` : '';
+   399→    // Use consumableEffect free text if available, otherwise fall back to attribute effects
+   400→    let effectDesc: string;
+   401→    if (e.consumableEffect) {
+   402→      effectDesc = e.consumableEffect;
+   403→    } else {
+   404→      effectDesc = e.effects.map(ef =>
+   405→        `${ef.operator}${ef.value} ${ef.attributeKey}${ef.targetId !== '__user__' ? ` → ${ef.targetName || ef.targetId}` : ''}`
+   406→      ).join(', ');
+   407→    }
+   408→    return `- ${e.itemName}: ${effectDesc}${turnsLeft}`;
+   409→  }).join('\n');
+   410→
+   411→  // Build equipped items list - prefer sessionEquipment (per-session), fallback to equippedItems (legacy)
+   412→  let equipLines = '';
+   413→  if (sessionEquipment && sessionEquipment.length > 0) {
+   414→    // Use session equipment data
+   415→    const items = personaItems.map(({ item }) => item);
+   416→    equipLines = sessionEquipment.map(eq => {
+   417→      const item = items.find(i => i.id === eq.itemId);
+   418→      const slotDef = inventorySettings.equipmentSlots?.find(s => s.id === eq.equippedSlotId);
+   419→      const slotLabel = slotDef?.name || eq.equippedSlotId;
+   420→      const effectText = eq.slotEffectText
+   421→        || item?.slotEffects?.find(se => se.slotId === eq.equippedSlotId)?.effectText
+   422→        || '';
+   423→      return `- ${item?.icon || ''} ${item?.name || '???'} [${slotLabel}]${effectText ? ` → ${effectText}` : ''}`;
+   424→    }).join('\n');
+   425→  } else if (equippedItems && equippedItems.length > 0) {
+   426→    // Fallback to legacy equipped items
+   427→    equipLines = equippedItems.map(({ item }) => {
+   428→      // Prefer slotEffects (V3) over attributeEffects (V2)
+   429→      let effects = '';
+   430→      if (item.slotEffects && item.slotEffects.length > 0) {
+   431→        effects = item.slotEffects.map(se => se.effectText).filter(Boolean).join('; ');
+   432→      } else if (item.attributeEffects && item.attributeEffects.length > 0) {
+   433→        effects = item.attributeEffects.map(e => `${e.operator}${e.value} ${e.attributeKey}`).join(', ');
+   434→      }
+   435→      const slotDef = inventorySettings.equipmentSlots?.find(s => s.id === item.slot);
+   436→      const slotLabel = slotDef?.name || item.slot || '';
+   437→      return `- ${item.icon || ''} ${item.name}${slotLabel ? ` [${slotLabel}]` : ''}${effects ? ` → ${effects}` : ''}`;
+   438→    }).join('\n');
+   439→  }
+   440→
+   441→  // Build currency line
+   442→  const currencyLine = `${currencyIcon || '💰'} ${currencyName || 'Divisa'}: ${currency}`;
+   443→
+   444→  // Apply template replacements
+   445→  let content = template
+   446→    .replace('{{activeItems}}', itemLines || 'Vacío')
+   447→    .replace('{{activeEffects}}', effectLines || 'Ninguno')
+   448→    .replace('{{equippedItems}}', equipLines || 'Ninguno')
+   449→    .replace('{{currency}}', currencyLine);
+   450→
+   451→  // Resolve all keys in the inventory content if keyContext is available
+   452→  if (keyContext) {
+   453→    content = resolveAllKeys(content, keyContext);
+   454→  }
+   455→
+   456→  return {
+   457→    type: 'inventory',
+   458→    label: 'Inventory',
+   459→    content,
+   460→    color: SECTION_COLORS.inventory
+   461→  };
+   462→}
+   463→
+   464→// ============================================
+   465→// Extended Build Options
+   466→// ============================================
+   467→
+   468→export interface InventoryPromptData {
+   469→  personaItems: Array<{ entry: PersonaInventoryEntry; item: Item }>;
+   470→  equippedItems?: Array<{ entry: PersonaInventoryEntry; item: Item }>;  // Legacy: persona-based equipped items
+   471→  sessionEquipment?: SessionEquipmentEntry[];  // Per-session equipment state (preferred)
+   472→  activeEffects: ActiveConsumableEffect[];
+   473→  pendingFallbacks?: Array<{ targetId: string; attributeKey: string; fallbackValue: string | number }>;
+   474→  currency: number;
+   475→  currencyName: string;
+   476→  currencyIcon: string;
+   477→  inventorySettings: InventoryV2Settings;
+   478→}
+   479→
+   480→export interface PromptBuildOptions {
+   481→  userName?: string;
+   482→  persona?: Persona;
+   483→  messages?: ChatMessage[];
+   484→  lorebooks?: Lorebook[];
+   485→  postHistoryInstructions?: string;
+   486→  lorebookOptions?: LorebookInjectOptions;
+   487→  sessionStats?: SessionStats;
+   488→  hudContext?: HUDContextConfig;
+   489→  questTemplates?: QuestTemplate[];
+   490→  sessionQuests?: SessionQuestInstance[];
+   491→  questSettings?: QuestSettings;
+   492→  inventoryData?: InventoryPromptData;
+   493→}
+   494→
+   495→// ============================================
+   496→// Individual Chat Prompt Building
+   497→// ============================================
+   498→
+   499→/**
+   500→ * Build the system prompt from character data (SillyTavern style)
+   501→ *
+   502→ * Uses unified key resolution for ALL sections:
+   503→ * - Template variables: {{user}}, {{char}}, {{userpersona}}, etc.
+   504→ * - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+   505→ * - Sound keys: {{sonidos}}
+   506→ */
+   507→export function buildSystemPrompt(
+   508→  character: CharacterCard,
+   509→  userName: string = 'User',
+   510→  persona?: Persona,
+   511→  lorebookPlan?: LorebookInjectionPlan | null,
+   512→  sessionStats?: SessionStats,
+   513→  allCharacters?: CharacterCard[],
+   514→  soundTriggers?: SoundTrigger[],
+   515→  soundSettings?: AppSettings['sound'],
+   516→  questTemplates?: QuestTemplate[],
+   517→  sessionQuests?: SessionQuestInstance[],
+   518→  questSettings?: QuestSettings,
+   519→  lorebookAttributeKeys?: Record<string, string>,
+   520→  inventoryData?: InventoryPromptData,
+   521→  lorebookEntryKeyMap?: Record<string, string>
+   522→): { prompt: string; sections: PromptSection[]; lorebookChatInjections: LorebookChatInjection[]; exampleMessages: ChatApiMessage[] } {
+   523→  const sections: PromptSection[] = [];
+   524→
+   525→  // Resolve stats for the persona FIRST (user attributes like {{resistencia}})
+   526→  // This must be done before character stats so personaResolvedStats is available
+   527→  let personaResolvedStats: ResolvedStats | null = null;
+   528→  if (persona?.statsConfig?.enabled && sessionStats) {
+   529→    personaResolvedStats = resolveStats({
+   530→      characterId: '__user__',
+   531→      statsConfig: persona.statsConfig,
+   532→      sessionStats,
+   533→      lorebookEntryKeys: lorebookEntryKeyMap,
+   534→    });
+   535→  }
+   536→
+   537→  // Resolve stats for this character (includes skills block with full key resolution)
+   538→  const resolvedStats = resolveStats({
+   539→    characterId: character.id,
+   540→    statsConfig: character.statsConfig,
+   541→    sessionStats,
+   542→    allCharacters,
+   543→    userName,
+   544→    characterName: character.name,
+   545→    questTemplates,
+   546→    personaDescription: persona?.description,
+   547→    personaResolvedStats,
+   548→    lorebookEntryKeys: lorebookEntryKeyMap,
+   549→  });
+   550→
+   551→  // Build outlet sections map from lorebook plan for {{outlet::name}} macro resolution
+   552→  const outletSections: Record<string, string> = {};
+   553→  if (lorebookPlan?.outletSections.length) {
+   554→    for (const outletSection of lorebookPlan.outletSections) {
+   555→      // Extract outlet name from label like "World Info (myOutlet)" → "myOutlet"
+   556→      const match = outletSection.label.match(/^World Info \((.+)\)$/);
+   557→      const outletName = match ? match[1] : outletSection.label;
+   558→      outletSections[outletName] = outletSection.content;
+   559→    }
+   560→  }
+   561→
+   562→  // Build unified key resolution context (includes quest data for {{activeQuests}}, outlet sections, lorebook attribute keys, lorebook entry keys, and inventory data for {{slots}})
+   563→  const keyContext = buildKeyResolutionContext(character, userName, persona, resolvedStats, sessionStats, soundTriggers, soundSettings, personaResolvedStats, questTemplates, sessionQuests, questSettings, outletSections, lorebookAttributeKeys, inventoryData ? {
+   564→    personaItems: inventoryData.personaItems,
+   565→    sessionEquipment: inventoryData.sessionEquipment || inventoryData.equippedItems?.flatMap(({ entry, item }) =>
+   566→      entry.equippedSlotId ? [{ itemId: item.id, equippedSlotId: entry.equippedSlotId, slotEffectText: item.slotEffects?.find(se => se.slotId === entry.equippedSlotId)?.effectText }] : []
+   567→    ) || [],
+   568→    activeEffects: inventoryData.activeEffects,
+   569→    currency: inventoryData.currency,
+   570→    currencyName: inventoryData.currencyName,
+   571→    currencyIcon: inventoryData.currencyIcon,
+   572→    inventorySettings: inventoryData.inventorySettings,
+   573→  } : undefined, lorebookEntryKeyMap);
+   574→
+   575→  // Main system instruction
+   576→  // If character has a custom system prompt, use it instead of the default
+   577→  const systemContent = character.systemPrompt?.trim()
+   578→    ? character.systemPrompt
+   579→    : `You are now in roleplay mode. You will act as ${character.name}.`;
+   580→
+   581→  sections.push({
+   582→    type: 'system',
+   583→    label: 'System Prompt',
+   584→    content: systemContent,
+   585→    color: SECTION_COLORS.system
+   586→  });
+   587→
+   588→  // World Time (fictional clock) — compact context so the LLM knows when the scene happens
+   589→  const worldClock = sessionStats?.worldClock;
+   590→  if (!worldClock || worldClock.enabled !== false) {
+   591→    sections.push({
+   592→      type: 'scenario',
+   593→      label: 'World Time',
+   594→      content: `[TIEMPO DEL MUNDO] ${formatWorldClock(worldClock || createDefaultWorldClock())} (avanza ${worldClock?.minutesPerTurn || 20} min por turno)`,
+   595→      color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
+   596→    });
+   597→  }
+   598→
+   599→  // Text Actions — universal fallback tokens ([check:] [rel:] [tiempo:]) that work
+   600→  // even when tool calling is disabled or the provider lacks tool support
+   601→  sections.push({
+   602→    type: 'system',
+   603→    label: 'Text Actions',
+   604→    content: buildTextActionsSection(),
+   605→    color: SECTION_COLORS.system
+   606→  });
+   607→
+   608→  // Lorebook position 0: After system prompt
+   609→  if (lorebookPlan?.position0Section) {
+   610→    sections.push(lorebookPlan.position0Section);
+   611→  }
+   612→
+   613→  // NOTE: User's Persona section removed - use {{persona}} key in character sections instead
+   614→  // The persona content is now injected via the {{persona}} template key which can be
+   615→  // placed anywhere in the character's description, scenario, etc.
+   616→
+   617→  // NOTE: Inventory section removed - use {{slots}} key in character sections instead.
+   618→  // The {{slots}} key resolves slot equipment + active consumable effects and can be
+   619→  // placed anywhere in the character's description, scenario, systemPrompt, etc.
+   620→
+   621→  // Add character description
+   622→  if (character.description) {
+   623→    sections.push({
+   624→      type: 'character_description',
+   625→      label: 'Character Description',
+   626→      content: character.description,
+   627→      color: SECTION_COLORS.character_description
+   628→    });
+   629→  }
+   630→
+   631→  // Add personality
+   632→  if (character.personality) {
+   633→    sections.push({
+   634→      type: 'personality',
+   635→      label: 'Personality',
+   636→      content: character.personality,
+   637→      color: SECTION_COLORS.personality
+   638→    });
+   639→  }
+   640→
+   641→  // FASE 5: Add emotional state injection
+   642→  // When enabled, inject the character's current emotional state into the prompt
+   643→  // This gives the LLM awareness of the character's mood for consistent behavior
+   644→  if (character.emotionalConfig?.enabled && character.emotionalConfig.includeInPrompt) {
+   645→    const emotionalState = sessionStats?.characterStats?.[character.id]?.emotionalState;
+   646→    if (emotionalState) {
+   647→      const format = character.emotionalConfig.promptInjectionFormat || 'Estado emocional actual: {estado}';
+   648→      const emotionContent = format.replace('{estado}', emotionalState);
+   649→      sections.push({
+   650→        type: 'personality',
+   651→        label: 'Estado Emocional',
+   652→        content: emotionContent,
+   653→        color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+   654→      });
+   655→    }
+   656→  }
+   657→
+   658→  // Add scenario
+   659→  if (character.scenario) {
+   660→    sections.push({
+   661→      type: 'scenario',
+   662→      label: 'Scenario',
+   663→      content: character.scenario,
+   664→      color: SECTION_COLORS.scenario
+   665→    });
+   666→  }
+   667→
+   668→  // Add character's note (user-defined instructions for this character)
+   669→  // NOTE: According to SillyTavern docs, Character Notes comes BEFORE Example Dialogue
+   670→  if (character.characterNote) {
+   671→    sections.push({
+   672→      type: 'character_note',
+   673→      label: "Character's Note",
+   674→      content: character.characterNote,
+   675→      color: SECTION_COLORS.character_note
+   676→    });
+   677→  }
+   678→
+   679→  // Attribute Management Section — now driven by the resolvable keys
+   680→  // {{attributes}} (list) and {{attributes_rulz}} (main attribute + modify_stat
+   681→  // rules). Cards/lorebooks can place them anywhere; when the card does NOT
+   682→  // use them, the combined legacy block is injected automatically (safety net,
+   683→  // same pattern as the [VESTUARIO]/[ESCENARIO] blocks).
+   684→  {
+   685→    const listBlock = buildAttributesListBlock(character, resolvedStats ?? null);
+   686→    const rulesBlock = buildAttributesRulesBlock(character);
+   687→    if (listBlock || rulesBlock) {
+   688→      if (!cardUsesAttributesKeys(character)) {
+   689→        sections.push({
+   690→          type: 'character_note',
+   691→          label: 'Gestión de Atributos',
+   692→          content: [listBlock, rulesBlock].filter(Boolean).join('\n\n'),
+   693→          color: SECTION_COLORS.character_note
+   694→        });
+   695→      }
+   696→    }
+   697→  }
+   698→
+   699→  // GUARDARROPA V2: Wardrobe Section — tells the LLM about the wardrobe (outfits)
+   700→  // and how to use the manage_wardrobe tool. Only injected if the character has
+   701→  // a wardrobeConfig with at least 1 outfit.
+   702→  {
+   703→    if (isWardrobeAvailable(character)) {
+   704→      const wardrobeInfo = getWardrobeInfo(character, sessionStats, character.id);
+   705→      if (wardrobeInfo) {
+   706→        const wardrobeLines: string[] = [
+   707→          `[GUARDARROPA]`,
+   708→          `Tienes un guardarropa con varios outfits. Lo que llevas puesto ahora aparece en el bloque [VESTUARIO] del prompt.`,
+   709→          ``,
+   710→          `Outfits disponibles:`,
+   711→        ];
+   712→        for (const outfit of wardrobeInfo.outfits) {
+   713→          const isWorn = wardrobeInfo.current?.id === outfit.id;
+   714→          const isDefault = wardrobeInfo.defaultId === outfit.id;
+   715→          const badges = [isWorn ? '← PUESTO AHORA' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
+   716→          const desc = outfit.description?.trim() || '';
+   717→          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
+   718→          wardrobeLines.push(`- "${outfit.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
+   719→        }
+   720→        wardrobeLines.push('');
+   721→        wardrobeLines.push(`INSTRUCCIONES PARA GESTIONAR TU VESTUARIO (HERRAMIENTA OBLIGATORIA):`);
+   722→        wardrobeLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ropa (ponerte o quitarte algo) DEBE reflejarse llamando a la herramienta "manage_wardrobe" con action "wear" (o "remove") ANTES de narrarlo. NUNCA narres que te cambiaste de ropa sin haber llamado primero a la herramienta.`);
+   723→        wardrobeLines.push(`- Si ${'{{user}}'} te pide que te quites o te pongas ropa, SIEMPRE responde con una tool call a "manage_wardrobe" eligiendo el outfit más adecuado de tu guardarropa.`);
+   724→        wardrobeLines.push(`- Cuando la escena lo justifique (llegar a casa, irse a dormir, salir, bañarse, ir a una fiesta, disfrazarse...), CÁMBIATE de ropa TÚ MISMO usando la herramienta "manage_wardrobe" con action "wear" y el nombre del outfit a ponerte.`);
+   725→        wardrobeLines.push(`- Elige el outfit que mejor encaje con la escena, el lugar, la hora y tu estado de ánimo. No necesitas permiso del usuario para cambiarte.`);
+   726→        wardrobeLines.push(`- Usa el nombre EXACTO del outfit tal como aparece en la lista (ej: "Tanga de lado"). Con action "list" ves tu guardarropa completo con todos los detalles.`);
+   727→        wardrobeLines.push(`- Con action "remove" te quitas el outfit actual y vuelves a tu outfit predeterminado.`);
+   728→        wardrobeLines.push(`- Mantén coherencia narrativa con lo que llevas puesto (bloque [VESTUARIO]).`);
+   729→        wardrobeLines.push(`- Usa el vestuario ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
+   730→
+   731→        // Safety net: if the character card doesn't include the {{vestuario}} key
+   732→        // in any section, inject the [VESTUARIO] block automatically so the
+   733→        // outfit description always reaches the prompt.
+   734→        const cardText = [
+   735→          character.description, character.personality, character.scenario,
+   736→          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
+   737→          character.authorNote, character.mesExample,
+   738→        ].filter(Boolean).join('\n');
+   739→        const cardHasKey = /\{\{(?:vestuario|wardrobe)\}\}/i.test(cardText || '');
+   740→        if (!cardHasKey) {
+   741→          const header = character.wardrobeConfig?.blockHeader || '[VESTUARIO]';
+   742→          const wornDesc = wardrobeInfo.current?.description?.trim();
+   743→          if (wornDesc) {
+   744→            wardrobeLines.push('', header, wornDesc);
+   745→          }
+   746→        }
+   747→
+   748→        sections.push({
+   749→          type: 'character_note',
+   750→          label: 'Guardarropa',
+   751→          content: wardrobeLines.join('\n'),
+   752→          color: SECTION_COLORS.character_note
+   753→        });
+   754→      }
+   755→    }
+   756→  }
+   757→
+   758→  // ESCENARIO V2: Scenario Section — tells the LLM about the available locations
+   759→  // and how to use the manage_escenario tool. Only injected if the character has
+   760→  // a scenarioConfig with at least 1 location.
+   761→  {
+   762→    if (isScenarioAvailable(character)) {
+   763→      const scenarioInfo = getScenarioInfo(character, sessionStats);
+   764→      if (scenarioInfo) {
+   765→        const scenarioLines: string[] = [
+   766→          `[ESCENARIO]`,
+   767→          `La escena tiene varias ubicaciones disponibles. Dónde estáis ahora aparece en el bloque [ESCENARIO] del prompt.`,
+   768→          ``,
+   769→          `Ubicaciones disponibles:`,
+   770→        ];
+   771→        for (const location of scenarioInfo.locations) {
+   772→          const isActive = scenarioInfo.current?.id === location.id;
+   773→          const isDefault = scenarioInfo.defaultId === location.id;
+   774→          const badges = [isActive ? '← UBICACIÓN ACTUAL' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
+   775→          const desc = location.description?.trim() || '';
+   776→          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
+   777→          scenarioLines.push(`- "${location.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
+   778→        }
+   779→        scenarioLines.push('');
+   780→        scenarioLines.push(`INSTRUCCIONES PARA GESTIONAR LA UBICACIÓN DE LA ESCENA (HERRAMIENTA OBLIGATORIA):`);
+   781→        scenarioLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ubicación (moveros a otro lugar) DEBE reflejarse llamando a la herramienta "manage_escenario" con action "go" ANTES de narrarlo. NUNCA narres que os movisteis a otro lugar sin haber llamado primero a la herramienta.`);
+   782→        scenarioLines.push(`- Si ${'{'}user${'}'} pide cambiar de lugar (ir a la cama, al sofá, al escritorio, salir, etc.), SIEMPRE responde con una tool call a "manage_escenario" eligiendo la ubicación más adecuada de tu escenario.`);
+   783→        scenarioLines.push(`- Cuando la narrativa lo justifique (irse a dormir, ir a la cocina, entrar a otra habitación, salir de casa...), MUEVE la escena TÚ MISMO usando la herramienta "manage_escenario" con action "go" y el nombre del lugar.`);
+   784→        scenarioLines.push(`- Elige la ubicación que mejor encaje con la escena, la hora y el estado de ánimo. No necesitas permiso del usuario para mover la escena.`);
+   785→        scenarioLines.push(`- Usa el nombre EXACTO de la ubicación tal como aparece en la lista (ej: "Cama"). Con action "list" ves todas las ubicaciones con sus detalles.`);
+   786→        scenarioLines.push(`- Mantén coherencia narrativa con la ubicación actual (bloque [ESCENARIO]): no narrues objetos o personas de otro lugar mientras estéis aquí.`);
+   787→        scenarioLines.push(`- Usa la ubicación ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
+   788→
+   789→        // Safety net: if the character card doesn't include the {{escenario}} key
+   790→        // in any section, inject the [ESCENARIO] block automatically so the
+   791→        // active location description always reaches the prompt.
+   792→        // NOTE: only {{escenario}} counts — {{scenario}} is the classic ST macro
+   793→        // (resolves to character.scenario in key-resolver Phase 1) and must not
+   794→        // suppress this block.
+   795→        const cardText = [
+   796→          character.description, character.personality, character.scenario,
+   797→          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
+   798→          character.authorNote, character.mesExample,
+   799→        ].filter(Boolean).join('\n');
+   800→        const cardHasKey = /\{\{escenario\}\}/i.test(cardText || '');
+   801→        if (!cardHasKey) {
+   802→          const header = character.scenarioConfig?.blockHeader || '[ESCENARIO]';
+   803→          const activeDesc = scenarioInfo.current?.description?.trim();
+   804→          if (activeDesc) {
+   805→            scenarioLines.push('', header, activeDesc);
+   806→          }
+   807→        }
+   808→
+   809→        sections.push({
+   810→          type: 'character_note',
+   811→          label: 'Escenario',
+   812→          content: scenarioLines.join('\n'),
+   813→          color: SECTION_COLORS.character_note
+   814→        });
+   815→      }
+   816→    }
+   817→  }
+   818→
+   819→  // Example Dialogue: Format as numbered [EJEMPLO N] text section
+   820→  // Each <START> block becomes a numbered example with --- separators.
+   821→  // Supports both <START> and <START></START> tag formats.
+   822→  // This replaces the old approach of injecting as user/assistant chat messages,
+   823→  // making examples visible in the Prompt Viewer and clearly identifiable by the LLM.
+   824→  if (character.mesExample) {
+   825→    const exampleContent = processExampleDialogue(character.mesExample, userName, character.name);
+   826→    if (exampleContent) {
+   827→      sections.push({
+   828→        type: 'example_dialogue',
+   829→        label: 'EJEMPLOS DE MENSAJES',
+   830→        content: exampleContent,
+   831→        color: SECTION_COLORS.example_dialogue
+   832→      });
+   833→    }
+   834→  }
+   835→
+   836→  // Lorebook position 5: At top of chat (before chat history)
+   837→  if (lorebookPlan?.position5Section) {
+   838→    sections.push(lorebookPlan.position5Section);
+   839→  }
+   840→
+   841→  // Lorebook position 7: Outlets (custom positions)
+   842→  if (lorebookPlan?.outletSections.length) {
+   843→    sections.push(...lorebookPlan.outletSections);
+   844→  }
+   845→
+   846→  // Lorebook position 6: At bottom of chat (appended at end of system sections)
+   847→  if (lorebookPlan?.position6Section) {
+   848→    sections.push(lorebookPlan.position6Section);
+   849→  }
+   850→
+   851→  // Note: postHistoryInstructions should NOT be in system prompt
+   852→  // It must be injected AFTER the chat history in buildChatMessages
+   853→
+   854→  // ========================================
+   855→  // UNIFIED KEY RESOLUTION - Apply to ALL sections
+   856→  // ========================================
+   857→  // This resolves:
+   858→  // - Template variables: {{user}}, {{char}}, {{userpersona}}, etc.
+   859→  // - Stats keys: {{resistencia}}, {{habilidades}}, etc.
+   860→  // All in one place, consistently
+   861→  // FIX EXPLORE-3: usar resolveSectionsKeysWithPasses (3 passes) para resolver
+   862→  // recursivamente keys anidadas (ej. un {{injectionKey}} cuyo contenido contiene
+   863→  // {{user}} y {{eventos}}). El convergence check evita loops infinitos.
+   864→  const processedSections = resolveSectionsKeysWithPasses(sections, keyContext, 3);
+   865→
+   866→  // Build the prompt string from processed sections
+   867→  const prompt = processedSections.map(s => `[${s.label}]\n${s.content}`).join('\n\n');
+   868→
+   869→  // Example dialogue is now included as a PromptSection above (visible in Prompt Viewer).
+   870→  // Return empty exampleMessages for backward compatibility with API routes.
+   871→  const exampleMessages: ChatApiMessage[] = [];
+   872→
+   873→  return { prompt, sections: processedSections, lorebookChatInjections: lorebookPlan?.chatInjections || [], exampleMessages };
+   874→}
+   875→
+   876→/**
+   877→ * Build complete lorebook injection plan from active lorebooks and chat messages.
+   878→ * This replaces the old single-section approach with position-aware injection.
+   879→ * Also resolves attribute-type lorebook entries to their injection keys.
+   880→ */
+   881→export function buildLorebookSectionForPrompt(
+   882→  messages: ChatMessage[],
+   883→  lorebooks: Lorebook[],
+   884→  options?: LorebookInjectOptions,
+   885→  attributeContext?: LorebookAttributeContext
+   886→): { section: PromptSection | null; plan: LorebookInjectionPlan; lorebookAttributeKeys: Record<string, string>; lorebookEntryKeyMap: Record<string, string>; lorebookDebugEntries?: import('@/lib/lorebook/attribute-resolver').LorebookAttrDebugEntry[] } {
+   887→  // Resolve attribute-type entries to key→content map
+   888→  let lorebookAttributeKeys: Record<string, string> = {};
+   889→  let lorebookDebugEntries: import('@/lib/lorebook/attribute-resolver').LorebookAttrDebugEntry[] | undefined;
+   890→
+   891→  if (attributeContext) {
+   892→    const result = resolveLorebookAttributeKeys(lorebooks, attributeContext);
+   893→    lorebookAttributeKeys = result.keys;
+   894→    lorebookDebugEntries = result.debugEntries;
+   895→  }
+   896→
+   897→  // Build lorebook entry key map from traditional entries for {{key}} resolution
+   898→  // in action descriptions and other text fields
+   899→  const entryKeyMapResult = buildLorebookEntryKeyMap(lorebooks);
+   900→  const lorebookEntryKeyMap = entryKeyMapResult.keys;
+   901→
+   902→  // Build injection plan for traditional entries only (attribute entries are skipped by scanner)
+   903→  // Pass userName/charName for <START> dialogue formatting in lorebook entries
+   904→  const lorebookOptions = {
+   905→    ...options,
+   906→    userName: options?.userName,
+   907→    charName: options?.charName,
+   908→  };
+   909→  const plan = buildLorebookInjectionPlan(messages, lorebooks, lorebookOptions);
+   910→
+   911→  // Combine all system-level sections into one for backward compat with callers that only need a single section
+   912→  const allSystemSections = [
+   913→    plan.position0Section,
+   914→    plan.position5Section,
+   915→    plan.position6Section,
+   916→    ...plan.outletSections
+   917→  ].filter((s): s is PromptSection => s !== null);
+   918→
+   919→  const section = allSystemSections.length > 0
+   920→    ? {
+   921→        type: 'lorebook' as const,
+   922→        label: 'World Information',
+   923→        content: allSystemSections.map(s => s.content).join('\n\n'),
+   924→        color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+   925→      }
+   926→    : null;
+   927→
+   928→  return { section, plan, lorebookAttributeKeys, lorebookEntryKeyMap, lorebookDebugEntries };
+   929→}
+   930→
+   931→/**
+   932→ * Build author's note section
+   933→ * This section is injected AFTER the chat history, BEFORE post-history instructions
+   934→ * 
+   935→ * According to SillyTavern docs, the order is:
+   936→ * 1. Chat History
+   937→ * 2. Author's Note (this)
+   938→ * 3. Post-History Instructions
+   939→ * 
+   940→ * @param authorNote - Raw author's note text (may contain {{keys}})
+   941→ * @param keyContext - Key resolution context (optional, for resolving keys)
+   942→ */
+   943→export function buildAuthorNoteSection(
+   944→  authorNote: string | undefined,
+   945→  keyContext?: KeyResolutionContext
+   946→): PromptSection | null {
+   947→  if (!authorNote?.trim()) {
+   948→    return null;
+   949→  }
+   950→
+   951→  // Resolve all keys if keyContext is provided
+   952→  const resolvedContent = keyContext 
+   953→    ? resolveAllKeys(authorNote, keyContext)
+   954→    : authorNote;
+   955→
+   956→  return {
+   957→    type: 'author_note',
+   958→    label: "Author's Note",
+   959→    content: resolvedContent,
+   960→    color: SECTION_COLORS.author_note
+   961→  };
+   962→}
+   963→
+   964→/**
+   965→ * Build post-history instructions section
+   966→ * This section is injected AFTER the chat history
+   967→ * 
+   968→ * @param instructions - Raw instructions text (may contain {{keys}})
+   969→ * @param keyContext - Key resolution context (optional, for resolving keys)
+   970→ */
+   971→export function buildPostHistorySection(
+   972→  instructions: string | undefined,
+   973→  keyContext?: KeyResolutionContext
+   974→): PromptSection | null {
+   975→  if (!instructions?.trim()) {
+   976→    return null;
+   977→  }
+   978→
+   979→  // Resolve all keys if keyContext is provided
+   980→  const resolvedContent = keyContext 
+   981→    ? resolveAllKeys(instructions, keyContext)
+   982→    : instructions;
+   983→
+   984→  return {
+   985→    type: 'post_history',
+   986→    label: 'Post-History Instructions',
+   987→    content: resolvedContent,
+   988→    color: SECTION_COLORS.post_history
+   989→  };
+   990→}
+   991→
+   992→/**
+   993→ * Build chat history sections for prompt viewer
+   994→ */
+   995→export function buildChatHistorySections(
+   996→  messages: ChatMessage[],
+   997→  characterName: string,
+   998→  userName: string
+   999→): PromptSection[] {
+  1000→  const sections: PromptSection[] = [];
+  1001→  // Exclude narrator messages from chat history display
+  1002→  const visibleMessages = messages.filter(m => !m.isDeleted && !m.isNarratorMessage);
+  1003→
+  1004→  const historyParts: string[] = [];
+  1005→  for (const msg of visibleMessages) {
+  1006→    const name = msg.role === 'user' ? userName : characterName;
+  1007→    historyParts.push(`${name}: ${msg.content}`);
+  1008→  }
+  1009→
+  1010→  if (historyParts.length > 0) {
+  1011→    sections.push({
+  1012→      type: 'chat_history',
+  1013→      label: 'Chat History',
+  1014→      content: historyParts.join('\n\n'),
+  1015→      color: SECTION_COLORS.chat_history
+  1016→    });
+  1017→  }
+  1018→
+  1019→  return sections;
+  1020→}
+  1021→
+  1022→/**
+  1023→ * Inject lorebook content at chat-level positions (1-4).
+  1024→ * Merges content into existing messages to avoid breaking message alternation.
+  1025→ *
+  1026→ * Position mapping:
+  1027→ * 1 = After last user message
+  1028→ * 2 = Before last user message
+  1029→ * 3 = After last assistant message
+  1030→ * 4 = Before last assistant message
+  1031→ */
+  1032→function applyChatInjections(
+  1033→  messages: ChatApiMessage[],
+  1034→  injections: LorebookChatInjection[]
+  1035→): void {
+  1036→  for (const injection of injections) {
+  1037→    const content = `\n\n[${injection.label}]\n${injection.content}`;
+  1038→
+  1039→    switch (injection.position) {
+  1040→      case 1: { // After last user message
+  1041→        const lastUserIdx = messages.map((m, i) => m.role === 'user' ? i : -1).filter(i => i >= 0).pop();
+  1042→        if (lastUserIdx !== undefined && lastUserIdx >= 0) {
+  1043→          messages[lastUserIdx] = {
+  1044→            ...messages[lastUserIdx],
+  1045→            content: messages[lastUserIdx].content + content
+  1046→          };
+  1047→        }
+  1048→        break;
+  1049→      }
+  1050→      case 2: { // Before last user message
+  1051→        const lastUserIdx2 = messages.map((m, i) => m.role === 'user' ? i : -1).filter(i => i >= 0).pop();
+  1052→        if (lastUserIdx2 !== undefined && lastUserIdx2 >= 0) {
+  1053→          messages[lastUserIdx2] = {
+  1054→            ...messages[lastUserIdx2],
+  1055→            content: content + messages[lastUserIdx2].content
+  1056→          };
+  1057→        }
+  1058→        break;
+  1059→      }
+  1060→      case 3: { // After last assistant message
+  1061→        const lastAsstIdx = messages.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0).pop();
+  1062→        if (lastAsstIdx !== undefined && lastAsstIdx >= 0) {
+  1063→          messages[lastAsstIdx] = {
+  1064→            ...messages[lastAsstIdx],
+  1065→            content: messages[lastAsstIdx].content + content
+  1066→          };
+  1067→        }
+  1068→        break;
+  1069→      }
+  1070→      case 4: { // Before last assistant message
+  1071→        const lastAsstIdx4 = messages.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0).pop();
+  1072→        if (lastAsstIdx4 !== undefined && lastAsstIdx4 >= 0) {
+  1073→          messages[lastAsstIdx4] = {
+  1074→            ...messages[lastAsstIdx4],
+  1075→            content: content + messages[lastAsstIdx4].content
+  1076→          };
+  1077→        }
+  1078→        break;
+  1079→      }
+  1080→    }
+  1081→  }
+  1082→}
+  1083→
+  1084→/**
+  1085→ * Build messages array for chat models
+  1086→ * 
+  1087→ * Order (SillyTavern style):
+  1088→ * 1. System message (system prompt)
+  1089→ * 2. Chat history
+  1090→ * 3. Author's Note (injected AFTER chat history, as system message)
+  1091→ * 4. Post-History Instructions (injected AFTER Author's Note, as system message)
+  1092→ */
+  1093→export function buildChatMessages(
+  1094→  systemPrompt: string,
+  1095→  messages: ChatMessage[],
+  1096→  character: CharacterCard,
+  1097→  userName: string = 'User',
+  1098→  postHistoryInstructions?: string,
+  1099→  authorNote?: string,
+  1100→  useSystemRole: boolean = false,
+  1101→  embeddingsContext?: string,  // embeddings injected before chat history
+  1102→  lorebookChatInjections?: LorebookChatInjection[],  // positions 1-4: inject into specific messages
+  1103→  exampleMessages?: ChatApiMessage[]  // SillyTavern-style example dialogue as chat messages
+  1104→): ChatApiMessage[] {
+  1105→  // =============================================
+  1106→  // Step 1: Build all system content as ONE message
+  1107→  // =============================================
+  1108→  // Consolidate system prompt + embeddings + author note + post-history
+  1109→  // into a single system message to avoid consecutive system messages
+  1110→  // which break Jinja templates in models like LM Studio.
+  1111→  const systemParts: string[] = [];
+  1112→
+  1113→  // Main system prompt
+  1114→  if (systemPrompt.trim()) {
+  1115→    systemParts.push(systemPrompt);
+  1116→  }
+  1117→
+  1118→  // Embeddings Context
+  1119→  if (embeddingsContext?.trim()) {
+  1120→    systemParts.push(embeddingsContext);
+  1121→  }
+  1122→
+  1123→  // Author's Note
+  1124→  if (authorNote?.trim()) {
+  1125→    systemParts.push(`[Author's Note]\n${authorNote}`);
+  1126→  }
+  1127→
+  1128→  // Post-History Instructions
+  1129→  if (postHistoryInstructions?.trim()) {
+  1130→    systemParts.push(postHistoryInstructions);
+  1131→  }
+  1132→
+  1133→  const chatMessages: ChatApiMessage[] = [];
+  1134→
+  1135→  // Single system message (or assistant if useSystemRole is false)
+  1136→  if (systemParts.length > 0) {
+  1137→    chatMessages.push({
+  1138→      role: useSystemRole ? 'system' : 'assistant',
+  1139→      content: systemParts.join('\n\n---\n\n')
+  1140→    });
+  1141→  }
+  1142→
+  1143→  // =============================================
+  1144→  // Step 2: Inject example dialogue as chat messages (SillyTavern style)
+  1145→  // =============================================
+  1146→  // These go between the system message and the actual chat history
+  1147→  // They serve as few-shot examples for the LLM
+  1148→  if (exampleMessages && exampleMessages.length > 0) {
+  1149→    chatMessages.push(...exampleMessages);
+  1150→  }
+  1151→
+  1152→  // =============================================
+  1153→  // Step 3: Build chat history with proper alternation
+  1154→  // =============================================
+  1155→  // Merge consecutive same-role messages and ensure
+  1156→  // strict user/assistant alternation for OpenAI-compatible APIs.
+  1157→  const visibleMessages = messages.filter(m => !m.isDeleted && !m.isNarratorMessage);
+  1158→
+  1159→  // First pass: merge consecutive same-role messages
+  1160→  const mergedMessages: ChatApiMessage[] = [];
+  1161→  for (const msg of visibleMessages) {
+  1162→    const role = msg.role === 'user' ? 'user' : 'assistant';
+  1163→    const last = mergedMessages[mergedMessages.length - 1];
+  1164→    if (last && last.role === role) {
+  1165→      // Merge into previous message
+  1166→      last.content += '\n' + msg.content;
+  1167→    } else {
+  1168→      mergedMessages.push({ role, content: msg.content });
+  1169→    }
+  1170→  }
+  1171→
+  1172→  // Second pass: enforce user/assistant alternation
+  1173→  // If the first chat message is 'assistant', prepend a synthetic user message
+  1174→  if (mergedMessages.length > 0 && mergedMessages[0].role === 'assistant') {
+  1175→    mergedMessages.unshift({ role: 'user', content: '*continúa*' });
+  1176→  }
+  1177→
+  1178→  // If two same-role messages are still adjacent (shouldn't happen after merge,
+  1179→  // but as safety), insert a bridging message
+  1180→  const finalHistory: ChatApiMessage[] = [];
+  1181→  for (const msg of mergedMessages) {
+  1182→    const last = finalHistory[finalHistory.length - 1];
+  1183→    if (last && last.role === msg.role) {
+  1184→      // Insert bridging message
+  1185→      const bridgeRole = msg.role === 'user' ? 'assistant' : 'user';
+  1186→      finalHistory.push({ role: bridgeRole, content: '*continúa*' });
+  1187→    }
+  1188→    finalHistory.push(msg);
+  1189→  }
+  1190→
+  1191→  // Bridge between example messages and chat history if needed
+  1192→  // If the last example message has the same role as the first chat message,
+  1193→  // insert a bridging message to maintain proper user/assistant alternation
+  1194→  if (finalHistory.length > 0 && chatMessages.length > 0) {
+  1195→    const lastExistingMsg = chatMessages[chatMessages.length - 1];
+  1196→    const firstChatMsg = finalHistory[0];
+  1197→    if (lastExistingMsg.role === firstChatMsg.role) {
+  1198→      const bridgeRole = firstChatMsg.role === 'user' ? 'assistant' : 'user';
+  1199→      chatMessages.push({ role: bridgeRole, content: '*continúa*' });
+  1200→    }
+  1201→  }
+  1202→
+  1203→  chatMessages.push(...finalHistory);
+  1204→
+  1205→  // =============================================
+  1206→  // Step 4: Inject lorebook chat-level content (positions 1-4)
+  1207→  // =============================================
+  1208→  if (lorebookChatInjections?.length) {
+  1209→    applyChatInjections(chatMessages, lorebookChatInjections);
+  1210→  }
+  1211→
+  1212→  return chatMessages;
+  1213→}
+  1214→
+  1215→/**
+  1216→ * Build prompt for completion-style APIs (Ollama, KoboldCPP, etc.)
+  1217→ * 
+  1218→ * Order (SillyTavern style):
+  1219→ * 1. System prompt
+  1220→ * 2. Chat history
+  1221→ * 3. Author's Note
+  1222→ * 4. Post-History Instructions
+  1223→ * 5. Assistant prefix
+  1224→ */
+  1225→export function buildCompletionPrompt(config: CompletionPromptConfig): string {
+  1226→  const { systemPrompt, messages, character, userName, postHistoryInstructions, authorNote, embeddingsContext, exampleMessages, allCharacters } = config;
+  1227→  const parts: string[] = [];
+  1228→
+  1229→  parts.push(systemPrompt);
+  1230→  parts.push('\n---\n');
+  1231→
+  1232→  // Embeddings Context - injected before chat history for recency primacy
+  1233→  if (embeddingsContext?.trim()) {
+  1234→    parts.push(embeddingsContext);
+  1235→    parts.push('\n---\n');
+  1236→  }
+  1237→
+  1238→  // Example dialogue is now included in the systemPrompt string (as [EJEMPLO] sections).
+  1239→  // The exampleMessages parameter is kept for backward compatibility but will always be empty.
+  1240→  // No separate injection needed here.
+  1241→
+  1242→  // Exclude narrator messages from prompt
+  1243→  const visibleMessages = messages.filter(m => !m.isDeleted && !m.isNarratorMessage);
+  1244→
+  1245→  for (const msg of visibleMessages) {
+  1246→    if (msg.role === 'user') {
+  1247→      parts.push(`${userName}: ${msg.content}`);
+  1248→    } else if (msg.role === 'assistant') {
+  1249→      // Use actual speaker name from characterId (important for group chats where
+  1250→      // multiple characters speak - each should be attributed to their own name)
+  1251→      const speakerName = msg.characterId
+  1252→        ? (allCharacters?.find(c => c.id === msg.characterId)?.name || character.name)
+  1253→        : character.name;
+  1254→      parts.push(`${speakerName}: ${msg.content}`);
+  1255→    }
+  1256→  }
+  1257→
+  1258→  // Author's Note - injected AFTER chat history, BEFORE post-history instructions
+  1259→  if (authorNote?.trim()) {
+  1260→    parts.push(`\n[Author's Note]\n${authorNote}`);
+  1261→  }
+  1262→
+  1263→  // Post-History Instructions - injected AFTER Author's Note
+  1264→  if (postHistoryInstructions) {
+  1265→    parts.push(`\n${postHistoryInstructions}`);
+  1266→  }
+  1267→
+  1268→  parts.push(`\n${character.name}:`);
+  1269→
+  1270→  return parts.join('\n');
+  1271→}
+  1272→
+  1273→// ============================================
+  1274→// Group Chat Prompt Building
+  1275→// ============================================
+  1276→
+  1277→/**
+  1278→ * Build the system prompt for a character in a group chat
+  1279→ *
+  1280→ * Uses unified key resolution for ALL sections
+  1281→ */
+  1282→export function buildGroupSystemPrompt(
+  1283→  character: CharacterCard,
+  1284→  group: CharacterGroup,
+  1285→  userName: string = 'User',
+  1286→  persona?: Persona,
+  1287→  lorebookPlan?: LorebookInjectionPlan | null,
+  1288→  sessionStats?: SessionStats,
+  1289→  postHistoryInstructions?: string,
+  1290→  allCharacters?: CharacterCard[],
+  1291→  questTemplates?: QuestTemplate[],
+  1292→  sessionQuests?: SessionQuestInstance[],
+  1293→  questSettings?: QuestSettings,
+  1294→  lorebookAttributeKeys?: Record<string, string>,
+  1295→  inventoryData?: InventoryPromptData,
+  1296→  lorebookEntryKeyMap?: Record<string, string>
+  1297→): { prompt: string; sections: PromptSection[]; lorebookChatInjections: LorebookChatInjection[]; exampleMessages: ChatApiMessage[] } {
+  1298→  const sections: PromptSection[] = [];
+  1299→
+  1300→  // Resolve stats for the persona FIRST (user attributes like {{resistencia}})
+  1301→  let personaResolvedStats: ResolvedStats | null = null;
+  1302→  if (persona?.statsConfig?.enabled && sessionStats) {
+  1303→    personaResolvedStats = resolveStats({
+  1304→      characterId: '__user__',
+  1305→      statsConfig: persona.statsConfig,
+  1306→      sessionStats,
+  1307→      lorebookEntryKeys: lorebookEntryKeyMap,
+  1308→    });
+  1309→  }
+  1310→
+  1311→  // Resolve stats for this character in the group (includes skills block with full key resolution)
+  1312→  const resolvedStats = resolveStats({
+  1313→    characterId: character.id,
+  1314→    statsConfig: character.statsConfig,
+  1315→    sessionStats,
+  1316→    allCharacters,
+  1317→    userName,
+  1318→    characterName: character.name,
+  1319→    questTemplates,
+  1320→    personaDescription: persona?.description,
+  1321→    personaResolvedStats,
+  1322→    lorebookEntryKeys: lorebookEntryKeyMap,
+  1323→  });
+  1324→
+  1325→  // Build unified key resolution context (includes quest data for {{activeQuests}}, lorebook attribute keys, lorebook entry keys, and inventory data for {{slots}})
+  1326→  const keyContext = buildKeyResolutionContext(character, userName, persona, resolvedStats, sessionStats, undefined, undefined, personaResolvedStats, questTemplates, sessionQuests, questSettings, undefined, lorebookAttributeKeys, inventoryData ? {
+  1327→    personaItems: inventoryData.personaItems,
+  1328→    sessionEquipment: inventoryData.sessionEquipment || inventoryData.equippedItems?.flatMap(({ entry, item }) =>
+  1329→      entry.equippedSlotId ? [{ itemId: item.id, equippedSlotId: entry.equippedSlotId, slotEffectText: item.slotEffects?.find(se => se.slotId === entry.equippedSlotId)?.effectText }] : []
+  1330→    ) || [],
+  1331→    activeEffects: inventoryData.activeEffects,
+  1332→    currency: inventoryData.currency,
+  1333→    currencyName: inventoryData.currencyName,
+  1334→    currencyIcon: inventoryData.currencyIcon,
+  1335→    inventorySettings: inventoryData.inventorySettings,
+  1336→  } : undefined, lorebookEntryKeyMap);
+  1337→  // ESCENARIO V2 (groups): the group's scenarioConfig (when usable) replaces the
+  1338→  // members' scenarios for {{escenario}} key resolution.
+  1339→  keyContext.group = group;
+  1340→
+  1341→  // System Prompt Priority: Group > Character > Default
+  1342→  let systemContent: string;
+  1343→  let systemLabel: string;
+  1344→
+  1345→  if (group.systemPrompt?.trim()) {
+  1346→    // Group system prompt takes highest priority
+  1347→    systemContent = group.systemPrompt;
+  1348→    systemLabel = 'System Prompt (Group)';
+  1349→  } else if (character.systemPrompt?.trim()) {
+  1350→    // Character system prompt
+  1351→    systemContent = character.systemPrompt;
+  1352→    systemLabel = 'System Prompt';
+  1353→  } else {
+  1354→    // Default fallback
+  1355→    systemContent = `You are in a group roleplay. You will act as ${character.name}.`;
+  1356→    systemLabel = 'System Prompt';
+  1357→  }
+  1358→
+  1359→  sections.push({
+  1360→    type: 'system',
+  1361→    label: systemLabel,
+  1362→    content: systemContent,
+  1363→    color: SECTION_COLORS.system
+  1364→  });
+  1365→
+  1366→  // GROUP IDENTITY DIRECTIVE (anti cross-character impersonation):
+  1367→  // In group chats every responder gets its own LLM request, but the shared
+  1368→  // history contains lines from ALL characters. Without a hard identity
+  1369→  // directive, models (Grok/GPT/etc.) tend to write the WHOLE scene speaking
+  1370→  // for every character. This section pins the responder identity right after
+  1371→  // the system prompt.
+  1372→  {
+  1373→    const otherNames = (allCharacters || [])
+  1374→      .filter(c => c.id !== character.id && c.id !== '__user__')
+  1375→      .map(c => c.name);
+  1376→    const identityContent = [
+  1377→      `[IDENTIDAD DE RESPUESTA]`,
+  1378→      `Estás interpretando ÚNICAMENTE a: ${character.name}.`,
+  1379→      `- Tu respuesta debe contener solo las palabras, acciones y pensamientos de ${character.name}.`,
+  1380→      `- NUNCA escribas diálogo, acciones ni narración "por" otros personajes (${otherNames.join(', ') || 'ninguno'}). Cada uno responde en su propio turno.`,
+  1381→      `- NUNCA escribas ni decidas por el usuario (${userName}).`,
+  1382→    ].join('\n');
+  1383→    sections.push({
+  1384→      type: 'system',
+  1385→      label: 'Identidad de Respuesta',
+  1386→      content: identityContent,
+  1387→      color: SECTION_COLORS.system
+  1388→    });
+  1389→  }
+  1390→
+  1391→  // World Time (fictional clock) — group builder
+  1392→  const worldClock = sessionStats?.worldClock;
+  1393→  if (!worldClock || worldClock.enabled !== false) {
+  1394→    sections.push({
+  1395→      type: 'scenario',
+  1396→      label: 'World Time',
+  1397→      content: `[TIEMPO DEL MUNDO] ${formatWorldClock(worldClock || createDefaultWorldClock())} (avanza ${worldClock?.minutesPerTurn || 20} min por turno)`,
+  1398→      color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
+  1399→    });
+  1400→  }
+  1401→
+  1402→  // Text Actions — universal fallback tokens
+  1403→  sections.push({
+  1404→    type: 'system',
+  1405→    label: 'Text Actions',
+  1406→    content: buildTextActionsSection(),
+  1407→    color: SECTION_COLORS.system
+  1408→  });
+  1409→
+  1410→  // Lorebook position 0: After system prompt
+  1411→  if (lorebookPlan?.position0Section) {
+  1412→    sections.push(lorebookPlan.position0Section);
+  1413→  }
+  1414→
+  1415→  // NOTE: User's Persona section removed - use {{persona}} key in character sections instead
+  1416→  // The persona content is now injected via the {{persona}} template key which can be
+  1417→  // placed anywhere in the character's description, scenario, etc.
+  1418→
+  1419→  // NOTE: Inventory section removed - use {{slots}} key in character sections instead.
+  1420→  // The {{slots}} key resolves slot equipment + active consumable effects and can be
+  1421→  // placed anywhere in the character's description, scenario, systemPrompt, etc.
+  1422→
+  1423→  // Add this character's details
+  1424→  if (character.description) {
+  1425→    sections.push({
+  1426→      type: 'character_description',
+  1427→      label: `${character.name}'s Description`,
+  1428→      content: character.description,
+  1429→      color: SECTION_COLORS.character_description
+  1430→    });
+  1431→  }
+  1432→
+  1433→  if (character.personality) {
+  1434→    sections.push({
+  1435→      type: 'personality',
+  1436→      label: `${character.name}'s Personality`,
+  1437→      content: character.personality,
+  1438→      color: SECTION_COLORS.personality
+  1439→    });
+  1440→  }
+  1441→
+  1442→  // Add minimal info about other group members (just names, not full descriptions to save context)
+  1443→  // Exclude persona pseudo-character (__user__) since the user is not a responding character
+  1444→  if (allCharacters && allCharacters.length > 0) {
+  1445→    const otherChars = allCharacters.filter(c => c.id !== character.id && c.id !== '__user__');
+  1446→    if (otherChars.length > 0) {
+  1447→      // Split by scene presence (group members only). Members without an explicit
+  1448→      // member record default to present (legacy fallback).
+  1449→      const memberById = new Map((group.members || []).map(m => [m.characterId, m]));
+  1450→      const presentNames: string[] = [];
+  1451→      const absentNames: string[] = [];
+  1452→      for (const c of otherChars) {
+  1453→        const member = memberById.get(c.id);
+  1454→        if (member?.isNarrator) continue; // narrators are not scene characters
+  1455→        if (member && member.isPresent === false) absentNames.push(c.name);
+  1456→        else presentNames.push(c.name);
+  1457→      }
+  1458→
+  1459→      let sceneContent = `Other characters present in this conversation: ${presentNames.join(', ') || '(ninguno)'}`;
+  1460→      if (absentNames.length > 0) {
+  1461→        sceneContent += `\nCharacters OUT of the scene right now (they are NOT present; they may join later if the story calls for it): ${absentNames.join(', ')}`;
+  1462→      }
+  1463→      sections.push({
+  1464→        type: 'character_description',
+  1465→        label: 'Other Characters in Group',
+  1466→        content: sceneContent,
+  1467→        color: SECTION_COLORS.character_description
+  1468→      });
+  1469→    }
+  1470→  }
+  1471→
+  1472→  // FASE 5: Add emotional state injection for group chat
+  1473→  if (character.emotionalConfig?.enabled && character.emotionalConfig.includeInPrompt) {
+  1474→    const emotionalState = sessionStats?.characterStats?.[character.id]?.emotionalState;
+  1475→    if (emotionalState) {
+  1476→      const format = character.emotionalConfig.promptInjectionFormat || 'Estado emocional actual: {estado}';
+  1477→      const emotionContent = format.replace('{estado}', emotionalState);
+  1478→      sections.push({
+  1479→        type: 'personality',
+  1480→        label: `${character.name} - Estado Emocional`,
+  1481→        content: emotionContent,
+  1482→        color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+  1483→      });
+  1484→    }
+  1485→  }
+  1486→
+  1487→  // Add scenario - Group description takes priority over character scenario
+  1488→  if (group.description?.trim()) {
+  1489→    sections.push({
+  1490→      type: 'scenario',
+  1491→      label: 'Scenario (Group)',
+  1492→      content: group.description,
+  1493→      color: SECTION_COLORS.scenario
+  1494→    });
+  1495→  } else if (character.scenario?.trim()) {
+  1496→    sections.push({
+  1497→      type: 'scenario',
+  1498→      label: 'Scenario',
+  1499→      content: character.scenario,
+  1500→      color: SECTION_COLORS.scenario
+  1501→    });
+  1502→  }
+  1503→
+  1504→  // Add character's note
+  1505→  // NOTE: According to SillyTavern docs, Character Notes comes BEFORE Example Dialogue
+  1506→  if (character.characterNote) {
+  1507→    sections.push({
+  1508→      type: 'character_note',
+  1509→      label: `${character.name}'s Note`,
+  1510→      content: character.characterNote,
+  1511→      color: SECTION_COLORS.character_note
+  1512→    });
+  1513→  }
+  1514→
+  1515→  // Attribute Management Section (group chat variant) — driven by the resolvable
+  1516→  // keys {{attributes}} / {{attributes_rulz}} (same as 1-to-1 chat). When the
+  1517→  // card does NOT use them, the combined legacy block is injected automatically.
+  1518→  {
+  1519→    const listBlock = buildAttributesListBlock(character, resolvedStats ?? null);
+  1520→    const rulesBlock = buildAttributesRulesBlock(character);
+  1521→    if (listBlock || rulesBlock) {
+  1522→      if (!cardUsesAttributesKeys(character)) {
+  1523→        sections.push({
+  1524→          type: 'character_note',
+  1525→          label: `${character.name} - Gestión de Atributos`,
+  1526→          content: [listBlock, rulesBlock].filter(Boolean).join('\n\n'),
+  1527→          color: SECTION_COLORS.character_note
+  1528→        });
+  1529→      }
+  1530→    }
+  1531→  }
+  1532→
+  1533→  // GUARDARROPA V2: Wardrobe Section (group chat variant) — same as 1-to-1 chat.
+  1534→  // Only injected if the character has a wardrobeConfig with at least 1 outfit.
+  1535→  {
+  1536→    if (isWardrobeAvailable(character)) {
+  1537→      const wardrobeInfo = getWardrobeInfo(character, sessionStats, character.id);
+  1538→      if (wardrobeInfo) {
+  1539→        const wardrobeLines: string[] = [
+  1540→          `[GUARDARROPA]`,
+  1541→          `Tienes un guardarropa con varios outfits. Lo que llevas puesto ahora aparece en el bloque [VESTUARIO] del prompt.`,
+  1542→          ``,
+  1543→          `Outfits disponibles:`,
+  1544→        ];
+  1545→        for (const outfit of wardrobeInfo.outfits) {
+  1546→          const isWorn = wardrobeInfo.current?.id === outfit.id;
+  1547→          const isDefault = wardrobeInfo.defaultId === outfit.id;
+  1548→          const badges = [isWorn ? '← PUESTO AHORA' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
+  1549→          const desc = outfit.description?.trim() || '';
+  1550→          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
+  1551→          wardrobeLines.push(`- "${outfit.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
+  1552→        }
+  1553→        wardrobeLines.push('');
+  1554→        wardrobeLines.push(`INSTRUCCIONES PARA GESTIONAR TU VESTUARIO (HERRAMIENTA OBLIGATORIA):`);
+  1555→        wardrobeLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ropa (ponerte o quitarte algo) DEBE reflejarse llamando a la herramienta "manage_wardrobe" con action "wear" (o "remove") ANTES de narrarlo. NUNCA narres que te cambiaste de ropa sin haber llamado primero a la herramienta.`);
+  1556→        wardrobeLines.push(`- Si el usuario te pide que te quites o te pongas ropa, SIEMPRE responde con una tool call a "manage_wardrobe" eligiendo el outfit más adecuado de tu guardarropa.`);
+  1557→        wardrobeLines.push(`- Cuando la escena lo justifique, CÁMBIATE de ropa TÚ MISMO usando la herramienta "manage_wardrobe" con action "wear" y el nombre del outfit.`);
+  1558→        wardrobeLines.push(`- Usa el nombre EXACTO del outfit tal como aparece en la lista. Con action "list" ves tu guardarropa completo. Con action "remove" vuelves a tu outfit predeterminado.`);
+  1559→        wardrobeLines.push(`- Usa el vestuario ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
+  1560→
+  1561→        // Safety net: inject the [VESTUARIO] block if the card has no {{vestuario}} key
+  1562→        const cardText = [
+  1563→          character.description, character.personality, character.scenario,
+  1564→          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
+  1565→          character.authorNote, character.mesExample,
+  1566→        ].filter(Boolean).join('\n');
+  1567→        const cardHasKey = /\{\{(?:vestuario|wardrobe)\}\}/i.test(cardText || '');
+  1568→        if (!cardHasKey) {
+  1569→          const header = character.wardrobeConfig?.blockHeader || '[VESTUARIO]';
+  1570→          const wornDesc = wardrobeInfo.current?.description?.trim();
+  1571→          if (wornDesc) {
+  1572→            wardrobeLines.push('', header, wornDesc);
+  1573→          }
+  1574→        }
+  1575→
+  1576→        sections.push({
+  1577→          type: 'character_note',
+  1578→          label: `${character.name} - Guardarropa`,
+  1579→          content: wardrobeLines.join('\n'),
+  1580→          color: SECTION_COLORS.character_note
+  1581→        });
+  1582→      }
+  1583→    }
+  1584→  }
+  1585→
+  1586→  // ESCENARIO V2: Scenario Section (group chat variant).
+  1587→  // GROUP PRIORITY: if the group defines its own scenarioConfig (enabled + ≥1
+  1588→  // location), it REPLACES every member's character-level scenario so all
+  1589→  // members share the same location list ("misma sintonía"). Otherwise each
+  1590→  // character falls back to their own scenarioConfig (legacy behavior).
+  1591→  // Note: the active location (SessionStats.activeScenarioId) is SESSION-level,
+  1592→  // so all members see and move the same shared scene location.
+  1593→  {
+  1594→    if (isScenarioAvailable(character, group)) {
+  1595→      const scenarioInfo = getScenarioInfo(character, sessionStats, group);
+  1596→      if (scenarioInfo) {
+  1597→        const scopeLine = scenarioInfo.isGroupScenario
+  1598→          ? `Escenario compartido del grupo "${group.name}" — TODOS los personajes usan esta misma lista de ubicaciones (ignora tu escenario individual).`
+  1599→          : `La escena tiene varias ubicaciones disponibles. Dónde estáis ahora aparece en el bloque [ESCENARIO] del prompt.`;
+  1600→        const scenarioLines: string[] = [
+  1601→          `[ESCENARIO]`,
+  1602→          scopeLine,
+  1603→          ``,
+  1604→          `Ubicaciones disponibles:`,
+  1605→        ];
+  1606→        for (const location of scenarioInfo.locations) {
+  1607→          const isActive = scenarioInfo.current?.id === location.id;
+  1608→          const isDefault = scenarioInfo.defaultId === location.id;
+  1609→          const badges = [isActive ? '← UBICACIÓN ACTUAL' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
+  1610→          const desc = location.description?.trim() || '';
+  1611→          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
+  1612→          scenarioLines.push(`- "${location.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
+  1613→        }
+  1614→        scenarioLines.push('');
+  1615→        scenarioLines.push(`INSTRUCCIONES PARA GESTIONAR LA UBICACIÓN DE LA ESCENA (HERRAMIENTA OBLIGATORIA):`);
+  1616→        scenarioLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ubicación (moveros a otro lugar) DEBE reflejarse llamando a la herramienta "manage_escenario" con action "go" ANTES de narrarlo. NUNCA narres que os movisteis a otro lugar sin haber llamado primero a la herramienta.`);
+  1617→        scenarioLines.push(`- Si el usuario pide cambiar de lugar (ir a la cama, al sofá, al escritorio, salir, etc.), SIEMPRE responde con una tool call a "manage_escenario" eligiendo la ubicación más adecuada de tu escenario.`);
+  1618→        scenarioLines.push(`- Cuando la narrativa lo justifique, MUEVE la escena TÚ MISMO usando la herramienta "manage_escenario" con action "go" y el nombre del lugar.`);
+  1619→        scenarioLines.push(`- Usa el nombre EXACTO de la ubicación tal como aparece en la lista. Con action "list" ves todas las ubicaciones con sus detalles.`);
+  1620→        scenarioLines.push(`- Usa la ubicación ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
+  1621→
+  1622→        // Safety net: inject the [ESCENARIO] block if the card has no {{escenario}} key
+  1623→        // ({{scenario}} does NOT count — it is the classic ST macro, see key-resolver Phase 1)
+  1624→        const cardText = [
+  1625→          character.description, character.personality, character.scenario,
+  1626→          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
+  1627→          character.authorNote, character.mesExample,
+  1628→        ].filter(Boolean).join('\n');
+  1629→        const cardHasKey = /\{\{escenario\}\}/i.test(cardText || '');
+  1630→        if (!cardHasKey) {
+  1631→          const header = (scenarioInfo.isGroupScenario ? group.scenarioConfig?.blockHeader : character.scenarioConfig?.blockHeader) || '[ESCENARIO]';
+  1632→          const activeDesc = scenarioInfo.current?.description?.trim();
+  1633→          if (activeDesc) {
+  1634→            scenarioLines.push('', header, activeDesc);
+  1635→          }
+  1636→        }
+  1637→
+  1638→        sections.push({
+  1639→          type: 'character_note',
+  1640→          label: `${character.name} - Escenario`,
+  1641→          content: scenarioLines.join('\n'),
+  1642→          color: SECTION_COLORS.character_note
+  1643→        });
+  1644→      }
+  1645→    }
+  1646→  }
+  1647→
+  1648→  // Example Dialogue: Format as numbered [EJEMPLO N] text section (group chat variant)
+  1649→  if (character.mesExample) {
+  1650→    const exampleContent = processExampleDialogue(character.mesExample, userName, character.name);
+  1651→    if (exampleContent) {
+  1652→      sections.push({
+  1653→        type: 'example_dialogue',
+  1654→        label: 'EJEMPLOS DE MENSAJES',
+  1655→        content: exampleContent,
+  1656→        color: SECTION_COLORS.example_dialogue
+  1657→      });
+  1658→    }
+  1659→  }
+  1660→
+  1661→  // Lorebook position 5: At top of chat (before chat history)
+  1662→  if (lorebookPlan?.position5Section) {
+  1663→    sections.push(lorebookPlan.position5Section);
+  1664→  }
+  1665→
+  1666→  // Lorebook position 7: Outlets (custom positions)
+  1667→  if (lorebookPlan?.outletSections.length) {
+  1668→    sections.push(...lorebookPlan.outletSections);
+  1669→  }
+  1670→
+  1671→  // Lorebook position 6: At bottom of chat (appended at end of system sections)
+  1672→  if (lorebookPlan?.position6Section) {
+  1673→    sections.push(lorebookPlan.position6Section);
+  1674→  }
+  1675→
+  1676→  // Note: postHistoryInstructions should NOT be in system prompt
+  1677→  // It must be injected AFTER the chat history in buildGroupChatMessages
+  1678→
+  1679→  // ========================================
+  1680→  // UNIFIED KEY RESOLUTION - Apply to ALL sections
+  1681→  // ========================================
+  1682→  // FIX EXPLORE-3: usar resolveSectionsKeysWithPasses (3 passes) para resolver
+  1683→  // recursivamente keys anidadas (ej. un {{injectionKey}} cuyo contenido contiene
+  1684→  // {{user}} y {{eventos}}). El convergence check evita loops infinitos.
+  1685→  const processedSections = resolveSectionsKeysWithPasses(sections, keyContext, 3);
+  1686→
+  1687→  // Build the prompt string from processed sections
+  1688→  const prompt = processedSections.map(s => `[${s.label}]\n${s.content}`).join('\n\n');
+  1689→
+  1690→  // Example dialogue is now included as a PromptSection above (visible in Prompt Viewer).
+  1691→  // Return empty exampleMessages for backward compatibility with API routes.
+  1692→  const exampleMessages: ChatApiMessage[] = [];
+  1693→
+  1694→  return { prompt, sections: processedSections, lorebookChatInjections: lorebookPlan?.chatInjections || [], exampleMessages };
+  1695→}
+  1696→
+  1697→/**
+  1698→ * Build messages array for group chat
+  1699→ *
+  1700→ * Order (SillyTavern style):
+  1701→ * 1. System message (system prompt)
+  1702→ * 2. Chat history (all visible messages)
+  1703→ * 3. Previous responses from this turn
+  1704→ * 4. Author's Note (injected AFTER chat history, as system message)
+  1705→ * 5. Post-History Instructions (injected AFTER Author's Note, as system message)
+  1706→ *
+  1707→ * @param isForNarrator - If true, narrator messages ARE included (narrator sees all)
+  1708→ */
+  1709→export function buildGroupChatMessages(
+  1710→  systemPrompt: string,
+  1711→  messages: ChatMessage[],
+  1712→  character: CharacterCard,
+  1713→  allCharacters: CharacterCard[],
+  1714→  userName: string = 'User',
+  1715→  previousResponses?: Array<{ characterName: string; content: string }>,
+  1716→  postHistoryInstructions?: string,
+  1717→  authorNote?: string,
+  1718→  isForNarrator: boolean = false,
+  1719→  embeddingsContext?: string,  // embeddings injected before chat history
+  1720→  lorebookChatInjections?: LorebookChatInjection[],  // positions 1-4: inject into specific messages
+  1721→  exampleMessages?: ChatApiMessage[],  // SillyTavern-style example dialogue as chat messages
+  1722→  turnDirective?: string  // per-responder directive appended to the last user message (anti impersonation)
+  1723→): GroupPromptBuildResult {
+  1724→  // =============================================
+  1725→  // Step 1: Build all system content as ONE message
+  1726→  // =============================================
+  1727→  const systemParts: string[] = [];
+  1728→
+  1729→  if (systemPrompt.trim()) {
+  1730→    systemParts.push(systemPrompt);
+  1731→  }
+  1732→  if (embeddingsContext?.trim()) {
+  1733→    systemParts.push(embeddingsContext);
+  1734→  }
+  1735→  if (authorNote?.trim()) {
+  1736→    systemParts.push(`[Author's Note]\n${authorNote}`);
+  1737→  }
+  1738→  if (postHistoryInstructions?.trim()) {
+  1739→    systemParts.push(postHistoryInstructions);
+  1740→  }
+  1741→
+  1742→  const chatMessages: ChatApiMessage[] = [];
+  1743→
+  1744→  // Single system message
+  1745→  // role 'system' (matches 1-to-1 buildChatMessages with useSystemRole=true):
+  1746→  // sending the system prompt as 'assistant' weakens instruction-following and
+  1747→  // encourages the model to keep narrating the whole scene by itself.
+  1748→  if (systemParts.length > 0) {
+  1749→    chatMessages.push({
+  1750→      role: 'system',
+  1751→      content: systemParts.join('\n\n---\n\n')
+  1752→    });
+  1753→  }
+  1754→
+  1755→  // =============================================
+  1756→  // Step 2: Inject example dialogue as chat messages (SillyTavern style)
+  1757→  // =============================================
+  1758→  // These go between the system message and the actual chat history
+  1759→  // They serve as few-shot examples for the LLM
+  1760→  if (exampleMessages && exampleMessages.length > 0) {
+  1761→    chatMessages.push(...exampleMessages);
+  1762→  }
+  1763→
+  1764→  // =============================================
+  1765→  // Step 3: Build chat history with proper alternation
+  1766→  // =============================================
+  1767→  const visibleMessages = isForNarrator
+  1768→    ? messages.filter(m => !m.isDeleted)
+  1769→    : messages.filter(m => !m.isDeleted && !m.isNarratorMessage);
+  1770→
+  1771→  const historyLines: string[] = [];
+  1772→
+  1773→  // Build history lines + API messages
+  1774→  for (const msg of visibleMessages) {
+  1775→    const speaker = msg.role === 'user' ? userName :
+  1776→      (allCharacters.find(c => c.id === msg.characterId)?.name || 'Character');
+  1777→    historyLines.push(`${speaker}: ${msg.content}`);
+  1778→  }
+  1779→
+  1780→  // Build merged API messages with proper alternation
+  1781→  // IMPORTANT: In group chats, multiple characters speak as 'assistant' role.
+  1782→  // When merging consecutive assistant messages, we MUST include speaker names
+  1783→  // so the LLM can distinguish which character said what.
+  1784→  const mergedMessages: ChatApiMessage[] = [];
+  1785→  for (const msg of visibleMessages) {
+  1786→    const role = msg.role === 'user' ? 'user' : 'assistant';
+  1787→    // Include speaker name for assistant messages so different characters' lines
+  1788→    // are distinguishable even when merged into the same message
+  1789→    const speakerName = msg.role === 'user' ? userName :
+  1790→      (allCharacters.find(c => c.id === msg.characterId)?.name || character.name);
+  1791→    const contentWithSpeaker = msg.role === 'user' ? msg.content : `${speakerName}: ${msg.content}`;
+  1792→    const last = mergedMessages[mergedMessages.length - 1];
+  1793→    if (last && last.role === role) {
+  1794→      last.content += '\n' + contentWithSpeaker;
+  1795→    } else {
+  1796→      mergedMessages.push({ role, content: contentWithSpeaker });
+  1797→    }
+  1798→  }
+  1799→
+  1800→  // Add previous responses from this turn
+  1801→  if (previousResponses && previousResponses.length > 0) {
+  1802→    for (const resp of previousResponses) {
+  1803→      historyLines.push(`${resp.characterName}: ${resp.content}`);
+  1804→      const last = mergedMessages[mergedMessages.length - 1];
+  1805→      const contentWithSpeaker = `${resp.characterName}: ${resp.content}`;
+  1806→      if (last && last.role === 'assistant') {
+  1807→        last.content += '\n' + contentWithSpeaker;
+  1808→      } else {
+  1809→        mergedMessages.push({ role: 'assistant', content: contentWithSpeaker });
+  1810→      }
+  1811→    }
+  1812→  }
+  1813→
+  1814→  // Enforce alternation: if first is assistant, prepend synthetic user
+  1815→  if (mergedMessages.length > 0 && mergedMessages[0].role === 'assistant') {
+  1816→    mergedMessages.unshift({ role: 'user', content: '*continúa*' });
+  1817→  }
+  1818→
+  1819→  // Safety: insert bridging messages if any same-role adjacency remains
+  1820→  const finalHistory: ChatApiMessage[] = [];
+  1821→  for (const msg of mergedMessages) {
+  1822→    const last = finalHistory[finalHistory.length - 1];
+  1823→    if (last && last.role === msg.role) {
+  1824→      const bridgeRole = msg.role === 'user' ? 'assistant' : 'user';
+  1825→      finalHistory.push({ role: bridgeRole, content: '*continúa*' });
+  1826→    }
+  1827→    finalHistory.push(msg);
+  1828→  }
+  1829→
+  1830→  // Bridge between example messages and chat history if needed
+  1831→  if (finalHistory.length > 0 && chatMessages.length > 0) {
+  1832→    const lastExistingMsg = chatMessages[chatMessages.length - 1];
+  1833→    const firstChatMsg = finalHistory[0];
+  1834→    if (lastExistingMsg.role === firstChatMsg.role) {
+  1835→      const bridgeRole = firstChatMsg.role === 'user' ? 'assistant' : 'user';
+  1836→      chatMessages.push({ role: bridgeRole, content: '*continúa*' });
+  1837→    }
+  1838→  }
+  1839→
+  1840→  chatMessages.push(...finalHistory);
+  1841→
+  1842→  // =============================================
+  1843→  // Step 4: Turn directive — appended to the LAST user message
+  1844→  // =============================================
+  1845→  // Recency bias makes the end of the prompt the strongest position.
+  1846→  // Appending "respond ONLY as X" right after the user's message (instead of
+  1847→  // burying it in the system block) is what actually stops cross-character
+  1848→  // impersonation in group chats.
+  1849→  if (turnDirective?.trim()) {
+  1850→    const lastMsg = chatMessages[chatMessages.length - 1];
+  1851→    if (lastMsg && lastMsg.role === 'user') {
+  1852→      lastMsg.content = `${lastMsg.content}\n\n${turnDirective}`;
+  1853→    } else {
+  1854→      chatMessages.push({ role: 'user', content: turnDirective });
+  1855→    }
+  1856→  }
+  1857→
+  1858→  // Inject lorebook chat-level content (positions 1-4)
+  1859→  if (lorebookChatInjections?.length) {
+  1860→    applyChatInjections(chatMessages, lorebookChatInjections);
+  1861→  }
+  1862→
+  1863→  // Build chat history section for prompt viewer
+  1864→  let chatHistorySection: PromptSection | undefined;
+  1865→  if (historyLines.length > 0) {
+  1866→    chatHistorySection = {
+  1867→      type: 'chat_history',
+  1868→      label: 'Chat History',
+  1869→      content: historyLines.join('\n\n'),
+  1870→      color: SECTION_COLORS.chat_history
+  1871→    };
+  1872→  }
+  1873→
+  1874→  return {
+  1875→    systemPrompt,
+  1876→    sections: [],
+  1877→    chatMessages,
+  1878→    chatHistorySection
+  1879→  };
+  1880→}
+  1881→
+  1882→/**
+  1883→ * Build the per-responder turn directive for group chats (anti impersonation).
+  1884→ * Appended to the END of the last user message by buildGroupChatMessages.
+  1885→ *
+  1886→ * This mirrors SillyTavern's group "[Write the next reply only as ...]" pattern:
+  1887→ * the model is told, at the position of maximum attention, exactly who it may
+  1888→ * voice in this reply.
+  1889→ */
+  1890→export function buildGroupTurnDirective(
+  1891→  character: CharacterCard,
+  1892→  allCharacters?: CharacterCard[],
+  1893→  userName: string = 'User',
+  1894→  isNarrator: boolean = false
+  1895→): string {
+  1896→  // The narrator IS a scene voice: they narrate the world, but still must not
+  1897→  // write dialogue "for" the other characters' minds.
+  1898→  if (isNarrator) {
+  1899→    return [
+  1900→      `[INSTRUCCIÓN DE TURNO — GRUPO]`,
+  1901→      `Es tu turno: responde como el NARRADOR (escenas, ambiente y eventos del mundo).`,
+  1902→      `- NO escribas diálogo, acciones ni pensamientos "por" otros personajes (${(allCharacters || []).filter(c => c.id !== character.id && c.id !== '__user__').map(c => c.name).join(', ') || 'ninguno'}) ni por ${userName}.`,
+  1903→      `- Responde directamente, sin prefijo de nombre ni encabezados.`,
+  1904→    ].join('\n');
+  1905→  }
+  1906→
+  1907→  const otherNames = (allCharacters || [])
+  1908→    .filter(c => c.id !== character.id && c.id !== '__user__')
+  1909→    .map(c => c.name);
+  1910→
+  1911→  return [
+  1912→    `[INSTRUCCIÓN DE TURNO — GRUPO]`,
+  1913→    `Es el turno de ${character.name}. Responde AHORA ÚNICAMENTE como ${character.name}.`,
+  1914→    `- Escribe SOLO las líneas, acciones y pensamientos de ${character.name}.`,
+  1915→    `- NO escribas nada "por" otros personajes (${otherNames.join(', ') || 'ninguno'}) ni por ${userName}: ellos responden en sus propios turnos.`,
+  1916→    `- NO repitas ni parafrasees lo que otros personajes ya dijeron.`,
+  1917→    `- Responde directamente, sin prefijo de nombre ("${character.name}:") ni encabezados.`,
+  1918→  ].join('\n');
+  1919→}
+  1920→
+  1921→// ============================================
+  1922→// Helper Functions
+  1923→// ============================================
+  1924→
+  1925→/**
+  1926→ * Process character and return effective values
+  1927→ * Uses the unified key resolver
+  1928→ */
+  1929→export function processCharacter(
+  1930→  character: CharacterCard,
+  1931→  userName: string,
+  1932→  persona?: Persona,
+  1933→  sessionStats?: SessionStats,
+  1934→  allCharacters?: CharacterCard[],
+  1935→  questTemplates?: QuestTemplate[]
+  1936→): CharacterCard {
+  1937→  // Resolve stats for the persona FIRST
+  1938→  let personaResolvedStats: ResolvedStats | null = null;
+  1939→  if (persona?.statsConfig?.enabled && sessionStats) {
+  1940→    personaResolvedStats = resolveStats({
+  1941→      characterId: '__user__',
+  1942→      statsConfig: persona.statsConfig,
+  1943→      sessionStats,
+  1944→    });
+  1945→  }
+  1946→
+  1947→  // Resolve stats for this character (includes skills block with full key resolution)
+  1948→  const resolvedStats = resolveStats({
+  1949→    characterId: character.id,
+  1950→    statsConfig: character.statsConfig,
+  1951→    sessionStats,
+  1952→    allCharacters,
+  1953→    userName,
+  1954→    characterName: character.name,
+  1955→    questTemplates,
+  1956→    personaDescription: persona?.description,
+  1957→    personaResolvedStats,
+  1958→  });
+  1959→
+  1960→  // Build key resolution context
+  1961→  const keyContext = buildKeyResolutionContext(character, userName, persona, resolvedStats, sessionStats, undefined, undefined, personaResolvedStats);
+  1962→
+  1963→  // Process all text fields
+  1964→  return {
+  1965→    ...character,
+  1966→    description: resolveAllKeys(character.description, keyContext),
+  1967→    personality: resolveAllKeys(character.personality, keyContext),
+  1968→    scenario: resolveAllKeys(character.scenario, keyContext),
+  1969→    firstMes: resolveAllKeys(character.firstMes, keyContext),
+  1970→    mesExample: resolveAllKeys(character.mesExample, keyContext),
+  1971→    systemPrompt: resolveAllKeys(character.systemPrompt, keyContext),
+  1972→    postHistoryInstructions: resolveAllKeys(character.postHistoryInstructions, keyContext),
+  1973→    characterNote: resolveAllKeys(character.characterNote, keyContext),
+  1974→    authorNote: resolveAllKeys(character.authorNote, keyContext),
+  1975→    alternateGreetings: (character.alternateGreetings || []).map(greeting =>
+  1976→      resolveAllKeys(greeting, keyContext)
+  1977→    )
+  1978→  };
+  1979→}
+  1980→
+  1981→/**
+  1982→ * Get effective user name from persona or default
+  1983→ */
+  1984→export function getEffectiveUserName(persona?: Persona, defaultName: string = 'User'): string {
+  1985→  return persona?.name || defaultName;
+  1986→}
+  1987→
+  1988→/**
+  1989→ * Create empty user message for API
+  1990→ */
+  1991→export function createUserMessage(content: string): ChatMessage {
+  1992→  return {
+  1993→    id: '',
+  1994→    characterId: '',
+  1995→    role: 'user',
+  1996→    content,
+  1997→    timestamp: '',
+  1998→    isDeleted: false,
+  1999→    swipeId: '',
+  2000→    swipeIndex: 0
+
+[showing lines 1-2000 of 2175; use offset=2001 with limit to continue reading]

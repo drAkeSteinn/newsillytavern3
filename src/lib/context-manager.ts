@@ -51,7 +51,11 @@ export const PROVIDER_CONTEXT_LIMITS: Record<string, number> = {
   'vllm': 8192,
   'koboldcpp': 4096,
   'text-generation-webui': 4096,
-  'custom': 4096
+  'custom': 4096,
+  // FIX: missing providers fell back to the 4096 default, over-truncating history
+  'grok': 131072,                // xAI models ship with 131k context
+  'lm-studio': 8192,             // local, conservative default
+  'test-mock': 4096
 };
 
 // ============================================
@@ -424,4 +428,3 @@ export class GenerationLock {
 }
 
 // Global generation lock instance
-export const globalGenerationLock = new GenerationLock();

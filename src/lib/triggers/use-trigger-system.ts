@@ -617,7 +617,7 @@ export function useTriggerSystem(config: TriggerSystemConfig = {}): TriggerSyste
         lorebooks: store.lorebooks,
         storeActions: {
           updateCharacterStat: store.updateCharacterStat.bind(store),
-          updateSessionEvent: store.updateSessionEvent?.bind(store),
+          recordSceneEvent: store.recordSceneEvent?.bind(store),
         },
       };
       
@@ -1310,39 +1310,17 @@ export function useTriggerSystem(config: TriggerSystemConfig = {}): TriggerSyste
     }
     
     // Process Stats triggers (Character Attributes)
-    // IMPORTANT: Only process stats for the SPEAKING character (the one in `character` parameter)
-    // This prevents conflicts when multiple characters have the same attribute key
+    // NOTE: Character stats are now handled exclusively by the unified
+    // StatsKeyHandler above (which supports +N/-N/= operators correctly).
+    // The legacy stats-detector path was REMOVED here because it parsed
+    // "+10" with parseFloat (losing the operator, turning [hp:+10] into an
+    // absolute set of 10) and double-wrote values already applied by the
+    // unified path.
+    // The persona (`__user__`) stats path is kept because the unified
+    // StatsKeyHandler context only carries the speaking character's config.
     if (config.statsEnabled !== false) {
       const activeSession = store.getActiveSession?.();
       const sessionId = store.activeSessionId || '';
-
-      // Only process stats for the speaking character
-      // In group chats, `character` is the current speaker, not all characters
-      if (character?.statsConfig?.enabled) {
-        const statsContext: StatsTriggerContext = {
-          ...context,
-          characterId: character.id,
-          statsConfig: character.statsConfig,
-          sessionStats: activeSession?.sessionStats,
-        };
-
-        const statsResult = checkStatsTriggersInText(
-          content,
-          statsContext,
-          statsHandlerState
-        );
-
-        if (statsResult.matched && statsResult.trigger) {
-          const hits = executeStatsTrigger(statsResult.trigger, context, {
-            updateCharacterStat: store.updateCharacterStat.bind(store),
-            activeSessionId: sessionId,
-          });
-
-          if (hits.length > 0) {
-            console.log(`[TriggerSystem] Stats updated for ${character.name} (${character.id}): ${hits.map(h => `${h.attributeName}=${h.newValue}`).join(', ')}`);
-          }
-        }
-      }
 
       // Also process stats for the user persona (if persona has stats enabled)
       if (config.activePersona?.statsConfig?.enabled) {

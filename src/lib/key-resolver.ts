@@ -19,7 +19,8 @@ import type { ResolvedStats } from '@/types';
 import { resolveStatsInText } from '@/lib/stats/stats-resolver';
 import { resolveWardrobeKey } from '@/lib/wardrobe';
 import { resolveScenarioKey } from '@/lib/scenario';
-import { MAX_EVENT_LOG_IN_PROMPT, eventLogTypeLabel } from '@/lib/stats/event-log';
+import { buildAttributesListBlock, buildAttributesRulesBlock } from '@/lib/stats/attributes-prompt';
+import { eventLogTypeLabel } from '@/lib/stats/event-log';
 import { getRelationship, computeRelationshipStage, DEFAULT_RELATIONSHIP_POINTS } from '@/lib/relationships';
 import {
   formatHour as formatWorldHour,
@@ -57,9 +58,13 @@ export interface KeyResolutionContext {
   // Persona stats resolution (attributes from user's persona)
   personaResolvedStats?: ResolvedStats | null;
 
-  // Session stats for event keys ({{solicitante}}, {{solicitado}}, {{eventos}})
+  // Session stats for event keys ({{solicitante}}, {{solicitado}}, {{last_events}})
   sessionStats?: SessionStats | null;
   characterId?: string;  // ID of the current character for looking up solicitudes
+
+  // Nº of recent events rendered by {{last_events}}
+  // (from character.memoryConfig.lastEventsCount; default 2)
+  lastEventsCount?: number;
 
   // Sound triggers for {{sonidos}} key
   soundTriggers?: SoundTrigger[];
@@ -213,6 +218,12 @@ function getVariableValue(varName: string, context: KeyResolutionContext): strin
       return context.character?.personality;
     case 'scenario':
       return context.character?.scenario;
+    case 'attributes':
+      // Truthy when the stats system is enabled with ≥1 attribute
+      return buildAttributesListBlock(context.character, context.resolvedStats ?? null) || undefined;
+    case 'attributes_rulz':
+      // Truthy when the stats system is enabled with ≥1 attribute
+      return buildAttributesRulesBlock(context.character) || undefined;
     default:
       return undefined;
   }
@@ -248,11 +259,12 @@ export function resolveStatsKeys(
 
 /**
  * Resolve event keys in text
- * Handles: {{solicitante}}, {{solicitado}}, {{eventos}}
+ * Handles: {{solicitante}}, {{solicitado}}, {{last_events}} (alias: {{eventos}})
  *
  * {{solicitante}} - Name of who made the solicitud (from pending solicitudes)
  * {{solicitado}} - Name of who received the solicitud (current character)
- * {{eventos}} - Recent events summary
+ * {{last_events}} - Recent scene events block ([ULTIMOS EVENTOS EN LA ESCENA]).
+ *                  {{eventos}} is kept as a legacy alias for old cards/lorebooks.
  */
 export function resolveEventKeys(
   text: string,
@@ -312,81 +324,61 @@ export function resolveEventKeys(
   result = result.replace(/\{\{estacion\}\}/gi, worldClock?.season || 'primavera');
   result = result.replace(/\{\{tiempo_mundo\}\}/gi, worldClock ? formatWorldClock(worldClock) : '');
 
-  // {{eventos}} - Recent events summary
-  if (sessionStats) {
-    console.log(`[resolveEventKeys] sessionStats received for {{eventos}}:`, {
-      hasUltimoObjetivo: !!sessionStats.ultimo_objetivo_completado,
-      hasUltimaSolicitudRealizada: !!sessionStats.ultima_solicitud_realizada,
-      hasUltimaSolicitudCompletada: !!sessionStats.ultima_solicitud_completada,
-      hasUltimaAccion: !!sessionStats.ultima_accion_realizada,
-      ultimoObjetivoValue: sessionStats.ultimo_objetivo_completado,
-      ultimaSolicitudRealizadaValue: sessionStats.ultima_solicitud_realizada,
-    });
-    const eventosBlock = buildEventosBlock(sessionStats);
-    console.log(`[resolveEventKeys] Built eventosBlock:`, eventosBlock);
+  // {{last_events}} (legacy alias: {{eventos}}) — recent scene events block
+  {
+    const eventosBlock = buildLastEventsBlock(sessionStats, context.lastEventsCount);
+    result = result.replace(/\{\{last_events\}\}/gi, eventosBlock);
     result = result.replace(/\{\{eventos\}\}/gi, eventosBlock);
-  } else {
-    console.log(`[resolveEventKeys] No sessionStats provided for {{eventos}}`);
-    result = result.replace(/\{\{eventos\}\}/gi, '');
   }
 
   return result;
 }
 
-/**
- * Build the eventos block showing recent events
- * Prefers the event log ring buffer ({{eventos}} history with authors) when available;
- * falls back to the legacy "ultima_X" scalar fields for backwards compatibility.
- */
-function buildEventosBlock(sessionStats: SessionStats): string {
-  // ── New: render from the event log ring buffer ──
-  const log = sessionStats.eventLog;
-  if (log && log.length > 0) {
-    const recent = log.slice(-MAX_EVENT_LOG_IN_PROMPT); // oldest → newest
-    const lines = recent.map((entry, idx) => {
-      const label = eventLogTypeLabel(entry.type);
-      let who = entry.characterName || '';
-      const turnStr = typeof entry.turn === 'number' ? ` (turno ${entry.turn})` : '';
-      if (entry.targetName) {
-        who = who ? `${who} → ${entry.targetName}` : entry.targetName;
-      }
-      return `${idx + 1}. [${label}]${who ? ` ${who}:` : ''} ${entry.description}${turnStr}`;
-    });
-    return `[ULTIMOS EVENTOS]\n(Bitácora reciente, del más viejo al más nuevo — los personajes pueden reaccionar a estos eventos)\n${lines.join('\n')}`;
-  }
+/** Default nº of events rendered by {{last_events}} when the character
+ *  doesn't configure memoryConfig.lastEventsCount */
+export const DEFAULT_LAST_EVENTS_IN_PROMPT = 2;
 
-  // ── Legacy fallback: scalar fields ──
-  const lines: string[] = [];
-  
-  // Only add fields that have actual values
-  if (sessionStats.ultimo_objetivo_completado) {
-    lines.push(`- ultimo_objetivo_completado : ${sessionStats.ultimo_objetivo_completado}`);
-  }
-  
-  if (sessionStats.ultima_solicitud_realizada) {
-    lines.push(`- ultima_solicitud_realizada : ${sessionStats.ultima_solicitud_realizada}`);
-  }
-  
-  if (sessionStats.ultima_solicitud_completada) {
-    lines.push(`- ultima_solicitud_completada : ${sessionStats.ultima_solicitud_completada}`);
-  }
-  
-  if (sessionStats.ultima_accion_realizada) {
-    const characterName = sessionStats.ultima_accion_character || '';
-    if (characterName) {
-      lines.push(`- ultima accion realizada de ${characterName}: "${sessionStats.ultima_accion_realizada}"`);
-    } else {
-      // Backward compatibility: if no character name stored, use old format
-      lines.push(`- ultima_accion_realizada : ${sessionStats.ultima_accion_realizada}`);
+/** HH:MM from an epoch timestamp (no ICU dependency — deterministic) */
+function formatEventClock(timestamp: number): string {
+  const d = new Date(timestamp);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * Build the {{last_events}} block: the most recent scene events.
+ *
+ * Format:
+ * [ULTIMOS EVENTOS EN LA ESCENA]
+ * (Bitácora reciente — del más antiguo al más nuevo — los personajes pueden reaccionar a estos eventos)
+ * - 21:40 (turno 14): [ACCION] Aitana: perreó cerca del usuario
+ * - 21:43 (turno 15): [PETICION] Aitana → drAke: pedir un trago
+ *
+ * `maxEvents` comes from the character's memoryConfig.lastEventsCount
+ * (see CharacterEditor → pestaña Memoria). Default: 2. Range 1-10.
+ * Returns '' when there are no events (the key just disappears).
+ */
+function buildLastEventsBlock(sessionStats: SessionStats | null | undefined, maxEvents?: number): string {
+  const log = sessionStats?.eventLog;
+  if (!log || log.length === 0) return '';
+
+  const requested = typeof maxEvents === 'number' && Number.isFinite(maxEvents)
+    ? Math.floor(maxEvents)
+    : DEFAULT_LAST_EVENTS_IN_PROMPT;
+  const count = Math.min(10, Math.max(1, requested || DEFAULT_LAST_EVENTS_IN_PROMPT));
+
+  const recent = log.slice(-count); // oldest → newest
+  const lines = recent.map(entry => {
+    const label = eventLogTypeLabel(entry.type);
+    let who = entry.characterName || (entry.characterId === '__user__' ? 'El usuario' : '');
+    if (entry.targetName) {
+      who = who ? `${who} → ${entry.targetName}` : entry.targetName;
     }
-  }
-  
-  // Return empty string if no events to show
-  if (lines.length === 0) {
-    return '';
-  }
-  
-  return `[ULTIMOS EVENTOS]\n${lines.join('\n')}`;
+    const turnStr = typeof entry.turn === 'number' ? ` (turno ${entry.turn})` : '';
+    const body = who ? `[${label}] ${who}: ${entry.description}` : `[${label}] ${entry.description}`;
+    return `- ${formatEventClock(entry.timestamp)}${turnStr}: ${body}`;
+  });
+
+  return `[ULTIMOS EVENTOS EN LA ESCENA]\n(Bitácora reciente — del más antiguo al más nuevo — los personajes pueden reaccionar a estos eventos)\n${lines.join('\n')}`;
 }
 
 // ============================================
@@ -709,10 +701,10 @@ export function resolveLorebookAttributeKeys(
   }
 
   // After injecting attribute content, re-resolve ALL keys because the injected
-  // content may contain {{char}}, {{user}}, {{vida}}, {{eventos}}, {{sonidos}},
+  // content may contain {{char}}, {{user}}, {{vida}}, {{last_events}}, {{sonidos}},
   // {{activeQuests}}, {{slots}}, or even nested {{injectionKey}} / {{entryKey}}.
   // FIX EXPLORE-3: antes solo se re-resolvían template vars + stats (Phase 1+2),
-  // lo que causaba que {{eventos}}, {{sonidos}}, {{activeQuests}} en el contenido
+  // lo que causaba que {{last_events}}, {{sonidos}}, {{activeQuests}} en el contenido
   // inyectado se strippearan silenciosamente por Phase 7. Ahora usamos passes
   // múltiples con convergence check para resolver recursivamente.
   if (result !== text) {
@@ -779,7 +771,7 @@ export function resolveLorebookEntryKeys(
   }
 
   // After injecting lorebook content, re-resolve ALL keys because the injected
-  // content may contain {{char}}, {{user}}, {{vida}}, {{eventos}}, {{sonidos}},
+  // content may contain {{char}}, {{user}}, {{vida}}, {{last_events}}, {{sonidos}},
   // {{activeQuests}}, {{slots}}, or nested {{injectionKey}} / {{entryKey}}.
   // FIX EXPLORE-3: antes solo se re-resolvían template vars + stats (Phase 1+2),
   // lo que causaba pérdida silenciosa de otras keys en contenido de lorebook.
@@ -842,19 +834,25 @@ export function resolveWardrobeKeyInText(
 }
 
 /**
- * Resolve the {{escenario}} key (alias {{scenario}}) to the description of the
+ * Resolve the {{escenario}} key to the description of the
  * location where the scene currently takes place (ESCENARIO V2).
  * The active location is read from the SESSION state (activeScenarioId —
  * session-level, shared by all chat participants), with a fallback to the
  * location flagged isDefault.
+ *
+ * NOTE: the alias {{scenario}} was REMOVED on purpose. Phase 1 resolves
+ * {{scenario}} as the classic SillyTavern macro (character.scenario field),
+ * so it always shadows this phase — keeping the alias here was dead code and
+ * made the [ESCENARIO] safety-net in prompt-builder suppress the block for
+ * cards using the classic macro. Use {{escenario}} for the V2 locations.
  */
 export function resolveScenarioKeyInText(
   text: string,
   context: KeyResolutionContext
 ): string {
   if (!text) return text;
-  // Fast exit when neither key is present
-  if (!/\{\{(?:escenario|scenario)\}\}/gi.test(text)) return text;
+  // Fast exit when the key is not present
+  if (!/\{\{escenario\}\}/gi.test(text)) return text;
 
   const scenarioContent = resolveScenarioKey(
     context.character,
@@ -862,9 +860,34 @@ export function resolveScenarioKeyInText(
     context.group
   );
 
+  return text.replace(/\{\{escenario\}\}/gi, scenarioContent);
+}
+
+/**
+ * Resolve the attribute-management keys (Phase 5.97):
+ *
+ *   {{attributes}}      → [GESTIÓN DE ATRIBUTOS] + current attribute list
+ *   {{attributes_rulz}} → main attribute explanation + modify_stat rules
+ *
+ * Resolved BEFORE the lorebook key phases so these keys are canonical
+ * (a lorebook entry must not shadow them), same rationale as {{vestuario}}
+ * and {{escenario}}. When the stats system is disabled the keys resolve to
+ * an empty string instead of leaking the literal {{key}} to the LLM.
+ */
+export function resolveAttributesKeysInText(
+  text: string,
+  context: KeyResolutionContext
+): string {
+  if (!text) return text;
+  // Fast exit when neither key is present
+  if (!/\{\{attributes(?:_rulz)?\}\}/i.test(text)) return text;
+
+  const listBlock = buildAttributesListBlock(context.character, context.resolvedStats ?? null);
+  const rulesBlock = buildAttributesRulesBlock(context.character);
+
   return text
-    .replace(/\{\{escenario\}\}/gi, scenarioContent)
-    .replace(/\{\{scenario\}\}/gi, scenarioContent);
+    .replace(/\{\{attributes_rulz\}\}/gi, rulesBlock || '')
+    .replace(/\{\{attributes\}\}/gi, listBlock || '');
 }
 
 export function resolveInventoryKeys(
@@ -1045,7 +1068,7 @@ function resolveRemainingKeys(
  *
  * Phase 1: Template variables ({{user}}, {{char}}, conditionals)
  * Phase 2: Stats keys ({{resistencia}}, {{habilidades}}, etc.)
- * Phase 3: Event keys ({{solicitante}}, {{solicitado}}, {{eventos}})
+ * Phase 3: Event keys ({{solicitante}}, {{solicitado}}, {{last_events}})
  * Phase 4: Sound keys ({{sonidos}})
  * Phase 5: Quest keys ({{activeQuests}}, {{availableQuests}})
  * Phase 6: Lorebook attribute keys ({{injectionKey}} from attribute-type entries)
@@ -1080,11 +1103,16 @@ export function resolveAllKeys(
   // is the canonical source (lorebook entries must not shadow {{vestuario}}).
   result = resolveWardrobeKeyInText(result, context);
 
-  // Phase 5.95: Resolve scenario key ({{escenario}} / {{scenario}})
+  // Phase 5.95: Resolve scenario key ({{escenario}})
   // ESCENARIO V2: same ordering rationale as the wardrobe — the session's
   // active location is the canonical source (lorebook entries must not shadow
-  // {{escenario}}).
+  // {{escenario}}). NOTE: {{scenario}} is NOT an alias — Phase 1 owns it as
+  // the classic SillyTavern macro (character.scenario field).
   result = resolveScenarioKeyInText(result, context);
+
+  // Phase 5.97: Resolve attribute management keys ({{attributes}} / {{attributes_rulz}})
+  // Canonical before lorebook keys (same rationale as {{vestuario}}/{{escenario}}).
+  result = resolveAttributesKeysInText(result, context);
 
   // Phase 6: Resolve lorebook attribute keys
   result = resolveLorebookAttributeKeys(result, context);
@@ -1182,6 +1210,7 @@ export function buildKeyResolutionContext(
     lorebookAttributeKeys,
     inventoryData,
     lorebookEntryKeys,
+    lastEventsCount: character?.memoryConfig?.lastEventsCount,
   };
 }
 
@@ -1214,49 +1243,9 @@ export function buildGroupKeyResolutionContext(
  * Process all character text fields with unified key resolution
  * This replaces processCharacterTemplate from prompt-template.ts
  */
-export function processCharacterKeys(
-  character: CharacterCard,
-  userName: string = 'User',
-  persona?: Persona,
-  resolvedStats?: ResolvedStats | null
-): CharacterCard {
-  const context = buildKeyResolutionContext(character, userName, persona, resolvedStats);
-
-  return {
-    ...character,
-    description: resolveAllKeys(character.description, context),
-    personality: resolveAllKeys(character.personality, context),
-    scenario: resolveAllKeys(character.scenario, context),
-    firstMes: resolveAllKeys(character.firstMes, context),
-    mesExample: resolveAllKeys(character.mesExample, context),
-    systemPrompt: resolveAllKeys(character.systemPrompt, context),
-    postHistoryInstructions: resolveAllKeys(character.postHistoryInstructions, context),
-    characterNote: resolveAllKeys(character.characterNote, context),
-    // Process alternate greetings
-    alternateGreetings: character.alternateGreetings.map(greeting =>
-      resolveAllKeys(greeting, context)
-    )
-  };
-}
-
 /**
  * Process a single message with key resolution
  */
-export function processMessageKeys(
-  message: string,
-  characterName: string,
-  userName: string = 'User',
-  resolvedStats?: ResolvedStats | null
-): string {
-  const context: KeyResolutionContext = {
-    user: userName,
-    char: characterName,
-    resolvedStats,
-  };
-
-  return resolveAllKeys(message, context);
-}
-
 // ============================================
 // Section Processing
 // ============================================

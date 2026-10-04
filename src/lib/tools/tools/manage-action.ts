@@ -185,10 +185,9 @@ export async function manageActionExecutor(
     // Build display message with resolved template keys (comprehensive resolution)
     const resolvedName = resolveToolKeysComprehensive(matchedSkill.name, context);
     const resolvedDescription = resolveToolKeysComprehensive(matchedSkill.description || '', context);
-    const resolvedCompletedDescription = resolveToolKeysComprehensive(matchedSkill.completedDescription || matchedSkill.description || '', context);
     const resolvedSkillName = resolvedName;
     const resolvedSkillDescription = resolvedDescription;
-    const resolvedSkillCompletedDescription = resolvedCompletedDescription;
+    const resolvedSkillCompletedDescription = resolvedDescription;
 
     const lines: string[] = [];
     lines.push(`⚔️ Acción ejecutada: ${resolvedName}`);

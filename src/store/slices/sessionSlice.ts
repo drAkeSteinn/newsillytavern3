@@ -15,7 +15,6 @@ import type {
 import { processMessageTemplate } from '@/lib/prompt-template';
 import { uuidv4 } from '@/lib/uuid';
 import { checkAllRequirements } from '@/lib/triggers/handlers/skill-activation-handler';
-import { appendEventLogEntry } from '@/lib/stats/event-log';
 import {
   executeObjectiveRewards,
   executeQuestCompletionRewards,
@@ -388,11 +387,6 @@ function initializeSessionStatsForCharacters(
       characterSolicitudes: {},
       lastModified: now,
     },
-    // Reset session events to undefined (clean state)
-    ultimo_objetivo_completado: undefined,
-    ultima_solicitud_completada: undefined,
-    ultima_solicitud_realizada: undefined,
-    ultima_accion_realizada: undefined,
     initialized: true,
     lastModified: now,
     // Reset timer state - start fresh from now
@@ -1248,25 +1242,7 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
       console.warn('[clearChat] Failed to reset memory namespaces:', err);
     }
 
-    // Clear Character Memory (Zustand store: events, relationships, notes)
-    // This prevents stale memories from being injected into the prompt after reset
-    try {
-      const characterId = session.characterId;
-      if (characterId) {
-        (get() as any).clearCharacterMemory?.(characterId);
-      }
-      // For group chats, clear memory for all members
-      if (session.groupId) {
-        const group = get().getGroupById?.(session.groupId);
-        if (group?.members) {
-          for (const member of group.members) {
-            (get() as any).clearCharacterMemory?.(member.characterId);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[clearChat] Failed to clear character memory:', err);
-    }
+    // (Memory V2: CharacterMemory mirror removed — memories are managed in the V2 store)
   },
 
   // Message Actions
@@ -1940,16 +1916,8 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
               }),
             };
           }),
-          // Save event to sessionStats for {{eventos}} key
-          sessionStats: s.sessionStats ? appendEventLogEntry({
-            ...s.sessionStats,
-            ultimo_objetivo_completado: targetObjective?.completionDescription || targetObjective?.description,
-            lastModified: Date.now(),
-          }, {
-            type: 'quest_objective',
-            description: targetObjective?.completionDescription || targetObjective?.description || 'Objetivo completado',
-            characterId,
-          }) : s.sessionStats,
+          // Scene event recorded below via recordSceneEvent ({{last_events}} + memory)
+          sessionStats: s.sessionStats,
           updatedAt: new Date().toISOString(),
         };
       }),
@@ -1957,6 +1925,18 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
     
     // Execute objective rewards + quest rewards if auto-completed (handles notifications internally)
     executeCompletionRewards(get, sessionId, questTemplateId, objectiveId, characterId);
+    
+    // Record the scene event: session ring buffer ({{last_events}}) + memory
+    const objectiveEventDescription = targetObjective?.completionDescription || targetObjective?.description || 'Objetivo completado';
+    const objectiveActorName = characterId === '__user__'
+      ? undefined
+      : (get().getCharacterById?.(characterId)?.name || undefined);
+    get().recordSceneEvent?.(sessionId, {
+      type: 'quest_objective',
+      description: objectiveEventDescription,
+      characterId,
+      characterName: objectiveActorName,
+    });
     
     // Add simple notification only if objective has no rewards (to avoid duplicates)
     if (template && targetObjective && (!targetObjective.rewards || targetObjective.rewards.length === 0)) {
@@ -2045,13 +2025,24 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
         }
       }
 
-      // Save ultima_accion_realizada for {{eventos}} key
-      // Use completedDescription (fallback to description) for the event text
+      // Record the scene event: session ring buffer ({{last_events}}) + memory
+      // The event text is the skill description (completedDescription was removed;
+      // the memory system now records what happened).
       const completedDesc = skillCompletedDescription || skillDescription || '';
       const characterName = character?.name || characterId;
-      get().updateSessionEvent?.(sessionId, 'ultima_accion_realizada', completedDesc);
-      get().updateSessionEvent?.(sessionId, 'ultima_accion_character', characterName);
-      console.log(`[activateSkillByTool] Saved ultima_accion_realizada: ${completedDesc} (character: ${characterName})`);
+      get().recordSceneEvent?.(
+        sessionId,
+        {
+          type: 'action',
+          description: completedDesc,
+          characterId,
+          characterName,
+        },
+        {
+          content: `${characterName} activó la acción "${skillName}"${completedDesc ? `: ${completedDesc}` : ''}`,
+        }
+      );
+      console.log(`[activateSkillByTool] Recorded action event: ${completedDesc} (character: ${characterName})`);
 
       // Step 1: Apply activation costs to character stats
       if (activationCosts.length > 0) {

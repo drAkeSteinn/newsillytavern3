@@ -1,0 +1,942 @@
+     1→/**
+     2→ * Embeddings Chat Context Retrieval
+     3→ *
+     4→ * Provides utilities for automatically retrieving relevant embeddings
+     5→ * during chat and injecting them as context into the LLM prompt.
+     6→ *
+     7→ * Results are SPLIT into two categories:
+     8→ * - Non-memory (lore, world, rules, events) → injected before chat history (first)
+     9→ * - Memory (auto-extracted facts, source_type='memory') → injected before chat history (second)
+    10→ *
+    11→ * Both are injected before chat history in this order:
+    12→ *   [CONTEXTO RELEVANTE] → [MEMORIA RELEVANTE] → [Historial del chat]
+    13→ *
+    14→ * Used by /api/chat/stream, /api/chat/group-stream, and /api/chat/regenerate routes.
+    15→ */
+    16→
+    17→import type { PromptSection, EmbeddingsChatSettings } from '@/types';
+    18→import { getEmbeddingClient } from './client';
+    19→import { loadConfig, getModelContextLength } from './config-persistence';
+    20→import { LanceDBWrapper } from './lancedb-db';
+    21→import type { SearchResult } from './types';
+    22→import { CHARS_PER_TOKEN } from './types';
+    23→
+    24→/** Result of embeddings context retrieval — split into non-memory and memory */
+    25→export interface EmbeddingsContextResult {
+    26→  /** Whether any embeddings were found */
+    27→  found: boolean;
+    28→  /** Total number of embeddings retrieved */
+    29→  count: number;
+    30→  /** The raw search results for UI display */
+    31→  results: SearchResult[];
+    32→  /** Namespaces that were searched */
+    33→  searchedNamespaces: string[];
+    34→
+    35→  // --- Non-memory (lore, world, rules, events) ---
+    36→  /** Non-memory context string (lore, world, rules) — goes before chat history (first) */
+    37→  nonMemoryContextString: string;
+    38→  /** Non-memory prompt section for prompt viewer — goes before chat history (first) */
+    39→  nonMemorySection: PromptSection | null;
+    40→  /** Non-memory count */
+    41→  nonMemoryCount: number;
+    42→  /** Non-memory type groups: type → count */
+    43→  nonMemoryTypeGroups: Record<string, number>;
+    44→
+    45→  // --- Memory (auto-extracted, source_type='memory') ---
+    46→  /** Memory context string — goes before chat history (second) */
+    47→  memoryContextString: string;
+    48→  /** Memory prompt section for prompt viewer — goes before chat history (second) */
+    49→  memorySection: PromptSection | null;
+    50→  /** Memory count */
+    51→  memoryCount: number;
+    52→  /** Memory type groups: type → count */
+    53→  memoryTypeGroups: Record<string, number>;
+    54→  /** User memory count (sujeto=usuario or sujeto=otro) */
+    55→  userMemoryCount: number;
+    56→  /** Character memory count (sujeto=personaje or missing) */
+    57→  characterMemoryCount: number;
+    58→
+    59→  // --- Legacy fields (combined, for backward compat) ---
+    60→  /** Combined context string (all results) */
+    61→  contextString: string;
+    62→  /** Combined prompt section */
+    63→  section: PromptSection | null;
+    64→  /** Combined type groups */
+    65→  typeGroups?: Record<string, number>;
+    66→
+    67→  // FASE 14: Abstention directive
+    68→  /** When memories are low-relevance, this directive tells the LLM to admit it doesn't remember.
+    69→   *  Null when memories are relevant enough (top score >= threshold). */
+    70→  abstentionDirective?: string | null;
+    71→  /** Whether reranking was applied (for debugging/UI) */
+    72→  rerankingApplied?: boolean;
+    73→}
+    74→
+    75→/** Create an empty result */
+    76→function emptyResult(): EmbeddingsContextResult {
+    77→  return {
+    78→    found: false,
+    79→    count: 0,
+    80→    results: [],
+    81→    searchedNamespaces: [],
+    82→    nonMemoryContextString: '',
+    83→    nonMemorySection: null,
+    84→    nonMemoryCount: 0,
+    85→    nonMemoryTypeGroups: {},
+    86→    memoryContextString: '',
+    87→    memorySection: null,
+    88→    memoryCount: 0,
+    89→    memoryTypeGroups: {},
+    90→    userMemoryCount: 0,
+    91→    characterMemoryCount: 0,
+    92→    contextString: '',
+    93→    section: null,
+    94→    typeGroups: {},
+    95→  };
+    96→}
+    97→
+    98→/**
+    99→ * Retrieve embeddings context for a chat message.
+   100→ *
+   101→ * Searches relevant namespaces based on the configured strategy,
+   102→ * splits results into non-memory and memory, builds grouped context
+   103→ * strings for each, and returns separate PromptSections.
+   104→ *
+   105→ * @param userMessage - The user's current message (used as search query)
+   106→ * @param characterId - The active character's ID (for character strategy)
+   107→ * @param sessionId - The active session's ID (for session strategy)
+   108→ * @param settings - EmbeddingsChatSettings from the store
+   109→ * @param groupId - The group ID (for group strategy)
+   110→ * @param existingMemoryEvents - Character Memory events from Zustand store, used to deduplicate memory-type embeddings
+   111→ * @returns EmbeddingsContextResult with separate non-memory and memory sections
+   112→ */
+   113→export async function retrieveEmbeddingsContext(
+   114→  userMessage: string,
+   115→  characterId?: string,
+   116→  sessionId?: string,
+   117→  settings?: Partial<EmbeddingsChatSettings>,
+   118→  groupId?: string,
+   119→  existingMemoryEvents?: Array<{ content: string; importance: number }>,
+   120→  lastAssistantMessage?: string,  // NEW parameter for bidirectional search
+   121→  mainAttributeKey?: string,  // FASE 14: for importance boost on main attribute memories
+   122→): Promise<EmbeddingsContextResult> {
+   123→  // FASE 16: Knowledge search can be enabled independently from full memory pipeline.
+   124→  // - `enabled` controls the full memory system (extraction + retrieval + reinforcement)
+   125→  // - `knowledgeSearchEnabled` controls ONLY the knowledge/backhistory search (character namespace)
+   126→  // If neither is enabled, return empty.
+   127→  const fullEnabled = settings?.enabled === true;
+   128→  const knowledgeEnabled = settings?.knowledgeSearchEnabled !== false; // default true
+   129→
+   130→  if (!fullEnabled && !knowledgeEnabled) {
+   131→    return emptyResult();
+   132→  }
+   133→
+   134→  // If only knowledge search is enabled (not full), we still search but
+   135→  // we filter to only return non-memory results (knowledge/lore/file type)
+   136→  const knowledgeOnly = !fullEnabled && knowledgeEnabled;
+   137→
+   138→  if (!userMessage.trim()) {
+   139→    return emptyResult();
+   140→  }
+   141→
+   142→  try {
+   143→    const client = getEmbeddingClient();
+   144→    const config = loadConfig();
+   145→
+   146→    // Determine namespaces to search based on strategy
+   147→    // Character/group embeddingNamespaces are AUGMENTED on top of the strategy namespaces,
+   148→    // not replaced. This way the session memory and character lore namespaces are always
+   149→    // searched, plus any additional specialized namespaces the user assigns.
+   150→    const strategyNamespaces = getNamespacesForStrategy(
+   151→      settings.namespaceStrategy || 'character',
+   152→      characterId,
+   153→      sessionId,
+   154→      groupId,
+   155→      settings.crossSessionMemory,
+   156→    );
+   157→
+   158→    // FASE 16: When only knowledge search is enabled (not full memory),
+   159→    // filter out memory-* namespaces — we only want knowledge/lore/file content.
+   160→    let filteredNamespaces = strategyNamespaces;
+   161→    if (knowledgeOnly) {
+   162→      filteredNamespaces = strategyNamespaces.filter(ns =>
+   163→        !ns.startsWith('memory-')
+   164→      );
+   165→      console.log(`[Embeddings] Knowledge-only mode: searching ${filteredNamespaces.length} namespaces (excluded memory)`);
+   166→    }
+   167→
+   168→    const customNamespaces = settings.customNamespaces;
+   169→    const namespaceSet = new Set(filteredNamespaces);
+   170→    if (customNamespaces && customNamespaces.length > 0) {
+   171→      for (const ns of customNamespaces) {
+   172→        namespaceSet.add(ns);
+   173→      }
+   174→    }
+   175→    const namespaces = Array.from(namespaceSet);
+   176→
+   177→    if (namespaces.length === 0) {
+   178→      return emptyResult();
+   179→    }
+   180→
+   181→    // Smart truncation: calculate max chars based on the embedding model's context window.
+   182→    // Use 75% of the model's context as safe budget (same as ollama-client.ts).
+   183→    // Priority: config.modelContextLength (auto-detected) > hardcoded map > default (512)
+   184→    const embeddingModel = config.model || 'bge-m3:567m';
+   185→    const modelContextTokens = getModelContextLength();
+   186→    const safeTokenBudget = Math.floor(modelContextTokens * 0.75);
+   187→    const maxSearchQueryChars = Math.floor(safeTokenBudget * CHARS_PER_TOKEN);
+   188→
+   189→    const searchQuery = userMessage.length > maxSearchQueryChars
+   190→      ? userMessage.slice(0, maxSearchQueryChars)
+   191→      : userMessage;
+   192→
+   193→    if (userMessage.length > maxSearchQueryChars) {
+   194→      console.warn(
+   195→        `[Embeddings] Search query truncated from ${userMessage.length} to ${maxSearchQueryChars} chars ` +
+   196→        `(model: ${embeddingModel}, context: ${modelContextTokens} tokens)`
+   197→      );
+   198→    }
+   199→
+   200→    // Search each namespace (with deduplication)
+   201→    // FASE 17: maxResults can be overridden from the Memoria settings UI
+   202→    // (embeddingsChat.memoryMaxResults) — falls back to the embeddings config file.
+   203→    const maxResults = Math.max(1, settings.memoryMaxResults || config.maxResults || 5);
+   204→    const threshold = config.similarityThreshold || 0.5;
+   205→    const maxBudget = settings.maxTokenBudget || 1024;
+   206→
+   207→    const seenIds = new Set<string>();
+   208→    const allResults: SearchResult[] = [];
+   209→
+   210→    for (const ns of namespaces) {
+   211→      try {
+   212→        let results: SearchResult[];
+   213→        if (ns === '*') {
+   214→          results = await client.searchSimilar({
+   215→            query: searchQuery,
+   216→            limit: maxResults * 2,
+   217→            threshold,
+   218→          });
+   219→        } else {
+   220→          results = await client.searchInNamespace({
+   221→            namespace: ns,
+   222→            query: searchQuery,
+   223→            limit: maxResults,
+   224→            threshold,
+   225→          });
+   226→        }
+   227→
+   228→        for (const r of results) {
+   229→          if (!seenIds.has(r.id)) {
+   230→            seenIds.add(r.id);
+   231→            allResults.push(r);
+   232→          }
+   233→        }
+   234→      } catch (err) {
+   235→        console.warn(`[Embeddings] Search failed for namespace "${ns}":`, err);
+   236→      }
+   237→    }
+   238→
+   239→    // Bidirectional search: Also search with the last assistant message
+   240→    // This captures memories relevant to what the character was talking about,
+   241→    // even when the user's message is short or context-dependent (e.g., "Sí", "Claro")
+   242→    if (lastAssistantMessage && lastAssistantMessage.trim().length > 20) {
+   243→      // Truncate assistant query to avoid context-length errors
+   244→      let assistantQuery = lastAssistantMessage.trim();
+   245→      if (assistantQuery.length > maxSearchQueryChars) {
+   246→        assistantQuery = assistantQuery.slice(0, maxSearchQueryChars);
+   247→        console.warn(
+   248→          `[Embeddings] Assistant search query truncated to ${maxSearchQueryChars} chars`
+   249→        );
+   250→      }
+   251→      const assistantThreshold = Math.min(threshold + 0.1, 1.0);  // Cap at 1.0 to avoid disabling search
+   252→      for (const ns of namespaces) {
+   253→        try {
+   254→          let results: SearchResult[];
+   255→          if (ns === '*') {
+   256→            results = await client.searchSimilar({
+   257→              query: assistantQuery,
+   258→              limit: Math.ceil(maxResults / 2),  // Smaller limit for secondary search
+   259→              threshold: assistantThreshold,
+   260→            });
+   261→          } else {
+   262→            results = await client.searchInNamespace({
+   263→              namespace: ns,
+   264→              query: assistantQuery,
+   265→              limit: Math.ceil(maxResults / 2),
+   266→              threshold: assistantThreshold,
+   267→            });
+   268→          }
+   269→
+   270→          for (const r of results) {
+   271→            if (!seenIds.has(r.id)) {
+   272→              seenIds.add(r.id);
+   273→              allResults.push(r);
+   274→            }
+   275→          }
+   276→        } catch (err) {
+   277→          console.warn(`[Embeddings] Assistant search failed for namespace "${ns}":`, err);
+   278→        }
+   279→      }
+   280→    }
+   281→
+   282→    if (allResults.length === 0) {
+   283→      return emptyResult();
+   284→    }
+   285→
+   286→    // FASE 14: Advanced Reranking
+   287→    // Apply temporal decay (exponential), memory heat, importance boost, and diversity.
+   288→    // This replaces the basic importance boost with a more sophisticated scoring
+   289→    // inspired by VoiceMem's rescue bonuses + temporal decay.
+   290→    const rerankedResults = applyAdvancedReranking(allResults, {
+   291→      temporalBoost: settings.memoryHeatEnabled !== false,
+   292→      diversityBoost: true,
+   293→      importanceBoost: true,
+   294→      decayDays: settings.memoryDecayDays || 14,
+   295→      decayEnabled: settings.memoryDecayEnabled !== false,
+   296→      mainAttributeKey,  // FASE 14: boost memories mentioning the main attribute
+   297→      queryText: searchQuery,  // FASE 14: for episodic vs semantic boost detection
+   298→    });
+   299→
+   300→    // Replace allResults with reranked version
+   301→    allResults.length = 0;
+   302→    allResults.push(...rerankedResults);
+   303→
+   304→    // Sort by final similarity score (highest first)
+   305→    allResults.sort((a, b) => b.similarity - a.similarity);
+   306→
+   307→    // Filter out the LATEST summary embedding — it's injected separately as [RECUERDOS ANTERIORES]
+   308→    // to avoid duplication. OLD summaries (is_latest=false or no is_latest flag) are KEPT
+   309→    // so they can be found via semantic search for long-term recall.
+   310→    // Filter BEFORE slicing so we don't lose non-summary results that rank just below summaries.
+   311→    const nonLatestSummaryResults = allResults.filter(r => {
+   312→      if (r.source_type !== 'summary') return true; // Keep all non-summary results
+   313→      // For summary-type: only keep if it's NOT the latest one
+   314→      const isLatest = (r.metadata as Record<string, any>)?.is_latest;
+   315→      return !isLatest; // Exclude latest summary (injected directly), keep old ones
+   316→    });
+   317→
+   318→    // Content-level dedup for memory-type results: the same memory may exist in
+   319→    // BOTH the cross-session and session-suffixed namespaces (legacy saves via
+   320→    // manage_memory tool / manual-memory / summary routes). Keep the first
+   321→    // occurrence (highest similarity after sort above).
+   322→    const seenMemoryContents = new Set<string>();
+   323→    const dedupedResults = nonLatestSummaryResults.filter(r => {
+   324→      if (r.source_type !== 'memory') return true;
+   325→      const key = r.content.toLowerCase().replace(/\s+/g, ' ').trim();
+   326→      if (seenMemoryContents.has(key)) return false;
+   327→      seenMemoryContents.add(key);
+   328→      return true;
+   329→    });
+   330→    let trimmed = dedupedResults.slice(0, maxResults);
+   331→
+   332→    // If we hit the max results limit, prefer higher importance memories
+   333→    if (trimmed.length >= maxResults) {
+   334→      // Sort by importance (desc) as tiebreaker, then similarity
+   335→      trimmed.sort((a, b) => {
+   336→        const impA = (a.metadata as Record<string, any>)?.importance || 3;
+   337→        const impB = (b.metadata as Record<string, any>)?.importance || 3;
+   338→        if (impB !== impA) return impB - impA;
+   339→        return b.similarity - a.similarity;
+   340→      });
+   341→      trimmed = trimmed.slice(0, maxResults);
+   342→    }
+   343→
+   344→    // Deduplicate: Remove memory-type embeddings that overlap with existing Character Memory events.
+   345→    // Only memory-type (source_type='memory') results are deduplicated — lore/world content is never filtered.
+   346→    if (existingMemoryEvents && existingMemoryEvents.length > 0) {
+   347→      const eventContents = existingMemoryEvents.map(e => e.content.toLowerCase().trim());
+   348→      const beforeCount = trimmed.filter(r => r.source_type === 'memory').length;
+   349→
+   350→      trimmed = trimmed.filter(r => {
+   351→        if (r.source_type !== 'memory') return true; // Only deduplicate memory-type embeddings
+   352→
+   353→        const embeddingContent = r.content.toLowerCase().trim();
+   354→
+   355→        for (const eventContent of eventContents) {
+   356→          // Calculate word-level overlap (words longer than 3 chars to avoid stop-word noise)
+   357→          const eventWords = new Set(eventContent.split(/\s+/).filter(w => w.length > 3));
+   358→          const embeddingWords = new Set(embeddingContent.split(/\s+/).filter(w => w.length > 3));
+   359→
+   360→          if (eventWords.size === 0 || embeddingWords.size === 0) continue;
+   361→
+   362→          let overlapCount = 0;
+   363→          for (const word of embeddingWords) {
+   364→            if (eventWords.has(word)) overlapCount++;
+   365→          }
+   366→
+   367→          const overlapRatio = overlapCount / Math.max(eventWords.size, embeddingWords.size);
+   368→
+   369→          // If >60% word overlap, consider it a duplicate and skip
+   370→          if (overlapRatio > 0.6) {
+   371→            console.log(`[Dedup] Skipping duplicate embedding: "${r.content.slice(0, 60)}..." (overlaps with Character Memory, ratio=${overlapRatio.toFixed(2)})`);
+   372→            return false;
+   373→          }
+   374→        }
+   375→
+   376→        return true;
+   377→      });
+   378→
+   379→      const afterCount = trimmed.filter(r => r.source_type === 'memory').length;
+   380→      if (beforeCount !== afterCount) {
+   381→        console.log(`[Dedup] Removed ${beforeCount - afterCount} duplicate memory embedding(s) (Character Memory overlap)`);
+   382→      }
+   383→    }
+   384→
+   385→    // Load namespace info to get types for grouping
+   386→    const namespaceTypes = await getNamespaceTypesMap(trimmed);
+   387→
+   388→    // FASE 14: Memory Heat Tracking — increment heat for retrieved memories.
+   389→    // This is fire-and-forget (non-blocking) so it doesn't slow down the chat.
+   390→    // Only memory-type embeddings get heat (not lore/world content).
+   391→    if (settings.memoryHeatEnabled !== false) {
+   392→      const memoryIds = trimmed
+   393→        .filter(r => r.source_type === 'memory')
+   394→        .map(r => r.id);
+   395→      if (memoryIds.length > 0) {
+   396→        // Fire-and-forget — don't await, don't block the chat
+   397→        client.incrementMemoryHeatBatch(memoryIds, 1).catch(err => {
+   398→          console.warn('[Embeddings] Memory heat tracking failed (non-blocking):', err);
+   399→        });
+   400→      }
+   401→    }
+   402→
+   403→    // SPLIT results: memory (source_type='memory') vs non-memory (everything else)
+   404→    // FASE 16: In knowledge-only mode, all results are non-memory (we filtered memory namespaces)
+   405→    let nonMemoryResults = trimmed.filter(r => r.source_type !== 'memory');
+   406→    let memoryResults = trimmed.filter(r => r.source_type === 'memory');
+   407→
+   408→    // In knowledge-only mode, there should be no memory results (we excluded memory namespaces)
+   409→    // but filter defensively in case some ended up here
+   410→    if (knowledgeOnly) {
+   411→      memoryResults = [];
+   412→      nonMemoryResults = trimmed; // all results are knowledge
+   413→    }
+   414→
+   415→    // Give each category half the token budget (memory gets slightly more as it's more actionable)
+   416→    // FASE 16: In knowledge-only mode, give all budget to non-memory (knowledge)
+   417→    const nonMemoryBudget = knowledgeOnly ? maxBudget : Math.floor(maxBudget * 0.45);
+   418→    const memoryBudget = knowledgeOnly ? 0 : Math.floor(maxBudget * 0.55);
+   419→
+   420→    // Build grouped context strings for non-memory
+   421→    const nonMemory = buildGroupedContextString(nonMemoryResults, namespaceTypes, nonMemoryBudget, 'CONTEXTO RELEVANTE');
+   422→
+   423→    // Split memory results by subject
+   424→    const userMemories = memoryResults.filter(r => {
+   425→      const subject = (r.metadata as Record<string, any>)?.memory_subject;
+   426→      return subject === 'usuario' || subject === 'otro';
+   427→    });
+   428→    const characterMemories = memoryResults.filter(r => {
+   429→      const subject = (r.metadata as Record<string, any>)?.memory_subject;
+   430→      return subject === 'personaje' || !subject; // Default: personaje for backward compat
+   431→    });
+   432→
+   433→    // Split budget 50/50
+   434→    const userBudget = Math.floor(memoryBudget * 0.5);
+   435→    const charBudget = memoryBudget - userBudget;
+   436→
+   437→    const userCtx = buildGroupedContextString(userMemories, namespaceTypes, userBudget, 'MEMORIA DEL USUARIO');
+   438→    const charCtx = buildGroupedContextString(characterMemories, namespaceTypes, charBudget, 'MEMORIA DEL PERSONAJE');
+   439→
+   440→    // Combine memory with [MEMORIA RELEVANTE] wrapper
+   441→    // Only build if at least one section has content
+   442→    const hasUserMemory = userCtx.contextString.trim().length > 0;
+   443→    const hasCharMemory = charCtx.contextString.trim().length > 0;
+   444→    let memoryContextString = '';
+   445→    if (hasUserMemory || hasCharMemory) {
+   446→      const memoryParts: string[] = ['[MEMORIA RELEVANTE]'];
+   447→      if (hasUserMemory) memoryParts.push('', userCtx.contextString);
+   448→      if (hasCharMemory) memoryParts.push('', charCtx.contextString);
+   449→      memoryContextString = memoryParts.join('\n');
+   450→    }
+   451→    const memoryTypeGroups = { ...userCtx.typeGroups, ...charCtx.typeGroups };
+   452→
+   453→    if (!nonMemory.contextString.trim() && !memoryContextString.trim()) {
+   454→      return emptyResult();
+   455→    }
+   456→
+   457→    const showInViewer = settings.showInPromptViewer !== false;
+   458→
+   459→    // Build separate PromptSections
+   460→    const nonMemorySection: PromptSection | null = nonMemory.contextString.trim()
+   461→      ? {
+   462→          type: 'context',
+   463→          label: 'CONTEXTO',
+   464→          content: nonMemory.contextString,
+   465→          color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+   466→        }
+   467→      : null;
+   468→
+   469→    const memorySection: PromptSection | null = memoryContextString.trim()
+   470→      ? {
+   471→          type: 'memory',
+   472→          label: 'MEMORIA',
+   473→          content: memoryContextString,
+   474→          color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+   475→        }
+   476→      : null;
+   477→
+   478→    // Build combined (legacy) for backward compat
+   479→    const allContextParts: string[] = [];
+   480→    if (nonMemory.contextString.trim()) allContextParts.push(nonMemory.contextString);
+   481→    if (memoryContextString.trim()) allContextParts.push(memoryContextString);
+   482→    const combinedContextString = allContextParts.join('\n\n');
+   483→
+   484→    const combinedSection: PromptSection | null = combinedContextString.trim()
+   485→      ? {
+   486→          type: 'memory',
+   487→          label: 'CONTEXTO',
+   488→          content: combinedContextString,
+   489→          color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+   490→        }
+   491→      : null;
+   492→
+   493→    return {
+   494→      found: true,
+   495→      count: trimmed.length,
+   496→      results: trimmed,
+   497→      searchedNamespaces: namespaces,
+   498→
+   499→      // Non-memory
+   500→      nonMemoryContextString: nonMemory.contextString,
+   501→      nonMemorySection: showInViewer ? nonMemorySection : null,
+   502→      nonMemoryCount: nonMemoryResults.length,
+   503→      nonMemoryTypeGroups: nonMemory.typeGroups,
+   504→
+   505→      // Memory
+   506→      memoryContextString,
+   507→      memorySection: showInViewer ? memorySection : null,
+   508→      memoryCount: memoryResults.length,
+   509→      memoryTypeGroups,
+   510→      userMemoryCount: userMemories.length,
+   511→      characterMemoryCount: characterMemories.length,
+   512→
+   513→      // Legacy
+   514→      contextString: combinedContextString,
+   515→      section: showInViewer ? combinedSection : null,
+   516→      typeGroups: { ...nonMemory.typeGroups, ...memoryTypeGroups },
+   517→
+   518→      // FASE 14: Abstention directive + reranking flag
+   519→      abstentionDirective: getAbstentionDirective(trimmed, 0.35),
+   520→      rerankingApplied: true,
+   521→    };
+   522→  } catch (error) {
+   523→    console.error('[Embeddings] Context retrieval failed:', error);
+   524→    return emptyResult();
+   525→  }
+   526→}
+   527→
+   528→/**
+   529→ * Build a map of namespace name → type string by loading all namespaces from DB.
+   530→ */
+   531→async function getNamespaceTypesMap(results: SearchResult[]): Promise<Record<string, string>> {
+   532→  try {
+   533→    const allNamespaces = await LanceDBWrapper.getAllNamespaces();
+   534→    const typeMap: Record<string, string> = {};
+   535→
+   536→    const uniqueNamespaces = new Set<string>();
+   537→    for (const r of results) {
+   538→      if (r.namespace) uniqueNamespaces.add(r.namespace);
+   539→    }
+   540→
+   541→    for (const ns of allNamespaces) {
+   542→      if (uniqueNamespaces.has(ns.namespace)) {
+   543→        const type = (ns.metadata as Record<string, any>)?.type;
+   544→        if (type && typeof type === 'string' && type.trim()) {
+   545→          typeMap[ns.namespace] = type.trim().toUpperCase();
+   546→        }
+   547→      }
+   548→    }
+   549→
+   550→    return typeMap;
+   551→  } catch (err) {
+   552→    console.warn('[Embeddings] Could not load namespace types for grouping:', err);
+   553→    return {};
+   554→  }
+   555→}
+   556→
+   557→/**
+   558→ * Determine which namespaces to search based on the configured strategy.
+   559→ *
+   560→ * FASE 14: When crossSessionMemory is enabled (default), memories are stored
+   561→ * WITHOUT sessionId in the namespace — so characters remember across sessions.
+   562→ * When disabled, falls back to per-session namespaces (legacy).
+   563→ *
+   564→ * Always includes:
+   565→ *   - memory-character-{characterId} (cross-session, when enabled)
+   566→ *   - OR memory-character-{characterId}-{sessionId} (per-session, when disabled)
+   567→ *   - character-{characterId} (character lore/knowledge)
+   568→ *
+   569→ * Plus any namespaces configured in the character/group card's embeddingNamespaces.
+   570→ * The character/group embeddingNamespaces are passed via settings.customNamespaces.
+   571→ */
+   572→function getNamespacesForStrategy(
+   573→  strategy: EmbeddingsChatSettings['namespaceStrategy'],
+   574→  characterId?: string,
+   575→  sessionId?: string,
+   576→  groupId?: string,
+   577→  crossSessionMemory?: boolean,
+   578→): string[] {
+   579→  const useCrossSession = crossSessionMemory !== false; // default true
+   580→
+   581→  switch (strategy) {
+   582→    case 'global':
+   583→      return ['*'];
+   584→
+   585→    case 'character':
+   586→    case 'session': {
+   587→      const ns: string[] = [];
+   588→      const sessionSuffix = (!useCrossSession && sessionId) ? `-${sessionId}` : '';
+   589→
+   590→      // Cross-session MEMORY namespace (memories extracted from chat)
+   591→      if (characterId) {
+   592→        ns.push(`memory-character-${characterId}${sessionSuffix}`);
+   593→        // ALSO search the session-suffixed variant even in cross-session mode:
+   594→        // the manage_memory tool, manual-memory route and summary route save with
+   595→        // the session suffix. Without this, those memories are invisible to retrieval.
+   596→        // (Results are deduplicated below, so dual-matching is harmless.)
+   597→        if (useCrossSession && sessionId) {
+   598→          ns.push(`memory-character-${characterId}-${sessionId}`);
+   599→        }
+   600→      }
+   601→      if (groupId) {
+   602→        ns.push(`memory-group-${groupId}${sessionSuffix}`);
+   603→        if (useCrossSession && sessionId) {
+   604→          ns.push(`memory-group-${groupId}-${sessionId}`);
+   605→        }
+   606→      }
+   607→
+   608→      // ALWAYS include: character/group lore namespace (manually created content)
+   609→      if (characterId) ns.push(`character-${characterId}`);
+   610→      if (groupId) ns.push(`group-${groupId}`);
+   611→      // NO hardcoded 'default', 'world', 'world-building' — only search what's configured.
+   612→      // Character/group card namespaces are passed via settings.customNamespaces and merged
+   613→      // by the calling code in retrieveEmbeddingsContext().
+   614→      return ns;
+   615→    }
+   616→
+   617→    default:
+   618→      return ['*'];
+   619→  }
+   620→}
+   621→
+   622→/**
+   623→ * Build a grouped context string from search results.
+   624→ * Results are grouped by their namespace type (if available).
+   625→ *
+   626→ * @param header - The main header label (e.g. 'CONTEXTO RELEVANTE' or 'MEMORIA DEL PERSONAJE')
+   627→ */
+   628→function buildGroupedContextString(
+   629→  results: SearchResult[],
+   630→  namespaceTypes: Record<string, string>,
+   631→  maxTokenBudget: number,
+   632→  header: string
+   633→): { contextString: string; typeGroups: Record<string, number> } {
+   634→  // FASE 16 FIX: Use CHARS_PER_TOKEN (3.5) instead of hardcoded 4.
+   635→  // This was causing ~14% more content than the budget represented.
+   636→  const maxChars = Math.floor(maxTokenBudget * CHARS_PER_TOKEN);
+   637→
+   638→  // Group results by type
+   639→  const groups = new Map<string, SearchResult[]>();
+   640→  const ungrouped: SearchResult[] = [];
+   641→
+   642→  for (const result of results) {
+   643→    const type = namespaceTypes[result.namespace];
+   644→    if (type) {
+   645→      if (!groups.has(type)) {
+   646→        groups.set(type, []);
+   647→      }
+   648→      groups.get(type)!.push(result);
+   649→    } else {
+   650→      ungrouped.push(result);
+   651→    }
+   652→  }
+   653→
+   654→  const typeGroups: Record<string, number> = {};
+   655→  const parts: string[] = [];
+   656→  let totalChars = 0;
+   657→
+   658→  // Main header
+   659→  const headerLine = `[${header}]`;
+   660→  parts.push(headerLine);
+   661→  totalChars += headerLine.length + 2;
+   662→
+   663→  // Add each typed group
+   664→  for (const [type, typeResults] of groups) {
+   665→    const groupHeader = `[${type}]`;
+   666→    const headerLen = groupHeader.length + 2;
+   667→    const entries: string[] = [];
+   668→
+   669→    let groupChars = 0;
+   670→    for (const result of typeResults) {
+   671→      const entry = `- ${result.content}`;
+   672→      if (totalChars + headerLen + groupChars + entry.length + 2 > maxChars) {
+   673→        break;
+   674→      }
+   675→      entries.push(entry);
+   676→      groupChars += entry.length + 2;
+   677→    }
+   678→
+   679→    if (entries.length > 0) {
+   680→      parts.push(`${groupHeader}\n${entries.join('\n')}`);
+   681→      totalChars += headerLen + groupChars;
+   682→      typeGroups[type] = entries.length;
+   683→    }
+   684→  }
+   685→
+   686→  // Add ungrouped results
+   687→  if (ungrouped.length > 0) {
+   688→    const entries: string[] = [];
+   689→    for (const result of ungrouped) {
+   690→      const entry = `- ${result.content}`;
+   691→      if (totalChars + entry.length + 2 > maxChars) {
+   692→        break;
+   693→      }
+   694→      entries.push(entry);
+   695→      totalChars += entry.length + 2;
+   696→    }
+   697→
+   698→    if (entries.length > 0) {
+   699→      if (groups.size > 0) {
+   700→        const groupHeader = '[OTRO CONTEXTO]';
+   701→        parts.push(`${groupHeader}\n${entries.join('\n')}`);
+   702→        totalChars += groupHeader.length + 2;
+   703→        typeGroups['OTRO CONTEXTO'] = entries.length;
+   704→      } else {
+   705→        // No types — simple list (no sub-header needed, main header already exists)
+   706→        parts.push(entries.join('\n'));
+   707→        typeGroups['SIN TIPO'] = entries.length;
+   708→      }
+   709→    }
+   710→  }
+   711→
+   712→  if (parts.length <= 1) return { contextString: '', typeGroups: {} };
+   713→
+   714→  return {
+   715→    contextString: parts.join('\n\n'),
+   716→    typeGroups,
+   717→  };
+   718→}
+   719→
+   720→// ============================================
+   721→// FASE 14: Advanced Reranking (VoiceMem-inspired)
+   722→// ============================================
+   723→
+   724→interface RerankingOptions {
+   725→  /** Boost recent memories with exponential decay */
+   726→  temporalBoost: boolean;
+   727→  /** Penalize similar/duplicate content */
+   728→  diversityBoost: boolean;
+   729→  /** Boost high-importance memories */
+   730→  importanceBoost: boolean;
+   731→  /** Decay period in days (for temporal boost) */
+   732→  decayDays: number;
+   733→  /** Whether decay is enabled */
+   734→  decayEnabled: boolean;
+   735→  /** FASE 14: Main attribute key — memories mentioning it get boosted */
+   736→  mainAttributeKey?: string;
+   737→  /** FASE 14: Original query text — for episodic vs semantic boost detection */
+   738→  queryText?: string;
+   739→}
+   740→
+   741→/**
+   742→ * Apply advanced reranking to search results.
+   743→ *
+   744→ * Inspired by VoiceMem's approach:
+   745→ * - Temporal decay: exponential decay based on age (half-life = decayDays/2)
+   746→ * - Importance boost: +0.05 per importance level above 3
+   747→ * - Memory type bonus: hechos get +0.02, eventos get +0.01
+   748→ * - Diversity: penalize results with >40% word overlap with already-selected results
+   749→ * - Main attribute boost: +0.05 for memories mentioning the character's main attribute
+   750→ *
+   751→ * This runs AFTER the initial cosine search, re-scoring and re-sorting results.
+   752→ */
+   753→function applyAdvancedReranking(results: SearchResult[], options: RerankingOptions): SearchResult[] {
+   754→  if (results.length === 0) return results;
+   755→
+   756→  const now = Date.now();
+   757→  const dayMs = 1000 * 60 * 60 * 24;
+   758→  const halfLifeDays = Math.max(1, options.decayDays / 2);
+   759→
+   760→  // Score each result with a composite score
+   761→  const scored = results.map(r => {
+   762→    let compositeScore = r.similarity;
+   763→    const contentLower = r.content.toLowerCase();
+   764→
+   765→    // 1. Temporal decay (exponential) — recent memories get boosted, old ones decayed
+   766→    if (options.temporalBoost && options.decayEnabled) {
+   767→      const createdAt = new Date((r.metadata as Record<string, any>)?.created_at || r.metadata?.extracted_at || 0).getTime();
+   768→      if (createdAt > 0) {
+   769→        const daysOld = (now - createdAt) / dayMs;
+   770→        // Exponential decay: memory value halves every `halfLifeDays` days
+   771→        // temporalFactor = 1.0 (today) → 0.5 (halfLife) → 0.25 (2x halfLife) → ...
+   772→        const temporalFactor = Math.pow(0.5, daysOld / halfLifeDays);
+   773→        // Apply: 70% original similarity + 30% temporal factor
+   774→        compositeScore = r.similarity * 0.7 + (r.similarity * temporalFactor) * 0.3;
+   775→      }
+   776→    }
+   777→
+   778→    // 2. Importance boost
+   779→    if (options.importanceBoost && r.source_type === 'memory') {
+   780→      const importance = (r.metadata as Record<string, any>)?.importance || 3;
+   781→      // +0.05 per importance level above 3, -0.03 per level below
+   782→      const importanceBoost = (importance - 3) * 0.05;
+   783→      compositeScore += importanceBoost;
+   784→    }
+   785→
+   786→    // 3. Memory type bonus
+   787→    const memoryType = (r.metadata as Record<string, any>)?.memory_type;
+   788→    if (memoryType === 'hecho') compositeScore += 0.02;
+   789→    else if (memoryType === 'evento') compositeScore += 0.01;
+   790→    else if (memoryType === 'secreto') compositeScore += 0.03; // secrets are more impactful
+   791→
+   792→    // 4. Memory heat boost (if metadata has heat/retrieval_count)
+   793→    const heat = (r.metadata as Record<string, any>)?.heat || 0;
+   794→    if (heat > 0) {
+   795→      // Each retrieval boosts score slightly (max +0.05)
+   796→      compositeScore += Math.min(0.05, heat * 0.01);
+   797→    }
+   798→
+   799→    // 5. Recency boost (subtle — memories from today get +0.05)
+   800→    const createdAt = new Date((r.metadata as Record<string, any>)?.created_at || 0).getTime();
+   801→    if (createdAt > 0) {
+   802→      const daysOld = (now - createdAt) / dayMs;
+   803→      if (daysOld < 1) compositeScore += 0.05; // today
+   804→      else if (daysOld < 3) compositeScore += 0.03; // this week
+   805→    }
+   806→
+   807→    // 6. FASE 14: Main attribute boost — memories mentioning the character's main attribute
+   808→    // (e.g., "adiccion" for Ximena) are more central to the character's identity.
+   809→    if (options.mainAttributeKey && contentLower.includes(options.mainAttributeKey.toLowerCase())) {
+   810→      compositeScore += 0.05;
+   811→    }
+   812→
+   813→    // 7. FASE 14: Episodic vs Semantic boost
+   814→    // - Episodic memories (specific events) get boosted when the query asks "what happened" / "cuando" / "ayer"
+   815→    // - Semantic memories (general facts) get boosted when the query asks "what is" / "le gusta" / "es"
+   816→    const isEpisodic = (r.metadata as Record<string, any>)?.episodica === true;
+   817→    const queryLower = (options.queryText || '').toLowerCase();
+   818→    if (isEpisodic) {
+   819→      // Boost episodic memories for temporal/event queries
+   820→      if (/\b(cuando|ayer|anoche|la semana pasada|hoy|el otro dia|pasado|ocurrio|paso|sucedio|que hizo|que dij|que pas)\b/.test(queryLower)) {
+   821→        compositeScore += 0.05;
+   822→      }
+   823→    } else {
+   824→      // Boost semantic memories for general-knowledge queries
+   825→      if (/\b(le gusta|le interesa|es|tiene|sabe|conoce|prefiere|quiere|odia|leer|disfruta)\b/.test(queryLower)) {
+   826→        compositeScore += 0.03;
+   827→      }
+   828→    }
+   829→
+   830→    return { result: r, score: Math.max(0, Math.min(1.0, compositeScore)) };
+   831→  });
+   832→
+   833→  // Sort by composite score
+   834→  scored.sort((a, b) => b.score - a.score);
+   835→
+   836→  // Apply diversity boost: penalize similar content
+   837→  if (options.diversityBoost) {
+   838→    const selected: Array<{ result: SearchResult; score: number }> = [];
+   839→    const selectedWordSets: Array<Set<string>> = [];
+   840→
+   841→    for (const item of scored) {
+   842→      // Create content signature (words > 3 chars)
+   843→      const words = item.result.content
+   844→        .toLowerCase()
+   845→        .split(/\s+/)
+   846→        .filter(w => w.length > 3);
+   847→      const wordSet = new Set(words);
+   848→
+   849→      // Calculate diversity penalty based on overlap with already-selected results
+   850→      let diversityPenalty = 0;
+   851→      for (const selectedWords of selectedWordSets) {
+   852→        const overlap = Array.from(wordSet).filter(w => selectedWords.has(w)).length;
+   853→        const overlapRatio = overlap / Math.max(wordSet.size, selectedWords.size);
+   854→        if (overlapRatio > 0.4) {
+   855→          // Heavy penalty for >40% overlap
+   856→          diversityPenalty += overlapRatio * 0.15;
+   857→        }
+   858→      }
+   859→
+   860→      const finalScore = item.score - diversityPenalty;
+   861→
+   862→      selected.push({ result: { ...item.result, similarity: finalScore }, score: finalScore });
+   863→      selectedWordSets.push(wordSet);
+   864→    }
+   865→
+   866→    return selected.map(s => s.result).sort((a, b) => b.similarity - a.similarity);
+   867→  }
+   868→
+   869→  // No diversity boost: just return sorted by score
+   870→  return scored.map(s => ({ ...s.result, similarity: s.score }));
+   871→}
+   872→
+   873→/**
+   874→ * FASE 14: Abstention Directive
+   875→ *
+   876→ * When the top search result has a very low similarity score (below threshold),
+   877→ * inject an abstention hint telling the LLM to admit it doesn't remember,
+   878→ * rather than confabulating.
+   879→ *
+   880→ * This is inspired by VoiceMem's "say you don't know" abstention directive.
+   881→ *
+   882→ * @param topResults - The top search results after reranking
+   883→ * @param threshold - Below this similarity, trigger abstention (default: 0.35)
+   884→ * @returns An abstention hint string, or null if memories are relevant enough
+   885→ */
+   886→export function getAbstentionDirective(
+   887→  topResults: SearchResult[],
+   888→  threshold: number = 0.35
+   889→): string | null {
+   890→  if (topResults.length === 0) {
+   891→    // No memories found at all — strong abstention
+   892→    return `[DIRECTIVA DE ABSTENCIÓN]\nNo tienes memorias específicas sobre este tema. Si el usuario pregunta algo concreto que no recuerdas, di honestamente que no lo recuerdas o no lo sabes, en lugar de inventar información. Es mejor admitir que no sabes que confabular.`;
+   893→  }
+   894→
+   895→  // Check if the TOP result is below threshold
+   896→  const topScore = topResults[0]?.similarity || 0;
+   897→  if (topScore < threshold) {
+   898→    return `[DIRECTIVA DE ABSTENCIÓN]\nLas memorias recuperadas sobre este tema son poco relevantes (similitud baja). Si el usuario pregunta algo específico que no recuerdas claramente, di que no lo recuerdas en lugar de inventar detalles.`;
+   899→  }
+   900→
+   901→  return null;
+   902→}
+   903→
+   904→/**
+   905→ * Extract embeddings metadata from a context result for SSE transmission.
+   906→ */
+   907→export function formatEmbeddingsForSSE(result: EmbeddingsContextResult): {
+   908→  count: number;
+   909→  namespaces: string[];
+   910→  nonMemoryCount: number;
+   911→  memoryCount: number;
+   912→  userMemoryCount: number;
+   913→  characterMemoryCount: number;
+   914→  nonMemoryTypeGroups: Record<string, number>;
+   915→  memoryTypeGroups: Record<string, number>;
+   916→  topResults: Array<{
+   917→    content: string;
+   918→    similarity: number;
+   919→    namespace: string;
+   920→    source_type?: string;
+   921→  }>;
+   922→} | null {
+   923→  if (!result.found) return null;
+   924→
+   925→  return {
+   926→    count: result.count,
+   927→    namespaces: result.searchedNamespaces,
+   928→    nonMemoryCount: result.nonMemoryCount,
+   929→    memoryCount: result.memoryCount,
+   930→    userMemoryCount: result.userMemoryCount,
+   931→    characterMemoryCount: result.characterMemoryCount,
+   932→    nonMemoryTypeGroups: result.nonMemoryTypeGroups,
+   933→    memoryTypeGroups: result.memoryTypeGroups,
+   934→    topResults: result.results.slice(0, 5).map(r => ({
+   935→      content: r.content.slice(0, 200),
+   936→      similarity: r.similarity,
+   937→      namespace: r.namespace,
+   938→      source_type: r.source_type,
+   939→    })),
+   940→  };
+   941→}
+   942→

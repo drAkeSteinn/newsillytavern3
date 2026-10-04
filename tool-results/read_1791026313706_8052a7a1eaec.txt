@@ -1,0 +1,817 @@
+     1→/**
+     2→ * Memory V2 — Unified store.
+     3→ *
+     4→ * Single table `memories_v2` (LanceDB, same DB dir as the legacy `embeddings`
+     5→ * table) with the full V2 schema, plus a JSON flat-file fallback
+     6→ * (data/memory-v2-fallback.json) used when the LanceDB native module is
+     7→ * unavailable or a pending model/dimension migration blocks vector search.
+     8→ *
+     9→ * Model/dimension guard (data/memory-v2-meta.json):
+    10→ *   - On init, if the recorded model/dimension differs from the current
+    11→ *     embeddings config → re-embed every record into a fresh table.
+    12→ *   - If re-embedding fails (Ollama down) → meta.needsReembed = true and the
+    13→ *     store degrades to the JSON backend (lexical search) until reinit.
+    14→ *
+    15→ * The JSON backend also serves as the graceful degradation path on Windows
+    16→ * where native-module failures were observed ("native module not available").
+    17→ */
+    18→
+    19→import fs from 'fs';
+    20→import path from 'path';
+    21→import {
+    22→  getLanceDBInstance,
+    23→  isLanceDBAvailable,
+    24→  isLanceDBPermanentlyUnavailable,
+    25→} from '@/lib/embeddings/lancedb-db';
+    26→import { loadConfig } from '@/lib/embeddings/config-persistence';
+    27→import { getOllamaClient } from '@/lib/embeddings/ollama-client';
+    28→import type {
+    29→  MemoryV2Backend,
+    30→  MemoryV2Meta,
+    31→  MemoryV2Record,
+    32→  MemoryV2Type,
+    33→  MemoryV2Health,
+    34→  ScoredMemory,
+    35→} from './types';
+    36→import { MEMORY_TOMBSTONE } from './types';
+    37→
+    38→const V2_TABLE = 'memories_v2';
+    39→const META_FILE = path.join(process.cwd(), 'data', 'memory-v2-meta.json');
+    40→const FALLBACK_FILE = path.join(process.cwd(), 'data', 'memory-v2-fallback.json');
+    41→const SCHEMA_VERSION = 1;
+    42→const MAX_CONTENT_LEN = 480;
+    43→
+    44→// ============ Small utils ============
+    45→
+    46→function esc(value: string): string {
+    47→  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    48→}
+    49→
+    50→function normalizeVector(vector: number[]): number[] {
+    51→  const magnitude = Math.sqrt(vector.reduce((s, v) => s + v * v, 0));
+    52→  if (!magnitude || !isFinite(magnitude)) return vector;
+    53→  return vector.map(v => v / magnitude);
+    54→}
+    55→
+    56→/** Cosine similarity for (already) normalized vectors = dot product */
+    57→function dot(a: number[], b: number[]): number {
+    58→  const n = Math.min(a.length, b.length);
+    59→  let s = 0;
+    60→  for (let i = 0; i < n; i++) s += a[i] * b[i];
+    61→  return s;
+    62→}
+    63→
+    64→function nowISO(): string {
+    65→  return new Date().toISOString();
+    66→}
+    67→
+    68→function uuid(): string {
+    69→  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+    70→  return `v2_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    71→}
+    72→
+    73→export function sanitizeContent(text: string): string {
+    74→  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_CONTENT_LEN);
+    75→}
+    76→
+    77→/** Validate/normalize an absolute date; returns '' when unusable */
+    78→export function normalizeEventDate(date?: string | null): string {
+    79→  if (!date) return '';
+    80→  const t = String(date).trim();
+    81→  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+    82→  const d = new Date(t);
+    83→  if (!isNaN(d.getTime())) return d.toISOString();
+    84→  return '';
+    85→}
+    86→
+    87→// ============ Meta (model/dim guard) ============
+    88→
+    89→export function readV2Meta(): MemoryV2Meta | null {
+    90→  try {
+    91→    if (!fs.existsSync(META_FILE)) return null;
+    92→    const raw = JSON.parse(fs.readFileSync(META_FILE, 'utf-8'));
+    93→    if (!raw || typeof raw !== 'object') return null;
+    94→    return {
+    95→      model: String(raw.model || ''),
+    96→      dimension: Number(raw.dimension || 0),
+    97→      schemaVersion: Number(raw.schemaVersion || SCHEMA_VERSION),
+    98→      needsReembed: !!raw.needsReembed,
+    99→      updatedAt: String(raw.updatedAt || ''),
+   100→    };
+   101→  } catch {
+   102→    return null;
+   103→  }
+   104→}
+   105→
+   106→function writeV2Meta(meta: MemoryV2Meta): void {
+   107→  try {
+   108→    fs.mkdirSync(path.dirname(META_FILE), { recursive: true });
+   109→    fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2));
+   110→  } catch (err) {
+   111→    console.warn('[MemoryV2] Failed to write meta file:', err);
+   112→  }
+   113→}
+   114→
+   115→// ============ JSON fallback backend ============
+   116→
+   117→interface FallbackFile {
+   118→  records: MemoryV2Record[];
+   119→}
+   120→
+   121→function loadFallback(): FallbackFile {
+   122→  try {
+   123→    if (!fs.existsSync(FALLBACK_FILE)) return { records: [] };
+   124→    const raw = JSON.parse(fs.readFileSync(FALLBACK_FILE, 'utf-8'));
+   125→    return { records: Array.isArray(raw?.records) ? raw.records : [] };
+   126→  } catch {
+   127→    return { records: [] };
+   128→  }
+   129→}
+   130→
+   131→function saveFallback(records: MemoryV2Record[]): void {
+   132→  try {
+   133→    fs.mkdirSync(path.dirname(FALLBACK_FILE), { recursive: true });
+   134→    fs.writeFileSync(FALLBACK_FILE, JSON.stringify({ records }, null, 2));
+   135→  } catch (err) {
+   136→    console.warn('[MemoryV2] Failed to write fallback file:', err);
+   137→  }
+   138→}
+   139→
+   140→// ============ Store state & init ============
+   141→
+   142→interface StoreState {
+   143→  backend: MemoryV2Backend;
+   144→  db: any | null;
+   145→  table: any | null;
+   146→  model: string;
+   147→  dim: number;
+   148→  ready: boolean;
+   149→  initPromise: Promise<void> | null;
+   150→  initError: string;
+   151→  migratedNow: boolean;
+   152→}
+   153→
+   154→const state: StoreState = {
+   155→  backend: 'json',
+   156→  db: null,
+   157→  table: null,
+   158→  model: '',
+   159→  dim: 0,
+   160→  ready: false,
+   161→  initPromise: null,
+   162→  initError: '',
+   163→  migratedNow: false,
+   164→};
+   165→
+   166→export function resetV2(): void {
+   167→  state.ready = false;
+   168→  state.initPromise = null;
+   169→  state.table = null;
+   170→  state.db = null;
+   171→  state.initError = '';
+   172→  state.migratedNow = false;
+   173→}
+   174→
+   175→function getEmbedder(): { client: ReturnType<typeof getOllamaClient>; model: string } {
+   176→  const cfg = loadConfig();
+   177→  return { client: getOllamaClient(cfg), model: cfg.model || 'bge-m3:567m' };
+   178→}
+   179→
+   180→async function embedText(text: string): Promise<{ vector: number[]; model: string }> {
+   181→  const { client, model } = getEmbedder();
+   182→  const vector = await client.embedText(text);
+   183→  return { vector, model };
+   184→}
+   185→
+   186→/** Row shape stored in LanceDB (linkedIds serialized) */
+   187→function recordToRow(record: MemoryV2Record, vector: number[], model: string): Record<string, unknown> {
+   188→  return {
+   189→    id: record.id,
+   190→    type: record.type,
+   191→    content: record.content,
+   192→    subject: record.subject,
+   193→    charId: record.charId || '',
+   194→    groupId: record.groupId || '',
+   195→    sessionId: record.sessionId || '',
+   196→    source: record.source,
+   197→    importance: record.importance,
+   198→    heat: record.heat,
+   199→    eventDate: record.eventDate || '',
+   200→    createdAt: record.createdAt,
+   201→    updatedAt: record.updatedAt,
+   202→    lastAccessedAt: record.lastAccessedAt,
+   203→    accessCount: record.accessCount,
+   204→    linkedIds: JSON.stringify(record.linkedIds || []),
+   205→    supersededBy: record.supersededBy || '',
+   206→    legacyId: record.legacyId || '',
+   207→    sourceMessageId: record.sourceMessageId || '',
+   208→    model_name: model,
+   209→    vector,
+   210→  };
+   211→}
+   212→
+   213→function rowToRecord(row: any): MemoryV2Record {
+   214→  let linkedIds: string[] = [];
+   215→  try {
+   216→    const parsed = typeof row.linkedIds === 'string' ? JSON.parse(row.linkedIds) : row.linkedIds;
+   217→    if (Array.isArray(parsed)) linkedIds = parsed.map(String);
+   218→  } catch { /* keep [] */ }
+   219→  return {
+   220→    id: String(row.id),
+   221→    type: row.type as MemoryV2Type,
+   222→    content: String(row.content || ''),
+   223→    subject: row.subject || 'mundo',
+   224→    charId: row.charId || '',
+   225→    groupId: row.groupId || '',
+   226→    sessionId: row.sessionId || '',
+   227→    source: row.source === 'curada' ? 'curada' : 'auto',
+   228→    importance: Number(row.importance || 0.5),
+   229→    heat: Number(row.heat || 1),
+   230→    eventDate: row.eventDate || '',
+   231→    createdAt: row.createdAt || '',
+   232→    updatedAt: row.updatedAt || '',
+   233→    lastAccessedAt: row.lastAccessedAt || '',
+   234→    accessCount: Number(row.accessCount || 0),
+   235→    linkedIds,
+   236→    supersededBy: row.supersededBy || '',
+   237→    legacyId: row.legacyId || undefined,
+   238→    sourceMessageId: row.sourceMessageId || undefined,
+   239→  };
+   240→}
+   241→
+   242→async function openOrCreateTable(db: any, dim: number, model: string): Promise<any> {
+   243→  try {
+   244→    const table = await db.openTable(V2_TABLE);
+   245→    return table;
+   246→  } catch {
+   247→    const placeholder = recordToRow(newPlaceholderRecord(), new Array(dim).fill(0), model);
+   248→    const table = await db.createTable(V2_TABLE, [placeholder]);
+   249→    await table.delete("id = 'placeholder'");
+   250→    return table;
+   251→  }
+   252→}
+   253→
+   254→function newPlaceholderRecord(): MemoryV2Record {
+   255→  const t = nowISO();
+   256→  return {
+   257→    id: 'placeholder',
+   258→    type: 'nota',
+   259→    content: 'placeholder',
+   260→    subject: 'mundo',
+   261→    charId: '',
+   262→    groupId: '',
+   263→    sessionId: '',
+   264→    source: 'auto',
+   265→    importance: 0,
+   266→    heat: 0,
+   267→    eventDate: t,
+   268→    createdAt: t,
+   269→    updatedAt: t,
+   270→    lastAccessedAt: t,
+   271→    accessCount: 0,
+   272→    linkedIds: [],
+   273→    supersededBy: 'placeholder',
+   274→  };
+   275→}
+   276→
+   277→/** Check the actual vector width of an existing table (first row). */
+   278→async function probeTableDimension(table: any): Promise<number | null> {
+   279→  try {
+   280→    const rows = await table.query().limit(1).toArray();
+   281→    if (!rows.length) return null;
+   282→    const v = rows[0].vector;
+   283→    return Array.isArray(v) ? v.length : null;
+   284→  } catch {
+   285→    return null;
+   286→  }
+   287→}
+   288→
+   289→/**
+   290→ * Re-embed every record into a fresh table with the current model/dimension.
+   291→ * Returns false when embedding fails (e.g. Ollama down) — caller degrades.
+   292→ */
+   293→async function reembedAll(db: any, table: any, dim: number, model: string): Promise<number> {
+   294→  const rows = await table.query().toArray();
+   295→  const records = rows.map(rowToRecord).filter(r => r.id !== 'placeholder');
+   296→  if (!records.length) {
+   297→    // Nothing to migrate — just recreate the table with the new dim.
+   298→    try { await db.dropTable(V2_TABLE); } catch { /* ignore */ }
+   299→    const placeholder = recordToRow(newPlaceholderRecord(), new Array(dim).fill(0), model);
+   300→    await db.createTable(V2_TABLE, [placeholder]);
+   301→    state.table = await db.openTable(V2_TABLE);
+   302→    await state.table.delete("id = 'placeholder'");
+   303→    return 0;
+   304→  }
+   305→
+   306→  // Embed first — abort without touching the table on failure.
+   307→  const vectors: number[][] = [];
+   308→  for (const rec of records) {
+   309→    const { vector } = await embedText(rec.content);
+   310→    if (!Array.isArray(vector) || vector.length === 0) throw new Error('Empty embedding vector');
+   311→    vectors.push(vector);
+   312→  }
+   313→
+   314→  try { await db.dropTable(V2_TABLE); } catch { /* ignore */ }
+   315→  const placeholder = recordToRow(newPlaceholderRecord(), new Array(dim).fill(0), model);
+   316→  await db.createTable(V2_TABLE, [placeholder]);
+   317→  const newTable = await db.openTable(V2_TABLE);
+   318→  await newTable.delete("id = 'placeholder'");
+   319→  await newTable.add(records.map((rec, i) => recordToRow(rec, normalizeVector(vectors[i]), model)));
+   320→  state.table = newTable;
+   321→  return records.length;
+   322→}
+   323→
+   324→async function initStore(): Promise<void> {
+   325→  state.ready = false;
+   326→  state.initError = '';
+   327→  state.migratedNow = false;
+   328→
+   329→  const cfg = loadConfig();
+   330→  state.model = cfg.model || 'bge-m3:567m';
+   331→
+   332→  // Probe the real embedding dimension (respects the configured model).
+   333→  let probeDim = Number(cfg.dimension || 0);
+   334→  try {
+   335→    const { vector } = await embedText('inicialización de memoria');
+   336→    if (Array.isArray(vector) && vector.length > 0) probeDim = vector.length;
+   337→  } catch (err: any) {
+   338→    state.initError = `Embedder unavailable: ${err?.message || err}`;
+   339→    state.backend = 'json';
+   340→    state.ready = true;
+   341→    console.warn(`[MemoryV2] Init with JSON backend (${state.initError})`);
+   342→    return;
+   343→  }
+   344→  state.dim = probeDim;
+   345→
+   346→  if (isLanceDBPermanentlyUnavailable()) {
+   347→    state.backend = 'json';
+   348→    state.ready = true;
+   349→    return;
+   350→  }
+   351→
+   352→  try {
+   353→    const avail = await isLanceDBAvailable();
+   354→    if (!avail.available) throw new Error(avail.error || 'LanceDB native module unavailable');
+   355→    const db = await getLanceDBInstance();
+   356→    if (!db) throw new Error('LanceDB instance unavailable');
+   357→
+   358→    const meta = readV2Meta();
+   359→    let table = await openOrCreateTable(db, state.dim, state.model);
+   360→
+   361→    // ---- Model/dimension guard ----
+   362→    const tableDim = (await probeTableDimension(table)) ?? state.dim;
+   363→    const metaMismatch = !!meta && (meta.model !== state.model || meta.dimension !== tableDim);
+   364→    const dimMismatch = tableDim !== state.dim;
+   365→    if (metaMismatch || dimMismatch || meta?.needsReembed) {
+   366→      console.log(
+   367→        `[MemoryV2] Model/dim change detected (meta: ${meta?.model}@${meta?.dimension}, ` +
+   368→        `table: @${tableDim}, current: ${state.model}@${state.dim}) — re-embedding…`
+   369→      );
+   370→      const n = await reembedAll(db, table, state.dim, state.model);
+   371→      table = state.table;
+   372→      writeV2Meta({
+   373→        model: state.model,
+   374→        dimension: state.dim,
+   375→        schemaVersion: SCHEMA_VERSION,
+   376→        needsReembed: false,
+   377→        updatedAt: nowISO(),
+   378→      });
+   379→      state.migratedNow = true;
+   380→      console.log(`[MemoryV2] Re-embedded ${n} records into fresh table @${state.dim}d`);
+   381→    } else if (!meta) {
+   382→      writeV2Meta({
+   383→        model: state.model,
+   384→        dimension: state.dim,
+   385→        schemaVersion: SCHEMA_VERSION,
+   386→        needsReembed: false,
+   387→        updatedAt: nowISO(),
+   388→      });
+   389→    }
+   390→
+   391→    state.db = db;
+   392→    state.table = table;
+   393→    state.backend = 'lancedb';
+   394→    state.ready = true;
+   395→  } catch (err: any) {
+   396→    state.initError = err?.message || String(err);
+   397→    state.backend = 'json';
+   398→    state.ready = true;
+   399→    console.warn(`[MemoryV2] LanceDB init failed → JSON backend. ${state.initError}`);
+   400→  }
+   401→}
+   402→
+   403→/** Lazily-initialized store accessor */
+   404→async function ensureReady(): Promise<void> {
+   405→  if (state.ready) return;
+   406→  if (!state.initPromise) {
+   407→    state.initPromise = initStore().catch(err => {
+   408→      state.initError = err?.message || String(err);
+   409→      state.backend = 'json';
+   410→      state.ready = true;
+   411→    });
+   412→  }
+   413→  await state.initPromise;
+   414→}
+   415→
+   416→// ============ Filters ============
+   417→
+   418→interface FilterOpts {
+   419→  charId?: string;
+   420→  groupId?: string;
+   421→  sessionId?: string;
+   422→  crossSession?: boolean;
+   423→  types?: MemoryV2Type[];
+   424→  activeOnly?: boolean;
+   425→  curatedOnly?: boolean;
+   426→}
+   427→
+   428→function buildWhere(opts: FilterOpts): string {
+   429→  const clauses: string[] = [];
+   430→  const { charId, groupId, sessionId, crossSession, types, activeOnly = true, curatedOnly } = opts;
+   431→
+   432→  if (charId && groupId) {
+   433→    clauses.push(`(charId = '${esc(charId)}' OR (charId = '' AND groupId = '${esc(groupId)}'))`);
+   434→  } else if (charId) {
+   435→    clauses.push(`charId = '${esc(charId)}'`);
+   436→  } else if (groupId) {
+   437→    clauses.push(`groupId = '${esc(groupId)}'`);
+   438→  }
+   439→  if (!crossSession && sessionId) {
+   440→    clauses.push(`(sessionId = '' OR sessionId = '${esc(sessionId)}')`);
+   441→  }
+   442→  if (types?.length) {
+   443→    clauses.push(`type IN (${types.map(t => `'${esc(t)}'`).join(', ')})`);
+   444→  }
+   445→  if (activeOnly) clauses.push(`supersededBy = ''`);
+   446→  if (curatedOnly) clauses.push(`source = 'curada'`);
+   447→  return clauses.join(' AND ');
+   448→}
+   449→
+   450→// ============ Public store API ============
+   451→
+   452→export interface V2Store {
+   453→  readonly backend: MemoryV2Backend;
+   454→  readonly model: string;
+   455→  readonly dim: number;
+   456→  readonly initError: string;
+   457→  readonly migratedNow: boolean;
+   458→  embed(text: string): Promise<number[]>;
+   459→  add(record: MemoryV2Record, opts?: { vector?: number[] }): Promise<MemoryV2Record>;
+   460→  get(id: string): Promise<MemoryV2Record | null>;
+   461→  getByLegacyId(legacyId: string, charId?: string): Promise<MemoryV2Record | null>;
+   462→  supersede(id: string, supersededBy: string): Promise<boolean>;
+   463→  hardDelete(id: string): Promise<boolean>;
+   464→  update(record: MemoryV2Record, opts?: { reembed?: boolean }): Promise<void>;
+   465→  list(opts: FilterOpts & { limit?: number; orderBy?: 'smart' | 'recent' | 'importance' }): Promise<MemoryV2Record[]>;
+   466→  searchVector(opts: FilterOpts & { vector: number[]; query?: string; limit?: number; threshold?: number }): Promise<{ record: MemoryV2Record; cosine: number }[]>;
+   467→  searchLexical(opts: FilterOpts & { query: string; limit?: number }): Promise<{ record: MemoryV2Record; cosine: number }[]>;
+   468→  touch(ids: string[]): Promise<void>;
+   469→  counts(charId?: string): Promise<MemoryV2Health['counts']>;
+   470→}
+   471→
+   472→const store: V2Store = {
+   473→  get backend() { return state.backend; },
+   474→  get model() { return state.model; },
+   475→  get dim() { return state.dim; },
+   476→  get initError() { return state.initError; },
+   477→  get migratedNow() { return state.migratedNow; },
+   478→
+   479→  async embed(text: string): Promise<number[]> {
+   480→    const { vector } = await embedText(text);
+   481→    return vector;
+   482→  },
+   483→
+   484→  async add(record, opts) {
+   485→    record.content = sanitizeContent(record.content);
+   486→    const t = nowISO();
+   487→    if (!record.id) record.id = `v2_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+   488→    record.createdAt = record.createdAt || t;
+   489→    record.updatedAt = t;
+   490→    record.lastAccessedAt = record.lastAccessedAt || t;
+   491→    record.accessCount = record.accessCount || 0;
+   492→    record.heat = record.heat ?? 1;
+   493→    record.importance = Math.min(1, Math.max(0, record.importance ?? 0.5));
+   494→    record.supersededBy = record.supersededBy || '';
+   495→    record.linkedIds = record.linkedIds || [];
+   496→    if (!record.eventDate) record.eventDate = t;
+   497→
+   498→    if (state.backend === 'lancedb' && state.table) {
+   499→      let vector = opts?.vector;
+   500→      if (!vector) {
+   501→        const res = await embedText(record.content).catch(() => null);
+   502→        if (!res) throw new Error('Embedding failed while adding memory record');
+   503→        vector = res.vector;
+   504→      }
+   505→      await state.table.add([recordToRow(record, normalizeVector(vector), state.model)]);
+   506→    } else {
+   507→      const fb = loadFallback();
+   508→      fb.records.push(record);
+   509→      saveFallback(fb.records);
+   510→    }
+   511→    return record;
+   512→  },
+   513→
+   514→  async get(id) {
+   515→    await ensureReady();
+   516→    if (state.backend === 'lancedb' && state.table) {
+   517→      const rows = await state.table.query().where(`id = '${esc(id)}'`).limit(2).toArray();
+   518→      return rows.length ? rowToRecord(rows[0]) : null;
+   519→    }
+   520→    return loadFallback().records.find(r => r.id === id) || null;
+   521→  },
+   522→
+   523→  async getByLegacyId(legacyId, charId) {
+   524→    await ensureReady();
+   525→    const cond = [`legacyId = '${esc(legacyId)}'`];
+   526→    if (charId) cond.push(`charId = '${esc(charId)}'`);
+   527→    if (state.backend === 'lancedb' && state.table) {
+   528→      const rows = await state.table.query().where(cond.join(' AND ')).limit(2).toArray();
+   529→      return rows.length ? rowToRecord(rows[0]) : null;
+   530→    }
+   531→    return loadFallback().records.find(r => r.legacyId === legacyId && (!charId || r.charId === charId)) || null;
+   532→  },
+   533→
+   534→  async supersede(id, supersededBy) {
+   535→    await ensureReady();
+   536→    const t = nowISO();
+   537→    if (state.backend === 'lancedb' && state.table) {
+   538→      const rows = await state.table.query().where(`id = '${esc(id)}'`).limit(2).toArray();
+   539→      if (!rows.length) return false;
+   540→      const row = rows[0];
+   541→      const rec = rowToRecord(row);
+   542→      rec.supersededBy = supersededBy || MEMORY_TOMBSTONE;
+   543→      rec.updatedAt = t;
+   544→      await state.table.delete(`id = '${esc(id)}'`);
+   545→      await state.table.add([recordToRow(rec, Array.from(row.vector || []), row.model_name || state.model)]);
+   546→      return true;
+   547→    }
+   548→    const fb = loadFallback();
+   549→    const rec = fb.records.find(r => r.id === id);
+   550→    if (!rec) return false;
+   551→    rec.supersededBy = supersededBy || MEMORY_TOMBSTONE;
+   552→    rec.updatedAt = t;
+   553→    saveFallback(fb.records);
+   554→    return true;
+   555→  },
+   556→
+   557→  async hardDelete(id) {
+   558→    await ensureReady();
+   559→    if (state.backend === 'lancedb' && state.table) {
+   560→      await state.table.delete(`id = '${esc(id)}'`);
+   561→      return true;
+   562→    }
+   563→    const fb = loadFallback();
+   564→    const before = fb.records.length;
+   565→    fb.records = fb.records.filter(r => r.id !== id);
+   566→    saveFallback(fb.records);
+   567→    return fb.records.length < before;
+   568→  },
+   569→
+   570→  async update(record, opts) {
+   571→    await ensureReady();
+   572→    const t = nowISO();
+   573→    record.updatedAt = t;
+   574→    if (state.backend === 'lancedb' && state.table) {
+   575→      const rows = await state.table.query().where(`id = '${esc(record.id)}'`).limit(2).toArray();
+   576→      if (!rows.length) throw new Error(`Record ${record.id} not found`);
+   577→      const old = rows[0];
+   578→      await state.table.delete(`id = '${esc(record.id)}'`);
+   579→      if (opts?.reembed) {
+   580→        const { vector } = await embedText(record.content);
+   581→        await state.table.add([recordToRow(record, normalizeVector(vector), state.model)]);
+   582→      } else {
+   583→        await state.table.add([recordToRow(record, Array.from(old.vector || []), old.model_name || state.model)]);
+   584→      }
+   585→    } else {
+   586→      const fb = loadFallback();
+   587→      const idx = fb.records.findIndex(r => r.id === record.id);
+   588→      if (idx >= 0) fb.records[idx] = record;
+   589→      saveFallback(fb.records);
+   590→    }
+   591→  },
+   592→
+   593→  async list(opts) {
+   594→    await ensureReady();
+   595→    const { limit = 100, orderBy = 'smart', ...filters } = opts;
+   596→    let records: MemoryV2Record[];
+   597→    if (state.backend === 'lancedb' && state.table) {
+   598→      const where = buildWhere(filters);
+   599→      const query: any = state.table.query();
+   600→      if (where) query.where(where);
+   601→      const rows = await query.limit(Math.max(limit * 4, 200)).toArray();
+   602→      records = rows.map(rowToRecord);
+   603→    } else {
+   604→      const fb = loadFallback();
+   605→      records = fb.records.filter(r => {
+   606→        if (filters.charId && r.charId !== filters.charId && !(r.charId === '' && filters.groupId && r.groupId === filters.groupId)) return false;
+   607→        if (!filters.charId && filters.groupId && r.groupId !== filters.groupId) return false;
+   608→        if (!filters.crossSession && filters.sessionId && r.sessionId !== '' && r.sessionId !== filters.sessionId) return false;
+   609→        if (filters.types?.length && !filters.types.includes(r.type)) return false;
+   610→        if ((filters.activeOnly !== false) && r.supersededBy !== '') return false;
+   611→        if (filters.curatedOnly && r.source !== 'curada') return false;
+   612→        return true;
+   613→      });
+   614→    }
+   615→
+   616→    const dayMs = 24 * 60 * 60 * 1000;
+   617→    const recency = (r: MemoryV2Record) => {
+   618→      const t = Date.parse(r.eventDate || r.createdAt || '');
+   619→      return isNaN(t) ? 0 : Math.max(0, 1 - (Date.now() - t) / (90 * dayMs));
+   620→    };
+   621→    if (orderBy === 'recent') {
+   622→      records.sort((a, b) => (b.eventDate || b.createdAt || '').localeCompare(a.eventDate || a.createdAt || ''));
+   623→    } else if (orderBy === 'importance') {
+   624→      records.sort((a, b) => b.importance - a.importance);
+   625→    } else {
+   626→      // smart: curated first, then importance × heat × recency
+   627→      records.sort((a, b) => {
+   628→        const cur = (r: MemoryV2Record) => (r.source === 'curada' ? 1 : 0);
+   629→        if (cur(b) !== cur(a)) return cur(b) - cur(a);
+   630→        return (
+   631→          b.importance * 2 + Math.min(1.5, b.heat / 5) + recency(b) -
+   632→          (a.importance * 2 + Math.min(1.5, a.heat / 5) + recency(a))
+   633→        );
+   634→      });
+   635→    }
+   636→    return records.slice(0, limit);
+   637→  },
+   638→
+   639→  async searchVector(opts) {
+   640→    await ensureReady();
+   641→    const { vector, query, limit = 10, threshold = 0.15, ...filters } = opts;
+   642→    const qv = normalizeVector(vector);
+   643→    if (state.backend === 'lancedb' && state.table) {
+   644→      const all = await state.table
+   645→        .vectorSearch(qv)
+   646→        .limit(Math.max(limit * 10, 60))
+   647→        .toArray();
+   648→      const where = buildWhere(filters);
+   649→      return all
+   650→        .map((row: any) => ({
+   651→          record: rowToRecord(row),
+   652→          cosine: 1 - (row._distance || 0) / 2,
+   653→        }))
+   654→        .filter((hit: any) => {
+   655→          if (hit.record.id === 'placeholder') return false;
+   656→          if (hit.cosine < threshold) return false;
+   657→          if (!where) return true;
+   658→          // Reuse the same predicate logic in-memory (cheap at V2 scale)
+   659→          return matchesWhere(hit.record, filters);
+   660→        })
+   661→        .slice(0, limit);
+   662→    }
+   663→    // JSON fallback: no vectors — lexical sim stands in for cosine (when a
+   664→    // text query is provided, e.g. extraction dedup). Apply the same threshold
+   665→    // so dedup/behavior matches the vector path.
+   666→    const lexical = await store.searchLexical({ ...opts, query: query || '', limit: limit * 2 } as any);
+   667→    return lexical
+   668→      .filter(h => h.cosine >= (threshold ?? 0))
+   669→      .slice(0, limit);
+   670→  },
+   671→
+   672→  async searchLexical(opts) {
+   673→    await ensureReady();
+   674→    const { query, limit = 10, ...filters } = opts;
+   675→    const qTokens = new Set(tokenize(query));
+   676→    const records = await store.list({ ...filters, limit: 500 });
+   677→    return records
+   678→      .map(record => {
+   679→        const rTokens = tokenize(record.content);
+   680→        let overlap = 0;
+   681→        for (const t of rTokens) if (qTokens.has(t)) overlap++;
+   682→        const cosine = qTokens.size ? overlap / qTokens.size : 0;
+   683→        return { record, cosine };
+   684→      })
+   685→      .filter(h => h.cosine > 0)
+   686→      .sort((a, b) => b.cosine - a.cosine)
+   687→      .slice(0, limit);
+   688→  },
+   689→
+   690→  async touch(ids) {
+   691→    if (!ids.length) return;
+   692→    await ensureReady();
+   693→    const t = nowISO();
+   694→    for (const id of ids) {
+   695→      try {
+   696→        if (state.backend === 'lancedb' && state.table) {
+   697→          const rows = await state.table.query().where(`id = '${esc(id)}'`).limit(2).toArray();
+   698→          if (!rows.length) continue;
+   699→          const row = rows[0];
+   700→          const rec = rowToRecord(row);
+   701→          rec.heat = rec.heat + 1;
+   702→          rec.accessCount = rec.accessCount + 1;
+   703→          rec.lastAccessedAt = t;
+   704→          await state.table.delete(`id = '${esc(id)}'`);
+   705→          await state.table.add([recordToRow(rec, Array.from(row.vector || []), row.model_name || state.model)]);
+   706→        } else {
+   707→          const fb = loadFallback();
+   708→          const rec = fb.records.find(r => r.id === id);
+   709→          if (!rec) continue;
+   710→          rec.heat += 1;
+   711→          rec.accessCount += 1;
+   712→          rec.lastAccessedAt = t;
+   713→          saveFallback(fb.records);
+   714→        }
+   715→      } catch (err) {
+   716→        console.warn(`[MemoryV2] touch(${id}) failed:`, err);
+   717→      }
+   718→    }
+   719→  },
+   720→
+   721→  async counts(charId) {
+   722→    await ensureReady();
+   723→    let records: MemoryV2Record[];
+   724→    if (state.backend === 'lancedb' && state.table) {
+   725→      const query: any = state.table.query();
+   726→      if (charId) query.where(`charId = '${esc(charId)}'`);
+   727→      const rows = await query.limit(10000).toArray();
+   728→      records = rows.map(rowToRecord).filter(r => r.id !== 'placeholder');
+   729→    } else {
+   730→      records = loadFallback().records.filter(r => !charId || r.charId === charId);
+   731→    }
+   732→    const byType: Record<string, number> = {};
+   733→    let active = 0;
+   734→    let superseded = 0;
+   735→    for (const r of records) {
+   736→      byType[r.type] = (byType[r.type] || 0) + 1;
+   737→      if (r.supersededBy === '') active++; else superseded++;
+   738→    }
+   739→    return { total: records.length, active, superseded, byType };
+   740→  },
+   741→};
+   742→
+   743→/** In-memory predicate mirroring buildWhere (used after vectorSearch). */
+   744→function matchesWhere(record: MemoryV2Record, opts: FilterOpts): boolean {
+   745→  const { charId, groupId, sessionId, crossSession, types, activeOnly = true, curatedOnly } = opts;
+   746→  if (charId && groupId) {
+   747→    if (record.charId !== charId && !(record.charId === '' && record.groupId === groupId)) return false;
+   748→  } else if (charId && record.charId !== charId) return false;
+   749→  else if (groupId && !charId && record.groupId !== groupId) return false;
+   750→  if (!crossSession && sessionId && record.sessionId !== '' && record.sessionId !== sessionId) return false;
+   751→  if (types?.length && !types.includes(record.type)) return false;
+   752→  if (activeOnly && record.supersededBy !== '') return false;
+   753→  if (curatedOnly && record.source !== 'curada') return false;
+   754→  return true;
+   755→}
+   756→
+   757→// ============ Tokenizer (shared with retrieval / lexical search) ============
+   758→
+   759→const STOPWORDS = new Set([
+   760→  'que', 'del', 'los', 'las', 'una', 'uno', 'unos', 'unas', 'por', 'para', 'con', 'sin', 'sobre',
+   761→  'como', 'pero', 'mas', 'muy', 'cuando', 'donde', 'quien', 'cual', 'cuales', 'este', 'esta',
+   762→  'esto', 'estos', 'estas', 'ese', 'esa', 'eso', 'aquel', 'aquella', 'the', 'and', 'for', 'with',
+   763→  'you', 'your', 'was', 'were', 'are', 'have', 'has', 'had', 'his', 'her', 'they', 'them',
+   764→]);
+   765→
+   766→export function tokenize(text: string): string[] {
+   767→  return String(text || '')
+   768→    .toLowerCase()
+   769→    .normalize('NFD')
+   770→    .replace(/[\u0300-\u036f]/g, '')
+   771→    .split(/[^a-z0-9ñ]+/i)
+   772→    .filter(t => t.length >= 3 && !STOPWORDS.has(t));
+   773→}
+   774→
+   775→// ============ Health ============
+   776→
+   777→export async function v2Health(includeOllama = false): Promise<MemoryV2Health> {
+   778→  await ensureReady();
+   779→  const health: MemoryV2Health = {
+   780→    backend: state.backend,
+   781→    lancedbNative: !(await isLanceDBAvailable()).available ? false : !isLanceDBPermanentlyUnavailable(),
+   782→    model: state.model,
+   783→    dimension: state.dim,
+   784→    meta: readV2Meta(),
+   785→    counts: await store.counts(),
+   786→  };
+   787→  if (state.initError) health.error = state.initError;
+   788→  if (includeOllama) {
+   789→    try {
+   790→      const { client, model } = getEmbedder();
+   791→      const conn = await client.checkConnection();
+   792→      let contextLength: number | undefined;
+   793→      try {
+   794→        const { loadConfig: lc, getModelContextLength } = await import('@/lib/embeddings/config-persistence');
+   795→        contextLength = getModelContextLength();
+   796→      } catch { /* optional */ }
+   797→      health.ollama = {
+   798→        reachable: conn,
+   799→        model,
+   800→        dimension: state.dim,
+   801→        contextLength,
+   802→      };
+   803→    } catch (err: any) {
+   804→      health.ollama = { reachable: false, model: state.model, dimension: state.dim };
+   805→    }
+   806→  }
+   807→  return health;
+   808→}
+   809→
+   810→/** Singleton accessor used by extraction / retrieval / injection / routes */
+   811→export async function getV2(): Promise<V2Store> {
+   812→  await ensureReady();
+   813→  return store;
+   814→}
+   815→
+   816→export default store;
+   817→

@@ -4630,10 +4630,49 @@
         "swipes": [
           "(se te queda viendo un segundo con los cachetes subidos, se acomoda el vestido que se le subió un poquito al perrear, da un pasito más cerca pero sin pegarse del todo, la música retumba y la banda anda en su rollo alrededor)\n\n*Ay no, este silencio me pone nerviosa... ¿por qué no dice nada? Tengo que llenar el aire o me voy a poner a balbucear pendejadas.*\n\n\"¿Qué pasó, papi? Te quedaste mudo de repente. ¿Ya te aburrí o qué? Dime algo, aunque sea que la rola está perra o que quieres otro shot. No me dejes hablando sola que me da ansiedad y empiezo a platicar de la Voca o de que mañana tengo examen de mates y ni he abierto el libro. ¿O quieres que me regrese a perrear un rato más? Tú dime, baby, que yo vine a pasarla chido nomás.\""
         ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "user",
+        "content": "Aitana, pónte el vestido bodycon desajustado, se te está viendo todo",
+        "isDeleted": false,
+        "swipeId": "63724b00-40c9-48d5-a74e-2a9dbbee3cda",
+        "swipeIndex": 0,
+        "id": "f3824b97-2395-4867-a0fb-61f7da7f0bfe",
+        "timestamp": "2026-10-03T07:55:53.481Z",
+        "swipes": [
+          "Aitana, pónte el vestido bodycon desajustado, se te está viendo todo"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "user",
+        "content": "Hola Aitana, prueba de sistema",
+        "isDeleted": false,
+        "swipeId": "9e128a3d-306e-4f5e-9ee1-49ea5584c4db",
+        "swipeIndex": 0,
+        "id": "5c2cd94f-0254-41dc-8b5c-9849307d3f1e",
+        "timestamp": "2026-10-03T23:29:07.068Z",
+        "swipes": [
+          "Hola Aitana, prueba de sistema"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "user",
+        "content": "Prueba de flujo: dime hola",
+        "isDeleted": false,
+        "swipeId": "622687b6-5e9f-4daa-88f8-10c12a40d411",
+        "swipeIndex": 0,
+        "id": "66e5ceda-b05c-49c2-9fcc-c0197e1d5453",
+        "timestamp": "2026-10-04T01:54:41.507Z",
+        "swipes": [
+          "Prueba de flujo: dime hola"
+        ]
       }
     ],
     "createdAt": "2026-05-30T09:26:36.761Z",
-    "updatedAt": "2026-10-03T04:52:33.291Z",
+    "updatedAt": "2026-10-04T01:54:41.525Z",
     "sessionStats": {
       "characterStats": {
         "7c7fbc0b-0971-4316-ba04-fffc03bce0bc": {
@@ -4671,8 +4710,8 @@
             "boca": "",
             "cara": "",
             "pezones": "",
-            "hora": 20,
-            "minuto": 20,
+            "hora": 21,
+            "minuto": 40,
             "momento_del_dia": "noche",
             "dia": 1,
             "estacion": "primavera"
@@ -4697,17 +4736,199 @@
         "lastModified": 1790992580860
       },
       "initialized": true,
-      "lastModified": 1791003154164,
+      "lastModified": 1791070087324,
       "lastTimerUpdate": 1790992580860,
       "keywordCycleIndex": {},
       "worldClock": {
         "enabled": true,
-        "totalMinutes": 1220,
+        "totalMinutes": 1300,
         "minutesPerTurn": 20,
         "realTimeSync": false,
         "season": "primavera",
-        "lastAdvancedAt": 1791003142720
-      }
+        "lastAdvancedAt": 1791078881525
+      },
+      "eventLog": [
+        {
+          "id": "evt-1791061695674-2-83kpg",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791061695674
+        },
+        {
+          "id": "evt-1791061935681-3-fjqzk",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791061935681
+        },
+        {
+          "id": "evt-1791062175771-4-0dyrt",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791062175771
+        },
+        {
+          "id": "evt-1791062415682-5-s4sin",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791062415682
+        },
+        {
+          "id": "evt-1791062582369-1-tzcxv",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791062582369
+        },
+        {
+          "id": "evt-1791062820080-2-shnsg",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791062820080
+        },
+        {
+          "id": "evt-1791063060118-3-p0d53",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791063060118
+        },
+        {
+          "id": "evt-1791063299663-4-zclfp",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791063299663
+        },
+        {
+          "id": "evt-1791063539634-5-bfxvu",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791063539634
+        },
+        {
+          "id": "evt-1791064065215-1-oqds3",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791064065215
+        },
+        {
+          "id": "evt-1791064214242-1-sg7n4",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791064214242
+        },
+        {
+          "id": "evt-1791064315432-1-m77fg",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791064315432
+        },
+        {
+          "id": "evt-1791064808655-1-hkq9y",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791064808655
+        },
+        {
+          "id": "evt-1791064955370-1-sbll3",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791064955370
+        },
+        {
+          "id": "evt-1791065078059-1-zjed0",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791065078059
+        },
+        {
+          "id": "evt-1791065182348-1-0j39q",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791065182348
+        },
+        {
+          "id": "evt-1791065286538-1-nv57c",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791065286538
+        },
+        {
+          "id": "evt-1791066468020-1-6kjra",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791066468020
+        },
+        {
+          "id": "evt-1791066575519-1-smzpj",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791066575519
+        },
+        {
+          "id": "evt-1791066750967-1-x0egx",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791066750967
+        },
+        {
+          "id": "evt-1791066987712-1-4epfy",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791066987712
+        },
+        {
+          "id": "evt-1791067153526-1-dkg9l",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791067153526
+        },
+        {
+          "id": "evt-1791067443049-1-c2dx9",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791067443049
+        },
+        {
+          "id": "evt-1791067796123-1-725im",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791067796123
+        },
+        {
+          "id": "evt-1791067912247-1-kgggj",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791067912247
+        },
+        {
+          "id": "evt-1791068260334-1-lnm8k",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791068260334
+        },
+        {
+          "id": "evt-1791068428357-1-ej0va",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791068428357
+        },
+        {
+          "id": "evt-1791068630041-1-lzxc3",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791068630041
+        },
+        {
+          "id": "evt-1791069827295-1-b7hib",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791069827295
+        },
+        {
+          "id": "evt-1791070087324-1-n2ji6",
+          "type": "custom",
+          "description": "[DIRECTOR] El olor a café recién hecho invade el departamento desde la cocina.",
+          "timestamp": 1791070087324
+        }
+      ]
     },
     "sessionQuests": [],
     "turnCount": 0,
@@ -5870,10 +6091,114 @@
         "swipes": [
           "(se quita la blusa negra de un jalón y la avienta al sofá, quedando solo en el harness negro que le aprieta las tetas pesadas con los piercings brillando, se acerca directo a ti con pasos de botas industriales y te empuja contra la pared de la sala sin pedir permiso, la falda de látex se le sube un poco mostrando que no trae nada abajo)\n\n*Pinche diablillo, ya me prendió ver a estas putas en el depa... necesito piedra o esa verga ya, no me voy a quedar con las ganas como pendeja. Si Ximena se queda aquí que aprenda cómo se cobra el techo en esta casa.*\n\n\"Órale diablillo, qué bueno que le diste el paro a esa cogelona de Ximena, pero yo no vine a dormir en el sillón como basura... yo vine por lo mío, por esa vergota que sé que ya se te está parando con tanto show de roomies. Sácamela o dame un toque de piedra, no me dejes así o te voy a mamar aquí mismo enfrente de las dos para que vean cómo se hace de verdad. POP POP POP me la voy a fumar hasta que me llenes la garganta de mecos calientes, ¿o qué? ¿Me vas a hacer rogar como puta barata o me vas a dar lo que quiero ya?\""
         ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "user",
+        "content": "licuadora, ¿qué tal la noche?",
+        "isDeleted": false,
+        "swipeId": "7fa9981e-af88-4663-9dce-283b3bd44509",
+        "swipeIndex": 0,
+        "id": "ef3a3464-05bd-4ac9-8827-c4c32aca2b14",
+        "timestamp": "2026-10-03T06:46:32.603Z",
+        "swipes": [
+          "licuadora, ¿qué tal la noche?"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "system",
+        "content": "⚠️ Failed to fetch",
+        "isDeleted": false,
+        "swipeId": "aa14b8ab-a8c0-4c0a-8287-3d0883c85304",
+        "swipeIndex": 0,
+        "id": "3bd0e51c-7bd4-40ae-87d4-20f3d52aecd6",
+        "timestamp": "2026-10-03T06:46:38.904Z",
+        "swipes": [
+          "⚠️ Failed to fetch"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "user",
+        "content": "licuadora, ¿qué tal la noche?",
+        "isDeleted": false,
+        "swipeId": "1fdf4eb2-5aba-4c1d-938b-937a430da75e",
+        "swipeIndex": 0,
+        "id": "70e227bd-580f-4be1-8753-0a4394da915a",
+        "timestamp": "2026-10-03T06:47:45.713Z",
+        "swipes": [
+          "licuadora, ¿qué tal la noche?"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "system",
+        "content": "⚠️ network error",
+        "isDeleted": false,
+        "swipeId": "1520412b-fe5a-491f-b7cc-4ee330590a60",
+        "swipeIndex": 0,
+        "id": "ed0cd4e6-4b71-4807-8a2a-2780f7078fa0",
+        "timestamp": "2026-10-03T06:47:57.521Z",
+        "swipes": [
+          "⚠️ network error"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "user",
+        "content": "licuadora, ¿qué tal la noche?",
+        "isDeleted": false,
+        "swipeId": "51fcd2f2-a3dc-42fa-b601-45e8a8e16a7c",
+        "swipeIndex": 0,
+        "id": "81149916-3ce4-43b2-8657-81fa8a35ba0c",
+        "timestamp": "2026-10-03T06:50:54.204Z",
+        "swipes": [
+          "licuadora, ¿qué tal la noche?"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "system",
+        "content": "⚠️ network error",
+        "isDeleted": false,
+        "swipeId": "6b8bd16b-d94c-494c-bdba-f0b4bd4b832c",
+        "swipeIndex": 0,
+        "id": "3fcb8b97-1b54-4f2d-b98d-f9689da32dcb",
+        "timestamp": "2026-10-03T06:52:19.205Z",
+        "swipes": [
+          "⚠️ network error"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "user",
+        "content": "licuadora, cuenta un chiste corto",
+        "isDeleted": false,
+        "swipeId": "baf8fc47-329f-4d41-a5ed-a94365cd0443",
+        "swipeIndex": 0,
+        "id": "8581d1d1-abe3-4185-9e5e-bfd94b50d8fe",
+        "timestamp": "2026-10-03T06:55:16.467Z",
+        "swipes": [
+          "licuadora, cuenta un chiste corto"
+        ]
+      },
+      {
+        "characterId": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
+        "role": "system",
+        "content": "⚠️ network error",
+        "isDeleted": false,
+        "swipeId": "97fa31e0-f100-490a-9104-297857451076",
+        "swipeIndex": 0,
+        "id": "1af8aa92-cc96-4993-8bf9-00bd5e6706be",
+        "timestamp": "2026-10-03T06:55:26.244Z",
+        "swipes": [
+          "⚠️ network error"
+        ]
       }
     ],
     "createdAt": "2026-09-11T14:20:54.816Z",
-    "updatedAt": "2026-09-12T04:46:20.026Z",
+    "updatedAt": "2026-10-03T06:55:26.244Z",
     "sessionStats": {
       "characterStats": {
         "7c7fbc0b-0971-4316-ba04-fffc03bce0bc": {
@@ -5998,8 +6323,8 @@
             "boca": "",
             "cara": "",
             "pezones": "",
-            "hora": 20,
-            "minuto": 20,
+            "hora": 21,
+            "minuto": 40,
             "momento_del_dia": "noche",
             "dia": 1,
             "estacion": "primavera",
@@ -6039,16 +6364,16 @@
       },
       "ultima_accion_realizada": "Aitana la Licuadora saco la verga de drAke para verla mejor",
       "initialized": true,
-      "lastModified": 1789188375859,
+      "lastModified": 1791010265100,
       "lastTimerUpdate": 1789188297279,
       "keywordCycleIndex": {},
       "worldClock": {
         "enabled": true,
-        "totalMinutes": 1220,
+        "totalMinutes": 1300,
         "minutesPerTurn": 20,
         "realTimeSync": false,
         "season": "primavera",
-        "lastAdvancedAt": 1789188359520
+        "lastAdvancedAt": 1791010516542
       },
       "relationships": {
         "7c7fbc0b-0971-4316-ba04-fffc03bce0bc|__user__": {
@@ -6076,6 +6401,12 @@
           "description": "Aitana la Licuadora saco la verga de drAke para verla mejor",
           "characterName": "Aitana la Licuadora",
           "timestamp": 1789188365049
+        },
+        {
+          "id": "evt-1791010265100-1-ny3ed",
+          "type": "custom",
+          "description": "[DIRECTOR] Alguien sube el volumen de la música en el departamento de al lado; los paredes vibran suavecito.",
+          "timestamp": 1791010265100
         }
       ],
       "ultima_accion_character": "Aitana la Licuadora"

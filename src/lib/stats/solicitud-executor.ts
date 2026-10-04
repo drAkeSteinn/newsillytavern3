@@ -76,7 +76,6 @@ export interface ResolvedPeticion {
   solicitudActivationKeys?: string[];   // Alternative keys for solicitud
   solicitudKeyCaseSensitive?: boolean;
   solicitudDescription: string;
-  completionDescription?: string;      // Description for ultima_solicitud_completada event
   targetCharacterId: string;
   targetCharacterName: string;
   solicitudId: string;
@@ -266,7 +265,6 @@ export function getResolvedPeticiones(
         solicitudActivationKeys: solicitud.solicitudActivationKeys,
         solicitudKeyCaseSensitive: solicitud.solicitudKeyCaseSensitive,
         solicitudDescription: solicitud.solicitudDescription,
-        completionDescription: solicitud.completionDescription,
         targetCharacterId: USER_CHARACTER_ID,
         targetCharacterName: activePersona?.name || 'Usuario',
         solicitudId: solicitud.id,
@@ -306,7 +304,6 @@ export function getResolvedPeticiones(
       solicitudActivationKeys: solicitud.solicitudActivationKeys,
       solicitudKeyCaseSensitive: solicitud.solicitudKeyCaseSensitive,
       solicitudDescription: solicitud.solicitudDescription,
-      completionDescription: solicitud.completionDescription,
       targetCharacterId: targetCharacter.id,
       targetCharacterName: targetCharacter.name,
       solicitudId: solicitud.id,
@@ -482,13 +479,6 @@ export function executePeticionActivation(
       userName,
       context.characterName
     );
-    const resolvedCompletion = resolveSolicitudKeys(
-      resolved.completionDescription || '',
-      context.characterName,  // solicitante
-      userName,               // solicitado
-      userName,
-      context.characterName
-    );
     
     // Calculate expiration timestamps
     const now = Date.now();
@@ -509,7 +499,6 @@ export function executePeticionActivation(
         fromCharacterId: context.characterId,
         fromCharacterName: context.characterName,
         description: resolvedDescription,
-        completionDescription: resolvedCompletion,
         expiresAt,
         expiresAtTurn,
       }
@@ -541,13 +530,6 @@ export function executePeticionActivation(
     context.activePersona?.name,
     context.characterName
   );
-  const resolvedCompletion = resolveSolicitudKeys(
-    resolved.completionDescription || '',
-    context.characterName,     // solicitante
-    targetCharacter.name,      // solicitado
-    context.activePersona?.name,
-    context.characterName
-  );
   
   // Calculate expiration timestamps
   const now = Date.now();
@@ -569,7 +551,6 @@ export function executePeticionActivation(
       fromCharacterId: context.characterId,
       fromCharacterName: context.characterName,
       description: resolvedDescription,
-      completionDescription: resolvedCompletion,
       expiresAt,
       expiresAtTurn,
     }

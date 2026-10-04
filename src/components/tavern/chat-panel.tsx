@@ -25,7 +25,7 @@ import { Sparkles, Clapperboard, Heart } from 'lucide-react';
 import { RelationshipPanel } from './relationship-panel';
 import { SceneDock } from './scene-dock';
 import { OnboardingHints, type OnboardingHintDef } from './onboarding-hints';
-import type { CharacterCard, SummaryData, ChatMessage, CharacterMemory, MicroReaction } from '@/types';
+import type { CharacterCard, SummaryData, ChatMessage, MicroReaction } from '@/types';
 import { generateMicroReactions } from '@/lib/micro-reactions';
 import { EmbeddingsContextContainer } from '@/components/embeddings/embeddings-context-indicator';
 import { ToolCallNotification, type ToolCallPhase } from '@/components/tools/tool-call-notification';
@@ -34,6 +34,11 @@ import { t } from '@/lib/i18n';
 import { chatLogger } from '@/lib/logger';
 import { generateId } from '@/lib/utils';
 import { collectThresholdMessages, type ThresholdMessageTarget } from '@/lib/stats/threshold-messages';
+
+// FIX: in-flight guard against overlapping memory extractions (e.g. a proactive
+// message landing on the same turn boundary as a normal reply fired two
+// concurrent extract-memory requests, inflating heat/stats and racing UPDATEs).
+let memoryExtractionInFlight = false;
 
 export function ChatPanel() {
   const [streamingContent, setStreamingContent] = useState('');
@@ -115,9 +120,12 @@ export function ChatPanel() {
     const ensureNamespaces = async () => {
       try {
         const state = useTavernStore.getState();
-        const embeddingsEnabled = (state.settings as any)?.embeddingsChat?.enabled === true;
+        // Effective embeddings-subsystem usage: knowledge search or Memory V2.
+        // The legacy `enabled` master flag is deprecated and no longer gates anything.
+        const ec = (state.settings as any)?.embeddingsChat || {};
+        const embeddingsEnabled = ec.knowledgeSearchEnabled !== false || ec.memoryV2Enabled !== false;
         if (!embeddingsEnabled) {
-          // Embeddings are disabled — skip loading LanceDB entirely
+          // Embeddings subsystem fully disabled — skip loading LanceDB entirely
           return;
         }
 
@@ -173,7 +181,10 @@ export function ChatPanel() {
     const cleanupOrphanedNamespaces = async () => {
       try {
         const state = useTavernStore.getState();
-        const embeddingsEnabled = (state.settings as any)?.embeddingsChat?.enabled === true;
+        // Effective embeddings-subsystem usage (see ensure-namespace effect above):
+        // knowledge search or Memory V2 — the deprecated `enabled` flag is ignored.
+        const ec = (state.settings as any)?.embeddingsChat || {};
+        const embeddingsEnabled = ec.knowledgeSearchEnabled !== false || ec.memoryV2Enabled !== false;
         if (!embeddingsEnabled) return;
 
         const sessions = state.sessions || [];
@@ -221,7 +232,6 @@ export function ChatPanel() {
   const setSessionSummary = useTavernStore((state) => state.setSessionSummary);
   const resetMessageCount = useTavernStore((state) => state.resetMessageCount);
   const initSessionTracking = useTavernStore((state) => state.initSessionTracking);
-  const getCharacterMemory = useTavernStore((state) => state.getCharacterMemory);
   const deleteMessagesUpTo = useTavernStore((state) => state.deleteMessagesUpTo);
   // FASE 11 v2: para togglear proactivo sin editar la card
   const updateCharacter = useTavernStore((state) => state.updateCharacter);
@@ -741,7 +751,9 @@ export function ChatPanel() {
         ? activeGroup?.name || 'Group'
         : activeCharacter?.name || 'Character';
 
-      // Call summary API
+      // Call summary API — scope identifiers let the route store the summary
+      // embedding in a per-character/per-group + per-session namespace instead
+      // of the shared `memory-character-default-unknown` bucket.
       const response = await fetch('/api/chat/summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -751,6 +763,9 @@ export function ChatPanel() {
           userName: activePersona?.name || 'User',
           settings: summarySettings,
           previousSummary,
+          characterId: isGroupMode ? undefined : activeCharacter?.id,
+          groupId: isGroupMode ? activeGroup?.id : undefined,
+          sessionId: activeSessionId,
           apiConfig: {
             provider: activeLLMConfig.provider,
             endpoint: activeLLMConfig.endpoint || '',
@@ -972,15 +987,6 @@ export function ChatPanel() {
             },  // Pass embeddings chat settings + group namespace override
             // Summary for memory/context compression
             summary: currentSession?.summary,
-            // Per-character memory map for deduplication
-            characterMemoryMap: (() => {
-              const map: Record<string, CharacterMemory> = {};
-              for (const char of groupCharacters) {
-                const mem = getCharacterMemory(char.id);
-                if (mem) map[char.id] = mem;
-              }
-              return map;
-            })(),
             // Last responder ID for round-robin rotation
             lastResponderId: (() => {
               // Find the last assistant message to determine who responded last
@@ -1266,7 +1272,6 @@ export function ChatPanel() {
                         fromCharacterId: parsed.fromCharacterId,
                         fromCharacterName: parsed.fromCharacterName,
                         description: parsed.description || '',
-                        completionDescription: parsed.completionDescription,
                       }
                     );
                     toast.success(`📬 Petición: ${parsed.peticionKey || parsed.solicitudKey} → ${parsed.targetCharacterName || ''}`);
@@ -1277,36 +1282,6 @@ export function ChatPanel() {
                       parsed.solicitudKey
                     );
                     toast.success(`✅ Solicitud completada: ${parsed.solicitudKey}`);
-                  }
-                } else if (parsed.type === 'memory_activation') {
-                  // Memory tool activation - sync to client-side Character Memory (Zustand)
-                  console.log('[ChatPanel] Memory activation from tool:', parsed.toolName, parsed.activationType);
-                  const store = useTavernStore.getState();
-                  if (parsed.activationType === 'save_memory' && parsed.eventData) {
-                    store.addMemoryEvent(parsed.characterId, {
-                      id: parsed.eventData.id,
-                      type: parsed.eventData.type as any,
-                      content: parsed.eventData.content,
-                      importance: parsed.eventData.importance,
-                      timestamp: new Date().toISOString(),
-                      embeddingId: parsed.eventData.embeddingId,
-                      sessionId: parsed.eventData.sessionId,
-                    });
-                    toast.success(`🧠 Memoria guardada: ${parsed.eventData.content.slice(0, 50)}...`);
-                  } else if (parsed.activationType === 'update_relationship' && parsed.relationshipData) {
-                    store.updateRelationship(parsed.characterId, {
-                      targetId: parsed.relationshipData.targetId,
-                      targetName: parsed.relationshipData.targetName,
-                      relationship: parsed.relationshipData.relationship,
-                      sentiment: parsed.relationshipData.sentiment,
-                      notes: parsed.relationshipData.notes,
-                      lastUpdated: new Date().toISOString(),
-                    });
-                    toast.success(`💜 Relación actualizada: ${parsed.relationshipData.targetName}`);
-                  } else if (parsed.activationType === 'save_note' && parsed.noteContent) {
-                    const existingMemory = store.getCharacterMemory(parsed.characterId);
-                    store.setCharacterNotes(parsed.characterId, 
-                      existingMemory?.notes ? `${existingMemory.notes}\n${parsed.noteContent}` : parsed.noteContent);
                   }
                 } else if (parsed.type === 'wardrobe_activation') {
                   // GUARDARROPA V2: Wardrobe tool activation — update session stats activeOutfitId
@@ -1493,7 +1468,9 @@ export function ChatPanel() {
         // Triggered after the stream is fully processed, if server flagged shouldExtract
         if (groupShouldExtract && isStillActive() && activeSessionId) {
           const extractableChars = groupResponses.filter(r => r.content && r.content.length > 50);
-          if (extractableChars.length > 0) {
+          if (extractableChars.length > 0 && !memoryExtractionInFlight) {
+            memoryExtractionInFlight = true;
+            (window as unknown as { __tfMemoryExtractionInFlight?: boolean }).__tfMemoryExtractionInFlight = true;
             const charNames = extractableChars.map(r => r.characterName).join(', ');
             setMemoryExtractingInfo({ active: true, characterNames: charNames });
             
@@ -1509,31 +1486,19 @@ export function ChatPanel() {
                 
                 if (!currentLLMConfig) return;
                 
-                // Build chat context for context-aware extraction
-                // Labels use the persona's real name (not "Jugador") so extracted
-                // memories reference the user by name ({{user}} personalization)
-                const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth || 0;
-                let chatContextForExtraction: string | undefined;
-                if (extractionContextDepth > 0) {
-                  const contextMessages = sessionMsgs
-                    .filter(m => !m.isDeleted && m.content?.trim())
-                    .slice(-(extractionContextDepth * 2 + 1));
-                  if (contextMessages.length > 0) {
-                    chatContextForExtraction = contextMessages
-                      .map(m => {
-                        const role = m.role === 'user' ? personaName : 'Personaje';
-                        return `${role}: ${m.content.trim().slice(0, 300)}`;
-                      })
-                      .join('\n  ');
-                  }
-                }
+                // Memory V2: recent exchange window for merged extraction.
+                // Sized by the user-facing "Profundidad de contexto" setting
+                // (0 = only the last response, N = N recent user+assistant pairs).
+                const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth ?? 2;
+                const extractionWindow = Math.max(1, extractionContextDepth * 2 + 1);
                 
                 let totalSaved = 0;
                 
                 // Extract last user message for user-memory extraction
+                // FIX off-by-one: slice(-2,-1) took the PREVIOUS user message.
                 const lastUserMsg = sessionMsgs
                   .filter(m => m.role === 'user' && !m.isDeleted)
-                  .slice(-2, -1)[0]?.content;
+                  .slice(-1)[0]?.content;
                 
                 for (const resp of extractableChars) {
                   try {
@@ -1547,8 +1512,13 @@ export function ChatPanel() {
                         sessionId: activeSessionId,
                         groupId: activeGroupId,
                         userName: personaName,
-                        extractFromUser: embeddingsChat.memoryExtractionFromUserEnabled === true,
                         lastUserMessage: lastUserMsg,
+                        // Memory V2: recent exchange window + unified pipeline flag
+                        recentMessages: sessionMsgs
+                          .filter(m => !m.isDeleted && (m.role === 'user' || m.role === 'assistant'))
+                          .slice(-extractionWindow)
+                          .map(m => ({ role: m.role, content: m.content })),
+                        memoryV2Enabled: embeddingsChat.memoryV2Enabled !== false,
                         llmConfig: {
                           provider: currentLLMConfig.provider,
                           endpoint: currentLLMConfig.endpoint,
@@ -1557,14 +1527,6 @@ export function ChatPanel() {
                           parameters: currentLLMConfig.parameters,
                         },
                         minImportance: embeddingsChat.memoryExtractionMinImportance || 2,
-                        customPrompt: embeddingsChat.groupMemoryExtractionPrompt || embeddingsChat.memoryExtractionPrompt,
-                        chatContext: chatContextForExtraction,
-                        consolidationSettings: embeddingsChat.memoryConsolidationEnabled ? {
-                          enabled: true,
-                          threshold: embeddingsChat.memoryConsolidationThreshold || 50,
-                          keepRecent: embeddingsChat.memoryConsolidationKeepRecent || 10,
-                          keepHighImportance: embeddingsChat.memoryConsolidationKeepHighImportance || 4,
-                        } : undefined,
                         extractionModelConfig: embeddingsChat.extractionModelEnabled ? {
                           extractionModelEnabled: true,
                           extractionModelProvider: embeddingsChat.extractionModelProvider,
@@ -1578,66 +1540,14 @@ export function ChatPanel() {
                     if (extractionResponse.ok) {
                       const result = await extractionResponse.json();
                       if (result.success) {
-                        totalSaved += result.saved || 0;
-                        console.log(`[Memory] Group extraction result for ${resp.characterName}: extracted=${result.count}, saved=${result.saved}`);
+                        // Route returns {count, added, updated, deleted, skipped} — there is no `saved` field.
+                        totalSaved += result.count || 0;
+                        console.log(`[Memory] Group extraction result for ${resp.characterName}: extracted=${result.count}, added=${result.added}, updated=${result.updated}`);
                         
-                        // Sync memoryActivations to Character Memory
-                        if (result.memoryActivations && result.memoryActivations.length > 0) {
-                          const store = useTavernStore.getState();
-                          for (const activation of result.memoryActivations) {
-                            store.addMemoryEvent(activation.characterId, {
-                              id: activation.eventData.id,
-                              type: activation.eventData.type as any,
-                              content: activation.eventData.content,
-                              importance: activation.eventData.importance,
-                              timestamp: new Date().toISOString(),
-                              embeddingId: activation.eventData.embeddingId,
-                              sessionId: activation.eventData.sessionId,
-                            });
-                          }
-                        }
                       }
                     }
                   } catch (err) {
                     console.warn(`[Memory] Group extraction failed for ${resp.characterName}:`, err);
-                  }
-                }
-                
-                // Also trigger group dynamics extraction if enabled
-                if (embeddingsChat.groupDynamicsExtraction && extractableChars.length > 1) {
-                  try {
-                    const turnLines: string[] = [];
-                    const lastUserMsg = sessionMsgs.filter(m => m.role === 'user' && !m.isDeleted).slice(-1)[0];
-                    if (lastUserMsg) {
-                      turnLines.push(`${personaName}: ${lastUserMsg.content.trim().slice(0, 500)}`);
-                    }
-                    for (const resp of extractableChars) {
-                      turnLines.push(`${resp.characterName}: ${resp.content.trim().slice(0, 500)}`);
-                    }
-                    const fullTurnContext = turnLines.join('\n');
-                    
-                    if (fullTurnContext.length > 100) {
-                      await fetch('/api/embeddings/extract-group-dynamics', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          turnContext: fullTurnContext,
-                          groupId: activeGroupId,
-                          sessionId: activeSessionId,
-                          llmConfig: {
-                            provider: currentLLMConfig.provider,
-                            endpoint: currentLLMConfig.endpoint,
-                            apiKey: currentLLMConfig.apiKey,
-                            model: currentLLMConfig.model,
-                            parameters: currentLLMConfig.parameters,
-                          },
-                          minImportance: embeddingsChat.memoryExtractionMinImportance || 2,
-                          userName: personaName,
-                        }),
-                      });
-                    }
-                  } catch (dynErr) {
-                    console.warn('[Memory] Group dynamics extraction failed (non-blocking):', dynErr);
                   }
                 }
                 
@@ -1648,6 +1558,8 @@ export function ChatPanel() {
                 console.warn('[Memory] Group client-side extraction failed:', err);
               } finally {
                 setMemoryExtractingInfo(prev => ({ ...prev, active: false }));
+                memoryExtractionInFlight = false;
+                (window as unknown as { __tfMemoryExtractionInFlight?: boolean }).__tfMemoryExtractionInFlight = false;
               }
             })();
           }
@@ -1828,7 +1740,6 @@ export function ChatPanel() {
             allCharacters: allCharactersWithPersona,  // Pass all characters + persona for peticiones/solicitudes
             soundTriggers,  // Pass sound triggers for {{sonidos}} resolution
             settings,  // Pass settings for {{sonidos}} template
-            characterMemory: activeCharacter ? getCharacterMemory(activeCharacter.id) : undefined,  // Pass character memory (events, relationships, notes)
             embeddingsChat: {
               ...settings.embeddingsChat,
               customNamespaces: activeCharacter?.embeddingNamespaces,
@@ -2105,7 +2016,6 @@ export function ChatPanel() {
                         fromCharacterId: parsed.fromCharacterId,
                         fromCharacterName: parsed.fromCharacterName,
                         description: parsed.description || '',
-                        completionDescription: parsed.completionDescription,
                       }
                     );
                     toast.success(`📬 Petición: ${parsed.peticionKey || parsed.solicitudKey} → ${parsed.targetCharacterName || ''}`);
@@ -2116,36 +2026,6 @@ export function ChatPanel() {
                       parsed.solicitudKey
                     );
                     toast.success(`✅ Solicitud completada: ${parsed.solicitudKey}`);
-                  }
-                } else if (parsed.type === 'memory_activation') {
-                  // Memory tool activation - sync to client-side Character Memory (Zustand)
-                  console.log('[ChatPanel] Memory activation from tool:', parsed.toolName, parsed.activationType);
-                  const store = useTavernStore.getState();
-                  if (parsed.activationType === 'save_memory' && parsed.eventData) {
-                    store.addMemoryEvent(parsed.characterId, {
-                      id: parsed.eventData.id,
-                      type: parsed.eventData.type as any,
-                      content: parsed.eventData.content,
-                      importance: parsed.eventData.importance,
-                      timestamp: new Date().toISOString(),
-                      embeddingId: parsed.eventData.embeddingId,
-                      sessionId: parsed.eventData.sessionId,
-                    });
-                    toast.success(`🧠 Memoria guardada: ${parsed.eventData.content.slice(0, 50)}...`);
-                  } else if (parsed.activationType === 'update_relationship' && parsed.relationshipData) {
-                    store.updateRelationship(parsed.characterId, {
-                      targetId: parsed.relationshipData.targetId,
-                      targetName: parsed.relationshipData.targetName,
-                      relationship: parsed.relationshipData.relationship,
-                      sentiment: parsed.relationshipData.sentiment,
-                      notes: parsed.relationshipData.notes,
-                      lastUpdated: new Date().toISOString(),
-                    });
-                    toast.success(`💜 Relación actualizada: ${parsed.relationshipData.targetName}`);
-                  } else if (parsed.activationType === 'save_note' && parsed.noteContent) {
-                    const existingMemory = store.getCharacterMemory(parsed.characterId);
-                    store.setCharacterNotes(parsed.characterId, 
-                      existingMemory?.notes ? `${existingMemory.notes}\n${parsed.noteContent}` : parsed.noteContent);
                   }
                 } else if (parsed.type === 'wardrobe_activation') {
                   // GUARDARROPA V2: Wardrobe tool activation — update session stats activeOutfitId
@@ -2261,12 +2141,17 @@ export function ChatPanel() {
                   // Client-side memory extraction for single chat
                   // Triggered after the stream is fully processed, if server flagged shouldExtract
                   if (parsed.shouldExtract && cleanedMessage && isStillActive()) {
+                    if (memoryExtractionInFlight) {
+                      console.log('[Memory] Extraction already in flight — skipping duplicate trigger');
+                    } else {
                     setMemoryExtractingInfo({ active: true, characterNames: activeCharacter.name });
                     
                     // Run extraction asynchronously (don't block the UI)
                     const extractionMessage = cleanedMessage;
                     const extractionCharacterId = activeCharacter.id;
                     const extractionCharacterName = activeCharacter.name;
+                    memoryExtractionInFlight = true;
+                    (window as unknown as { __tfMemoryExtractionInFlight?: boolean }).__tfMemoryExtractionInFlight = true;
                     (async () => {
                       try {
                         const state = useTavernStore.getState();
@@ -2278,30 +2163,17 @@ export function ChatPanel() {
                         
                         if (!currentLLMConfig) return;
                         
-                        // Build chat context for context-aware extraction
-                        // Labels use the persona's real name (not "Jugador") so extracted
-                        // memories reference the user by name ({{user}} personalization)
-                        const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth || 0;
-                        let chatContextForExtraction: string | undefined;
-                        if (extractionContextDepth > 0) {
-                          const contextMessages = sessionMsgs
-                            .filter(m => !m.isDeleted && m.content?.trim())
-                            .slice(-(extractionContextDepth * 2 + 1));
-                          if (contextMessages.length > 0) {
-                            chatContextForExtraction = contextMessages
-                              .map(m => {
-                                const role = m.role === 'user' ? personaName : extractionCharacterName;
-                                const content = m.content.trim().slice(0, 300);
-                                return `${role}: ${content}`;
-                              })
-                              .join('\n  ');
-                          }
-                        }
+                        // Memory V2: recent exchange window for merged extraction,
+                        // sized by the "Profundidad de contexto" setting.
+                        const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth ?? 2;
+                        const extractionWindow = Math.max(1, extractionContextDepth * 2 + 1);
                         
                         // Extract last user message for user-memory extraction
+                        // FIX off-by-one: slice(-2,-1) took the PREVIOUS user message;
+                        // the current one is already the last entry at extraction time.
                         const lastUserMsg = sessionMsgs
                           .filter(m => m.role === 'user' && !m.isDeleted)
-                          .slice(-2, -1)[0]?.content;
+                          .slice(-1)[0]?.content;
                         
                         const extractionResponse = await fetch('/api/embeddings/extract-memory', {
                           method: 'POST',
@@ -2312,8 +2184,13 @@ export function ChatPanel() {
                             characterId: extractionCharacterId,
                             sessionId: activeSessionId,
                             userName: personaName,
-                            extractFromUser: embeddingsChat.memoryExtractionFromUserEnabled === true,
                             lastUserMessage: lastUserMsg,
+                            // Memory V2: recent exchange window + unified pipeline flag
+                            recentMessages: sessionMsgs
+                              .filter(m => !m.isDeleted && (m.role === 'user' || m.role === 'assistant'))
+                              .slice(-extractionWindow)
+                              .map(m => ({ role: m.role, content: m.content })),
+                            memoryV2Enabled: embeddingsChat.memoryV2Enabled !== false,
                             llmConfig: {
                               provider: currentLLMConfig.provider,
                               endpoint: currentLLMConfig.endpoint,
@@ -2322,14 +2199,6 @@ export function ChatPanel() {
                               parameters: currentLLMConfig.parameters,
                             },
                             minImportance: embeddingsChat.memoryExtractionMinImportance || 2,
-                            customPrompt: embeddingsChat.memoryExtractionPrompt,
-                            chatContext: chatContextForExtraction,
-                            consolidationSettings: embeddingsChat.memoryConsolidationEnabled ? {
-                              enabled: true,
-                              threshold: embeddingsChat.memoryConsolidationThreshold || 50,
-                              keepRecent: embeddingsChat.memoryConsolidationKeepRecent || 10,
-                              keepHighImportance: embeddingsChat.memoryConsolidationKeepHighImportance || 4,
-                            } : undefined,
                             extractionModelConfig: embeddingsChat.extractionModelEnabled ? {
                               extractionModelEnabled: true,
                               extractionModelProvider: embeddingsChat.extractionModelProvider,
@@ -2343,26 +2212,9 @@ export function ChatPanel() {
                         if (extractionResponse.ok) {
                           const result = await extractionResponse.json();
                           if (result.success) {
-                            console.log(`[Memory] Extraction result for ${extractionCharacterName}: extracted=${result.count}, saved=${result.saved}`);
-                            
-                            // Sync memoryActivations to Character Memory
-                            if (result.memoryActivations && result.memoryActivations.length > 0) {
-                              const store = useTavernStore.getState();
-                              for (const activation of result.memoryActivations) {
-                                store.addMemoryEvent(activation.characterId, {
-                                  id: activation.eventData.id,
-                                  type: activation.eventData.type as any,
-                                  content: activation.eventData.content,
-                                  importance: activation.eventData.importance,
-                                  timestamp: new Date().toISOString(),
-                                  embeddingId: activation.eventData.embeddingId,
-                                  sessionId: activation.eventData.sessionId,
-                                });
-                              }
-                            }
-                            
-                            if (result.saved > 0) {
-                              toast.success(`🧠 ${result.saved} memorias extraídas automáticamente`);
+                            console.log(`[Memory] Extraction result for ${extractionCharacterName}: extracted=${result.count}, added=${result.added}, updated=${result.updated}`);
+                              if (result.count > 0) {
+                                toast.success(`🧠 ${result.count} memorias extraídas automáticamente`);
                             }
                           }
                         }
@@ -2370,8 +2222,11 @@ export function ChatPanel() {
                         console.warn('[Memory] Client-side extraction failed:', err);
                       } finally {
                         setMemoryExtractingInfo(prev => ({ ...prev, active: false }));
+                        memoryExtractionInFlight = false;
+                        (window as unknown as { __tfMemoryExtractionInFlight?: boolean }).__tfMemoryExtractionInFlight = false;
                       }
                     })();
+                    }
                   }
 
                   // FASE 5: Emotional state evaluation
@@ -2472,7 +2327,6 @@ export function ChatPanel() {
             questTemplates: latestQuestTemplates,  // Pass quest templates (freshly read)
             questSettings: latestQuestSettings,  // Pass quest settings (freshly read)
             hudContext: activeHUDContext,  // Pass HUD context for prompt injection
-            characterMemory: activeCharacter ? getCharacterMemory(activeCharacter.id) : undefined  // Pass character memory
           })
         });
 
@@ -2849,7 +2703,6 @@ export function ChatPanel() {
           questTemplates,  // Pass quest templates
           questSettings,  // Pass quest settings
           hudContext: activeHUDContext,  // Pass HUD context for prompt injection
-          characterMemory: activeCharacter ? getCharacterMemory(activeCharacter.id) : undefined,  // Pass character memory
           embeddingsChat: settings.embeddingsChat,  // Pass embeddings chat settings
           summary: currentSession?.summary  // Pass summary for memory/context
         })
@@ -3077,7 +2930,6 @@ export function ChatPanel() {
   const clearChat = useTavernStore((state) => state.clearChat);
   const resetSessionStats = useTavernStore((state) => state.resetSessionStats);
   const clearSessionSummary = useTavernStore((state) => state.clearSessionSummary);
-  const clearCharacterMemory = useTavernStore((state) => state.clearCharacterMemory);
 
   const handleResetChat = () => {
     if (!activeSessionId) return;
@@ -3089,7 +2941,6 @@ export function ChatPanel() {
     // 4. Turn count to 0
     // 5. Summary cleared
     // 6. Embedding namespaces deleted and re-created empty
-    // 7. Character Memory (events, relationships, notes) cleared
     if (confirm(t('chat.resetConfirm'))) {
       clearChat(activeSessionId);
       // Clear ALL trigger detection state so quests can be re-activated
@@ -3103,8 +2954,9 @@ export function ChatPanel() {
     // Clear messages AND related session data to start fresh:
     // - Clear messages
     // - Clear summary (stale summaries would inject wrong context)
-    // - Clear Character Memory (events, relationships, notes)
     // - Clear embedding namespaces and re-create empty
+    // (Memoria V2 records are long-term by design — they survive chat resets.
+    //  Manage them from the Memoria V2 panel or the character editor.)
     if (confirm(t('chat.clearConfirm'))) {
       // 1. Clear messages
       updateSession(activeSessionId, { 
@@ -3114,12 +2966,7 @@ export function ChatPanel() {
         updatedAt: new Date().toISOString()
       });
 
-      // 2. Clear Character Memory (Zustand store: events, relationships, notes)
-      if (activeCharacterId) {
-        clearCharacterMemory(activeCharacterId);
-      }
-
-      // 3. Clean up embedding namespaces and re-create them empty
+      // 2. Clean up embedding namespaces and re-create them empty
       try {
         const session = activeSession;
         const characterId = session?.characterId;

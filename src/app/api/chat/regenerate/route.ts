@@ -3,7 +3,7 @@
 // ============================================
 
 import { NextRequest } from 'next/server';
-import type { CharacterCard, PromptSection, Lorebook, SessionStats, HUDContextConfig, EmbeddingsChatSettings, QuestTemplate, SessionQuestInstance, QuestSettings, CharacterMemory } from '@/types';
+import type { CharacterCard, PromptSection, Lorebook, SessionStats, HUDContextConfig, EmbeddingsChatSettings, QuestTemplate, SessionQuestInstance, QuestSettings, ChatMessage, LLMParameters } from '@/types';
 import { DEFAULT_QUEST_SETTINGS } from '@/types';
 import {
   DEFAULT_CHARACTER,
@@ -25,12 +25,12 @@ import {
   streamTextGenerationWebUI,
   streamGrok,
   buildLorebookSectionForPrompt,
-  buildMemorySection,
   buildHUDContextSection,
   injectHUDContextIntoMessages,
   injectHUDContextIntoSections,
   buildKeyResolutionContext,
   resolveStats,
+  resolveAllKeys,
 } from '@/lib/llm';
 import {
   sanitizeInput
@@ -85,7 +85,6 @@ function validateRegenerateRequest(data: unknown) {
       hudContext: obj.hudContext as HUDContextConfig | undefined,
       allCharacters: Array.isArray(obj.allCharacters) ? obj.allCharacters : [],
       embeddingsChat: obj.embeddingsChat as Partial<EmbeddingsChatSettings> | undefined,
-      characterMemory: obj.characterMemory as CharacterMemory | undefined,
       summary: obj.summary as Record<string, unknown> | undefined,
       sessionQuests: Array.isArray(obj.sessionQuests) ? obj.sessionQuests : [],
       questTemplates: Array.isArray(obj.questTemplates) ? obj.questTemplates : [],
@@ -119,7 +118,6 @@ export async function POST(request: NextRequest) {
       hudContext,
       allCharacters = [],
       embeddingsChat,
-      characterMemory,
       summary,
       sessionQuests = [],
       questTemplates = [],
@@ -186,19 +184,12 @@ export async function POST(request: NextRequest) {
     const lastUserMessage = [...messagesBeforeRegenerate].reverse().find((m: { role: string }) => m.role === 'user');
     const queryMessage = lastUserMessage ? sanitizeInput((lastUserMessage as { content: string }).content || '') : '';
 
-    // Pass Character Memory events for deduplication (avoid duplicate memory in prompt)
-    const existingMemoryEvents = characterMemory?.events?.map(e => ({
-      content: e.content,
-      importance: e.importance,
-    }));
-
     const embeddingsResult = await retrieveEmbeddingsContext(
       queryMessage,
       characterId || effectiveCharacter.id,
       sessionId,
       embeddingsChat,
       undefined, // groupId
-      existingMemoryEvents, // for deduplication
     );
 
     if (embeddingsResult.found) {
@@ -262,7 +253,7 @@ export async function POST(request: NextRequest) {
       effectiveUserName,
       persona,
       regenResolvedStats,
-      typedSessionStats,  // sessionStats for {{eventos}}
+      typedSessionStats,  // sessionStats for {{last_events}}
       undefined,          // soundTriggers
       undefined,          // soundSettings
       regenPersonaResolvedStats,  // persona resolved stats
@@ -270,8 +261,24 @@ export async function POST(request: NextRequest) {
       sessionQuests,      // session quests for {{activeQuests}}
       typedQuestSettings, // quest settings
       outletSections,     // outlet sections for {{outlet::name}}
-      lorebookAttributeKeys  // lorebook attribute keys for {{injectionKey}}
+      lorebookAttributeKeys,  // lorebook attribute keys for {{injectionKey}}
+      undefined,          // inventoryData (not part of the regenerate payload)
+      lorebookEntryKeyMap // FIX: {{entryKey}} de lorebook tradicional (antes se limpiaba a '' en HUD/PHI)
     );
+
+    // FIX EXPLORE-3: Resolver post-history instructions con resolveAllKeys antes de
+    // pasarlas a buildChatMessages/buildCompletionPrompt (antes iban crudas y el LLM
+    // recibía {{user}}, {{char}}, {{entryKey}}, etc. literales).
+    const _regenRawPHI = effectiveCharacter.postHistoryInstructions?.trim();
+    const resolvedPostHistoryInstructions: string | undefined = _regenRawPHI
+      ? resolveAllKeys(_regenRawPHI, keyContext)
+      : undefined;
+
+    // FIX: authorNote was never injected (passed as undefined) — resolve macros and pass it.
+    const _regenRawAuthorNote = effectiveCharacter.authorNote?.trim();
+    const resolvedAuthorNote: string | undefined = _regenRawAuthorNote
+      ? resolveAllKeys(_regenRawAuthorNote, keyContext)
+      : undefined;
 
     // Build HUD context section if enabled (resolves {{keys}} in HUD content)
     const hudContextSection = hudContext ? buildHUDContextSection(hudContext, keyContext) : null;
@@ -280,23 +287,89 @@ export async function POST(request: NextRequest) {
     const chatHistorySections = buildChatHistorySections(contextWindow.messages, processedCharacter.name, effectiveUserName);
     const postHistorySection = buildPostHistorySection(processedCharacter.postHistoryInstructions, keyContext);
 
-    // Combine all sections in order
+    // FIX: summary was destructured but never used — regenerate ignored the
+    // [RECUERDOS ANTERIORES] summary, producing answers inconsistent with normal turns.
+    const summaryContent = typeof (summary as { content?: unknown } | undefined)?.content === 'string'
+      ? (summary as { content: string }).content
+      : '';
+    const summaryMessage: ChatMessage | null = summaryContent
+      ? {
+          id: 'summary-regen-' + Date.now(),
+          role: 'assistant',
+          content: `[RECUERDOS ANTERIORES]\n${summaryContent}`,
+          characterId: effectiveCharacter.id,
+          isDeleted: false,
+          timestamp: typeof (summary as { createdAt?: unknown })?.createdAt === 'string'
+            ? (summary as { createdAt: string }).createdAt
+            : new Date().toISOString(),
+          swipeId: 'summary',
+          swipeIndex: 0,
+          swipes: [`[RECUERDOS ANTERIORES]\n${summaryContent}`],
+        }
+      : null;
+
+    // History actually sent to the LLM (summary first, then windowed history)
+    const historyMessages = summaryMessage
+      ? [summaryMessage, ...contextWindow.messages]
+      : contextWindow.messages;
+
+    // Summary viewer section (parity with stream route)
+    const regenSummarySection: PromptSection | null = summaryContent
+      ? {
+          type: 'system',
+          label: 'Recuerdos Anteriores',
+          content: `[RECUERDOS ANTERIORES]\n${summaryContent}`,
+          color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+        }
+      : null;
+
+    // Build all prompt sections in order
     // Order: System -> Character Memory -> [CONTEXTO] non-memory -> [MEMORIA] memory -> Chat History -> Post-History
     const personaIndex = systemSections.findIndex(s => s.type === 'persona');
     const prePersonaSections = personaIndex >= 0 ? systemSections.slice(0, personaIndex + 1) : systemSections;
     const postPersonaSections = personaIndex >= 0 ? systemSections.slice(personaIndex + 1) : [];
 
-    // Build character memory section from Zustand store data (events, relationships, notes)
-    const characterMemorySection = characterMemory
-      ? buildMemorySection(characterMemory, effectiveCharacter.name || 'Character', embeddingsChat?.memoryMaxEventsInPrompt)
+    // Memory V2 — unified store (the ONLY memory system; computed BEFORE building
+    // viewer sections so the viewer reflects exactly what the LLM will receive).
+    // Partitioned blocks [HECHOS]/[EVENTOS]/[ESTADO DE LA RELACIÓN].
+    // Memory V2 gating — SINGLE switch (see stream/route.ts). No dependency on
+    // the deprecated embeddingsChat.enabled flag.
+    const memoryV2Active = embeddingsChat?.memoryV2Enabled !== false;
+    let v2MemoryContext = '';
+    if (memoryV2Active) {
+      try {
+        const { buildV2MemoryContext } = await import('@/lib/memory/v2');
+        const v2 = await buildV2MemoryContext({
+          charId: characterId || effectiveCharacter.id,
+          charName: effectiveCharacter.name || 'Character',
+          userName: effectiveUserName,
+          sessionId,
+          crossSession: embeddingsChat?.crossSessionMemory !== false,
+          query: queryMessage || '',
+          maxTokenBudget: embeddingsChat?.maxTokenBudget,
+        });
+        v2MemoryContext = v2.context;
+      } catch (v2Err) {
+        console.warn('[Regenerate] Memory V2 failed — continuing without memory this turn:', v2Err);
+      }
+    }
+
+    // Memory V2 viewer section (partitioned blocks)
+    const v2ViewerSection: PromptSection | null = memoryV2Active
+      ? {
+          type: 'character_note',
+          label: `Memoria V2 (${effectiveCharacter.name || 'Character'})`,
+          content: v2MemoryContext || '(sin registros de memoria V2 aún)',
+          color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+        }
       : null;
 
     let allPromptSections: PromptSection[] = [
       ...prePersonaSections,
       ...postPersonaSections,
-      ...(characterMemorySection ? [characterMemorySection] : []),  // Character memory: before embeddings
-      ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),  // Non-memory: before chat
-      ...(embeddingsResult.memorySection ? [embeddingsResult.memorySection] : []),  // Memory: before chat
+      ...(regenSummarySection ? [regenSummarySection] : []),
+      ...(v2ViewerSection ? [v2ViewerSection] : []),  // V2 partitioned memory
+      ...(embeddingsResult.nonMemorySection ? [embeddingsResult.nonMemorySection] : []),  // Knowledge: before chat
       ...chatHistorySections,
       ...(postHistorySection ? [postHistorySection] : [])
     ];
@@ -306,20 +379,13 @@ export async function POST(request: NextRequest) {
       allPromptSections = injectHUDContextIntoSections(allPromptSections, hudContextSection, hudContext.position);
     }
 
-    // Build combined embeddings context: Character Memory -> [CONTEXTO RELEVANTE] -> [MEMORIA RELEVANTE]
-    // All injected before chat history (not in system prompt)
     const contextParts: string[] = [];
-
-    // Add character memory content first (events, relationships, notes from Zustand store)
-    if (characterMemorySection) {
-      contextParts.push(characterMemorySection.content);
-    }
 
     if (embeddingsResult.nonMemoryContextString?.trim()) {
       contextParts.push(embeddingsResult.nonMemoryContextString);
     }
-    if (embeddingsResult.memoryContextString?.trim()) {
-      contextParts.push(embeddingsResult.memoryContextString);
+    if (memoryV2Active && v2MemoryContext.trim()) {
+      contextParts.push(v2MemoryContext);
     }
     const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
 
@@ -380,12 +446,12 @@ Y cambiar mi expresión:
             case 'z-ai': {
               let chatMessages = buildChatMessages(
                 finalSystemPrompt,
-                contextWindow.messages,
+                historyMessages,
                 processedCharacter,
                 effectiveUserName,
-                processedCharacter.postHistoryInstructions,
-                undefined,  // authorNote
-                false,      // useSystemRole
+                resolvedPostHistoryInstructions,
+                resolvedAuthorNote,  // authorNote (FIX: was never injected)
+                true,       // useSystemRole — parity with stream route (was false: system block sent as 'assistant')
                 embeddingsContext,  // Combined embeddings context before chat history
                 lorebookChatInjections,
                 exampleMessages
@@ -394,7 +460,16 @@ Y cambiar mi expresión:
               if (hudContextSection && hudContext) {
                 chatMessages = injectHUDContextIntoMessages(chatMessages, hudContextSection, hudContext.position);
               }
-              generator = streamZAI(chatMessages);
+              generator = streamZAI(chatMessages, undefined, (() => {
+                // llmConfig arrives as Record<string, unknown> in this route — cast params once
+                const params = (llmConfig as { parameters?: LLMParameters }).parameters;
+                return {
+                  temperature: params?.temperature,
+                  topP: params?.topP,
+                  maxTokens: params?.maxTokens,
+                  stop: params?.stopStrings,
+                };
+              })());
               break;
             }
 
@@ -407,11 +482,11 @@ Y cambiar mi expresión:
               }
               let chatMessages = buildChatMessages(
                 finalSystemPrompt,
-                contextWindow.messages,
+                historyMessages,
                 processedCharacter,
                 effectiveUserName,
-                processedCharacter.postHistoryInstructions,
-                undefined,  // authorNote
+                resolvedPostHistoryInstructions,
+                resolvedAuthorNote,  // authorNote (FIX: was never injected)
                 true,       // useSystemRole
                 embeddingsContext,  // Combined embeddings context before chat history
                 lorebookChatInjections,
@@ -431,11 +506,11 @@ Y cambiar mi expresión:
               }
               let chatMessages = buildChatMessages(
                 finalSystemPrompt,
-                contextWindow.messages,
+                historyMessages,
                 processedCharacter,
                 effectiveUserName,
-                processedCharacter.postHistoryInstructions,
-                undefined,  // authorNote
+                resolvedPostHistoryInstructions,
+                resolvedAuthorNote,  // authorNote (FIX: was never injected)
                 true,       // useSystemRole
                 embeddingsContext,  // Combined embeddings context before chat history
                 lorebookChatInjections,
@@ -452,10 +527,10 @@ Y cambiar mi expresión:
             case 'ollama': {
               const prompt = buildCompletionPrompt({
                 systemPrompt: finalSystemPrompt,
-                messages: contextWindow.messages,
+                messages: historyMessages,
                 character: processedCharacter,
                 userName: effectiveUserName,
-                postHistoryInstructions: processedCharacter.postHistoryInstructions,
+                postHistoryInstructions: resolvedPostHistoryInstructions,
                 embeddingsContext: embeddingsContext,  // Memory embeddings before chat history
                 exampleMessages: exampleMessages,
                 allCharacters: allCharacters  // Pass all characters for proper speaker attribution
@@ -467,10 +542,10 @@ Y cambiar mi expresión:
             case 'grok': {
               let chatMessages = buildChatMessages(
                 finalSystemPrompt,
-                contextWindow.messages,
+                historyMessages,
                 processedCharacter,
                 effectiveUserName,
-                processedCharacter.postHistoryInstructions,
+                resolvedPostHistoryInstructions,
                 undefined,
                 true,
                 embeddingsContext,
@@ -489,10 +564,10 @@ Y cambiar mi expresión:
             default: {
               const prompt = buildCompletionPrompt({
                 systemPrompt: finalSystemPrompt,
-                messages: contextWindow.messages,
+                messages: historyMessages,
                 character: processedCharacter,
                 userName: effectiveUserName,
-                postHistoryInstructions: processedCharacter.postHistoryInstructions,
+                postHistoryInstructions: resolvedPostHistoryInstructions,
                 embeddingsContext: embeddingsContext,  // Memory embeddings before chat history
                 exampleMessages: exampleMessages,
                 allCharacters: allCharacters  // Pass all characters for proper speaker attribution

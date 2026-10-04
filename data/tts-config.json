@@ -25,5 +25,19 @@
     "provider": "tts-webui",
     "model": "whisper-large-v3"
   },
-  "updatedAt": "2026-06-05T18:21:10.873Z"
+  "kws": {
+    "enabled": false,
+    "wakeWords": [],
+    "sensitivity": "medium",
+    "cooldownMs": 3000,
+    "language": "es-ES"
+  },
+  "vad": {
+    "enabled": true,
+    "silenceThreshold": 30,
+    "silenceDurationMs": 1500,
+    "minRecordingMs": 500,
+    "maxRecordingMs": 30000
+  },
+  "updatedAt": "2026-10-03T06:44:01.461Z"
 }

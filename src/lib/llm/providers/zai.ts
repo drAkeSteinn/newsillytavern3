@@ -218,7 +218,8 @@ async function* parseSSEStream(
  */
 export async function* streamZAI(
   messages: ChatApiMessage[],
-  runtimeToken?: string
+  runtimeToken?: string,
+  options?: { temperature?: number; topP?: number; maxTokens?: number; stop?: string[] }
 ): AsyncGenerator<string> {
   try {
     const config = await resolveConfig(runtimeToken);
@@ -227,14 +228,22 @@ export async function* streamZAI(
 
     console.log(`[Z.ai Provider] Streaming chat (no tools), hasToken=${!!config.token}`);
 
+    // FIX: forward user-configured sampling params (temperature/top_p/max_tokens/stop)
+    // were silently dropped — the LLM parameters UI was a no-op for the default provider.
+    const requestBody: Record<string, unknown> = {
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      thinking: { type: 'disabled' },
+      stream: true,
+    };
+    if (typeof options?.temperature === 'number') requestBody.temperature = options.temperature;
+    if (typeof options?.topP === 'number') requestBody.top_p = options.topP;
+    if (typeof options?.maxTokens === 'number' && options.maxTokens > 0) requestBody.max_tokens = options.maxTokens;
+    if (options?.stop && options.stop.length > 0) requestBody.stop = options.stop;
+
     const response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
-        thinking: { type: 'disabled' },
-        stream: true,
-      }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(300000),
     });
 
@@ -273,7 +282,8 @@ export async function* streamZAIWithTools(
   messages: ChatApiMessage[],
   tools: ToolDefinition[],
   accumulator: ToolCallAccumulator,
-  runtimeToken?: string
+  runtimeToken?: string,
+  options?: { temperature?: number; topP?: number; maxTokens?: number; stop?: string[] }
 ): AsyncGenerator<string> {
   try {
     const config = await resolveConfig(runtimeToken);
@@ -292,6 +302,11 @@ export async function* streamZAIWithTools(
         stream: true,
         tools: openAITools,
         tool_choice: 'auto',
+        // FIX: forward user-configured sampling params (no-op-safe if gateway ignores them)
+        ...(typeof options?.temperature === 'number' ? { temperature: options.temperature } : {}),
+        ...(typeof options?.topP === 'number' ? { top_p: options.topP } : {}),
+        ...(typeof options?.maxTokens === 'number' && options.maxTokens > 0 ? { max_tokens: options.maxTokens } : {}),
+        ...(options?.stop && options.stop.length > 0 ? { stop: options.stop } : {}),
       }),
       signal: AbortSignal.timeout(300000),
     });

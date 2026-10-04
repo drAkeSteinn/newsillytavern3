@@ -738,7 +738,6 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
           activeAtmospherePresetId: store.activeAtmospherePresetId,
           // Memory
           summarySettings: store.summarySettings,
-          characterMemories: store.characterMemories,
           sessionTracking: store.sessionTracking,
           // Quest
           questSettings: store.questSettings,
@@ -808,7 +807,7 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
           'spritePacksV2',
           'hudTemplates',
           'atmosphereSettings', 'activeAtmospherePresetId',
-          'summarySettings', 'characterMemories', 'sessionTracking',
+          'summarySettings', 'sessionTracking',
           'questSettings', 'questTemplates', 'questNotifications',
           'dialogueSettings',
           'inventorySettings', 'items', 'activeConsumableEffects', 'dynamicEquipmentState', 'inventoryNotifications'
@@ -941,7 +940,6 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
           // Memory
           summarySettings: store.summarySettings,
           summaries: store.summaries,
-          characterMemories: store.characterMemories,
           sessionTracking: store.sessionTracking,
           // Quest
           questSettings: store.questSettings,
@@ -1028,7 +1026,7 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
           'spritePacksV2',
           'hudTemplates',
           'atmosphereSettings', 'activeAtmospherePresetId',
-          'summarySettings', 'summaries', 'characterMemories', 'sessionTracking',
+          'summarySettings', 'summaries', 'sessionTracking',
           'questSettings', 'questTemplates', 'quests', 'questNotifications',
           'dialogueSettings',
           'inventorySettings', 'items', 'activeConsumableEffects', 'dynamicEquipmentState', 'containers', 'currencies', 'inventoryNotifications',

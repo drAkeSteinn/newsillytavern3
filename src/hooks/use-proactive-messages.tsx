@@ -329,7 +329,6 @@ export function useProactiveMessages({
           characterId: activeCharacter.id,
           soundTriggers,
           settings,
-          characterMemory: activeCharacter ? useTavernStore.getState().getCharacterMemory(activeCharacter.id) : undefined,
           // Inventory data for {{inventory}}, {{currency}}, {{slots}} key resolution
           inventoryData: (() => {
             const invState = useTavernStore.getState();
@@ -533,7 +532,6 @@ export function useProactiveMessages({
                           fromCharacterId: parsed.fromCharacterId,
                           fromCharacterName: parsed.fromCharacterName,
                           description: parsed.description || '',
-                          completionDescription: parsed.completionDescription,
                         }
                       );
                       toast.success(`📬 Petición: ${parsed.peticionKey || parsed.solicitudKey} → ${parsed.targetCharacterName || ''}`);
@@ -544,40 +542,6 @@ export function useProactiveMessages({
                         parsed.solicitudKey
                       );
                       toast.success(`✅ Solicitud completada: ${parsed.solicitudKey}`);
-                    }
-                  }
-                  break;
-
-                case 'memory_activation':
-                  // Memory tool activation - sync to client-side Character Memory (Zustand)
-                  console.log('[Proactive] Memory activation from tool:', parsed.toolName, parsed.activationType);
-                  {
-                    const store = useTavernStore.getState();
-                    if (parsed.activationType === 'save_memory' && parsed.eventData) {
-                      store.addMemoryEvent(parsed.characterId, {
-                        id: parsed.eventData.id,
-                        type: parsed.eventData.type as any,
-                        content: parsed.eventData.content,
-                        importance: parsed.eventData.importance,
-                        timestamp: new Date().toISOString(),
-                        embeddingId: parsed.eventData.embeddingId,
-                        sessionId: parsed.eventData.sessionId,
-                      });
-                      toast.success(`🧠 Memoria guardada: ${parsed.eventData.content.slice(0, 50)}...`);
-                    } else if (parsed.activationType === 'update_relationship' && parsed.relationshipData) {
-                      store.updateRelationship(parsed.characterId, {
-                        targetId: parsed.relationshipData.targetId,
-                        targetName: parsed.relationshipData.targetName,
-                        relationship: parsed.relationshipData.relationship,
-                        sentiment: parsed.relationshipData.sentiment,
-                        notes: parsed.relationshipData.notes,
-                        lastUpdated: new Date().toISOString(),
-                      });
-                      toast.success(`💜 Relación actualizada: ${parsed.relationshipData.targetName}`);
-                    } else if (parsed.activationType === 'save_note' && parsed.noteContent) {
-                      const existingMemory = store.getCharacterMemory(parsed.characterId);
-                      store.setCharacterNotes(parsed.characterId, 
-                        existingMemory?.notes ? `${existingMemory.notes}\n${parsed.noteContent}` : parsed.noteContent);
                     }
                   }
                   break;
@@ -664,6 +628,12 @@ export function useProactiveMessages({
                       // Client-side memory extraction for proactive messages
                       // Triggered after the stream is fully processed, if server flagged shouldExtract
                       if (parsed.shouldExtract && cleanedMessage) {
+                        // FIX: skip if another extraction (normal turn / group turn) is in flight
+                        const chatPanelWindow = window as unknown as { __tfMemoryExtractionInFlight?: boolean };
+                        if (chatPanelWindow.__tfMemoryExtractionInFlight) {
+                          console.log('[Memory] Proactive extraction skipped — another extraction in flight');
+                        } else {
+                        chatPanelWindow.__tfMemoryExtractionInFlight = true;
                         const extractionMessage = cleanedMessage;
                         const extractionCharacterId = activeCharacter.id;
                         const extractionCharacterName = activeCharacter.name;
@@ -678,25 +648,11 @@ export function useProactiveMessages({
 
                             if (!currentLLMConfig) return;
 
-                            // Build chat context for context-aware extraction
-                            // Labels use the persona's real name (not "Jugador") so extracted
-                            // memories reference the user by name ({{user}} personalization)
-                            const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth || 0;
-                            let chatContextForExtraction: string | undefined;
-                            if (extractionContextDepth > 0) {
-                              const contextMessages = sessionMsgs
-                                .filter(m => !m.isDeleted && m.content?.trim())
-                                .slice(-(extractionContextDepth * 2 + 1));
-                              if (contextMessages.length > 0) {
-                                chatContextForExtraction = contextMessages
-                                  .map(m => {
-                                    const role = m.role === 'user' ? personaName : extractionCharacterName;
-                                    const content = m.content.trim().slice(0, 300);
-                                    return `${role}: ${content}`;
-                                  })
-                                  .join('\n  ');
-                              }
-                            }
+                            // Memory V2: recent exchange window for merged extraction,
+                            // sized by the "Profundidad de contexto" setting
+                            // (0 = only the last response, N = N recent user+assistant pairs).
+                            const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth ?? 2;
+                            const extractionWindow = Math.max(1, extractionContextDepth * 2 + 1);
 
                             const extractionResponse = await fetch('/api/embeddings/extract-memory', {
                               method: 'POST',
@@ -707,6 +663,12 @@ export function useProactiveMessages({
                                 characterId: extractionCharacterId,
                                 sessionId: activeSessionId || '',
                                 userName: personaName,
+                                // Memory V2: recent window + unified pipeline flag
+                                recentMessages: sessionMsgs
+                                  .filter(m => !m.isDeleted && (m.role === 'user' || m.role === 'assistant'))
+                                  .slice(-extractionWindow)
+                                  .map(m => ({ role: m.role, content: m.content })),
+                                memoryV2Enabled: embeddingsChat.memoryV2Enabled !== false,
                                 llmConfig: {
                                   provider: currentLLMConfig.provider,
                                   endpoint: currentLLMConfig.endpoint,
@@ -715,14 +677,6 @@ export function useProactiveMessages({
                                   parameters: currentLLMConfig.parameters,
                                 },
                                 minImportance: embeddingsChat.memoryExtractionMinImportance || 2,
-                                customPrompt: embeddingsChat.memoryExtractionPrompt,
-                                chatContext: chatContextForExtraction,
-                                consolidationSettings: embeddingsChat.memoryConsolidationEnabled ? {
-                                  enabled: true,
-                                  threshold: embeddingsChat.memoryConsolidationThreshold || 50,
-                                  keepRecent: embeddingsChat.memoryConsolidationKeepRecent || 10,
-                                  keepHighImportance: embeddingsChat.memoryConsolidationKeepHighImportance || 4,
-                                } : undefined,
                                 extractionModelConfig: embeddingsChat.extractionModelEnabled ? {
                                   extractionModelEnabled: true,
                                   extractionModelProvider: embeddingsChat.extractionModelProvider,
@@ -736,33 +690,19 @@ export function useProactiveMessages({
                             if (extractionResponse.ok) {
                               const result = await extractionResponse.json();
                               if (result.success) {
-                                console.log(`[Memory] Proactive extraction result for ${extractionCharacterName}: extracted=${result.count}, saved=${result.saved}`);
-
-                                // Sync memoryActivations to Character Memory
-                                if (result.memoryActivations && result.memoryActivations.length > 0) {
-                                  const store = useTavernStore.getState();
-                                  for (const activation of result.memoryActivations) {
-                                    store.addMemoryEvent(activation.characterId, {
-                                      id: activation.eventData.id,
-                                      type: activation.eventData.type as any,
-                                      content: activation.eventData.content,
-                                      importance: activation.eventData.importance,
-                                      timestamp: new Date().toISOString(),
-                                      embeddingId: activation.eventData.embeddingId,
-                                      sessionId: activation.eventData.sessionId,
-                                    });
-                                  }
-                                }
-
-                                if (result.saved > 0) {
-                                  toast.success(`🧠 ${result.saved} memorias extraídas automáticamente`);
+                                console.log(`[Memory] Proactive extraction result for ${extractionCharacterName}: extracted=${result.count}, added=${result.added}, updated=${result.updated}`);
+                                  if (result.count > 0) {
+                                    toast.success(`🧠 ${result.count} memorias extraídas automáticamente`);
                                 }
                               }
                             }
                           } catch (err) {
                             console.warn('[Memory] Proactive client-side extraction failed:', err);
+                          } finally {
+                            chatPanelWindow.__tfMemoryExtractionInFlight = false;
                           }
                         })();
+                        }
                       }
                     }
                   }

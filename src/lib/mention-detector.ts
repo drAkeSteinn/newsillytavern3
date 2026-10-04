@@ -9,6 +9,7 @@ interface CharacterWithMentions {
   member?: GroupMember;
   aliases: string[];
   pronouns: string[];
+  keywords: string[];   // KWS palabras clave del personaje (también válidas en texto)
 }
 
 /**
@@ -17,6 +18,7 @@ interface CharacterWithMentions {
 export function extractCharacterTriggers(character: CharacterCard): {
   aliases: string[];
   pronouns: string[];
+  keywords: string[];
 } {
   const aliases: string[] = [];
   const pronouns: string[] = [];
@@ -51,7 +53,21 @@ export function extractCharacterTriggers(character: CharacterCard): {
   // Add lowercase version of name for matching
   aliases.push(name.toLowerCase());
 
-  return { aliases, pronouns };
+  // KWS keywords ("Palabras clave" en Voz/KWS) también cuentan como menciones en texto.
+  // Ej: "Aitana la Licuadora" con keys ["aitana", "licuadora"] → escribir "licuadora"
+  // en un mensaje de texto cuenta como mencionarla.
+  const keywords: string[] = [];
+  if (character.kwsKeywords && Array.isArray(character.kwsKeywords)) {
+    for (const rawKeyword of character.kwsKeywords) {
+      if (typeof rawKeyword !== 'string') continue;
+      const keyword = rawKeyword.trim().toLowerCase();
+      if (!keyword) continue;
+      if (aliases.includes(keyword) || keywords.includes(keyword)) continue;
+      keywords.push(keyword);
+    }
+  }
+
+  return { aliases, pronouns, keywords };
 }
 
 /**
@@ -76,13 +92,14 @@ export function detectMentions(
       character,
       member,
       aliases: triggers.aliases,
-      pronouns: triggers.pronouns
+      pronouns: triggers.pronouns,
+      keywords: triggers.keywords
     });
   }
 
   // Check for each character
   for (const [characterId, data] of characterTriggers) {
-    const { character, aliases, pronouns } = data;
+    const { character, aliases, pronouns, keywords } = data;
     
     // Check for name mention (exact match with word boundaries)
     const nameRegex = new RegExp(`\\b${escapeRegex(character.name)}\\b`, 'gi');
@@ -99,6 +116,7 @@ export function detectMentions(
     }
 
     // Check aliases
+    let matched = false;
     for (const alias of aliases) {
       const aliasRegex = new RegExp(`\\b${escapeRegex(alias)}\\b`, 'i');
       if (aliasRegex.test(messageLower)) {
@@ -108,6 +126,23 @@ export function detectMentions(
           triggerType: 'alias',
           matchedText: alias,
           position: messageLower.search(aliasRegex)
+        });
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    // Check KWS keywords ("Palabras clave" de Voz/KWS) — también válidas en texto
+    for (const keyword of keywords) {
+      const keywordRegex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, 'i');
+      if (keywordRegex.test(messageLower)) {
+        results.push({
+          characterId,
+          characterName: character.name,
+          triggerType: 'keyword',
+          matchedText: keyword,
+          position: messageLower.search(keywordRegex)
         });
         break;
       }

@@ -3,7 +3,7 @@
 // ============================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import type { CharacterCard, Lorebook, SessionStats, HUDContextConfig, QuestTemplate, SessionQuestInstance, QuestSettings, CharacterMemory } from '@/types';
+import type { CharacterCard, Lorebook, SessionStats, HUDContextConfig, QuestTemplate, SessionQuestInstance, QuestSettings } from '@/types';
 import { DEFAULT_QUEST_SETTINGS } from '@/types';
 import {
   DEFAULT_CHARACTER,
@@ -16,12 +16,11 @@ import {
   callZAI,
   callOpenAICompatible,
   callAnthropic,
-  callOllama,
+  callOllamaChat,
   callTextGenerationWebUI,
   callGrok,
   GenerateResponse,
   buildLorebookSectionForPrompt,
-  buildMemorySection,
   buildHUDContextSection,
   injectHUDContextIntoMessages,
   buildKeyResolutionContext,
@@ -83,7 +82,6 @@ export async function POST(request: NextRequest) {
     const embeddingsChat: Partial<EmbeddingsChatSettings> = body.embeddingsChat || {};
     const sessionId: string | undefined = body.sessionId;
     const characterId: string | undefined = body.characterId;
-    const characterMemory: CharacterMemory | undefined = body.characterMemory;
 
     // Cast sessionStats to proper type
     const typedSessionStats = sessionStats as SessionStats | undefined;
@@ -152,23 +150,38 @@ export async function POST(request: NextRequest) {
       embeddingsChat
     );
 
-    // Build combined embeddings context: [CONTEXTO RELEVANTE] then [MEMORIA RELEVANTE]
-    // Both injected before chat history (not in system prompt)
-    const contextParts: string[] = [];
-
-    // Add character memory section first (events, relationships, notes from Zustand store)
-    if (characterMemory) {
-      const memorySection = buildMemorySection(characterMemory, effectiveCharacter.name || 'Character', embeddingsChat?.memoryMaxEventsInPrompt, effectiveUserName);
-      if (memorySection) {
-        contextParts.push(memorySection.content);
+    // Build combined embeddings context: [CONTEXTO RELEVANTE] + Memoria V2.
+    // Memory V2 is the ONLY memory system (partitioned blocks
+    // [HECHOS]/[EVENTOS]/[ESTADO DE LA RELACIÓN]). No legacy fallback.
+    // Memory V2 gating — SINGLE switch (see stream/route.ts). No dependency on
+    // the deprecated embeddingsChat.enabled flag.
+    const memoryV2Active = embeddingsChat?.memoryV2Enabled !== false;
+    let v2MemoryContext = '';
+    if (memoryV2Active) {
+      try {
+        const { buildV2MemoryContext } = await import('@/lib/memory/v2');
+        const v2 = await buildV2MemoryContext({
+          charId: characterId || effectiveCharacter.id,
+          charName: effectiveCharacter.name || 'Character',
+          userName: effectiveUserName,
+          sessionId,
+          crossSession: embeddingsChat?.crossSessionMemory !== false,
+          query: sanitizedMessage || '',
+          maxTokenBudget: embeddingsChat?.maxTokenBudget,
+        });
+        v2MemoryContext = v2.context;
+      } catch (v2Err) {
+        console.warn('[Generate] Memory V2 failed — continuing without memory this turn:', v2Err);
       }
     }
+
+    const contextParts: string[] = [];
 
     if (embeddingsResult.nonMemoryContextString?.trim()) {
       contextParts.push(embeddingsResult.nonMemoryContextString);
     }
-    if (embeddingsResult.memoryContextString?.trim()) {
-      contextParts.push(embeddingsResult.memoryContextString);
+    if (memoryV2Active && v2MemoryContext.trim()) {
+      contextParts.push(v2MemoryContext);
     }
     const embeddingsContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
 
@@ -212,7 +225,7 @@ export async function POST(request: NextRequest) {
       effectiveUserName,
       persona,
       generateResolvedStats,
-      typedSessionStats,  // sessionStats for {{eventos}}
+      typedSessionStats,  // sessionStats for {{last_events}}
       undefined,          // soundTriggers
       undefined,          // soundSettings
       generatePersonaResolvedStats,  // persona resolved stats
@@ -270,14 +283,17 @@ Y cambiar mi expresión:
 
       case 'z-ai': {
         // Z.ai uses its own SDK
+        // useSystemRole=true: send the system block as a real 'system' role
+        // message (matches the streaming route; sending it as 'assistant'
+        // weakened instruction-following).
         let chatMessages = buildChatMessages(
           finalSystemPrompt,
           allMessages,
           processedCharacter,
           effectiveUserName,
           processedCharacter.postHistoryInstructions,
-          undefined,  // authorNote
-          false,     // useSystemRole
+          processedCharacter.authorNote?.trim() || undefined,  // FIX: authorNote was never injected (macro-resolved via processCharacter)
+          true,      // useSystemRole
           embeddingsContext,  // Combined embeddings context before chat history
           lorebookChatInjections,
           exampleMessages
@@ -304,7 +320,7 @@ Y cambiar mi expresión:
           processedCharacter,
           effectiveUserName,
           processedCharacter.postHistoryInstructions,
-          undefined,  // authorNote
+          processedCharacter.authorNote?.trim() || undefined,  // FIX: authorNote was never injected (macro-resolved via processCharacter)
           true,      // useSystemRole
           embeddingsContext,  // Combined embeddings context before chat history
           lorebookChatInjections,
@@ -328,7 +344,7 @@ Y cambiar mi expresión:
           processedCharacter,
           effectiveUserName,
           processedCharacter.postHistoryInstructions,
-          undefined,  // authorNote
+          processedCharacter.authorNote?.trim() || undefined,  // FIX: authorNote was never injected (macro-resolved via processCharacter)
           true,      // useSystemRole
           embeddingsContext,  // Combined embeddings context before chat history
           lorebookChatInjections,
@@ -343,17 +359,22 @@ Y cambiar mi expresión:
       }
 
       case 'ollama': {
-        const prompt = buildCompletionPrompt({
-          systemPrompt: finalSystemPrompt,
-          messages: allMessages,
-          character: processedCharacter,
-          userName: effectiveUserName,
-          postHistoryInstructions: processedCharacter.postHistoryInstructions,
-          embeddingsContext: embeddingsContext,  // Memory embeddings before chat history
-          exampleMessages: exampleMessages,
-          allCharacters: allCharacters  // Pass all characters for proper speaker attribution
-        });
-        response = await callOllama(prompt, llmConfig);
+        // Use /api/chat (native messages) so the system block is sent as a
+        // real 'system' role message instead of being flattened into the
+        // completion prompt (matches the streaming route).
+        const chatMessages = buildChatMessages(
+          finalSystemPrompt,
+          allMessages,
+          processedCharacter,
+          effectiveUserName,
+          processedCharacter.postHistoryInstructions,
+          processedCharacter.authorNote?.trim() || undefined,  // FIX: authorNote was never injected (macro-resolved via processCharacter)
+          true,      // useSystemRole
+          embeddingsContext,  // Combined embeddings context before chat history
+          lorebookChatInjections,
+          exampleMessages
+        );
+        response = await callOllamaChat(chatMessages, llmConfig);
         break;
       }
 

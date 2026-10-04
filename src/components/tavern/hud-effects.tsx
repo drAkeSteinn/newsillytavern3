@@ -232,6 +232,22 @@ export function AnimatedNumber({ value, duration = 400, className, decimals = 0,
 }
 
 // ============================================
+// Percentage helper (NaN-safe)
+// ============================================
+
+/**
+ * Compute a 0-100 percentage for HUD bars/gauges/meters.
+ * Guards against: division by zero (max === min, e.g. explicit max: 0),
+ * non-finite values (NaN from bad detections), and inverted ranges.
+ */
+function computePercentage(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return 0;
+  const span = max - min;
+  if (span <= 0) return value >= max ? 100 : 0;
+  return Math.max(0, Math.min(100, ((value - min) / span) * 100));
+}
+
+// ============================================
 // Enhanced Progress Bar
 // ============================================
 
@@ -268,7 +284,8 @@ export function AnimatedProgress({
   segmentCount = 10,
   animated = true,
 }: AnimatedProgressProps) {
-  const percentage = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  // Guard division by zero (max === min) and non-finite values → NaN width
+  const percentage = computePercentage(value, min, max);
   const { changed, direction } = useValueChange(value);
   const { displayValue } = useAnimatedNumber(value, 300);
   const { colorConfig } = useThresholdColor(percentage, color);
@@ -386,7 +403,8 @@ export function AnimatedGauge({
   animated = true,
   showParticles = false,
 }: AnimatedGaugeProps) {
-  const percentage = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  // Guard division by zero (max === min) and non-finite values → NaN width
+  const percentage = computePercentage(value, min, max);
   const { changed, direction } = useValueChange(value);
   const { displayValue } = useAnimatedNumber(value, 400);
   const { colorConfig } = useThresholdColor(percentage, color);
@@ -866,7 +884,8 @@ export function AnimatedMeter({
   animated = true,
   className,
 }: AnimatedMeterProps) {
-  const percentage = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  // Guard division by zero (max === min) and non-finite values → NaN width
+  const percentage = computePercentage(value, min, max);
   const { changed } = useValueChange(value);
   const { colorConfig } = useThresholdColor(percentage, color);
 

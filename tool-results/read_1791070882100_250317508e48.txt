@@ -1,0 +1,1094 @@
+     1→'use client';
+     2→
+     3→/**
+     4→ * HUDDisplay Component
+     5→ * 
+     6→ * Displays a HUD (Heads-Up Display) overlay in the chat interface.
+     7→ * Shows field values from the active HUD template AND character attributes with showInHUD=true.
+     8→ * 
+     9→ * Features:
+    10→ * - Multiple display styles (default, progress, badge, icon, chip, status, gauge, etc.)
+    11→ * - Positionable (top-left, top-right, bottom-left, bottom-right)
+    12→ * - Real-time updates from trigger detection
+    13→ * - Progress bars for gauges for numeric fields
+    14→ * - Color-coded badges for enum fields
+    15→ * - Automatic integration with character stats system
+    16→ * - Group chat support: shows attributes for all group members
+    17→ * - Animated visual effects (value change, shine, glow, particles)
+    18→ */
+    19→
+    20→import { useTavernStore } from '@/store';
+    21→import type { HUDTemplate, HUDField, HUDPosition, HUDStyle, HUDFieldStyle, AttributeDefinition, CharacterCard } from '@/types';
+    22→import { cn } from '@/lib/utils';
+    23→import {
+    24→  AnimatedProgress,
+    25→  AnimatedGauge,
+    26→  AnimatedMeter,
+    27→  AnimatedDots,
+    28→  AnimatedBadge,
+    29→} from './hud-effects';
+    30→
+    31→interface HUDDisplayProps {
+    32→  position?: HUDPosition;
+    33→  className?: string;
+    34→}
+    35→
+    36→// Position classes
+    37→const positionClasses: Record<HUDPosition, string> = {
+    38→  'top-left': 'top-4 left-4',
+    39→  'top-right': 'top-4 right-4',
+    40→  'bottom-left': 'bottom-4 left-4',
+    41→  'bottom-right': 'bottom-4 right-4',
+    42→};
+    43→
+    44→// Color classes
+    45→const colorClasses: Record<string, string> = {
+    46→  red: 'text-red-400',
+    47→  green: 'text-green-400',
+    48→  blue: 'text-blue-400',
+    49→  yellow: 'text-yellow-400',
+    50→  purple: 'text-purple-400',
+    51→  orange: 'text-orange-400',
+    52→  pink: 'text-pink-400',
+    53→  cyan: 'text-cyan-400',
+    54→  default: 'text-white/80',
+    55→};
+    56→
+    57→const bgColorClasses: Record<string, string> = {
+    58→  red: 'bg-red-500/20 border-red-500/30',
+    59→  green: 'bg-green-500/20 border-green-500/30',
+    60→  blue: 'bg-blue-500/20 border-blue-500/30',
+    61→  yellow: 'bg-yellow-500/20 border-yellow-500/30',
+    62→  purple: 'bg-purple-500/20 border-purple-500/30',
+    63→  orange: 'bg-orange-500/20 border-orange-500/30',
+    64→  pink: 'bg-pink-500/20 border-pink-500/30',
+    65→  cyan: 'bg-cyan-500/20 border-cyan-500/30',
+    66→  default: 'bg-white/10 border-white/20',
+    67→};
+    68→
+    69→const progressColorClasses: Record<string, string> = {
+    70→  red: 'bg-red-500',
+    71→  green: 'bg-green-500',
+    72→  blue: 'bg-blue-500',
+    73→  yellow: 'bg-yellow-500',
+    74→  purple: 'bg-purple-500',
+    75→  orange: 'bg-orange-500',
+    76→  pink: 'bg-pink-500',
+    77→  cyan: 'bg-cyan-500',
+    78→  default: 'bg-white/50',
+    79→};
+    80→
+    81→export function HUDDisplay({ className }: HUDDisplayProps) {
+    82→  const hudTemplates = useTavernStore((state) => state.hudTemplates);
+    83→  const hudSessionState = useTavernStore((state) => state.hudSessionState);
+    84→  const activeCharacterId = useTavernStore((state) => state.activeCharacterId);
+    85→  const activeGroupId = useTavernStore((state) => state.activeGroupId);
+    86→  const groups = useTavernStore((state) => state.groups);
+    87→  const characters = useTavernStore((state) => state.characters);
+    88→  const sessions = useTavernStore((state) => state.sessions);
+    89→  const activeSessionId = useTavernStore((state) => state.activeSessionId);
+    90→  const activePersonaId = useTavernStore((state) => state.activePersonaId);
+    91→  const personas = useTavernStore((state) => state.personas);
+    92→
+    93→  // Get derived values from subscribed state
+    94→  const activeCharacter = characters.find((c) => c.id === activeCharacterId);
+    95→  const activeGroup = activeGroupId ? groups.find((g) => g.id === activeGroupId) : null;
+    96→
+    97→  // Get active template
+    98→  const activeTemplate = hudTemplates.find(
+    99→    (t) => t.id === hudSessionState.activeTemplateId
+   100→  );
+   101→
+   102→  // Use template's position setting (defaults to top-right if no template)
+   103→  const position = activeTemplate?.position || 'top-right';
+   104→  
+   105→  // Get current session for stats values
+   106→  const activeSession = sessions.find((s) => s.id === activeSessionId);
+   107→  const sessionStats = activeSession?.sessionStats;
+   108→  
+   109→  // Determine if this is a group chat
+   110→  const isGroupChat = !!activeGroup;
+   111→  
+   112→  // Get all characters with their attributes
+   113→  let charactersWithAttributes: Array<{
+   114→    character: CharacterCard;
+   115→    attributes: AttributeDefinition[];
+   116→    values: Record<string, number | string>;
+   117→  }> = [];
+   118→  
+   119→  if (isGroupChat && activeGroup?.members) {
+   120→    // Group chat: get all group members with their attributes
+   121→    charactersWithAttributes = activeGroup.members
+   122→      .map((member) => {
+   123→        const char = characters.find((c) => c.id === member.characterId);
+   124→        if (!char) return null;
+   125→
+   126→        const attributes = char.statsConfig?.enabled
+   127→          ? char.statsConfig.attributes.filter((attr) => attr.showInHUD !== false)
+   128→          : [];
+   129→
+   130→        // Get values from sessionStats, or use defaults if not initialized
+   131→        // IMPORTANT: Always use defaults as base, then override with stored values
+   132→        // This ensures new attributes added after session creation are shown
+   133→        const storedValues = sessionStats?.characterStats?.[char.id]?.attributeValues;
+   134→        const values: Record<string, number | string> = {};
+   135→
+   136→        // Start with default values for ALL attributes
+   137→        for (const attr of attributes) {
+   138→          values[attr.key] = attr.defaultValue;
+   139→        }
+   140→
+   141→        // Override with stored values if available
+   142→        if (storedValues) {
+   143→          Object.assign(values, storedValues);
+   144→        }
+   145→
+   146→        return { character: char, attributes, values };
+   147→      })
+   148→      .filter((item): item is NonNullable<typeof item> => item !== null)
+   149→      .filter((item) => item.attributes.length > 0);
+   150→  } else if (activeCharacter) {
+   151→    // Single character chat
+   152→    const attributes = activeCharacter.statsConfig?.enabled
+   153→      ? activeCharacter.statsConfig.attributes.filter((attr) => attr.showInHUD !== false)
+   154→      : [];
+   155→
+   156→    // Get values from sessionStats, or use defaults if not initialized
+   157→    // IMPORTANT: Always use defaults as base, then override with stored values
+   158→    // This ensures new attributes added after session creation are shown
+   159→    const storedValues = sessionStats?.characterStats?.[activeCharacter.id]?.attributeValues;
+   160→    const values: Record<string, number | string> = {};
+   161→
+   162→    // Start with default values for ALL attributes
+   163→    for (const attr of attributes) {
+   164→      values[attr.key] = attr.defaultValue;
+   165→    }
+   166→
+   167→    // Override with stored values if available
+   168→    if (storedValues) {
+   169→      Object.assign(values, storedValues);
+   170→    }
+   171→
+   172→    if (attributes.length > 0) {
+   173→      charactersWithAttributes = [{ character: activeCharacter, attributes, values }];
+   174→    }
+   175→  }
+   176→
+   177→  // Also include persona (user) attributes if available
+   178→  const activePersona = activePersonaId ? personas.find((p) => p.id === activePersonaId) : null;
+   179→  let personaAttributes: { attributes: AttributeDefinition[]; values: Record<string, number | string>; personaName: string } | null = null;
+   180→
+   181→  if (activePersona?.statsConfig?.enabled && activePersona.statsConfig.attributes?.length > 0) {
+   182→    const attributes = activePersona.statsConfig.attributes.filter((attr) => attr.showInHUD !== false);
+   183→    const storedValues = sessionStats?.characterStats?.['__user__']?.attributeValues;
+   184→    const values: Record<string, number | string> = {};
+   185→
+   186→    for (const attr of attributes) {
+   187→      values[attr.key] = attr.defaultValue;
+   188→    }
+   189→    if (storedValues) {
+   190→      // Only copy values for DEFINED persona attributes — skips internal mirrors
+   191→      // (relacion/relacion_etapa/hora/momento_del_dia/dia/estacion) that live in the
+   192→      // same record but shouldn't flood the persona HUD panel.
+   193→      for (const attr of attributes) {
+   194→        if (storedValues[attr.key] !== undefined) {
+   195→          values[attr.key] = storedValues[attr.key];
+   196→        }
+   197→      }
+   198→    }
+   199→
+   200→    if (attributes.length > 0) {
+   201→      personaAttributes = { attributes, values, personaName: activePersona.name };
+   202→    }
+   203→  }
+   204→  
+   205→  // No active HUD and no character attributes
+   206→  const hasTemplate = activeTemplate && activeTemplate.fields.length > 0;
+   207→  const hasAttributes = charactersWithAttributes.length > 0;
+   208→  const hasPersonaAttributes = personaAttributes !== null;
+   209→
+   210→  if (!hasTemplate && !hasAttributes && !hasPersonaAttributes) {
+   211→    return null;
+   212→  }
+   213→
+   214→  // Get style from template
+   215→  const hudStyle = activeTemplate?.style || 'card';
+   216→
+   217→  return (
+   218→    <div
+   219→      className={cn(
+   220→        'absolute z-30 pointer-events-none',
+   221→        positionClasses[position],
+   222→        className
+   223→      )}
+   224→      style={{ opacity: activeTemplate?.opacity ?? 0.9 }}
+   225→    >
+   226→      {/* HUD Template Fields */}
+   227→      {hasTemplate && (
+   228→        <HUDContainer template={activeTemplate} values={hudSessionState.fieldValues} />
+   229→      )}
+   230→
+   231→      {/* Character Attributes HUD */}
+   232→      {(hasAttributes || hasPersonaAttributes) && (
+   233→        <MultiCharacterAttributesHUD
+   234→          charactersWithAttributes={charactersWithAttributes}
+   235→          compact={activeTemplate?.compact}
+   236→          isGroupChat={isGroupChat}
+   237→          style={hudStyle}
+   238→          personaAttributes={personaAttributes}
+   239→        />
+   240→      )}
+   241→    </div>
+   242→  );
+   243→}
+   244→
+   245→// ============================================
+   246→// Multi-Character Attributes HUD Component
+   247→// ============================================
+   248→
+   249→interface CharacterWithAttributes {
+   250→  character: CharacterCard;
+   251→  attributes: AttributeDefinition[];
+   252→  values: Record<string, number | string>;
+   253→}
+   254→
+   255→interface PersonaAttributesData {
+   256→  attributes: AttributeDefinition[];
+   257→  values: Record<string, number | string>;
+   258→  personaName: string;
+   259→}
+   260→
+   261→interface MultiCharacterAttributesHUDProps {
+   262→  charactersWithAttributes: CharacterWithAttributes[];
+   263→  compact?: boolean;
+   264→  isGroupChat: boolean;
+   265→  style?: HUDStyle;
+   266→  personaAttributes?: PersonaAttributesData | null;
+   267→}
+   268→
+   269→function MultiCharacterAttributesHUD({ charactersWithAttributes, compact, isGroupChat, style = 'card', personaAttributes }: MultiCharacterAttributesHUDProps) {
+   270→  // Get container classes based on style
+   271→  const getStyleClasses = () => {
+   272→    switch (style) {
+   273→      case 'glass':
+   274→        return 'backdrop-blur-xl bg-white/5 border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)]';
+   275→      case 'neon':
+   276→        return 'backdrop-blur-md bg-slate-900/80 border-2 border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.3)]';
+   277→      case 'holographic':
+   278→        return 'backdrop-blur-lg bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 border-cyan-400/30';
+   279→      case 'fantasy':
+   280→        return 'bg-gradient-to-br from-amber-950/80 via-stone-900/80 to-amber-950/80 border-2 border-amber-600/40';
+   281→      case 'retro':
+   282→        return 'bg-black/90 border-4 border-green-500/70 font-mono shadow-[0_0_10px_rgba(34,197,94,0.5)]';
+   283→      case 'panel':
+   284→        return 'backdrop-blur-lg bg-gradient-to-br from-slate-900/90 via-slate-800/80 to-slate-900/90 border-2 border-white/20';
+   285→      case 'minimal':
+   286→        return 'bg-transparent border-transparent';
+   287→      default:
+   288→        return 'backdrop-blur-md bg-gradient-to-br from-slate-900/80 to-slate-800/60 border border-white/10';
+   289→    }
+   290→  };
+   291→
+   292→  return (
+   293→    <div className="flex flex-col gap-3">
+   294→      {charactersWithAttributes.map(({ character, attributes, values }) => (
+   295→        <div
+   296→          key={character.id}
+   297→          className={cn(
+   298→            'pointer-events-auto rounded-xl border transition-all duration-300',
+   299→            getStyleClasses(),
+   300→            compact ? 'p-2' : 'p-4',
+   301→            'shadow-xl'
+   302→          )}
+   303→        >
+   304→          {/* Character Name Header (only in group chats) */}
+   305→          {isGroupChat && (
+   306→            <div className={cn(
+   307→              'font-medium mb-2 pb-1 border-b border-white/10',
+   308→              compact ? 'text-[10px]' : 'text-xs',
+   309→              style === 'neon' && 'text-cyan-400 uppercase tracking-wider',
+   310→              style === 'fantasy' && 'text-amber-400',
+   311→              style === 'retro' && 'text-green-400',
+   312→              style === 'holographic' && 'text-cyan-300',
+   313→              (!['neon', 'fantasy', 'retro', 'holographic'].includes(style)) && 'text-white/80'
+   314→            )}>
+   315→              <span aria-hidden>🎭</span>
+   316→              <span className="truncate max-w-[120px]">{character.name}</span>
+   317→            </div>
+   318→          )}
+   319→
+   320→          {/* Attributes - Ensure all are visible (scrollable after ~5 rows) */}
+   321→          <div className={cn('flex flex-col max-h-56 overflow-y-auto pr-0.5', compact ? 'gap-1.5' : 'gap-2.5')}>
+   322→            {attributes.map((attr) => (
+   323→              <AttributeHUDField
+   324→                key={attr.id}
+   325→                attribute={attr}
+   326→                value={values[attr.key] ?? attr.defaultValue}
+   327→                compact={compact}
+   328→              />
+   329→            ))}
+   330→          </div>
+   331→        </div>
+   332→      ))}
+   333→
+   334→      {/* Persona (User) Attributes */}
+   335→      {personaAttributes && (
+   336→        <div
+   337→          className={cn(
+   338→            'pointer-events-auto rounded-xl border transition-all duration-300',
+   339→            getStyleClasses(),
+   340→            compact ? 'p-2' : 'p-4',
+   341→            'shadow-xl'
+   342→          )}
+   343→        >
+   344→          {/* User Persona Header */}
+   345→          <div className={cn(
+   346→            'font-medium mb-2 pb-1 border-b border-white/10',
+   347→            compact ? 'text-[10px]' : 'text-xs',
+   348→            style === 'neon' && 'text-cyan-400 uppercase tracking-wider',
+   349→            style === 'fantasy' && 'text-amber-400',
+   350→            style === 'retro' && 'text-green-400',
+   351→            style === 'holographic' && 'text-cyan-300',
+   352→            (!['neon', 'fantasy', 'retro', 'holographic'].includes(style)) && 'text-white/80'
+   353→          )}>
+   354→            <span aria-hidden>👤</span>
+   355→            <span className="truncate max-w-[120px]">{personaAttributes.personaName}</span>
+   356→            <span className="text-[9px] opacity-60 font-normal">(tú)</span>
+   357→          </div>
+   358→
+   359→          <div className={cn('flex flex-col', compact ? 'gap-1.5' : 'gap-2.5')}>
+   360→            {personaAttributes.attributes.map((attr) => (
+   361→              <AttributeHUDField
+   362→                key={attr.id}
+   363→                attribute={attr}
+   364→                value={personaAttributes.values[attr.key] ?? attr.defaultValue}
+   365→                compact={compact}
+   366→              />
+   367→            ))}
+   368→          </div>
+   369→        </div>
+   370→      )}
+   371→    </div>
+   372→  );
+   373→}
+   374→
+   375→// ============================================
+   376→// Attribute HUD Field Component
+   377→// ============================================
+   378→
+   379→interface AttributeHUDFieldProps {
+   380→  attribute: AttributeDefinition;
+   381→  value: number | string;
+   382→  compact?: boolean;
+   383→}
+   384→
+   385→function AttributeHUDField({ attribute, value, compact }: AttributeHUDFieldProps) {
+   386→  const style = attribute.hudStyle || 'default';
+   387→  const color = attribute.color || 'default';
+   388→  const icon = attribute.icon;
+   389→  const unit = attribute.hudUnit;
+   390→  const min = attribute.min ?? 0;
+   391→  const max = attribute.max ?? 100;
+   392→  
+   393→  const textColor = colorClasses[color] || colorClasses.default;
+   394→  const bgColor = bgColorClasses[color] || bgColorClasses.default;
+   395→  const progressColor = progressColorClasses[color] || progressColorClasses.default;
+   396→  
+   397→  // Convert AttributeDefinition style to HUD style format
+   398→  const hudStyle: HUDFieldStyle = style as HUDFieldStyle;
+   399→  const fieldStyle: HUDStyle = 'card';
+   400→  
+   401→  // Render based on style
+   402→  switch (hudStyle) {
+   403→    case 'progress':
+   404→      return (
+   405→        <ProgressField 
+   406→          field={{
+   407→            id: attribute.id,
+   408→            name: attribute.name,
+   409→            key: attribute.key,
+   410→            type: 'number',
+   411→            style: 'progress',
+   412→            defaultValue: attribute.defaultValue as number,
+   413→            min,
+   414→            max,
+   415→            unit,
+   416→            icon,
+   417→            color,
+   418→            showLabel: true,
+   419→            showValue: true,
+   420→          }}
+   421→          value={Number(value)}
+   422→          color={color}
+   423→          compact={compact}
+   424→        />
+   425→      );
+   426→    
+   427→    case 'gauge':
+   428→      return (
+   429→        <GaugeField 
+   430→          field={{
+   431→            id: attribute.id,
+   432→            name: attribute.name,
+   433→            key: attribute.key,
+   434→            type: 'number',
+   435→            style: 'gauge',
+   436→            defaultValue: attribute.defaultValue as number,
+   437→            min,
+   438→            max,
+   439→            unit,
+   440→            icon,
+   441→            color,
+   442→            showLabel: true,
+   443→            showValue: true,
+   444→          }}
+   445→          value={Number(value)}
+   446→          color={color}
+   447→          compact={compact}
+   448→        />
+   449→      );
+   450→    
+   451→    case 'badge':
+   452→      return (
+   453→        <BadgeField 
+   454→          field={{
+   455→            id: attribute.id,
+   456→            name: attribute.name,
+   457→            key: attribute.key,
+   458→            type: attribute.type === 'number' ? 'number' : 'string',
+   459→            style: 'badge',
+   460→            defaultValue: String(value),
+   461→            icon,
+   462→            color,
+   463→            showLabel: true,
+   464→            showValue: true,
+   465→          }}
+   466→          value={String(value)}
+   467→          color={color}
+   468→          compact={compact}
+   469→        />
+   470→      );
+   471→    
+   472→    case 'pill':
+   473→      return (
+   474→        <PillField 
+   475→          field={{
+   476→            id: attribute.id,
+   477→            name: attribute.name,
+   478→            key: attribute.key,
+   479→            type: attribute.type === 'number' ? 'number' : 'string',
+   480→            style: 'pill',
+   481→            defaultValue: String(value),
+   482→            unit,
+   483→            icon,
+   484→            color,
+   485→            showLabel: true,
+   486→            showValue: true,
+   487→          }}
+   488→          value={String(value)}
+   489→          color={color}
+   490→          compact={compact}
+   491→        />
+   492→      );
+   493→    
+   494→    case 'status':
+   495→      return (
+   496→        <StatusField 
+   497→          field={{
+   498→            id: attribute.id,
+   499→            name: attribute.name,
+   500→            key: attribute.key,
+   501→            type: attribute.type === 'keyword' ? 'enum' : 'string',
+   502→            style: 'status',
+   503→            defaultValue: String(value),
+   504→            icon,
+   505→            color,
+   506→            showLabel: true,
+   507→            showValue: true,
+   508→          }}
+   509→          value={value}
+   510→          color={color}
+   511→          compact={compact}
+   512→        />
+   513→      );
+   514→    
+   515→    case 'dots':
+   516→      return (
+   517→        <DotsField 
+   518→          field={{
+   519→            id: attribute.id,
+   520→            name: attribute.name,
+   521→            key: attribute.key,
+   522→            type: 'number',
+   523→            style: 'dots',
+   524→            defaultValue: Number(value),
+   525→            icon,
+   526→            color,
+   527→            showLabel: true,
+   528→            showValue: true,
+   529→          }}
+   530→          value={Number(value)}
+   531→          color={color}
+   532→          compact={compact}
+   533→        />
+   534→      );
+   535→    
+   536→    case 'meter':
+   537→      return (
+   538→        <MeterField 
+   539→          field={{
+   540→            id: attribute.id,
+   541→            name: attribute.name,
+   542→            key: attribute.key,
+   543→            type: 'number',
+   544→            style: 'meter',
+   545→            defaultValue: Number(value),
+   546→            min,
+   547→            max,
+   548→            icon,
+   549→            color,
+   550→            showLabel: true,
+   551→            showValue: true,
+   552→          }}
+   553→          value={Number(value)}
+   554→          color={color}
+   555→          compact={compact}
+   556→        />
+   557→      );
+   558→    
+   559→    default:
+   560→      return (
+   561→        <DefaultField 
+   562→          field={{
+   563→            id: attribute.id,
+   564→            name: attribute.name,
+   565→            key: attribute.key,
+   566→            type: attribute.type === 'number' ? 'number' : 'string',
+   567→            style: 'default',
+   568→            defaultValue: value,
+   569→            unit,
+   570→            icon,
+   571→            color,
+   572→            showLabel: true,
+   573→            showValue: true,
+   574→          }}
+   575→          value={value}
+   576→          color={color}
+   577→          compact={compact}
+   578→          style={fieldStyle}
+   579→        />
+   580→      );
+   581→  }
+   582→}
+   583→
+   584→// ============================================
+   585→// HUD Container
+   586→// ============================================
+   587→
+   588→interface HUDContainerProps {
+   589→  template: HUDTemplate;
+   590→  values: Record<string, string | number | boolean>;
+   591→}
+   592→
+   593→function HUDContainer({ template, values }: HUDContainerProps) {
+   594→  const style = template.style;
+   595→  const compact = template.compact;
+   596→
+   597→  // Style configurations with animations and effects
+   598→  const getContainerClasses = () => {
+   599→    const baseClasses = 'pointer-events-auto transition-all duration-300';
+   600→
+   601→    switch (style) {
+   602→      case 'minimal':
+   603→        return cn(
+   604→          baseClasses,
+   605→          'bg-transparent p-2',
+   606→          'text-white/90'
+   607→        );
+   608→
+   609→      case 'card':
+   610→        return cn(
+   611→          baseClasses,
+   612→          'backdrop-blur-md rounded-xl border',
+   613→          'bg-gradient-to-br from-slate-900/80 to-slate-800/60',
+   614→          'border-white/10 shadow-xl shadow-black/20',
+   615→          compact ? 'p-2' : 'p-4'
+   616→        );
+   617→
+   618→      case 'panel':
+   619→        return cn(
+   620→          baseClasses,
+   621→          'backdrop-blur-lg rounded-2xl border-2',
+   622→          'bg-gradient-to-br from-slate-900/90 via-slate-800/80 to-slate-900/90',
+   623→          'border-white/20 shadow-2xl shadow-black/30',
+   624→          'before:absolute before:inset-0 before:rounded-2xl before:bg-gradient-to-r before:from-white/5 before:to-transparent before:pointer-events-none',
+   625→          compact ? 'p-2.5' : 'p-5'
+   626→        );
+   627→
+   628→      case 'glass':
+   629→        return cn(
+   630→          baseClasses,
+   631→          'backdrop-blur-xl rounded-2xl border',
+   632→          'bg-white/5 border-white/20',
+   633→          'shadow-[0_8px_32px_rgba(0,0,0,0.3)]',
+   634→          'relative overflow-hidden',
+   635→          'before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/10 before:via-transparent before:to-white/5 before:pointer-events-none',
+   636→          compact ? 'p-2.5' : 'p-5',
+   637→          'animate-[shimmer_3s_ease-in-out_infinite]'
+   638→        );
+   639→
+   640→      case 'neon':
+   641→        return cn(
+   642→          baseClasses,
+   643→          'backdrop-blur-md rounded-xl',
+   644→          'bg-slate-900/80 p-4',
+   645→          'border-2 border-cyan-500/50',
+   646→          'shadow-[0_0_20px_rgba(6,182,212,0.3),inset_0_0_20px_rgba(6,182,212,0.1)]',
+   647→          'animate-[neonPulse_2s_ease-in-out_infinite]',
+   648→          compact ? 'p-2' : 'p-4'
+   649→        );
+   650→
+   651→      case 'holographic':
+   652→        return cn(
+   653→          baseClasses,
+   654→          'backdrop-blur-lg rounded-xl border',
+   655→          'bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10',
+   656→          'border-cyan-400/30',
+   657→          'shadow-[0_0_30px_rgba(6,182,212,0.2)]',
+   658→          'relative overflow-hidden',
+   659→          'before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:animate-[holoScan_2s_linear_infinite] before:pointer-events-none',
+   660→          compact ? 'p-2.5' : 'p-5'
+   661→        );
+   662→
+   663→      case 'fantasy':
+   664→        return cn(
+   665→          baseClasses,
+   666→          'rounded-xl border-2',
+   667→          'bg-gradient-to-br from-amber-950/80 via-stone-900/80 to-amber-950/80',
+   668→          'border-amber-600/40',
+   669→          'shadow-[inset_0_0_20px_rgba(217,119,6,0.1),0_0_15px_rgba(217,119,6,0.2)]',
+   670→          'before:absolute before:inset-0 before:rounded-xl before:border before:border-amber-500/20 before:pointer-events-none',
+   671→          compact ? 'p-2.5' : 'p-5'
+   672→        );
+   673→
+   674→      case 'retro':
+   675→        return cn(
+   676→          baseClasses,
+   677→          'rounded-none border-4',
+   678→          'bg-black/90',
+   679→          'border-green-500/70',
+   680→          'shadow-[0_0_10px_rgba(34,197,94,0.5),inset_0_0_10px_rgba(34,197,94,0.1)]',
+   681→          'font-mono',
+   682→          compact ? 'p-2' : 'p-4',
+   683→          'animate-[retroFlicker_4s_ease-in-out_infinite]'
+   684→        );
+   685→
+   686→      default:
+   687→        return cn(
+   688→          baseClasses,
+   689→          'backdrop-blur-sm rounded-lg border',
+   690→          'bg-black/50 border-white/20',
+   691→          compact ? 'p-2' : 'p-3'
+   692→        );
+   693→    }
+   694→  };
+   695→
+   696→  const getHeaderClasses = () => {
+   697→    switch (style) {
+   698→      case 'minimal':
+   699→        return 'text-xs font-medium text-white/60 mb-2 pb-1 border-b border-white/10';
+   700→
+   701→      case 'neon':
+   702→        return 'text-xs font-bold text-cyan-400 mb-3 pb-2 border-b border-cyan-500/50 uppercase tracking-wider [text-shadow:0_0_10px_rgba(6,182,212,0.8)]';
+   703→
+   704→      case 'holographic':
+   705→        return 'text-xs font-medium text-cyan-300 mb-3 pb-2 border-b border-cyan-400/40 uppercase tracking-widest [text-shadow:0_0_8px_rgba(6,182,212,0.6)]';
+   706→
+   707→      case 'fantasy':
+   708→        return 'text-sm font-bold text-amber-400 mb-3 pb-2 border-b border-amber-600/40 uppercase tracking-wide [text-shadow:0_0_8px_rgba(217,119,6,0.5)]';
+   709→
+   710→      case 'retro':
+   711→        return 'text-xs font-bold text-green-400 mb-3 pb-2 border-b-2 border-green-500 uppercase [text-shadow:2px_2px_0_rgba(0,0,0,0.8)]';
+   712→
+   713→      default:
+   714→        return 'text-xs font-medium text-white/60 mb-2 pb-1 border-b border-white/10';
+   715→    }
+   716→  };
+   717→
+   718→  return (
+   719→    <div className={cn(getContainerClasses(), compact && 'gap-1', !compact && 'gap-2')}>
+   720→      {/* Animated background particles for certain styles */}
+   721→      {style === 'holographic' && (
+   722→        <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none">
+   723→          <div className="absolute w-full h-full bg-gradient-to-t from-cyan-500/5 via-transparent to-purple-500/5 animate-[holoShift_3s_ease-in-out_infinite]" />
+   724→        </div>
+   725→      )}
+   726→
+   727→      {style === 'fantasy' && (
+   728→        <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none">
+   729→          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMSIgZmlsbD0icmdiYSgyMTcsMTE5LDYsMC4xKSIvPjwvc3ZnPg==')] opacity-50" />
+   730→        </div>
+   731→      )}
+   732→
+   733→      {/* Header */}
+   734→      {style !== 'minimal' && !compact && (
+   735→        <div className={cn(getHeaderClasses(), 'relative z-10')}>
+   736→          {style === 'fantasy' && <span className="mr-2">⚔</span>}
+   737→          {style === 'retro' && <span className="mr-2">&gt;</span>}
+   738→          {template.name}
+   739→          {style === 'fantasy' && <span className="ml-2">⚔</span>}
+   740→          {style === 'retro' && <span className="ml-2">&lt;</span>}
+   741→        </div>
+   742→      )}
+   743→
+   744→      {/* Fields */}
+   745→      <div className={cn('flex flex-col relative z-10', compact ? 'gap-1' : 'gap-2')}>
+   746→        {template.fields.map((field) => (
+   747→          <HUDFieldDisplay
+   748→            key={field.id}
+   749→            field={field}
+   750→            value={values[field.id] ?? field.defaultValue}
+   751→            compact={compact}
+   752→            style={style}
+   753→          />
+   754→        ))}
+   755→      </div>
+   756→    </div>
+   757→  );
+   758→}
+   759→
+   760→// ============================================
+   761→// Individual Field Display
+   762→// ============================================
+   763→
+   764→interface HUDFieldDisplayProps {
+   765→  field: HUDField;
+   766→  value: string | number | boolean;
+   767→  compact?: boolean;
+   768→  style: HUDStyle;
+   769→}
+   770→
+   771→function HUDFieldDisplay({ field, value, compact, style }: HUDFieldDisplayProps) {
+   772→  const fieldStyle = field.style || 'default';
+   773→  const color = field.color || 'default';
+   774→  
+   775→  const textColor = colorClasses[color] || colorClasses.default;
+   776→  const bgColor = bgColorClasses[color] || bgColorClasses.default;
+   777→  const progressColor = progressColorClasses[color] || progressColorClasses.default;
+   778→  
+   779→  // Format value
+   780→  const formatValue = (): string => {
+   781→    if (typeof value === 'boolean') return value ? '✓' : '✗';
+   782→    if (typeof value === 'number') return String(value);
+   783→    return String(value);
+   784→  };
+   785→  
+   786→  // Render based on style
+   787→  switch (fieldStyle) {
+   788→    case 'progress':
+   789→      return (
+   790→        <ProgressField field={field} value={Number(value)} color={color} compact={compact} />
+   791→      );
+   792→    
+   793→    case 'badge':
+   794→      return (
+   795→        <BadgeField field={field} value={String(value)} color={color} compact={compact} />
+   796→      );
+   797→    
+   798→    case 'icon':
+   799→      return (
+   800→        <IconField field={field} value={String(value)} color={color} compact={compact} />
+   801→      );
+   802→    
+   803→    case 'chip':
+   804→      return (
+   805→        <ChipField field={field} value={String(value)} color={color} compact={compact} />
+   806→      );
+   807→    
+   808→    case 'status':
+   809→      return (
+   810→        <StatusField field={field} value={value} color={color} compact={compact} />
+   811→      );
+   812→    
+   813→    case 'gauge':
+   814→      return (
+   815→        <GaugeField field={field} value={Number(value)} color={color} compact={compact} />
+   816→      );
+   817→    
+   818→    case 'separator':
+   819→      return (
+   820→        <SeparatorField field={field} compact={compact} />
+   821→      );
+   822→    
+   823→    case 'label-only':
+   824→      return (
+   825→        <LabelOnlyField field={field} color={color} compact={compact} />
+   826→      );
+   827→    
+   828→    case 'pill':
+   829→      return (
+   830→        <PillField field={field} value={String(value)} color={color} compact={compact} />
+   831→      );
+   832→    
+   833→    case 'meter':
+   834→      return (
+   835→        <MeterField field={field} value={Number(value)} color={color} compact={compact} />
+   836→      );
+   837→    
+   838→    case 'dots':
+   839→      return (
+   840→        <DotsField field={field} value={value} color={color} compact={compact} />
+   841→      );
+   842→    
+   843→    default:
+   844→      return (
+   845→        <DefaultField field={field} value={value} color={color} compact={compact} style={style} />
+   846→      );
+   847→  }
+   848→}
+   849→
+   850→// ============================================
+   851→// Field Style Components
+   852→// ============================================
+   853→
+   854→interface FieldProps {
+   855→  field: HUDField;
+   856→  value: string | number | boolean;
+   857→  color: string;
+   858→  compact?: boolean;
+   859→}
+   860→
+   861→function DefaultField({ field, value, color, compact, style }: FieldProps & { style: HUDStyle }) {
+   862→  const textColor = colorClasses[color] || colorClasses.default;
+   863→  const bgColor = bgColorClasses[color] || bgColorClasses.default;
+   864→  
+   865→  const displayValue = typeof value === 'boolean' ? (value ? '✓' : '✗') : String(value);
+   866→  
+   867→  return (
+   868→    <div className={cn('flex items-center gap-2', compact && 'gap-1')}>
+   869→      {field.icon && (
+   870→        <span className={cn('text-sm', compact && 'text-xs')} title={field.name}>
+   871→          {field.icon}
+   872→        </span>
+   873→      )}
+   874→      {/* Always show label in both modes for clarity */}
+   875→      {field.showLabel !== false && (
+   876→        <span className={cn(
+   877→          'text-xs text-white/50',
+   878→          compact ? 'text-[10px] min-w-[50px]' : 'min-w-[60px]'
+   879→        )}>
+   880→          {field.name}:
+   881→        </span>
+   882→      )}
+   883→      <span
+   884→        className={cn(
+   885→          'font-medium rounded border',
+   886→          compact ? 'text-xs px-1.5 py-0.5' : 'text-sm px-2 py-0.5',
+   887→          bgColor,
+   888→          textColor
+   889→        )}
+   890→      >
+   891→        {displayValue}
+   892→        {field.unit && <span className="text-white/40 ml-0.5">{field.unit}</span>}
+   893→      </span>
+   894→    </div>
+   895→  );
+   896→}
+   897→
+   898→function ProgressField({ field, value, color, compact }: FieldProps) {
+   899→  return (
+   900→    <AnimatedProgress
+   901→      value={Number(value)}
+   902→      min={field.min ?? 0}
+   903→      max={field.max ?? 100}
+   904→      color={color}
+   905→      label={field.showLabel !== false ? field.name : undefined}
+   906→      icon={field.icon}
+   907→      unit={field.unit}
+   908→      showValue={field.showValue !== false}
+   909→      compact={compact}
+   910→      height={compact ? 'sm' : 'md'}
+   911→      animated={true}
+   912→    />
+   913→  );
+   914→}
+   915→
+   916→function BadgeField({ field, value, color, compact }: FieldProps) {
+   917→  return (
+   918→    <AnimatedBadge
+   919→      value={String(value)}
+   920→      color={color}
+   921→      label={field.showLabel !== false ? field.name : undefined}
+   922→      icon={field.icon}
+   923→      compact={compact}
+   924→      animated={true}
+   925→    />
+   926→  );
+   927→}
+   928→
+   929→function IconField({ field, value, color, compact }: FieldProps) {
+   930→  const textColor = colorClasses[color] || colorClasses.default;
+   931→  const bgColor = bgColorClasses[color] || bgColorClasses.default;
+   932→  
+   933→  return (
+   934→    <div
+   935→      className={cn(
+   936→        'flex items-center gap-1.5 rounded-lg border',
+   937→        compact ? 'p-1' : 'p-2',
+   938→        bgColor
+   939→      )}
+   940→      title={`${field.name}: ${value}`}
+   941→    >
+   942→      {field.icon && (
+   943→        <span className={cn(compact ? 'text-base' : 'text-lg')}>
+   944→          {field.icon}
+   945→        </span>
+   946→      )}
+   947→      {!compact && (
+   948→        <span className={cn('text-sm font-medium', textColor)}>
+   949→          {value}
+   950→        </span>
+   951→      )}
+   952→    </div>
+   953→  );
+   954→}
+   955→
+   956→function ChipField({ field, value, color, compact }: FieldProps) {
+   957→  const textColor = colorClasses[color] || colorClasses.default;
+   958→  const bgColor = bgColorClasses[color] || bgColorClasses.default;
+   959→  
+   960→  return (
+   961→    <div className="flex items-center gap-1.5">
+   962→      {field.icon && <span className={cn('text-xs', compact && 'text-[10px]')}>{field.icon}</span>}
+   963→      <span
+   964→        className={cn(
+   965→          'inline-flex items-center rounded border font-medium',
+   966→          compact ? 'text-[10px] px-1.5 py-0' : 'text-xs px-2 py-0.5',
+   967→          bgColor,
+   968→          textColor
+   969→        )}
+   970→      >
+   971→        {field.showLabel !== false && <span className="mr-1 opacity-60">{field.name}:</span>}
+   972→        {value}
+   973→      </span>
+   974→    </div>
+   975→  );
+   976→}
+   977→
+   978→function StatusField({ field, value, color, compact }: FieldProps) {
+   979→  const textColor = colorClasses[color] || colorClasses.default;
+   980→  const progressColor = progressColorClasses[color] || progressColorClasses.default;
+   981→  
+   982→  const statusColor = typeof value === 'boolean' 
+   983→    ? (value ? 'bg-green-500' : 'bg-red-500')
+   984→    : progressColor;
+   985→  
+   986→  const displayValue = typeof value === 'boolean' ? (value ? 'Activo' : 'Inactivo') : String(value);
+   987→  
+   988→  return (
+   989→    <div className={cn('flex items-center gap-2', compact && 'gap-1')}>
+   990→      <div className={cn('w-2 h-2 rounded-full', statusColor, 'animate-pulse')} />
+   991→      {field.showLabel !== false && (
+   992→        <span className={cn('text-xs text-white/50', compact && 'text-[10px]')}>{field.name}:</span>
+   993→      )}
+   994→      <span className={cn('text-sm font-medium', textColor, compact && 'text-xs')}>
+   995→        {displayValue}
+   996→      </span>
+   997→    </div>
+   998→  );
+   999→}
+  1000→
+  1001→function GaugeField({ field, value, color, compact }: FieldProps) {
+  1002→  return (
+  1003→    <AnimatedGauge
+  1004→      value={Number(value)}
+  1005→      min={field.min ?? 0}
+  1006→      max={field.max ?? 100}
+  1007→      color={color}
+  1008→      label={field.showLabel !== false ? field.name : undefined}
+  1009→      unit={field.unit}
+  1010→      showValue={true}
+  1011→      compact={compact}
+  1012→      size={compact ? 'sm' : 'md'}
+  1013→      animated={true}
+  1014→      showParticles={false}
+  1015→    />
+  1016→  );
+  1017→}
+  1018→
+  1019→function SeparatorField({ field, compact }: Omit<FieldProps, 'value' | 'color'>) {
+  1020→  return (
+  1021→    <div className="flex items-center gap-2 w-full">
+  1022→      {field.icon && <span className="text-sm">{field.icon}</span>}
+  1023→      {field.name && <span className="text-xs text-white/40">{field.name}</span>}
+  1024→      <div className="flex-1 h-px bg-white/20" />
+  1025→    </div>
+  1026→  );
+  1027→}
+  1028→
+  1029→function LabelOnlyField({ field, color, compact }: Omit<FieldProps, 'value'>) {
+  1030→  const textColor = colorClasses[color] || colorClasses.default;
+  1031→  
+  1032→  return (
+  1033→    <div className="flex items-center gap-2">
+  1034→      {field.icon && <span className="text-sm">{field.icon}</span>}
+  1035→      <span className={cn('text-sm font-medium', textColor, compact && 'text-xs')}>
+  1036→        {field.name}
+  1037→      </span>
+  1038→    </div>
+  1039→  );
+  1040→}
+  1041→
+  1042→function PillField({ field, value, color, compact }: FieldProps) {
+  1043→  const textColor = colorClasses[color] || colorClasses.default;
+  1044→  const bgColor = bgColorClasses[color] || bgColorClasses.default;
+  1045→  
+  1046→  return (
+  1047→    <div className={cn('flex items-center gap-2 rounded-full', compact ? 'px-3 py-1' : 'px-4 py-2', bgColor)}>
+  1048→      {field.icon && <span className="text-sm">{field.icon}</span>}
+  1049→      {field.showLabel !== false && (
+  1050→        <span className={cn('text-xs text-white/60', compact && 'text-[10px]')}>{field.name}:</span>
+  1051→      )}
+  1052→      <span className={cn('text-sm font-medium', textColor, compact && 'text-xs')}>
+  1053→        {value}
+  1054→      </span>
+  1055→    </div>
+  1056→  );
+  1057→}
+  1058→
+  1059→function MeterField({ field, value, color, compact }: FieldProps) {
+  1060→  return (
+  1061→    <AnimatedMeter
+  1062→      value={Number(value)}
+  1063→      min={field.min ?? 0}
+  1064→      max={field.max ?? 100}
+  1065→      color={color}
+  1066→      label={field.showLabel !== false ? field.name : undefined}
+  1067→      showValue={true}
+  1068→      compact={compact}
+  1069→      height={compact ? 32 : 48}
+  1070→      animated={true}
+  1071→    />
+  1072→  );
+  1073→}
+  1074→
+  1075→function DotsField({ field, value, color, compact }: FieldProps) {
+  1076→  const numDots = typeof value === 'boolean' 
+  1077→    ? (value ? 5 : 0) 
+  1078→    : Math.min(5, Math.max(0, Number(value)));
+  1079→  
+  1080→  return (
+  1081→    <AnimatedDots
+  1082→      value={numDots}
+  1083→      max={5}
+  1084→      color={color}
+  1085→      label={field.showLabel !== false ? field.name : undefined}
+  1086→      icon={field.icon}
+  1087→      compact={compact}
+  1088→      animated={true}
+  1089→    />
+  1090→  );
+  1091→}
+  1092→
+  1093→export default HUDDisplay;
+  1094→

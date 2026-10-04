@@ -28,6 +28,7 @@ import {
   Pencil,
   Sparkles,
   Download,
+  MessageSquare,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -59,8 +60,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { useTavernStore } from '@/store';
+import { DEFAULT_EMBEDDINGS_CHAT, migrateEmbeddingsChatLegacyKeys } from '@/lib/embeddings/constants';
+import type { EmbeddingsChatSettings } from '@/types';
 
 interface EmbeddingConfig {
   ollamaUrl: string;
@@ -237,6 +242,17 @@ export function EmbeddingsSettingsPanel() {
 
   // Advanced collapsible
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // Chat integration settings (how knowledge enters the prompt as [CONTEXTO RELEVANTE]).
+  // Lives in the shared settings.embeddingsChat — same object Memory V2 uses.
+  const ecRaw = useTavernStore((s) => (s.settings as { embeddingsChat?: Partial<EmbeddingsChatSettings> }).embeddingsChat);
+  const updateSettings = useTavernStore((s) => s.updateSettings);
+  const ec = migrateEmbeddingsChatLegacyKeys(ecRaw || DEFAULT_EMBEDDINGS_CHAT) as Required<Pick<EmbeddingsChatSettings, 'maxTokenBudget' | 'namespaceStrategy' | 'showInPromptViewer'>> & Partial<EmbeddingsChatSettings>;
+  const updateEmbeddingsChat = (updates: Partial<EmbeddingsChatSettings>) => {
+    updateSettings({
+      embeddingsChat: { ...ec, ...updates },
+    } as never);
+  };
   const [configLoaded, setConfigLoaded] = useState(false);
 
   // Namespace documents
@@ -956,7 +972,7 @@ export function EmbeddingsSettingsPanel() {
           </div>
           <div className="flex-1">
             <h4 className="text-sm font-medium text-purple-600 dark:text-purple-400">
-              Base de Conocimiento
+              Conocimiento (Embeddings Semánticos)
             </h4>
             <p className="text-xs text-muted-foreground mt-1">
               Infraestructura de búsqueda semántica con <strong>Ollama</strong> + <strong>LanceDB</strong>. Almacena y busca embeddings de texto por significado. Los ajustes de memoria están en la pestaña <strong>Memoria</strong>.
@@ -1327,6 +1343,137 @@ export function EmbeddingsSettingsPanel() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Chat Integration — how indexed knowledge enters the prompt */}
+          <Card>
+            <CardContent className="pt-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">Integración con el chat</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Cómo entra el Conocimiento indexado al prompt como [CONTEXTO RELEVANTE]
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label className="text-xs">Inyectar conocimiento en el chat</Label>
+                  <p className="text-[10px] text-muted-foreground">
+                    Busca fragmentos relevantes en los namespaces y añádelos al prompt de cada mensaje.
+                    Desactivarlo no borra nada: los archivos indexados se conservan.
+                  </p>
+                </div>
+                <Switch
+                  checked={ec.knowledgeSearchEnabled !== false}
+                  onCheckedChange={(checked) => updateEmbeddingsChat({ knowledgeSearchEnabled: checked })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label className="text-xs">Mostrar en el visor de prompt</Label>
+                  <p className="text-[10px] text-muted-foreground">
+                    Ver qué fragmentos se inyectaron en cada mensaje (sección [CONTEXTO RELEVANTE] del visor).
+                  </p>
+                </div>
+                <Switch
+                  checked={ec.showInPromptViewer !== false}
+                  onCheckedChange={(checked) => updateEmbeddingsChat({ showInPromptViewer: checked })}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs">Presupuesto de contexto: {ec.maxTokenBudget} tokens</Label>
+                  <Slider
+                    value={[ec.maxTokenBudget]}
+                    min={256} max={4096} step={128}
+                    onValueChange={([v]) => updateEmbeddingsChat({ maxTokenBudget: v })}
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Tamaño máximo del bloque de conocimiento en el prompt. También limita los bloques de la Memoria V2.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Resultados por búsqueda: {ec.knowledgeMaxResults ?? 5}</Label>
+                  <Slider
+                    value={[ec.knowledgeMaxResults ?? 5]}
+                    min={1} max={15} step={1}
+                    onValueChange={([v]) => updateEmbeddingsChat({ knowledgeMaxResults: v })}
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Fragmentos candidatos por namespace antes del re-ranking (decaimiento, calor, diversidad).
+                  </p>
+                </div>
+              </div>
+
+              {/* Re-ranking parameters (FASE 14) */}
+              <div className="rounded-lg border border-border/50 p-3 space-y-3">
+                <p className="text-[11px] font-medium text-muted-foreground">Re-ranking de resultados</p>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-xs">Decaimiento temporal</Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Los fragmentos antiguos pierden prioridad frente a los recientes al ordenar el contexto.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={ec.knowledgeDecayEnabled !== false}
+                    onCheckedChange={(checked) => updateEmbeddingsChat({ knowledgeDecayEnabled: checked })}
+                  />
+                </div>
+
+                {(ec.knowledgeDecayEnabled !== false) && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">Ventana de decaimiento: {ec.knowledgeDecayDays ?? 14} días</Label>
+                    <Slider
+                      value={[ec.knowledgeDecayDays ?? 14]}
+                      min={1} max={90} step={1}
+                      onValueChange={([v]) => updateEmbeddingsChat({ knowledgeDecayDays: v })}
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Un fragmento de esta antigüedad ya pierde casi toda su prioridad temporal. Sube el valor si tu historia avanza lento.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-xs">Impulso por uso (heat)</Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Los fragmentos que se inyectan a menudo ganan prioridad — el contexto que usas sube en el ranking.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={ec.knowledgeHeatEnabled !== false}
+                    onCheckedChange={(checked) => updateEmbeddingsChat({ knowledgeHeatEnabled: checked })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs">Estrategia de namespaces</Label>
+                <Select
+                  value={ec.namespaceStrategy || 'character'}
+                  onValueChange={(v) => updateEmbeddingsChat({ namespaceStrategy: v as EmbeddingsChatSettings['namespaceStrategy'] })}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="character">Por personaje/grupo activo (recomendado)</SelectItem>
+                    <SelectItem value="session">Por sesión (hoy igual que por personaje)</SelectItem>
+                    <SelectItem value="global">Global — todos los namespaces</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  Qué namespaces se buscan en cada mensaje. Los namespaces personalizados de la card del personaje
+                  (editor → Prompts) siempre se suman a esta estrategia.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Tab 2: Búsqueda */}
@@ -1356,12 +1503,8 @@ export function EmbeddingsSettingsPanel() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los Tipos</SelectItem>
-                <SelectItem value="memory">🧠 Memoria</SelectItem>
-                <SelectItem value="character">👤 Personaje</SelectItem>
-                <SelectItem value="world">🌍 Mundo</SelectItem>
-                <SelectItem value="lorebook">📖 Lorebook</SelectItem>
-                <SelectItem value="session">💬 Sesión</SelectItem>
                 <SelectItem value="file">📄 Archivo</SelectItem>
+                <SelectItem value="summary">📝 Resumen</SelectItem>
                 <SelectItem value="custom">✏️ Personalizado</SelectItem>
               </SelectContent>
             </Select>
@@ -1775,12 +1918,8 @@ export function EmbeddingsSettingsPanel() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos los Tipos</SelectItem>
-                  <SelectItem value="memory">🧠 Memoria</SelectItem>
-                  <SelectItem value="character">👤 Personaje</SelectItem>
-                  <SelectItem value="world">🌍 Mundo</SelectItem>
-                  <SelectItem value="lorebook">📖 Lorebook</SelectItem>
-                  <SelectItem value="session">💬 Sesión</SelectItem>
                   <SelectItem value="file">📄 Archivo</SelectItem>
+                  <SelectItem value="summary">📝 Resumen</SelectItem>
                   <SelectItem value="custom">✏️ Personalizado</SelectItem>
                 </SelectContent>
               </Select>

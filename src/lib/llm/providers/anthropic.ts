@@ -38,7 +38,7 @@ export async function* streamAnthropic(
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: config.model || 'claude-3-sonnet-20240229',
+      model: config.model || 'claude-3-5-sonnet-latest', // FIX: previous default ('claude-3-sonnet-20240229') was a retired model ID (404)
       max_tokens: config.parameters.maxTokens,
       system: systemMessage?.content,
       messages: chatMessages.map(m => ({
@@ -132,7 +132,7 @@ export async function* streamAnthropicWithTools(
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: config.model || 'claude-3-sonnet-20240229',
+      model: config.model || 'claude-3-5-sonnet-latest', // FIX: previous default ('claude-3-sonnet-20240229') was a retired model ID (404)
       max_tokens: config.parameters.maxTokens,
       system: systemMessage?.content,
       messages: chatMessages.map(m => ({
@@ -214,7 +214,7 @@ export async function callAnthropic(
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: config.model || 'claude-3-sonnet-20240229',
+      model: config.model || 'claude-3-5-sonnet-latest', // FIX: previous default ('claude-3-sonnet-20240229') was a retired model ID (404)
       max_tokens: config.parameters.maxTokens,
       system: systemMessage?.content,
       messages: chatMessages.map(m => ({

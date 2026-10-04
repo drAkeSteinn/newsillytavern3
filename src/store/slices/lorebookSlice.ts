@@ -58,7 +58,20 @@ export const createLorebookSlice = (set: any, get: any): LorebookSlice => ({
 
   deleteLorebook: (id) => set((state: any) => ({
     lorebooks: state.lorebooks.filter((l: Lorebook) => l.id !== id),
-    activeLorebookIds: state.activeLorebookIds.filter((aid: string) => aid !== id)
+    activeLorebookIds: state.activeLorebookIds.filter((aid: string) => aid !== id),
+    // Strip dangling references so characters/groups don't keep pointing at
+    // a book that no longer exists (the prompt-time filter would silently
+    // drop it, but the character editor kept showing a dead binding).
+    characters: (state.characters || []).map((c: any) =>
+      c.lorebookIds?.includes(id)
+        ? { ...c, lorebookIds: c.lorebookIds.filter((lid: string) => lid !== id), updatedAt: new Date().toISOString() }
+        : c
+    ),
+    groups: (state.groups || []).map((g: any) =>
+      g.lorebookIds?.includes(id)
+        ? { ...g, lorebookIds: g.lorebookIds.filter((lid: string) => lid !== id), updatedAt: new Date().toISOString() }
+        : g
+    ),
   })),
 
   toggleLorebook: (id) => set((state: any) => {
@@ -192,8 +205,16 @@ export const createLorebookSlice = (set: any, get: any): LorebookSlice => ({
 
   // Import/Export
   importSillyTavernLorebook: (stLorebook, name, description = '') => {
-    const entries: LorebookEntry[] = Object.values(stLorebook.entries).map((entry, index) => ({
-      uid: entry.uid ?? index,
+    // Sanitize the imported entries: malformed files can contain null values
+    // ({"0": null}), which crashed the import with "Cannot read properties of
+    // null (reading 'uid')" and left the user with a silent failure.
+    // Uids are also re-keyed sequentially: trusting entry.uid lets duplicate
+    // uids through, after which updateLorebookEntry/deleteLorebookEntry
+    // operated on BOTH entries and React keys collided.
+    const rawEntries = (Object.values(stLorebook.entries ?? {}) as Record<string, any>[])
+      .filter(e => !!e && typeof e === 'object');
+    const entries: LorebookEntry[] = rawEntries.map((entry, index) => ({
+      uid: index, // re-key sequentially — duplicate uids corrupt editing
       key: entry.key || [],
       keysecondary: entry.keysecondary || [],
       comment: entry.comment || '',

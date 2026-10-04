@@ -464,6 +464,24 @@ export function getTableDimension(): number | null {
   return tableDimension;
 }
 
+/**
+ * Memory V2: access the shared LanceDB instance so additional tables
+ * (e.g. `memories_v2`) can live in the same database directory.
+ * Returns null when the native module is unavailable or init failed —
+ * callers (memory V2 store) must fall back to their JSON backend.
+ */
+export async function getLanceDBInstance(): Promise<any | null> {
+  if (isPermanentlyUnavailable) return null;
+  if (!db || !isInitialized) {
+    try {
+      await initLanceDB();
+    } catch {
+      return null;
+    }
+  }
+  return db && isInitialized ? db : null;
+}
+
 export async function initLanceDB(uri?: string, forceReinit: boolean = false): Promise<void> {
   const dbUri = uri || process.env.LANCEDB_URI || getDefaultLanceDBPath();
 

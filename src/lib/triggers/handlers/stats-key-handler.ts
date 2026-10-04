@@ -129,18 +129,30 @@ export class StatsKeyHandler implements KeyHandler {
     if (key.value) {
       // Check for operator prefix
       const valueStr = key.value.toString();
-      
+
+      if (valueStr.startsWith('*') || valueStr.startsWith('/')) {
+        // KeyDetector emits */  operator keys, but they are not supported
+        // here. Reject the match instead of storing the raw "/2" string into
+        // a numeric attribute (which poisoned stats with garbage).
+        return { matched: false };
+      }
+
       if (valueStr.startsWith('+')) {
-        operator = 'add';
         const parsed = parseFloat(valueStr.slice(1));
+        // Reject non-numeric operands ("+abc") instead of producing NaN.
+        if (!Number.isFinite(parsed)) return { matched: false };
+        operator = 'add';
         newValue = typeof oldValue === 'number' ? oldValue + parsed : parsed;
       } else if (valueStr.startsWith('-')) {
-        operator = 'subtract';
         const parsed = parseFloat(valueStr.slice(1));
+        if (!Number.isFinite(parsed)) return { matched: false };
+        operator = 'subtract';
         newValue = typeof oldValue === 'number' ? oldValue - parsed : -parsed;
       } else if (valueStr.startsWith('=')) {
         operator = 'set';
-        newValue = parseFloat(valueStr.slice(1)) || valueStr.slice(1);
+        const rest = valueStr.slice(1);
+        const parsed = parseFloat(rest);
+        newValue = Number.isFinite(parsed) ? parsed : rest;
       } else {
         // Default: set value
         const parsed = parseFloat(valueStr);
@@ -150,6 +162,11 @@ export class StatsKeyHandler implements KeyHandler {
       // No value provided - default to increment by 1
       newValue = typeof oldValue === 'number' ? oldValue + 1 : 1;
       operator = 'add';
+    }
+
+    // Numeric attributes must never receive non-finite numbers or raw text.
+    if (matchedAttr.type === 'number' && (typeof newValue !== 'number' || !Number.isFinite(newValue))) {
+      return { matched: false };
     }
     
     // Apply min/max constraints for numeric values

@@ -45,6 +45,9 @@ import {
   Globe,
   Sparkles,
   User,
+  KeyRound,
+  Plus,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { 
@@ -79,17 +82,23 @@ interface CharacterVoicePanelProps {
   voiceSettings: CharacterVoiceSettings | null;
   onChange: (settings: CharacterVoiceSettings) => void;
   globalConfig?: TTSWebUIConfig | null;
+  /** KWS: palabras clave de voz para activar al personaje además de su nombre */
+  kwsKeywords?: string[];
+  onKwsKeywordsChange?: (keywords: string[] | undefined) => void;
 }
 
 export function CharacterVoicePanel({ 
   voiceSettings, 
   onChange,
-  globalConfig 
+  globalConfig,
+  kwsKeywords,
+  onKwsKeywordsChange,
 }: CharacterVoicePanelProps) {
   const [availableVoices, setAvailableVoices] = useState<VoiceInfo[]>([]);
   const [omniVoiceProfiles, setOmniVoiceProfiles] = useState<OmniVoiceProfile[]>([]);
   const [isLoadingVoices, setIsLoadingVoices] = useState(false);
   const [activeSection, setActiveSection] = useState<'dialogue' | 'narrator'>('dialogue');
+  const [newKeyword, setNewKeyword] = useState('');
 
   const isOmniVoice = globalConfig?.provider === 'omnivoice';
 
@@ -175,6 +184,26 @@ export function CharacterVoicePanel({
     });
   };
 
+  // KWS keywords helpers
+  const handleAddKeyword = () => {
+    const value = newKeyword.trim();
+    if (!value || !onKwsKeywordsChange) return;
+    const current = kwsKeywords ?? [];
+    // Dedupe case-insensitively
+    if (current.some(k => k.toLowerCase() === value.toLowerCase())) {
+      setNewKeyword('');
+      return;
+    }
+    onKwsKeywordsChange([...current, value]);
+    setNewKeyword('');
+  };
+
+  const handleRemoveKeyword = (keyword: string) => {
+    if (!onKwsKeywordsChange) return;
+    const next = (kwsKeywords ?? []).filter(k => k !== keyword);
+    onKwsKeywordsChange(next.length > 0 ? next : undefined);
+  };
+
   return (
     <TooltipProvider>
       <div className="space-y-4">
@@ -197,6 +226,77 @@ export function CharacterVoicePanel({
             onCheckedChange={(checked) => updateSettings({ enabled: checked })}
           />
         </div>
+
+        {/* KWS Keywords - Voice activation keywords.
+            Always visible: KWS (voice input) is independent from TTS (voice output). */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-amber-500" />
+              Palabras clave (Voz / KWS)
+            </CardTitle>
+            <CardDescription>
+              Activa a este personaje por voz con apodos o palabras propias, sin decir su nombre completo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-2">
+              <Input
+                value={newKeyword}
+                onChange={(e) => setNewKeyword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddKeyword();
+                  }
+                }}
+                placeholder="Ej: Aitana, licuadora..."
+                className="h-8 text-xs"
+                aria-label="Nueva palabra clave"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 px-2 shrink-0"
+                onClick={handleAddKeyword}
+                disabled={!newKeyword.trim()}
+              >
+                <Plus className="w-3 h-3 mr-1" /> Agregar
+              </Button>
+            </div>
+
+            {(kwsKeywords?.length ?? 0) > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {kwsKeywords!.map((keyword) => (
+                  <span
+                    key={keyword}
+                    className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 text-xs"
+                  >
+                    {keyword}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveKeyword(keyword)}
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label={`Eliminar palabra clave ${keyword}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Sin palabras clave. El personaje solo se activa por voz con su nombre completo.
+              </p>
+            )}
+
+            <div className="text-xs bg-muted/50 p-2 rounded border">
+              <p className="text-muted-foreground">
+                Si el micrófono detecta una de estas palabras, el mensaje se envía a este personaje. En grupos, responderá primero según la estrategia de respuesta configurada.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         {settings.enabled && (
           <>

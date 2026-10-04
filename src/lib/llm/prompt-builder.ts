@@ -4,7 +4,6 @@
 
 import { formatWorldClock, createDefaultWorldClock } from '@/lib/world/time';
 import { buildTextActionsSection } from '@/lib/tools/text-actions';
-import { personalizeMemoryContent } from '@/lib/memory/personalize';
 import type {
   CharacterCard,
   ChatMessage,
@@ -13,7 +12,6 @@ import type {
   CharacterGroup,
   Lorebook,
   SummaryData,
-  CharacterMemory,
   SessionStats,
   HUDContextConfig,
   QuestTemplate,
@@ -46,8 +44,13 @@ import {
 } from '@/lib/stats';
 import { isWardrobeAvailable, getWardrobeInfo } from '@/lib/wardrobe';
 import { isScenarioAvailable, getScenarioInfo } from '@/lib/scenario';
+// NOTE: The [GESTIÓN DE ATRIBUTOS] block is NO longer auto-injected here.
+// It is ONLY injected where the user places the resolvable keys
+// {{attributes}} (list) / {{attributes_rulz}} (rules) — in any card section
+// or lorebook entry. Resolution happens in key-resolver.ts (Phase 5.97).
 import {
   resolveAllKeys,
+  resolveAllKeysWithPasses,
   resolveSectionsKeys,
   resolveSectionsKeysWithPasses,
   buildKeyResolutionContext,
@@ -354,114 +357,6 @@ export function injectHUDContextIntoSections(
  *
  * Returns null if inventory data is empty or invalid.
  */
-export function buildInventorySection(
-  inventoryData: InventoryPromptData,
-  keyContext?: KeyResolutionContext
-): PromptSection | null {
-  const {
-    personaItems,
-    equippedItems,
-    sessionEquipment,
-    activeEffects,
-    currency,
-    currencyName,
-    currencyIcon,
-    inventorySettings,
-  } = inventoryData;
-
-  // If no items and no effects and no currency, skip section
-  if (personaItems.length === 0 && activeEffects.length === 0 && currency === 0) {
-    return null;
-  }
-
-  // Use the template from inventory settings, or fall back to default
-  const template = inventorySettings.promptTemplate?.trim() || `[Inventario Activo]
-{{activeItems}}
-
-[Efectos Activos]
-{{activeEffects}}
-
-[Divisa]
-{{currency}}`;
-
-  // Build items list (all items in inventory)
-  const itemLines = personaItems.map(({ entry, item }) => {
-    const qty = entry.quantity > 1 ? ` x${entry.quantity}` : '';
-    const eq = entry.equipped ? ' [Equipado]' : '';
-    const effects = (item.attributeEffects && item.attributeEffects.length > 0)
-      ? ` (${item.attributeEffects.map(e => `${e.operator}${e.value} ${e.attributeKey}`).join(', ')})`
-      : '';
-    return `- ${item.icon || ''} ${item.name}${qty}${eq}${effects}`;
-  }).join('\n');
-
-  // Build active effects list
-  const effectLines = activeEffects.map(e => {
-    const turnsLeft = e.remainingTurns > 0 ? ` (${e.remainingTurns}/${e.totalTurns} turnos)` : '';
-    // Use consumableEffect free text if available, otherwise fall back to attribute effects
-    let effectDesc: string;
-    if (e.consumableEffect) {
-      effectDesc = e.consumableEffect;
-    } else {
-      effectDesc = e.effects.map(ef =>
-        `${ef.operator}${ef.value} ${ef.attributeKey}${ef.targetId !== '__user__' ? ` → ${ef.targetName || ef.targetId}` : ''}`
-      ).join(', ');
-    }
-    return `- ${e.itemName}: ${effectDesc}${turnsLeft}`;
-  }).join('\n');
-
-  // Build equipped items list - prefer sessionEquipment (per-session), fallback to equippedItems (legacy)
-  let equipLines = '';
-  if (sessionEquipment && sessionEquipment.length > 0) {
-    // Use session equipment data
-    const items = personaItems.map(({ item }) => item);
-    equipLines = sessionEquipment.map(eq => {
-      const item = items.find(i => i.id === eq.itemId);
-      const slotDef = inventorySettings.equipmentSlots?.find(s => s.id === eq.equippedSlotId);
-      const slotLabel = slotDef?.name || eq.equippedSlotId;
-      const effectText = eq.slotEffectText
-        || item?.slotEffects?.find(se => se.slotId === eq.equippedSlotId)?.effectText
-        || '';
-      return `- ${item?.icon || ''} ${item?.name || '???'} [${slotLabel}]${effectText ? ` → ${effectText}` : ''}`;
-    }).join('\n');
-  } else if (equippedItems && equippedItems.length > 0) {
-    // Fallback to legacy equipped items
-    equipLines = equippedItems.map(({ item }) => {
-      // Prefer slotEffects (V3) over attributeEffects (V2)
-      let effects = '';
-      if (item.slotEffects && item.slotEffects.length > 0) {
-        effects = item.slotEffects.map(se => se.effectText).filter(Boolean).join('; ');
-      } else if (item.attributeEffects && item.attributeEffects.length > 0) {
-        effects = item.attributeEffects.map(e => `${e.operator}${e.value} ${e.attributeKey}`).join(', ');
-      }
-      const slotDef = inventorySettings.equipmentSlots?.find(s => s.id === item.slot);
-      const slotLabel = slotDef?.name || item.slot || '';
-      return `- ${item.icon || ''} ${item.name}${slotLabel ? ` [${slotLabel}]` : ''}${effects ? ` → ${effects}` : ''}`;
-    }).join('\n');
-  }
-
-  // Build currency line
-  const currencyLine = `${currencyIcon || '💰'} ${currencyName || 'Divisa'}: ${currency}`;
-
-  // Apply template replacements
-  let content = template
-    .replace('{{activeItems}}', itemLines || 'Vacío')
-    .replace('{{activeEffects}}', effectLines || 'Ninguno')
-    .replace('{{equippedItems}}', equipLines || 'Ninguno')
-    .replace('{{currency}}', currencyLine);
-
-  // Resolve all keys in the inventory content if keyContext is available
-  if (keyContext) {
-    content = resolveAllKeys(content, keyContext);
-  }
-
-  return {
-    type: 'inventory',
-    label: 'Inventory',
-    content,
-    color: SECTION_COLORS.inventory
-  };
-}
-
 // ============================================
 // Extended Build Options
 // ============================================
@@ -677,41 +572,9 @@ export function buildSystemPrompt(
     });
   }
 
-  // Attribute Management Section — tells the LLM which attributes exist, their current
-  // values, which is the main attribute, and how to use the modify_stat tool to change them.
-  // This is critical for native tool calling: without this, the LLM doesn't know it can
-  // modify attributes or which attribute names to use.
-  if (resolvedStats?.attributes && character.statsConfig?.enabled) {
-    const attrDefs = character.statsConfig.attributes || [];
-    if (attrDefs.length > 0) {
-      const attrLines = attrDefs.map(a => {
-        const formatted = resolvedStats.attributes[a.key] || `${a.defaultValue}`;
-        const mainTag = a.isMain ? ' 👑 PRINCIPAL' : '';
-        return `  - ${a.name} (key: ${a.key}): ${formatted}${mainTag}`;
-      });
-
-      const mainAttr = attrDefs.find(a => a.isMain === true);
-      const mainLine = mainAttr
-        ? `\n\nEl atributo PRINCIPAL de este personaje es "${mainAttr.name}" (key: ${mainAttr.key}). Los cambios en este atributo afectan significativamente el comportamiento y la narrativa del personaje.`
-        : '';
-
-      const attrManagementContent = `[GESTIÓN DE ATRIBUTOS]\n` +
-        `Atributos actuales del personaje:\n${attrLines.join('\n')}${mainLine}\n\n` +
-        `INSTRUCCIONES PARA GESTIONAR ATRIBUTOS:\n` +
-        `- USA la herramienta "modify_stat" cuando un evento narrativo deba cambiar un atributo (ej: ganar experiencia, perder vida, recibir daño, cambiar de estado emocional, progresar una relación).\n` +
-        `- Para atributos numéricos usa operadores: "+10" suma, "-5" resta, "=50" establece un valor exacto.\n` +
-        `- Para atributos de texto/estado (keyword), pasa el nuevo valor directamente (ej: "envenenado", "armado").\n` +
-        `- Modifica atributos ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.\n` +
-        `- Proporciona siempre una "reason" narrativa para el cambio.`;
-
-      sections.push({
-        type: 'character_note',
-        label: 'Gestión de Atributos',
-        content: attrManagementContent,
-        color: SECTION_COLORS.character_note
-      });
-    }
-  }
+  // NOTE: [GESTIÓN DE ATRIBUTOS] is NOT hardcoded anymore. The block is only
+  // injected where the user places {{attributes}} / {{attributes_rulz}}
+  // (card sections or lorebook entries) — resolved by key-resolver Phase 5.97.
 
   // GUARDARROPA V2: Wardrobe Section — tells the LLM about the wardrobe (outfits)
   // and how to use the manage_wardrobe tool. Only injected if the character has
@@ -743,6 +606,7 @@ export function buildSystemPrompt(
         wardrobeLines.push(`- Usa el nombre EXACTO del outfit tal como aparece en la lista (ej: "Tanga de lado"). Con action "list" ves tu guardarropa completo con todos los detalles.`);
         wardrobeLines.push(`- Con action "remove" te quitas el outfit actual y vuelves a tu outfit predeterminado.`);
         wardrobeLines.push(`- Mantén coherencia narrativa con lo que llevas puesto (bloque [VESTUARIO]).`);
+        wardrobeLines.push(`- Usa el vestuario ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
 
         // Safety net: if the character card doesn't include the {{vestuario}} key
         // in any section, inject the [VESTUARIO] block automatically so the
@@ -800,16 +664,20 @@ export function buildSystemPrompt(
         scenarioLines.push(`- Elige la ubicación que mejor encaje con la escena, la hora y el estado de ánimo. No necesitas permiso del usuario para mover la escena.`);
         scenarioLines.push(`- Usa el nombre EXACTO de la ubicación tal como aparece en la lista (ej: "Cama"). Con action "list" ves todas las ubicaciones con sus detalles.`);
         scenarioLines.push(`- Mantén coherencia narrativa con la ubicación actual (bloque [ESCENARIO]): no narrues objetos o personas de otro lugar mientras estéis aquí.`);
+        scenarioLines.push(`- Usa la ubicación ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
 
         // Safety net: if the character card doesn't include the {{escenario}} key
         // in any section, inject the [ESCENARIO] block automatically so the
         // active location description always reaches the prompt.
+        // NOTE: only {{escenario}} counts — {{scenario}} is the classic ST macro
+        // (resolves to character.scenario in key-resolver Phase 1) and must not
+        // suppress this block.
         const cardText = [
           character.description, character.personality, character.scenario,
           character.systemPrompt, character.characterNote, character.postHistoryInstructions,
           character.authorNote, character.mesExample,
         ].filter(Boolean).join('\n');
-        const cardHasKey = /\{\{(?:escenario|scenario)\}\}/i.test(cardText || '');
+        const cardHasKey = /\{\{escenario\}\}/i.test(cardText || '');
         if (!cardHasKey) {
           const header = character.scenarioConfig?.blockHeader || '[ESCENARIO]';
           const activeDesc = scenarioInfo.current?.description?.trim();
@@ -872,7 +740,7 @@ export function buildSystemPrompt(
   // All in one place, consistently
   // FIX EXPLORE-3: usar resolveSectionsKeysWithPasses (3 passes) para resolver
   // recursivamente keys anidadas (ej. un {{injectionKey}} cuyo contenido contiene
-  // {{user}} y {{eventos}}). El convergence check evita loops infinitos.
+  // {{user}} y {{last_events}}). El convergence check evita loops infinitos.
   const processedSections = resolveSectionsKeysWithPasses(sections, keyContext, 3);
 
   // Build the prompt string from processed sections
@@ -882,7 +750,19 @@ export function buildSystemPrompt(
   // Return empty exampleMessages for backward compatibility with API routes.
   const exampleMessages: ChatApiMessage[] = [];
 
-  return { prompt, sections: processedSections, lorebookChatInjections: lorebookPlan?.chatInjections || [], exampleMessages };
+  // Resolve keys in lorebook chat-level injections (positions 1-4).
+  // These injections bypass the section pipeline (they are spliced into chat
+  // messages by applyChatInjections), so without this pass any {{key}} inside
+  // a position 1-4 entry ({{user}}, {{char}}, {{attributes}}, {{entryKey}}...)
+  // reached the LLM literally.
+  const resolvedChatInjections = lorebookPlan?.chatInjections?.length
+    ? lorebookPlan.chatInjections.map(inj => ({
+        ...inj,
+        content: resolveAllKeysWithPasses(inj.content, keyContext, 3),
+      }))
+    : [];
+
+  return { prompt, sections: processedSections, lorebookChatInjections: resolvedChatInjections, exampleMessages };
 }
 
 /**
@@ -1305,7 +1185,10 @@ export function buildGroupSystemPrompt(
   questSettings?: QuestSettings,
   lorebookAttributeKeys?: Record<string, string>,
   inventoryData?: InventoryPromptData,
-  lorebookEntryKeyMap?: Record<string, string>
+  lorebookEntryKeyMap?: Record<string, string>,
+  soundTriggers?: SoundTrigger[],
+  soundSettings?: AppSettings['sound'],
+  outletSections?: Record<string, string>
 ): { prompt: string; sections: PromptSection[]; lorebookChatInjections: LorebookChatInjection[]; exampleMessages: ChatApiMessage[] } {
   const sections: PromptSection[] = [];
 
@@ -1335,7 +1218,9 @@ export function buildGroupSystemPrompt(
   });
 
   // Build unified key resolution context (includes quest data for {{activeQuests}}, lorebook attribute keys, lorebook entry keys, and inventory data for {{slots}})
-  const keyContext = buildKeyResolutionContext(character, userName, persona, resolvedStats, sessionStats, undefined, undefined, personaResolvedStats, questTemplates, sessionQuests, questSettings, undefined, lorebookAttributeKeys, inventoryData ? {
+  // FIX: soundTriggers/soundSettings/outletSections now forwarded — before, {{sonidos}}
+  // was silently stripped and {{outlet::name}} leaked raw inside group card sections.
+  const keyContext = buildKeyResolutionContext(character, userName, persona, resolvedStats, sessionStats, soundTriggers, soundSettings, personaResolvedStats, questTemplates, sessionQuests, questSettings, outletSections, lorebookAttributeKeys, inventoryData ? {
     personaItems: inventoryData.personaItems,
     sessionEquipment: inventoryData.sessionEquipment || inventoryData.equippedItems?.flatMap(({ entry, item }) =>
       entry.equippedSlotId ? [{ itemId: item.id, equippedSlotId: entry.equippedSlotId, slotEffectText: item.slotEffects?.find(se => se.slotId === entry.equippedSlotId)?.effectText }] : []
@@ -1524,40 +1409,8 @@ export function buildGroupSystemPrompt(
     });
   }
 
-  // Attribute Management Section (group chat variant) — same as 1-to-1 chat.
-  // Tells the LLM which attributes exist, their current values, which is the main
-  // attribute, and how to use the modify_stat tool to change them.
-  if (resolvedStats?.attributes && character.statsConfig?.enabled) {
-    const attrDefs = character.statsConfig.attributes || [];
-    if (attrDefs.length > 0) {
-      const attrLines = attrDefs.map(a => {
-        const formatted = resolvedStats.attributes[a.key] || `${a.defaultValue}`;
-        const mainTag = a.isMain ? ' 👑 PRINCIPAL' : '';
-        return `  - ${a.name} (key: ${a.key}): ${formatted}${mainTag}`;
-      });
-
-      const mainAttr = attrDefs.find(a => a.isMain === true);
-      const mainLine = mainAttr
-        ? `\n\nEl atributo PRINCIPAL de este personaje es "${mainAttr.name}" (key: ${mainAttr.key}). Los cambios en este atributo afectan significativamente el comportamiento y la narrativa del personaje.`
-        : '';
-
-      const attrManagementContent = `[GESTIÓN DE ATRIBUTOS]\n` +
-        `Atributos actuales del personaje:\n${attrLines.join('\n')}${mainLine}\n\n` +
-        `INSTRUCCIONES PARA GESTIONAR ATRIBUTOS:\n` +
-        `- USA la herramienta "modify_stat" cuando un evento narrativo deba cambiar un atributo (ej: ganar experiencia, perder vida, recibir daño, cambiar de estado emocional, progresar una relación).\n` +
-        `- Para atributos numéricos usa operadores: "+10" suma, "-5" resta, "=50" establece un valor exacto.\n` +
-        `- Para atributos de texto/estado (keyword), pasa el nuevo valor directamente (ej: "envenenado", "armado").\n` +
-        `- Modifica atributos ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.\n` +
-        `- Proporciona siempre una "reason" narrativa para el cambio.`;
-
-      sections.push({
-        type: 'character_note',
-        label: `${character.name} - Gestión de Atributos`,
-        content: attrManagementContent,
-        color: SECTION_COLORS.character_note
-      });
-    }
-  }
+  // NOTE: [GESTIÓN DE ATRIBUTOS] is NOT hardcoded anymore (same as 1-to-1 chat).
+  // Only injected where the user places {{attributes}} / {{attributes_rulz}}.
 
   // GUARDARROPA V2: Wardrobe Section (group chat variant) — same as 1-to-1 chat.
   // Only injected if the character has a wardrobeConfig with at least 1 outfit.
@@ -1649,12 +1502,13 @@ export function buildGroupSystemPrompt(
         scenarioLines.push(`- Usa la ubicación ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
 
         // Safety net: inject the [ESCENARIO] block if the card has no {{escenario}} key
+        // ({{scenario}} does NOT count — it is the classic ST macro, see key-resolver Phase 1)
         const cardText = [
           character.description, character.personality, character.scenario,
           character.systemPrompt, character.characterNote, character.postHistoryInstructions,
           character.authorNote, character.mesExample,
         ].filter(Boolean).join('\n');
-        const cardHasKey = /\{\{(?:escenario|scenario)\}\}/i.test(cardText || '');
+        const cardHasKey = /\{\{escenario\}\}/i.test(cardText || '');
         if (!cardHasKey) {
           const header = (scenarioInfo.isGroupScenario ? group.scenarioConfig?.blockHeader : character.scenarioConfig?.blockHeader) || '[ESCENARIO]';
           const activeDesc = scenarioInfo.current?.description?.trim();
@@ -1709,7 +1563,7 @@ export function buildGroupSystemPrompt(
   // ========================================
   // FIX EXPLORE-3: usar resolveSectionsKeysWithPasses (3 passes) para resolver
   // recursivamente keys anidadas (ej. un {{injectionKey}} cuyo contenido contiene
-  // {{user}} y {{eventos}}). El convergence check evita loops infinitos.
+  // {{user}} y {{last_events}}). El convergence check evita loops infinitos.
   const processedSections = resolveSectionsKeysWithPasses(sections, keyContext, 3);
 
   // Build the prompt string from processed sections
@@ -1719,7 +1573,19 @@ export function buildGroupSystemPrompt(
   // Return empty exampleMessages for backward compatibility with API routes.
   const exampleMessages: ChatApiMessage[] = [];
 
-  return { prompt, sections: processedSections, lorebookChatInjections: lorebookPlan?.chatInjections || [], exampleMessages };
+  // Resolve keys in lorebook chat-level injections (positions 1-4).
+  // These injections bypass the section pipeline (they are spliced into chat
+  // messages by applyChatInjections), so without this pass any {{key}} inside
+  // a position 1-4 entry ({{user}}, {{char}}, {{attributes}}, {{entryKey}}...)
+  // reached the LLM literally.
+  const resolvedChatInjections = lorebookPlan?.chatInjections?.length
+    ? lorebookPlan.chatInjections.map(inj => ({
+        ...inj,
+        content: resolveAllKeysWithPasses(inj.content, keyContext, 3),
+      }))
+    : [];
+
+  return { prompt, sections: processedSections, lorebookChatInjections: resolvedChatInjections, exampleMessages };
 }
 
 /**
@@ -1800,6 +1666,11 @@ export function buildGroupChatMessages(
 
   // Build history lines + API messages
   for (const msg of visibleMessages) {
+    // FIX: summary blob gets no speaker attribution (see note below)
+    if (msg.role !== 'user' && msg.content?.startsWith('[RECUERDOS ANTERIORES]')) {
+      historyLines.push(msg.content);
+      continue;
+    }
     const speaker = msg.role === 'user' ? userName :
       (allCharacters.find(c => c.id === msg.characterId)?.name || 'Character');
     historyLines.push(`${speaker}: ${msg.content}`);
@@ -1809,9 +1680,23 @@ export function buildGroupChatMessages(
   // IMPORTANT: In group chats, multiple characters speak as 'assistant' role.
   // When merging consecutive assistant messages, we MUST include speaker names
   // so the LLM can distinguish which character said what.
+  // FIX: the synthetic [RECUERDOS ANTERIORES] summary message must NOT get a
+  // speaker prefix — it was rendered as "Aitana: [RECUERDOS ANTERIORES]…",
+  // misattributing the memory blob to the character.
+  const isSummaryMessage = (m: ChatMessage) => m.content?.startsWith('[RECUERDOS ANTERIORES]');
   const mergedMessages: ChatApiMessage[] = [];
   for (const msg of visibleMessages) {
     const role = msg.role === 'user' ? 'user' : 'assistant';
+    if (msg.role !== 'user' && isSummaryMessage(msg)) {
+      // Summary blob: no speaker attribution
+      const last = mergedMessages[mergedMessages.length - 1];
+      if (last && last.role === 'assistant') {
+        last.content += '\n' + msg.content;
+      } else {
+        mergedMessages.push({ role: 'assistant', content: msg.content });
+      }
+      continue;
+    }
     // Include speaker name for assistant messages so different characters' lines
     // are distinguishable even when merged into the same message
     const speakerName = msg.role === 'user' ? userName :
@@ -2042,86 +1927,6 @@ export function buildSummarySection(summary: SummaryData): PromptSection {
     label: 'Resumen de conversación',
     content: `[Resumen de conversación anterior]\n${summary.content}`,
     color: SECTION_COLORS.summary
-  };
-}
-
-/**
- * Build character memory section
- *
- * EVENTS ARE CAPPED: only the top `maxEvents` (default 20) most important +
- * most recent events are injected. Without this cap, the section grows
- * unboundedly as automatic extraction adds events every few turns, making
- * each request larger than the last.
- *
- * Sort priority: importance (desc) → timestamp (desc, most recent first).
- */
-export function buildMemorySection(
-  memory: CharacterMemory,
-  characterName: string,
-  maxEvents: number = 20,
-  userName?: string,
-): PromptSection | null {
-  if (!memory.events.length && !memory.relationships.length && !memory.notes) {
-    return null;
-  }
-
-  // Normalize importance (support both old 0-1 and new 1-5 scales)
-  const normalizeImportance = (imp: number) => (imp > 1 ? imp : Math.round(imp * 5));
-
-  // Safety net: memories saved before sanitization existed (or via raw tool calls)
-  // may still contain "el Jugador"/"el usuario". Personalize at injection time so
-  // the LLM always sees the persona's real name without requiring a data migration.
-  const personalize = (text: string) =>
-    userName ? personalizeMemoryContent(text, userName) : text;
-
-  const parts: string[] = [];
-
-  // Add events (capped: top N by importance, then recency)
-  if (memory.events.length > 0) {
-    const eventsCap = Math.max(2, Math.floor(maxEvents));
-    const sortedEvents = [...memory.events].sort((a, b) => {
-      const impA = normalizeImportance(a.importance);
-      const impB = normalizeImportance(b.importance);
-      if (impB !== impA) return impB - impA;
-      // Same importance → most recent first
-      return (b.timestamp || '').localeCompare(a.timestamp || '');
-    });
-    const includedEvents = sortedEvents.slice(0, eventsCap);
-    const omitted = sortedEvents.length - includedEvents.length;
-
-    parts.push(`[Eventos y hechos clave]`);
-    for (const event of includedEvents) {
-      const normalizedImportance = normalizeImportance(event.importance);
-      const importance = normalizedImportance >= 4 ? '⭐' : '';
-      parts.push(`${importance} ${personalize(event.content)}`);
-    }
-    if (omitted > 0) {
-      parts.push(`(... ${omitted} eventos de menor relevancia omitidos)`);
-    }
-  }
-
-  // Add relationships (capped at 12, most extreme sentiment first)
-  if (memory.relationships.length > 0) {
-    parts.push(`\n[Relaciones]`);
-    const sortedRels = [...memory.relationships].sort((a, b) => Math.abs(b.sentiment) - Math.abs(a.sentiment));
-    const includedRels = sortedRels.slice(0, 12);
-    for (const rel of includedRels) {
-      const sentiment = rel.sentiment > 50 ? '😊' : rel.sentiment < -50 ? '😞' : '😐';
-      const relNotes = rel.notes ? ` — ${personalize(rel.notes)}` : '';
-      parts.push(`${sentiment} ${rel.targetName}: ${rel.relationship} (${rel.sentiment >= 0 ? '+' : ''}${rel.sentiment})${relNotes}`);
-    }
-  }
-
-  // Add notes
-  if (memory.notes) {
-    parts.push(`\n[Notas]\n${personalize(memory.notes)}`);
-  }
-
-  return {
-    type: 'character_note',
-    label: `Memoria de ${characterName}`,
-    content: parts.join('\n'),
-    color: SECTION_COLORS.memory
   };
 }
 

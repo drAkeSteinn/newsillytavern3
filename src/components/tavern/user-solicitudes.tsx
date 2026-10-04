@@ -16,8 +16,7 @@ interface QuickPetitionsProps {
   onActivatePeticion: (
     targetCharacterId: string,
     solicitudKey: string,
-    description: string,
-    completionDescription?: string
+    description: string
   ) => void;
 }
 
@@ -121,8 +120,7 @@ export function QuickPetitions({
             onClick={() => onActivatePeticion(
               petition.targetCharacterId,
               petition.solicitudKey,            // Use solicitudKey (completion key) for the target
-              petition.solicitudDescription,    // Use solicitudDescription for the target
-              petition.completionDescription    // Pass completion description
+              petition.solicitudDescription     // Use solicitudDescription for the target
             )}
           >
             {isAlreadyActive ? (

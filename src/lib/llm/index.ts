@@ -33,8 +33,6 @@ export {
   resolveSectionsKeysWithPasses,
   buildKeyResolutionContext,
   buildGroupKeyResolutionContext,
-  processCharacterKeys,
-  processMessageKeys,
   type KeyResolutionContext,
 } from '@/lib/key-resolver';
 

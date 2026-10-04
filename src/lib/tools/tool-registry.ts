@@ -381,20 +381,6 @@ export function summarizeToolResult(result: ToolExecutionResult, params?: Record
     }
   }
 
-  // Memory activation
-  if (result.memoryActivation) {
-    const ma = result.memoryActivation;
-    if (ma.type === 'save_memory' && ma.eventData) {
-      parts.push(`Recuerdo guardado: ${ma.eventData.content.slice(0, 60)}`);
-    } else if (ma.type === 'update_relationship' && ma.relationshipData) {
-      parts.push(`Relación actualizada: ${ma.relationshipData.targetName} (${ma.relationshipData.relationship})`);
-    } else if (ma.type === 'save_note' && ma.noteContent) {
-      parts.push(`Nota: ${ma.noteContent.slice(0, 60)}`);
-    } else if (ma.type === 'delete_memory') {
-      parts.push(`Recuerdo eliminado`);
-    }
-  }
-
   // Wardrobe activation (GUARDARROPA V2)
   if (result.wardrobeActivation) {
     const wa = result.wardrobeActivation;

@@ -146,7 +146,28 @@
     ],
     "avatar": "/uploads/avatar/1789043076456-8sve71.png",
     "sprites": [],
-    "voice": null,
+    "voice": {
+      "enabled": false,
+      "dialogueVoice": {
+        "enabled": true,
+        "voiceId": "default",
+        "exaggeration": 0.5,
+        "cfgWeight": 0.5,
+        "temperature": 0.8,
+        "speed": 1
+      },
+      "narratorVoice": {
+        "enabled": true,
+        "voiceId": "default",
+        "exaggeration": 0.5,
+        "cfgWeight": 0.5,
+        "temperature": 0.8,
+        "speed": 1
+      },
+      "generateDialogues": true,
+      "generateNarrations": true,
+      "generatePlainText": true
+    },
     "statsConfig": {
       "enabled": true,
       "attributes": [
@@ -497,7 +518,7 @@
     ],
     "id": "7c7fbc0b-0971-4316-ba04-fffc03bce0bc",
     "createdAt": "2026-04-12T07:55:52.836Z",
-    "updatedAt": "2026-10-03T04:52:19.761Z",
+    "updatedAt": "2026-10-03T06:03:19.345Z",
     "proactiveMessages": {
       "enabled": false,
       "intervalSeconds": 300,
@@ -622,7 +643,22 @@
       "stateCollections": {}
     },
     "equipmentSlots": [],
-    "slotDefinitions": []
+    "slotDefinitions": [],
+    "scenarioConfig": {
+      "enabled": true,
+      "locations": [
+        {
+          "id": "location-1791005047017",
+          "name": "Aniversario de porros",
+          "description": "Fiesta en un gran salon",
+          "isDefault": true
+        }
+      ]
+    },
+    "kwsKeywords": [
+      "Aitana",
+      "licuadora"
+    ]
   },
   {
     "name": "Jess la Nalgotica",

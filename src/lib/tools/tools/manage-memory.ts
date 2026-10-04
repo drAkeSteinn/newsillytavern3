@@ -2,12 +2,12 @@
 // Tool: Manage Memory
 // ============================================
 // Category: cognitive
-// Manages character memories and relationships
-// Persists memories to LanceDB
+// Manages character memories via the Memory V2 unified store.
+// The character can save important events/facts, update how it feels
+// about someone, or review recent memories.
 
 import type { ToolDefinition, ToolContext, ToolExecutionResult } from '../types';
-import { getEmbeddingClient } from '@/lib/embeddings/client';
-import type { MemoryType } from '@/lib/embeddings/memory-extraction';
+import { getV2, type MemoryV2Record } from '@/lib/memory/v2';
 import { personalizeMemoryContent } from '@/lib/memory/personalize';
 
 export const manageMemoryTool: ToolDefinition = {
@@ -16,16 +16,15 @@ export const manageMemoryTool: ToolDefinition = {
   label: 'Gestionar Memoria',
   icon: 'Brain',
   description:
-    'Gestiona la memoria del personaje: eventos importantes, relaciones y notas. ' +
-    'Úsala para guardar información que el personaje debe recordar, ' +
-    'actualizar relaciones con otros personajes, o consultar memorias guardadas.',
+    'Gestiona tu memoria (Memoria V2): guarda recuerdos importantes, actualiza cómo te sientes con otros personajes, o consulta tus recuerdos recientes. ' +
+    'Úsala para guardar información que debes recordar en futuras conversaciones.',
   category: 'cognitive',
   parameters: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        description: 'Acción: save_memory (guardar), update_relationship (actualizar relación), get_memories (ver memorias)',
+        description: 'Acción: save_memory (guardar), update_relationship (actualizar relación), get_memories (ver recuerdos recientes)',
         enum: ['save_memory', 'update_relationship', 'get_memories', 'save_note'],
         required: true,
       },
@@ -37,7 +36,7 @@ export const manageMemoryTool: ToolDefinition = {
       },
       content: {
         type: 'string',
-        description: 'Contenido de la memoria a guardar',
+        description: 'Contenido de la memoria a guardar (usa nombres reales, nunca "el usuario")',
         required: false,
       },
       subject: {
@@ -72,14 +71,36 @@ export const manageMemoryTool: ToolDefinition = {
   permissionMode: 'auto',
 };
 
-const VALID_MEMORY_TYPES: MemoryType[] = ['hecho', 'evento', 'relacion', 'preferencia', 'secreto', 'otro'];
+const VALID_MEMORY_TYPES = ['hecho', 'evento', 'relacion', 'preferencia', 'secreto', 'otro'] as const;
+type ToolMemoryType = (typeof VALID_MEMORY_TYPES)[number];
 
-function normalizeMemoryType(raw: string): MemoryType {
+function normalizeMemoryType(raw: string): ToolMemoryType {
   const lower = raw.toLowerCase().trim();
-  if (VALID_MEMORY_TYPES.includes(lower as MemoryType)) {
-    return lower as MemoryType;
+  return (VALID_MEMORY_TYPES as readonly string[]).includes(lower) ? (lower as ToolMemoryType) : 'otro';
+}
+
+/** Map tool memory types → V2 record types */
+function toV2Type(t: ToolMemoryType): MemoryV2Record['type'] {
+  switch (t) {
+    case 'hecho': return 'hecho';
+    case 'evento': return 'evento';
+    case 'relacion': return 'relacion';
+    case 'preferencia': return 'preferencia';
+    case 'secreto': return 'nota';
+    default: return 'nota';
   }
-  return 'otro';
+}
+
+/** Map tool subject → V2 subject */
+function toV2Subject(s: string): MemoryV2Record['subject'] {
+  if (s === 'usuario') return 'usuario';
+  if (s === 'otro') return 'mundo';
+  return 'personaje';
+}
+
+/** importance 1-5 → V2 0..1 */
+function toV2Importance(imp: number): number {
+  return Math.min(1, Math.max(0, (imp - 1) / 4));
 }
 
 export async function manageMemoryExecutor(
@@ -95,10 +116,9 @@ export async function manageMemoryExecutor(
   const importance = params.importance !== undefined ? Math.max(1, Math.min(5, Math.round(Number(params.importance)))) : 3;
   const narrative = params.narrative ? String(params.narrative) : '';
 
-  // Data for client-side Character Memory sync (populated by each action)
-  let memoryActivationData: ToolExecutionResult['memoryActivation'] = undefined;
-
   try {
+    const store = await getV2();
+
     switch (action) {
       case 'save_memory':
       case 'save_note': {
@@ -115,77 +135,23 @@ export async function manageMemoryExecutor(
         // Sanitize: LLMs sometimes write "el Jugador"/"el usuario" in tool calls.
         // Replace generic player references with the persona's real name ({{user}}).
         const memoryContent = personalizeMemoryContent(content || narrative, context.userName);
-        
-        // Determine namespace: use session-specific memory namespace
-        const sessionId = context.sessionId || 'unknown';
-        const namespace = `memory-character-${context.characterId}-${sessionId}`;
-        
-        try {
-          const client = getEmbeddingClient();
-          
-          // Ensure namespace exists
-          await client.upsertNamespace({
-            namespace,
-            description: `Memorias del personaje: ${context.characterName}`,
-            metadata: {
-              type: 'memory',
-              subtype: 'character',
-              character_id: context.characterId,
-              session_id: sessionId,
-              auto_created: false,
-              manual: true,
-            },
-          });
-          
-          // Save the memory as an embedding
-          const embeddingResult = await client.createEmbedding({
-            content: memoryContent,
-            namespace,
-            source_type: 'memory',
-            source_id: sessionId,
-            metadata: {
-              memory_type: memoryType,
-              importance: importance,
-              memory_subject: memorySubject,
-              subject: subject,
-              sentiment: sentiment,
-              narrative: narrative,
-              character_id: context.characterId,
-              session_id: sessionId,
-              extracted_at: new Date().toISOString(),
-              manually_created: true,
-            },
-          });
-          
-          console.log(`[manage_memory] Saved memory to namespace "${namespace}": ${memoryContent.slice(0, 50)}...`);
 
-          // Map embedding memory_type back to UI event type for Character Memory sync
-          const mapMemoryTypeToEventType = (mType: string): 'fact' | 'relationship' | 'event' | 'emotion' | 'location' | 'item' | 'state_change' => {
-            const map: Record<string, 'fact' | 'relationship' | 'event' | 'emotion' | 'location' | 'item' | 'state_change'> = {
-              hecho: 'fact', relacion: 'relationship', evento: 'event',
-              preferencia: 'fact', secreto: 'fact', otro: 'emotion',
-            };
-            return map[mType] || 'fact';
-          };
+        // Explicit memory saved by the character → curated (never decayed,
+        // prioritized in injection). Stored in the unified V2 store.
+        const record = await store.add({
+          id: '',
+          type: toV2Type(memoryType),
+          content: memoryContent,
+          subject: toV2Subject(memorySubject),
+          charId: context.characterId,
+          groupId: context.groupId || '',
+          sessionId: context.sessionId || '',
+          source: 'curada',
+          importance: toV2Importance(importance),
+          eventDate: new Date().toISOString(),
+        });
 
-          // Include memoryActivation for client-side Character Memory sync
-          const eventId = `tool-mem-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          memoryActivationData = {
-            type: 'save_memory',
-            characterId: context.characterId,
-            eventData: {
-              id: eventId,
-              type: mapMemoryTypeToEventType(memoryType),
-              content: memoryContent,
-              importance: importance,
-              embeddingId: embeddingResult?.id,
-              sessionId: sessionId,
-            },
-          };
-        } catch (embedErr) {
-          console.error('[manage_memory] Failed to save embedding:', embedErr);
-          // Continue with success response but log the error
-        }
+        console.log(`[manage_memory] Saved V2 record (${record.type}) for ${context.characterName}: ${memoryContent.slice(0, 50)}...`);
 
         const sentimentEmoji = sentiment > 20 ? '😊' : sentiment < -20 ? '😢' : '📝';
         const importanceStars = '★'.repeat(Math.ceil(importance)) + '☆'.repeat(5 - Math.ceil(importance));
@@ -214,10 +180,9 @@ export async function manageMemoryExecutor(
             importance,
             characterId: context.characterId,
             sessionId: context.sessionId,
-            namespace,
+            recordId: record.id,
           },
           displayMessage: lines.join('\n'),
-          memoryActivation: memoryActivationData,
         };
       }
 
@@ -232,79 +197,36 @@ export async function manageMemoryExecutor(
           };
         }
 
-        // Save relationship as a memory
-        const sessionId = context.sessionId || 'unknown';
-        const namespace = `memory-character-${context.characterId}-${sessionId}`;
-        
-        const sentimentLabel = sentiment > 50 ? 'aliado cercano' 
-          : sentiment > 20 ? 'amigo' 
-          : sentiment > 0 ? 'conocido' 
-          : sentiment > -20 ? 'neutral' 
-          : sentiment > -50 ? 'desconfiado' 
+        const sentimentLabel = sentiment > 50 ? 'aliado cercano'
+          : sentiment > 20 ? 'amigo'
+          : sentiment > 0 ? 'conocido'
+          : sentiment > -20 ? 'neutral'
+          : sentiment > -50 ? 'desconfiado'
           : 'enemigo';
-        
+
         const sentimentChange = sentiment > 0 ? `+${sentiment}` : `${sentiment}`;
 
         // Sanitize narrative so relationships also reference the persona by name
         const sanitizedNarrative = personalizeMemoryContent(narrative, context.userName);
 
         const relationshipContent = sanitizedNarrative
-          ? `Relación con ${subject}: ${sanitizedNarrative} (sentimiento: ${sentimentChange})`
-          : `Relación con ${subject}: cambio de ${sentimentChange} puntos`;
+          ? `${context.characterName} siente que su relación con ${subject} es: ${sentimentLabel}. ${sanitizedNarrative} (cambio de sentimiento: ${sentimentChange})`
+          : `${context.characterName} siente que su relación con ${subject} es: ${sentimentLabel} (cambio de sentimiento: ${sentimentChange})`;
 
-        try {
-          const client = getEmbeddingClient();
-          
-          await client.upsertNamespace({
-            namespace,
-            description: `Memorias del personaje: ${context.characterName}`,
-            metadata: {
-              type: 'memory',
-              subtype: 'character',
-              character_id: context.characterId,
-              session_id: sessionId,
-              auto_created: false,
-              manual: true,
-            },
-          });
-          
-          await client.createEmbedding({
-            content: relationshipContent,
-            namespace,
-            source_type: 'memory',
-            source_id: sessionId,
-            metadata: {
-              memory_type: 'relacion',
-              importance: Math.abs(sentiment) > 50 ? 4 : 3,
-              memory_subject: 'otro',
-              subject: subject,
-              sentiment: sentiment,
-              sentimentLabel: sentimentLabel,
-              character_id: context.characterId,
-              session_id: sessionId,
-              extracted_at: new Date().toISOString(),
-              manually_created: true,
-              relationship: true,
-            },
-          });
-          
-          console.log(`[manage_memory] Saved relationship to namespace "${namespace}": ${subject}`);
+        await store.add({
+          id: '',
+          type: 'relacion',
+          content: relationshipContent,
+          subject: subject === context.userName ? 'usuario' : 'mundo',
+          charId: context.characterId,
+          groupId: context.groupId || '',
+          sessionId: context.sessionId || '',
+          source: 'curada',
+          importance: toV2Importance(Math.abs(sentiment) > 50 ? 4 : 3),
+          eventDate: new Date().toISOString(),
+        });
 
-          // Include memoryActivation for client-side Character Memory relationship sync
-          memoryActivationData = {
-            type: 'update_relationship',
-            characterId: context.characterId,
-            relationshipData: {
-              targetId: `target-${subject.toLowerCase().replace(/\s+/g, '-')}`,
-              targetName: subject,
-              relationship: sentimentLabel,
-              sentiment: sentiment,
-              notes: sanitizedNarrative || '',
-            },
-          };
-        } catch (embedErr) {
-          console.error('[manage_memory] Failed to save relationship embedding:', embedErr);
-        }
+        console.log(`[manage_memory] Saved V2 relationship for ${context.characterName}: ${subject}`);
 
         const lines = [
           '💜 **Relación Actualizada:**',
@@ -330,33 +252,43 @@ export async function manageMemoryExecutor(
             sentimentLabel,
             characterId: context.characterId,
             sessionId: context.sessionId,
-            namespace,
           },
           displayMessage: lines.join('\n'),
-          memoryActivation: memoryActivationData,
         };
       }
 
       case 'get_memories': {
-        const lines = [
-          '🧠 **Sistema de Memorias:**',
-          '',
-          'El personaje recuerda información relevante de conversaciones anteriores.',
-          'Las memorias se consultan automáticamente cuando son relevantes.',
-          '',
-          'Para guardar un recuerdo importante, usa save_memory.',
-          'Para actualizar relaciones, usa update_relationship.',
-          '',
-          `Personaje: ${context.characterName}`,
-        ];
+        const records = await store.list({
+          charId: context.characterId,
+          groupId: context.groupId || undefined,
+          sessionId: context.sessionId || '',
+          crossSession: true,
+          activeOnly: true,
+          limit: 8,
+        });
+
+        const lines = ['🧠 **Tus recuerdos recientes:**', ''];
+
+        if (records.length === 0) {
+          lines.push('(Aún no tienes recuerdos guardados.)');
+        } else {
+          for (let i = 0; i < records.length; i++) {
+            const r = records[i];
+            const imp = Math.round(r.importance * 4) + 1;
+            const stars = '★'.repeat(imp) + '☆'.repeat(5 - imp);
+            lines.push(`${i + 1}. [${r.type}] ${r.content}`);
+            lines.push(`   ${stars} · ${r.eventDate.slice(0, 10)}`);
+          }
+        }
 
         return {
           success: true,
           toolName: 'manage_memory',
-          result: { 
-            action: 'get_memories', 
+          result: {
+            action: 'get_memories',
             characterId: context.characterId,
-            sessionId: context.sessionId 
+            sessionId: context.sessionId,
+            count: records.length,
           },
           displayMessage: lines.join('\n'),
         };

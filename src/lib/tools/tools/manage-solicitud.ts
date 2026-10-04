@@ -266,7 +266,6 @@ export async function manageSolicitudExecutor(
             fromCharacterId: characterId,
             fromCharacterName: characterName,
             description: match.solicitud.solicitudDescription,
-            completionDescription: match.solicitud.completionDescription,
           },
         };
       }
@@ -325,7 +324,6 @@ export async function manageSolicitudExecutor(
             fromCharacterId: match.fromCharacterId,
             fromCharacterName: match.fromCharacterName,
             description: match.description,
-            completionDescription: match.completionDescription,
           },
         };
       }

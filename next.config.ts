@@ -7,7 +7,11 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
-  allowedDevOrigins: ['127.0.0.1', 'localhost', '.space-z.ai'],
+  allowedDevOrigins: ['127.0.0.1', 'localhost', '*.space-z.ai'],
+  // Webpack: reduce dev-server memory usage (sandbox has ~4GB RAM; dev server OOM-killed at ~2.6GB)
+  experimental: {
+    webpackMemoryOptimizations: true,
+  },
   // Turbopack: cap memory usage (sandbox has ~4GB RAM; dev server OOM-killed at ~1.9GB)
   ...( { turbopackMemoryLimit: 1024 } as Record<string, unknown> ),
   serverExternalPackages: [

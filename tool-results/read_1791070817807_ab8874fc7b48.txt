@@ -1,0 +1,647 @@
+   795→      });
+   796→    } else {
+   797→      updateAttributeConfig({
+   798→        mode: 'dynamic',
+   799→        staticCondition: undefined,
+   800→        dynamicConditions: [
+   801→          { id: simpleId(), operator: defaultOp, value: selectedAttributeType === 'number' ? 0 : '', content: '' }
+   802→        ],
+   803→        fallbackContent: '',
+   804→      });
+   805→    }
+   806→  };
+   807→
+   808→  // Handle static condition changes
+   809→  const updateStaticCondition = (operator: AttributeComparator, value: number | string) => {
+   810→    updateAttributeConfig({ staticCondition: { operator, value } });
+   811→  };
+   812→
+   813→  // Handle dynamic condition changes
+   814→  const updateDynamicCondition = (condId: string, partial: Partial<{ operator: AttributeComparator; value: number | string; content: string }>) => {
+   815→    const conds = config?.dynamicConditions || [];
+   816→    updateAttributeConfig({
+   817→      dynamicConditions: conds.map(c => c.id === condId ? { ...c, ...partial } : c),
+   818→    });
+   819→  };
+   820→
+   821→  const addDynamicCondition = () => {
+   822→    const conds = config?.dynamicConditions || [];
+   823→    updateAttributeConfig({
+   824→      dynamicConditions: [...conds, { id: simpleId(), operator: '>' as AttributeComparator, value: 0, content: '' }],
+   825→    });
+   826→  };
+   827→
+   828→  const removeDynamicCondition = (condId: string) => {
+   829→    const conds = (config?.dynamicConditions || []).filter(c => c.id !== condId);
+   830→    updateAttributeConfig({ dynamicConditions: conds.length > 0 ? conds : [{ id: simpleId(), operator: '>', value: 0, content: '' }] });
+   831→  };
+   832→
+   833→  const moveDynamicCondition = (condId: string, direction: 'up' | 'down') => {
+   834→    const conds = config?.dynamicConditions;
+   835→    if (!conds || conds.length < 2) return;
+   836→    const idx = conds.findIndex(c => c.id === condId);
+   837→    if (idx === -1) return;
+   838→    const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+   839→    if (newIdx < 0 || newIdx >= conds.length) return;
+   840→    const swapped = [...conds];
+   841→    [swapped[idx], swapped[newIdx]] = [swapped[newIdx], swapped[idx]];
+   842→    updateAttributeConfig({ dynamicConditions: swapped });
+   843→  };
+   844→
+   845→  return (
+   846→    <div className="space-y-3 pt-1">
+   847→      {/* Row 1: Title, Entry Type, Active Toggle */}
+   848→      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3">
+   849→        <div>
+   850→          <Label className="text-xs">Título</Label>
+   851→          <Input
+   852→            value={entry.comment}
+   853→            onChange={(e) => onUpdate({ comment: e.target.value })}
+   854→            className="mt-1 h-7 text-sm"
+   855→          />
+   856→        </div>
+   857→        <div>
+   858→          <Label className="text-xs">Tipo</Label>
+   859→          <Select
+   860→            value={entry.entryType || 'traditional'}
+   861→            onValueChange={(v) => handleEntryTypeChange(v as LorebookEntryType)}
+   862→          >
+   863→            <SelectTrigger className="mt-1 h-7 text-xs w-[130px]">
+   864→              <SelectValue />
+   865→            </SelectTrigger>
+   866→            <SelectContent>
+   867→              <SelectItem value="traditional" className="text-xs">
+   868→                <span className="flex items-center gap-1.5">
+   869→                  <Key className="w-3 h-3" />
+   870→                  Tradicional
+   871→                </span>
+   872→              </SelectItem>
+   873→              <SelectItem value="attribute" className="text-xs">
+   874→                <span className="flex items-center gap-1.5">
+   875→                  <Sword className="w-3 h-3" />
+   876→                  Atributo
+   877→                </span>
+   878→              </SelectItem>
+   879→            </SelectContent>
+   880→          </Select>
+   881→        </div>
+   882→        <div className="flex items-end pb-1">
+   883→          <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+   884→            <Switch
+   885→              checked={!entry.disable}
+   886→              onCheckedChange={(checked) => onUpdate({ disable: !checked })}
+   887→            />
+   888→            Activo
+   889→          </label>
+   890→        </div>
+   891→      </div>
+   892→
+   893→      {/* ============================================ */}
+   894→      {/* TRADITIONAL ENTRY FIELDS                   */}
+   895→      {/* ============================================ */}
+   896→      {!isAttribute && (
+   897→        <>
+   898→          {/* Primary Keys */}
+   899→          <div className="space-y-1.5">
+   900→            <div className="flex items-center gap-1.5">
+   901→              <Key className="w-3 h-3 text-primary" />
+   902→              <Label className="text-xs">Palabras Clave Primarias</Label>
+   903→            </div>
+   904→            <Input
+   905→              value={formatKeywords(entry.key)}
+   906→              onChange={(e) => onUpdate({ key: parseKeywords(e.target.value) })}
+   907→              placeholder="palabra1, palabra2... o /regex/i"
+   908→              className="h-7 text-sm"
+   909→            />
+   910→            <p className="text-[10px] text-muted-foreground">
+   911→              Soporta regex: /patrón/flags (ej: /(?:clima|lluvia)/i)
+   912→            </p>
+   913→          </div>
+   914→
+   915→          {/* Secondary Keys */}
+   916→          <div className="space-y-1.5">
+   917→            <div className="flex items-center gap-1.5">
+   918→              <Key className="w-3 h-3 text-muted-foreground" />
+   919→              <Label className="text-xs">Palabras Clave Secundarias</Label>
+   920→            </div>
+   921→            <Input
+   922→              value={formatKeywords(entry.keysecondary)}
+   923→              onChange={(e) => onUpdate({ keysecondary: parseKeywords(e.target.value) })}
+   924→              placeholder="adicional1, adicional2..."
+   925→              className="h-7 text-sm"
+   926→            />
+   927→          </div>
+   928→        </>
+   929→      )}
+   930→
+   931→      {/* ============================================ */}
+   932→      {/* ATTRIBUTE ENTRY FIELDS                     */}
+   933→      {/* ============================================ */}
+   934→      {isAttribute && config && (
+   935→        <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
+   936→          <div className="flex items-center gap-2 text-xs font-medium text-orange-600 dark:text-orange-400">
+   937→            <Sword className="w-4 h-4" />
+   938→            Configuración de Atributo
+   939→          </div>
+   940→
+   941→          {/* Injection Key */}
+   942→          <div className="space-y-1.5">
+   943→            <div className="flex items-center gap-1.5">
+   944→              <Key className="w-3 h-3 text-orange-500" />
+   945→              <Label className="text-xs">Key de Inyección</Label>
+   946→            </div>
+   947→            <Input
+   948→              value={config.injectionKey || ''}
+   949→              onChange={(e) => updateAttributeConfig({ injectionKey: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })}
+   950→              placeholder="estadoHeroe"
+   951→              className="h-7 text-sm font-mono"
+   952→            />
+   953→            <p className="text-[10px] text-muted-foreground">
+   954→              Usa <code className="font-mono">{'{{' + (config.injectionKey || 'miKey') + '}}'}</code> en la descripción, system prompt, etc. para inyectar este contenido.
+   955→            </p>
+   956→          </div>
+   957→
+   958→          {/* Character selector */}
+   959→          <div className="grid grid-cols-2 gap-3">
+   960→            <div>
+   961→              <Label className="text-xs">Personaje</Label>
+   962→              <Select
+   963→                value={config.characterId}
+   964→                onValueChange={(v) => updateAttributeConfig({ characterId: v, attributeKey: '' })}
+   965→              >
+   966→                <SelectTrigger className="mt-1 h-7 text-xs">
+   967→                  <SelectValue placeholder="Seleccionar..." />
+   968→                </SelectTrigger>
+   969→                <SelectContent>
+   970→                  <SelectItem value="__user__" className="text-xs">
+   971→                    <span className="flex items-center gap-1.5">
+   972→                      <User className="w-3 h-3" />
+   973→                      Usuario (Persona)
+   974→                    </span>
+   975→                  </SelectItem>
+   976→                  <SelectItem value="__char__" className="text-xs">
+   977→                    <span className="flex items-center gap-1.5">
+   978→                      <Users className="w-3 h-3" />
+   979→                      Personaje actual
+   980→                    </span>
+   981→                  </SelectItem>
+   982→                  {characters.map(c => (
+   983→                    <SelectItem key={c.id} value={c.id} className="text-xs">
+   984→                      {c.name}
+   985→                    </SelectItem>
+   986→                  ))}
+   987→                </SelectContent>
+   988→              </Select>
+   989→            </div>
+   990→
+   991→            {/* Attribute selector */}
+   992→            <div>
+   993→              <Label className="text-xs">Atributo</Label>
+   994→              <Select
+   995→                value={config.attributeKey}
+   996→                onValueChange={(v) => updateAttributeConfig({ attributeKey: v })}
+   997→              >
+   998→                <SelectTrigger className="mt-1 h-7 text-xs">
+   999→                  <SelectValue placeholder="Seleccionar..." />
+  1000→                </SelectTrigger>
+  1001→                <SelectContent>
+  1002→                  {availableAttributes.length === 0 && (
+  1003→                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+  1004→                      Sin atributos definidos
+  1005→                    </div>
+  1006→                  )}
+  1007→                  {availableAttributes.map(attr => (
+  1008→                    <SelectItem key={attr.key} value={attr.key} className="text-xs">
+  1009→                      {attr.name || attr.key}
+  1010→                    </SelectItem>
+  1011→                  ))}
+  1012→                </SelectContent>
+  1013→              </Select>
+  1014→            </div>
+  1015→          </div>
+  1016→
+  1017→          {/* Comparison mode */}
+  1018→          <div>
+  1019→            <Label className="text-xs">Modo de comparación</Label>
+  1020→            <div className="flex gap-2 mt-1">
+  1021→              <Button
+  1022→                size="sm"
+  1023→                variant={config.mode === 'static' ? 'default' : 'outline'}
+  1024→                className="h-7 text-xs"
+  1025→                onClick={() => handleModeChange('static')}
+  1026→              >
+  1027→                Estático
+  1028→              </Button>
+  1029→              <Button
+  1030→                size="sm"
+  1031→                variant={config.mode === 'dynamic' ? 'default' : 'outline'}
+  1032→                className="h-7 text-xs"
+  1033→                onClick={() => handleModeChange('dynamic')}
+  1034→              >
+  1035→                Dinámico
+  1036→              </Button>
+  1037→            </div>
+  1038→          </div>
+  1039→
+  1040→          {/* Static condition */}
+  1041→          {config.mode === 'static' && config.staticCondition && (
+  1042→            <div className="space-y-2 p-2.5 border rounded-md bg-background">
+  1043→              <Label className="text-xs font-medium">Condición</Label>
+  1044→              <p className="text-[10px] text-muted-foreground">
+  1045→                Si se cumple, se inyecta el contenido de abajo
+  1046→              </p>
+  1047→              <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+  1048→                <div>
+  1049→                  <Label className="text-[10px]">
+  1050→                    Comparador
+  1051→                    {selectedAttributeType && (
+  1052→                      <span className="ml-1 text-muted-foreground">
+  1053→                        ({selectedAttributeType === 'number' ? 'numérico' : 'texto'})
+  1054→                      </span>
+  1055→                    )}
+  1056→                  </Label>
+  1057→                  <Select
+  1058→                    value={sanitizeOperator(config.staticCondition.operator)}
+  1059→                    onValueChange={(v) => updateStaticCondition(v as AttributeComparator, config.staticCondition!.value)}
+  1060→                  >
+  1061→                    <SelectTrigger className="mt-0.5 h-7 text-xs">
+  1062→                      <SelectValue />
+  1063→                    </SelectTrigger>
+  1064→                    <SelectContent>
+  1065→                      {filteredComparators.map((comp) => (
+  1066→                        <SelectItem key={comp} value={comp} className="text-xs">
+  1067→                          {COMPARATOR_LABELS[comp]}
+  1068→                        </SelectItem>
+  1069→                      ))}
+  1070→                    </SelectContent>
+  1071→                  </Select>
+  1072→                </div>
+  1073→                <div className="pb-1 text-xs text-muted-foreground font-medium">
+  1074→                  valor
+  1075→                </div>
+  1076→                <div>
+  1077→                  <Label className="text-[10px]">Valor</Label>
+  1078→                  <Input
+  1079→                    value={String(config.staticCondition.value)}
+  1080→                    onChange={(e) => {
+  1081→                      const v = e.target.value;
+  1082→                      const num = parseFloat(v);
+  1083→                      updateStaticCondition(config.staticCondition!.operator, isNaN(num) ? v : num);
+  1084→                    }}
+  1085→                    placeholder="0"
+  1086→                    className="mt-0.5 h-7 text-xs"
+  1087→                  />
+  1088→                </div>
+  1089→              </div>
+  1090→            </div>
+  1091→          )}
+  1092→
+  1093→          {/* Dynamic conditions */}
+  1094→          {config.mode === 'dynamic' && config.dynamicConditions && (
+  1095→            <div className="space-y-2">
+  1096→              <div className="flex items-center justify-between">
+  1097→                <Label className="text-xs font-medium">Condiciones</Label>
+  1098→                <Button
+  1099→                  size="sm"
+  1100→                  variant="outline"
+  1101→                  className="h-6 text-[10px]"
+  1102→                  onClick={addDynamicCondition}
+  1103→                >
+  1104→                  <Plus className="w-3 h-3 mr-1" />
+  1105→                  Agregar condición
+  1106→                </Button>
+  1107→              </div>
+  1108→              <p className="text-[10px] text-muted-foreground">
+  1109→                Cada condición puede coincidir simultáneamente. Los contenidos se concatenan por prioridad.
+  1110→              </p>
+  1111→
+  1112→              {/* Resolution mode selector */}
+  1113→              <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/20">
+  1114→                <Label className="text-[10px] whitespace-nowrap">Resolución:</Label>
+  1115→                <div className="flex gap-1">
+  1116→                  <Button
+  1117→                    size="sm"
+  1118→                    variant={(!config.dynamicResolution || config.dynamicResolution === 'concat-all') ? 'default' : 'outline'}
+  1119→                    className="h-6 text-[10px] px-2"
+  1120→                    onClick={() => updateAttributeConfig({ dynamicResolution: 'concat-all' })}
+  1121→                  >
+  1122→                    Concatenar todo
+  1123→                  </Button>
+  1124→                  <Button
+  1125→                    size="sm"
+  1126→                    variant={config.dynamicResolution === 'first-match' ? 'default' : 'outline'}
+  1127→                    className="h-6 text-[10px] px-2"
+  1128→                    onClick={() => updateAttributeConfig({ dynamicResolution: 'first-match' })}
+  1129→                  >
+  1130→                    Solo mayor prioridad
+  1131→                  </Button>
+  1132→                </div>
+  1133→              </div>
+  1134→
+  1135→              <div className="space-y-2">
+  1136→                {config.dynamicConditions.map((cond, idx) => (
+  1137→                  <div key={cond.id} className="p-2.5 border rounded-md bg-background space-y-2">
+  1138→                    <div className="flex items-center justify-between">
+  1139→                      <div className="flex items-center gap-2">
+  1140→                        <span className="text-[10px] text-muted-foreground font-medium">
+  1141→                          Condición {idx + 1}
+  1142→                        </span>
+  1143→                        {/* Priority badge */}
+  1144→                        <div className="flex items-center gap-1">
+  1145→                          <Label className="text-[9px] text-muted-foreground">Prioridad:</Label>
+  1146→                          <Input
+  1147→                            type="number"
+  1148→                            value={cond.priority ?? 0}
+  1149→                            onChange={(e) => updateDynamicCondition(cond.id, { priority: parseInt(e.target.value) || 0 })}
+  1150→                            className="w-12 h-5 text-[10px] text-center px-1"
+  1151→                            min={0}
+  1152→                          />
+  1153→                        </div>
+  1154→                      </div>
+  1155→                      <div className="flex items-center gap-0.5">
+  1156→                        {/* Move up */}
+  1157→                        <Button
+  1158→                          size="icon"
+  1159→                          variant="ghost"
+  1160→                          className="h-5 w-5"
+  1161→                          disabled={idx === 0}
+  1162→                          onClick={() => moveDynamicCondition(cond.id, 'up')}
+  1163→                        >
+  1164→                          <ChevronUp className="w-3 h-3" />
+  1165→                        </Button>
+  1166→                        {/* Move down */}
+  1167→                        <Button
+  1168→                          size="icon"
+  1169→                          variant="ghost"
+  1170→                          className="h-5 w-5"
+  1171→                          disabled={idx === config.dynamicConditions!.length - 1}
+  1172→                          onClick={() => moveDynamicCondition(cond.id, 'down')}
+  1173→                        >
+  1174→                          <ChevronDown className="w-3 h-3" />
+  1175→                        </Button>
+  1176→                        {/* Delete */}
+  1177→                        {config.dynamicConditions!.length > 1 && (
+  1178→                          <Button
+  1179→                            size="icon"
+  1180→                            variant="ghost"
+  1181→                            className="h-5 w-5 text-destructive hover:text-destructive"
+  1182→                            onClick={() => removeDynamicCondition(cond.id)}
+  1183→                          >
+  1184→                            <Trash2 className="w-3 h-3" />
+  1185→                          </Button>
+  1186→                        )}
+  1187→                      </div>
+  1188→                    </div>
+  1189→                    <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+  1190→                      <div>
+  1191→                        <Label className="text-[10px]">
+  1192→                          Comparador
+  1193→                          {selectedAttributeType && (
+  1194→                            <span className="ml-1 text-muted-foreground">
+  1195→                              ({selectedAttributeType === 'number' ? 'numérico' : 'texto'})
+  1196→                            </span>
+  1197→                          )}
+  1198→                        </Label>
+  1199→                        <Select
+  1200→                          value={sanitizeOperator(cond.operator)}
+  1201→                          onValueChange={(v) => updateDynamicCondition(cond.id, { operator: v as AttributeComparator })}
+  1202→                        >
+  1203→                          <SelectTrigger className="mt-0.5 h-7 text-xs">
+  1204→                            <SelectValue />
+  1205→                          </SelectTrigger>
+  1206→                          <SelectContent>
+  1207→                            {filteredComparators.map((comp) => (
+  1208→                              <SelectItem key={comp} value={comp} className="text-xs">
+  1209→                                {COMPARATOR_LABELS[comp]}
+  1210→                              </SelectItem>
+  1211→                            ))}
+  1212→                          </SelectContent>
+  1213→                        </Select>
+  1214→                      </div>
+  1215→                      <div className="pb-1 text-xs text-muted-foreground font-medium">
+  1216→                        valor
+  1217→                      </div>
+  1218→                      <div>
+  1219→                        <Label className="text-[10px]">Valor</Label>
+  1220→                        <Input
+  1221→                          value={String(cond.value)}
+  1222→                          onChange={(e) => {
+  1223→                            const v = e.target.value;
+  1224→                            const num = parseFloat(v);
+  1225→                            updateDynamicCondition(cond.id, { value: isNaN(num) ? v : num });
+  1226→                          }}
+  1227→                          placeholder="0"
+  1228→                          className="mt-0.5 h-7 text-xs"
+  1229→                        />
+  1230→                      </div>
+  1231→                    </div>
+  1232→                    <div>
+  1233→                      <Label className="text-[10px]">Contenido a inyectar si se cumple</Label>
+  1234→                      <Textarea
+  1235→                        value={cond.content}
+  1236→                        onChange={(e) => updateDynamicCondition(cond.id, { content: e.target.value })}
+  1237→                        placeholder="Texto que se agregará al prompt cuando esta condición coincida..."
+  1238→                        rows={2}
+  1239→                        className="mt-0.5 font-mono text-xs"
+  1240→                      />
+  1241→                    </div>
+  1242→                  </div>
+  1243→                ))}
+  1244→              </div>
+  1245→              {/* Fallback content */}
+  1246→              <div className="space-y-1 p-2 border rounded-md bg-muted/30">
+  1247→                <Label className="text-xs">Contenido alternativo (si ninguna coincide)</Label>
+  1248→                <Textarea
+  1249→                  value={config.fallbackContent || ''}
+  1250→                  onChange={(e) => updateAttributeConfig({ fallbackContent: e.target.value })}
+  1251→                  placeholder="Opcional: texto cuando ninguna condición dinámica coincide..."
+  1252→                  rows={2}
+  1253→                  className="font-mono text-xs"
+  1254→                />
+  1255→              </div>
+  1256→            </div>
+  1257→          )}
+  1258→        </div>
+  1259→      )}
+  1260→
+  1261→      {/* Content - always visible (for static attribute mode, this is the injected content) */}
+  1262→      <div className="space-y-1.5">
+  1263→        <Label className="text-xs">
+  1264→          {isAttribute && config?.mode === 'static'
+  1265→            ? 'Contenido (se inyecta si la condición se cumple)'
+  1266→            : isAttribute && config?.mode === 'dynamic'
+  1267→              ? 'Contenido base (no usado en modo dinámico — usa los de cada condición)'
+  1268→              : 'Contenido'
+  1269→          }
+  1270→        </Label>
+  1271→        <Textarea
+  1272→          value={entry.content}
+  1273→          onChange={(e) => onUpdate({ content: e.target.value })}
+  1274→          placeholder="Información que se inyectará..."
+  1275→          rows={isAttribute && config?.mode === 'dynamic' ? 1 : 3}
+  1276→          className={cn('font-mono text-sm', isAttribute && config?.mode === 'dynamic' && 'opacity-50')}
+  1277→        />
+  1278→      </div>
+  1279→
+  1280→      {/* Options Grid - shared for traditional entries only */}
+  1281→      {!isAttribute && (
+  1282→        <>
+  1283→          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+  1284→            <div>
+  1285→              <Label className="text-xs">Posición</Label>
+  1286→              <Select
+  1287→                value={entry.position.toString()}
+  1288→                onValueChange={(value) => onUpdate({ position: parseInt(value) as LorebookEntry['position'] })}
+  1289→              >
+  1290→                <SelectTrigger className="mt-1 h-7 text-xs">
+  1291→                  <SelectValue />
+  1292→                </SelectTrigger>
+  1293→                <SelectContent>
+  1294→                  {Object.entries(POSITION_LABELS).map(([value, label]) => (
+  1295→                    <SelectItem key={value} value={value} className="text-xs">
+  1296→                      {label}
+  1297→                    </SelectItem>
+  1298→                  ))}
+  1299→                </SelectContent>
+  1300→              </Select>
+  1301→            </div>
+  1302→
+  1303→            <div>
+  1304→              <Label className="text-xs">Lógica</Label>
+  1305→              <Select
+  1306→                value={entry.selectLogic.toString()}
+  1307→                onValueChange={(value) => onUpdate({ selectLogic: parseInt(value) })}
+  1308→              >
+  1309→                <SelectTrigger className="mt-1 h-7 text-xs">
+  1310→                  <SelectValue />
+  1311→                </SelectTrigger>
+  1312→                <SelectContent>
+  1313→                  {Object.entries(LOGIC_LABELS).map(([value, label]) => (
+  1314→                    <SelectItem key={value} value={value} className="text-xs">
+  1315→                      {label}
+  1316→                    </SelectItem>
+  1317→                  ))}
+  1318→                </SelectContent>
+  1319→              </Select>
+  1320→            </div>
+  1321→
+  1322→            <div>
+  1323→              <Label className="text-xs">Grupo</Label>
+  1324→              <Input
+  1325→                value={entry.group}
+  1326→                onChange={(e) => onUpdate({ group: e.target.value })}
+  1327→                placeholder="-"
+  1328→                className="mt-1 h-7 text-xs"
+  1329→              />
+  1330→            </div>
+  1331→
+  1332→            <div>
+  1333→              <Label className="text-xs">Prof.</Label>
+  1334→              <Input
+  1335→                type="number"
+  1336→                min={0}
+  1337→                max={999}
+  1338→                value={entry.depth}
+  1339→                onChange={(e) => onUpdate({ depth: parseInt(e.target.value) || 0 })}
+  1340→                className="mt-1 h-7 text-xs"
+  1341→              />
+  1342→            </div>
+  1343→
+  1344→            <div>
+  1345→              <Label className="text-xs">Orden</Label>
+  1346→              <Input
+  1347→                type="number"
+  1348→                min={0}
+  1349→                value={entry.order}
+  1350→                onChange={(e) => onUpdate({ order: parseInt(e.target.value) || 0 })}
+  1351→                className="mt-1 h-7 text-xs"
+  1352→              />
+  1353→            </div>
+  1354→
+  1355→            <div>
+  1356→              <Label className="text-xs">Prob.%</Label>
+  1357→              <Input
+  1358→                type="number"
+  1359→                min={0}
+  1360→                max={100}
+  1361→                value={entry.probability}
+  1362→                onChange={(e) => onUpdate({ probability: parseInt(e.target.value) || 0 })}
+  1363→                className="mt-1 h-7 text-xs"
+  1364→              />
+  1365→            </div>
+  1366→          </div>
+  1367→
+  1368→          {/* Outlet Name - Only show when position is 7 */}
+  1369→          {entry.position === 7 && (
+  1370→            <div className="space-y-1.5 p-2 bg-muted/50 rounded border">
+  1371→              <div className="flex items-center gap-1.5">
+  1372→                <Label className="text-xs font-medium">Nombre del Outlet</Label>
+  1373→              </div>
+  1374→              <Input
+  1375→                value={entry.outletName || ''}
+  1376→                onChange={(e) => onUpdate({ outletName: e.target.value })}
+  1377→                placeholder="miOutlet"
+  1378→                className="h-7 text-sm"
+  1379→              />
+  1380→              <p className="text-[10px] text-muted-foreground">
+  1381→                Usa {'{{outlet::nombre}}'} en el prompt para insertar este contenido manualmente.
+  1382→              </p>
+  1383→            </div>
+  1384→          )}
+  1385→
+  1386→          {/* Toggles */}
+  1387→          <div className="grid grid-cols-2 xl:grid-cols-4 gap-1.5">
+  1388→            <label className="flex items-center justify-between p-1.5 rounded border text-xs cursor-pointer">
+  1389→              Siempre
+  1390→              <Switch
+  1391→                checked={entry.constant}
+  1392→                onCheckedChange={(checked) => onUpdate({ constant: checked })}
+  1393→              />
+  1394→            </label>
+  1395→            <label className="flex items-center justify-between p-1.5 rounded border text-xs cursor-pointer">
+  1396→              Prob.
+  1397→              <Switch
+  1398→                checked={entry.useProbability}
+  1399→                onCheckedChange={(checked) => onUpdate({ useProbability: checked })}
+  1400→              />
+  1401→            </label>
+  1402→            <label className="flex items-center justify-between p-1.5 rounded border text-xs cursor-pointer">
+  1403→              Exc.Rec.
+  1404→              <Switch
+  1405→                checked={entry.excludeRecursion}
+  1406→                onCheckedChange={(checked) => onUpdate({ excludeRecursion: checked })}
+  1407→              />
+  1408→            </label>
+  1409→            <label className="flex items-center justify-between p-1.5 rounded border text-xs cursor-pointer">
+  1410→              Prev.Rec.
+  1411→              <Switch
+  1412→                checked={entry.preventRecursion}
+  1413→                onCheckedChange={(checked) => onUpdate({ preventRecursion: checked })}
+  1414→              />
+  1415→            </label>
+  1416→          </div>
+  1417→        </>
+  1418→      )}
+  1419→
+  1420→      {/* Attribute entry info */}
+  1421→      {isAttribute && (
+  1422→        <div className="p-2 border rounded-md bg-muted/20 text-[10px] text-muted-foreground">
+  1423→          Las entradas de atributo se inyectan con {'{{key}}'} en lugar de posición. Coloca <code className="font-mono">{'{{' + (config?.injectionKey || 'miKey') + '}}'}</code> donde necesites el contenido.
+  1424→        </div>
+  1425→      )}
+  1426→
+  1427→      {/* Actions */}
+  1428→      <div className="flex gap-2 pt-1">
+  1429→        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onDuplicate}>
+  1430→          <Copy className="w-3 h-3 mr-1" />
+  1431→          Duplicar
+  1432→        </Button>
+  1433→        <Button variant="destructive" size="sm" className="h-7 text-xs" onClick={onDelete}>
+  1434→          <Trash2 className="w-3 h-3 mr-1" />
+  1435→          Eliminar
+  1436→        </Button>
+  1437→      </div>
+  1438→    </div>
+  1439→  );
+  1440→}
+  1441→
