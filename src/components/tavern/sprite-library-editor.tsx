@@ -130,7 +130,7 @@ export function SpriteLibraryEditor({ libraries, onChange }: SpriteLibraryEditor
       {/* How it works */}
       <div className="text-xs bg-muted/50 border rounded-lg p-3 space-y-2">
         <div className="flex items-center gap-2 font-medium text-foreground">
-          <Library className="w-4 h-4 text-blue-500" />
+          <Library className="w-4 h-4 text-violet-500" />
           ¿Para qué sirven?
         </div>
         <p className="text-muted-foreground">
@@ -140,7 +140,7 @@ export function SpriteLibraryEditor({ libraries, onChange }: SpriteLibraryEditor
         </p>
         <div className="grid grid-cols-3 gap-2 mt-2">
           <div className="p-2 bg-background rounded border text-center">
-            <Play className="w-4 h-4 mx-auto text-amber-500 mb-1" />
+            <Play className="w-4 h-4 mx-auto text-fuchsia-500 mb-1" />
             <div className="font-medium text-[11px]">Acciones</div>
             <div className="text-muted-foreground text-[10px]">act-wave, act-nod</div>
           </div>

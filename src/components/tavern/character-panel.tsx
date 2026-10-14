@@ -700,7 +700,7 @@ export function CharacterPanel() {
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-600">
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-fuchsia-400 to-violet-600">
                           <span className="text-white font-bold">
                             {character.name[0].toUpperCase()}
                           </span>

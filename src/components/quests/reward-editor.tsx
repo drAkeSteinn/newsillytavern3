@@ -31,8 +31,10 @@ import {
   createCurrencyReward,
   createConditionalSpriteCollectionReward,
   createActivateSpritePackReward,
+  createUbicacionReward,
   getActionSymbol,
 } from '@/lib/quest/quest-reward-utils';
+import { UbicacionRewardEditor } from '@/components/quests/ubicacion-reward-editor';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -152,7 +154,7 @@ export function RewardEditor({
   const isActivateSpritePack = normalized.type === 'activate_sprite_pack';
 
   // Handlers
-  const handleTypeChange = (newType: 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack') => {
+  const handleTypeChange = (newType: 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack' | 'ubicacion') => {
     if (newType === normalized.type) return;
 
     let newReward: QuestReward;
@@ -169,6 +171,8 @@ export function RewardEditor({
       newReward = createConditionalSpriteCollectionReward('', { id: reward.id });
     } else if (newType === 'activate_sprite_pack') {
       newReward = createActivateSpritePackReward('', { id: reward.id });
+    } else if (newType === 'ubicacion') {
+      newReward = createUbicacionReward('', '', { id: reward.id });
     } else {
       newReward = createTriggerReward(
         normalized.trigger?.category || 'sprite',
@@ -269,7 +273,7 @@ export function RewardEditor({
         <div className="flex items-center gap-2">
           <Select 
             value={normalized.type} 
-            onValueChange={(v) => handleTypeChange(v as 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack')}
+            onValueChange={(v) => handleTypeChange(v as 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack' | 'ubicacion')}
           >
             <SelectTrigger className="bg-background h-6 text-xs w-24">
               <SelectValue />
@@ -280,6 +284,7 @@ export function RewardEditor({
               <SelectItem value="currency">💰 Divisa</SelectItem>
               <SelectItem value="conditional_sprite_collection">🔀 Cond. Sprite</SelectItem>
               <SelectItem value="activate_sprite_pack">🎨 Sprite Pack</SelectItem>
+              <SelectItem value="ubicacion">📍 Ubicación</SelectItem>
             </SelectContent>
           </Select>
           <Badge variant="outline" className="text-[10px] flex-1">
@@ -580,6 +585,11 @@ export function RewardEditor({
             )}
           </div>
         )}
+
+        {/* Config ubicación (ESCENARIO V3) */}
+        {normalized.type === 'ubicacion' && (
+          <UbicacionRewardEditor reward={normalized} onChange={onChange} compact />
+        )}
       </div>
     );
   }
@@ -593,7 +603,7 @@ export function RewardEditor({
           <Label className="text-[10px] text-muted-foreground mb-1 block">Tipo de Recompensa</Label>
           <Select 
             value={normalized.type} 
-            onValueChange={(v) => handleTypeChange(v as 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack')}
+            onValueChange={(v) => handleTypeChange(v as 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack' | 'ubicacion')}
           >
             <SelectTrigger className="bg-background h-9">
               <SelectValue />
@@ -627,6 +637,11 @@ export function RewardEditor({
                 <div className="flex items-center gap-2">
                   <Package className="w-4 h-4" />
                   Sprite Pack
+                </div>
+              </SelectItem>
+              <SelectItem value="ubicacion">
+                <div className="flex items-center gap-2">
+                  📍 Ubicación
                 </div>
               </SelectItem>
             </SelectContent>
@@ -841,8 +856,8 @@ export function RewardEditor({
 
       {/* CONDITIONAL SPRITE COLLECTION CONFIG */}
       {isConditionalSpriteCollection && normalized.conditional_sprite_collection && (
-        <div className="space-y-3 p-3 rounded-lg bg-teal-500/10 border border-teal-500/20">
-          <div className="text-xs text-teal-600 font-medium flex items-center gap-1">
+        <div className="space-y-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+          <div className="text-xs text-emerald-600 font-medium flex items-center gap-1">
             <GitBranch className="w-3.5 h-3.5" />
             Colección de Sprite Condicional
           </div>
@@ -1031,8 +1046,8 @@ export function RewardEditor({
 
           {/* TARGET mode: Select character + their sprite pack */}
           {(normalized.activate_sprite_pack.targetMode) === 'target' && (
-            <div className="space-y-2 p-2 rounded-md bg-blue-500/5 border border-blue-500/10">
-              <div className="text-[10px] text-blue-500 font-medium">Activar en personaje objetivo</div>
+            <div className="space-y-2 p-2 rounded-md bg-violet-500/5 border border-violet-500/10">
+              <div className="text-[10px] text-violet-500 font-medium">Activar en personaje objetivo</div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-[10px] text-muted-foreground">Personaje objetivo</Label>
@@ -1178,6 +1193,19 @@ export function RewardEditor({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* UBICACION CONFIG (ESCENARIO V3) */}
+      {normalized.type === 'ubicacion' && (
+        <div className="space-y-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+          <div className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+            📍 Cambiar Ubicación de la Escena
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Mueve la escena compartida a un escenario, lugar o punto de interés de la biblioteca global. Cambia el fondo y el sprite se recoloca con su pose guardada.
+          </p>
+          <UbicacionRewardEditor reward={normalized} onChange={onChange} />
         </div>
       )}
 

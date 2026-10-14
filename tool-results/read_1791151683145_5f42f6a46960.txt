@@ -1,0 +1,790 @@
+     1→'use client';
+     2→
+     3→/**
+     4→ * MemoryV2Manager — gestión completa de la Memoria V2 de un personaje.
+     5→ *
+     6→ * Permite:
+     7→ *   - Ver todos los registros (agrupados por tipo, con filtros)
+     8→ *   - Crear recuerdos manuales (source=curada → SIEMPRE entran al prompt)
+     9→ *   - Editar recuerdos existentes (re-embed automático)
+    10→ *   - Archivar (historial conservado) o eliminar definitivamente
+    11→ *   - Buscar (simula la recuperación real con reranking)
+    12→ *   - Ver el estado del backend (LanceDB / JSON fallback / Ollama)
+    13→ *
+    14→ * Incluye documentación integrada para que el usuario entienda cómo
+    15→ * funciona la memoria y qué verá el LLM de cada tipo de registro.
+    16→ */
+    17→
+    18→import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+    19→import { Button } from '@/components/ui/button';
+    20→import { Input } from '@/components/ui/input';
+    21→import { Label } from '@/components/ui/label';
+    22→import { Textarea } from '@/components/ui/textarea';
+    23→import { Badge } from '@/components/ui/badge';
+    24→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+    25→import { Slider } from '@/components/ui/slider';
+    26→import { Switch } from '@/components/ui/switch';
+    27→import {
+    28→  Dialog,
+    29→  DialogContent,
+    30→  DialogDescription,
+    31→  DialogFooter,
+    32→  DialogHeader,
+    33→  DialogTitle,
+    34→} from '@/components/ui/dialog';
+    35→import {
+    36→  AlertDialog,
+    37→  AlertDialogAction,
+    38→  AlertDialogCancel,
+    39→  AlertDialogContent,
+    40→  AlertDialogDescription,
+    41→  AlertDialogFooter,
+    42→  AlertDialogHeader,
+    43→  AlertDialogTitle,
+    44→} from '@/components/ui/alert-dialog';
+    45→import {
+    46→  Select,
+    47→  SelectContent,
+    48→  SelectItem,
+    49→  SelectTrigger,
+    50→  SelectValue,
+    51→} from '@/components/ui/select';
+    52→import {
+    53→  Accordion,
+    54→  AccordionContent,
+    55→  AccordionItem,
+    56→  AccordionTrigger,
+    57→} from '@/components/ui/accordion';
+    58→import {
+    59→  AlertTriangle,
+    60→  CalendarDays,
+    61→  ChevronDown,
+    62→  ChevronRight,
+    63→  DatabaseZap,
+    64→  HelpCircle,
+    65→  Loader2,
+    66→  Pencil,
+    67→  Pin,
+    68→  Plus,
+    69→  RefreshCw,
+    70→  Search,
+    71→  Trash2,
+    72→  Archive,
+    73→} from 'lucide-react';
+    74→import { cn } from '@/lib/utils';
+    75→import { useToast } from '@/hooks/use-toast';
+    76→
+    77→// ============ Tipos (solo tipos — seguro en cliente) ============
+    78→
+    79→type V2Type = 'evento' | 'hecho' | 'preferencia' | 'relacion' | 'nota' | 'resumen_escena';
+    80→
+    81→interface V2Record {
+    82→  id: string;
+    83→  type: V2Type;
+    84→  content: string;
+    85→  subject: string;
+    86→  charId: string;
+    87→  groupId: string;
+    88→  sessionId: string;
+    89→  source: 'auto' | 'curada';
+    90→  importance: number;
+    91→  heat: number;
+    92→  eventDate: string;
+    93→  createdAt: string;
+    94→  updatedAt: string;
+    95→  lastAccessedAt: string;
+    96→  accessCount: number;
+    97→  linkedIds: string[];
+    98→  supersededBy: string;
+    99→}
+   100→
+   101→interface V2HealthData {
+   102→  backend: 'lancedb' | 'json';
+   103→  model: string;
+   104→  dimension: number;
+   105→  counts: { total: number; active: number; superseded: number; byType: Record<string, number> };
+   106→  ollama?: { reachable: boolean; model: string; contextLength?: number };
+   107→  error?: string;
+   108→}
+   109→
+   110→// ============ Metadatos de tipos ============
+   111→
+   112→const TYPE_META: Record<V2Type, { label: string; plural: string; dot: string; block: string; help: string }> = {
+   113→  evento: {
+   114→    label: 'Evento', plural: 'Eventos', dot: 'bg-purple-500',
+   115→    block: '[EVENTOS ANTERIORES]',
+   116→    help: 'Algo que PASÓ en la historia (una cita, una promesa, una pelea, la primera vez que…). Se inyecta con su fecha absoluta.',
+   117→  },
+   118→  hecho: {
+   119→    label: 'Hecho', plural: 'Hechos', dot: 'bg-emerald-500',
+   120→    block: '[HECHOS SOBRE {user}]',
+   121→    help: 'Dato estable sobre el usuario o el mundo (trabajo, nombre, familia, límites duros). El LLM lo da por sabido.',
+   122→  },
+   123→  preferencia: {
+   124→    label: 'Preferencia', plural: 'Preferencias', dot: 'bg-fuchsia-500',
+   125→    block: '[HECHOS SOBRE {user}]',
+   126→    help: 'Gustos, límites o deseos del usuario respecto al rol (ej: "prefiere roles lentos con tensión").',
+   127→  },
+   128→  relacion: {
+   129→    label: 'Relación', plural: 'Relación', dot: 'bg-rose-500',
+   130→    block: '[ESTADO DE LA RELACIÓN]',
+   131→    help: 'Cómo se siente el personaje hacia el usuario y la dinámica entre ambos (confianza, deseo, celos, tensión).',
+   132→  },
+   133→  nota: {
+   134→    label: 'Nota', plural: 'Notas', dot: 'bg-slate-400',
+   135→    block: '[HECHOS SOBRE {user}]',
+   136→    help: 'Nota libre curada. Úsala para fijar cualquier detalle que quieras que el personaje siempre sepa.',
+   137→  },
+   138→  resumen_escena: {
+   139→    label: 'Resumen de escena', plural: 'Resúmenes de escena', dot: 'bg-fuchsia-500',
+   140→    block: '[EVENTOS ANTERIORES]',
+   141→    help: 'Compresión episódica de una escena completa (lo genera la consolidación). Se inyecta como evento con fecha.',
+   142→  },
+   143→};
+   144→
+   145→const ALL_TYPES: V2Type[] = ['evento', 'hecho', 'preferencia', 'relacion', 'nota', 'resumen_escena'];
+   146→
+   147→function fmtDate(iso: string): string {
+   148→  if (!iso) return '';
+   149→  const d = new Date(iso);
+   150→  if (isNaN(d.getTime())) return iso.slice(0, 10);
+   151→  return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+   152→}
+   153→
+   154→// ============ Componente ============
+   155→
+   156→export interface MemoryV2ManagerProps {
+   157→  /** Personaje propietario de los recuerdos. Opcional en modo grupo. */
+   158→  charId?: string;
+   159→  /** Grupo: lista TODOS los recuerdos extraídos en ese chat grupal (todos los miembros)
+   160→   *  y permite crear recuerdos group-wide (visibles para todos los personajes del grupo). */
+   161→  groupId?: string;
+   162→  charName: string;
+   163→  userName?: string;
+   164→  /** Modo compacto (chatbox): sin documentación ni panel de búsqueda */
+   165→  compact?: boolean;
+   166→  /** Cambia → recarga los registros (ej: tras una extracción) */
+   167→  refreshSignal?: number;
+   168→  /** Notifica el nº de registros activos (para badges externos) */
+   169→  onCountChange?: (n: number) => void;
+   170→  className?: string;
+   171→}
+   172→
+   173→interface RecordFormState {
+   174→  id: string;              // '' = crear
+   175→  type: V2Type;
+   176→  content: string;
+   177→  importance: number;
+   178→  eventDate: string;       // YYYY-MM-DD
+   179→  subject: string;
+   180→}
+   181→
+   182→const EMPTY_FORM: RecordFormState = {
+   183→  id: '',
+   184→  type: 'evento',
+   185→  content: '',
+   186→  importance: 0.6,
+   187→  eventDate: '',
+   188→  subject: 'pareja',
+   189→};
+   190→
+   191→export function MemoryV2Manager({
+   192→  charId,
+   193→  groupId,
+   194→  charName,
+   195→  userName = 'el usuario',
+   196→  compact = false,
+   197→  refreshSignal,
+   198→  onCountChange,
+   199→  className,
+   200→}: MemoryV2ManagerProps) {
+   201→  const { toast } = useToast();
+   202→  const isGroupScope = !charId && !!groupId;
+   203→
+   204→  const [records, setRecords] = useState<V2Record[]>([]);
+   205→  const [health, setHealth] = useState<V2HealthData | null>(null);
+   206→  const [loading, setLoading] = useState(false);
+   207→  const [initialized, setInitialized] = useState(false);
+   208→
+   209→  // Filtros
+   210→  const [typeFilter, setTypeFilter] = useState<'todos' | V2Type>('todos');
+   211→  const [sourceFilter, setSourceFilter] = useState<'todas' | 'curada' | 'auto'>('todas');
+   212→  const [showArchived, setShowArchived] = useState(false);
+   213→  const [expandedTypes, setExpandedTypes] = useState<Record<string, boolean>>({});
+   214→
+   215→  // Diálogos
+   216→  const [formOpen, setFormOpen] = useState(false);
+   217→  const [form, setForm] = useState<RecordFormState>(EMPTY_FORM);
+   218→  const [saving, setSaving] = useState(false);
+   219→  const [pendingHardDelete, setPendingHardDelete] = useState<V2Record | null>(null);
+   220→
+   221→  // Búsqueda debug
+   222→  const [searchQuery, setSearchQuery] = useState('');
+   223→  const [searchResults, setSearchResults] = useState<any[] | null>(null);
+   224→  const [searching, setSearching] = useState(false);
+   225→  // Error de carga (null = OK) — distinto de "store vacío"
+   226→  const [loadError, setLoadError] = useState<string | null>(null);
+   227→
+   228→  // ============ Data ============
+   229→
+   230→  const load = useCallback(async () => {
+   231→    if (!charId && !groupId) return;
+   232→    const scopeQuery = charId
+   233→      ? `charId=${encodeURIComponent(charId)}`
+   234→      : `groupId=${encodeURIComponent(groupId!)}`;
+   235→    setLoading(true);
+   236→    try {
+   237→      const [recRes, healthRes] = await Promise.all([
+   238→        fetch(`/api/memory/v2?action=records&${scopeQuery}&limit=300&includeArchived=${showArchived ? 1 : 0}`),
+   239→        fetch('/api/memory/v2?action=health'),
+   240→      ]);
+   241→      const recData = await recRes.json();
+   242→      const healthData = await healthRes.json();
+   243→      if (recData.success) {
+   244→        setRecords(recData.records || []);
+   245→        onCountChange?.(recData.total ?? recData.records?.length ?? 0);
+   246→        setLoadError(null);
+   247→      } else {
+   248→        // Distinguish a failed fetch from a genuinely empty store — showing
+   249→        // the "sin recuerdos" hint on an error looks like data loss.
+   250→        setLoadError(recData.error || 'No se pudieron cargar los recuerdos');
+   251→      }
+   252→      if (healthData.success) setHealth(healthData.health);
+   253→    } catch (err: any) {
+   254→      setLoadError(err?.message || 'Error de red al cargar los recuerdos');
+   255→    } finally {
+   256→      setLoading(false);
+   257→      setInitialized(true);
+   258→    }
+   259→  }, [charId, groupId, showArchived, onCountChange]);
+   260→
+   261→  useEffect(() => { load(); }, [load]);
+   262→
+   263→  // Reload only when the parent bumps the signal (not on every load identity change)
+   264→  const loadRef = useRef(load);
+   265→  loadRef.current = load;
+   266→  useEffect(() => {
+   267→    if (refreshSignal !== undefined && refreshSignal > 0) loadRef.current();
+   268→  }, [refreshSignal]);
+   269→
+   270→  // ============ Filtros (cliente) ============
+   271→
+   272→  const filtered = useMemo(() => {
+   273→    return records.filter(r => {
+   274→      if (typeFilter !== 'todos' && r.type !== typeFilter) return false;
+   275→      if (sourceFilter !== 'todas' && r.source !== sourceFilter) return false;
+   276→      return true;
+   277→    });
+   278→  }, [records, typeFilter, sourceFilter]);
+   279→
+   280→  const grouped = useMemo(() => {
+   281→    const g: Record<string, V2Record[]> = {};
+   282→    for (const r of filtered) (g[r.type] ||= []).push(r);
+   283→    // ordenar dentro de cada grupo: curada primero, luego fecha desc
+   284→    for (const t of Object.keys(g)) {
+   285→      g[t].sort((a, b) => {
+   286→        if (a.source !== b.source) return a.source === 'curada' ? -1 : 1;
+   287→        return (b.eventDate || b.createdAt || '').localeCompare(a.eventDate || a.createdAt || '');
+   288→      });
+   289→    }
+   290→    return g;
+   291→  }, [filtered]);
+   292→
+   293→  const activeCount = records.filter(r => !r.supersededBy).length;
+   294→  const archivedCount = records.length - activeCount;
+   295→
+   296→  // ============ Acciones ============
+   297→
+   298→  const openCreate = () => {
+   299→    setForm({ ...EMPTY_FORM, eventDate: new Date().toISOString().slice(0, 10) });
+   300→    setFormOpen(true);
+   301→  };
+   302→
+   303→  const openEdit = (r: V2Record) => {
+   304→    setForm({
+   305→      id: r.id,
+   306→      type: r.type,
+   307→      content: r.content,
+   308→      importance: r.importance,
+   309→      eventDate: (r.eventDate || '').slice(0, 10),
+   310→      subject: r.subject || 'pareja',
+   311→    });
+   312→    setFormOpen(true);
+   313→  };
+   314→
+   315→  const saveForm = async () => {
+   316→    if (!form.content.trim()) {
+   317→      toast({ title: 'Falta el contenido', description: 'Escribe el texto del recuerdo.', variant: 'destructive' });
+   318→      return;
+   319→    }
+   320→    setSaving(true);
+   321→    try {
+   322→      const url = '/api/memory/v2';
+   323→      const payload = form.id
+   324→        ? { action: 'edit', id: form.id, content: form.content, type: form.type, importance: form.importance, eventDate: form.eventDate, subject: form.subject }
+   325→        : isGroupScope
+   326→          ? { action: 'add', groupId, type: form.type, content: form.content, importance: form.importance, eventDate: form.eventDate, subject: form.subject }
+   327→          : { action: 'add', charId, type: form.type, content: form.content, importance: form.importance, eventDate: form.eventDate, subject: form.subject };
+   328→      const res = await fetch(url, {
+   329→        method: 'POST',
+   330→        headers: { 'Content-Type': 'application/json' },
+   331→        body: JSON.stringify(payload),
+   332→      });
+   333→      const data = await res.json();
+   334→      if (!data.success) throw new Error(data.error || 'Error al guardar');
+   335→      toast({
+   336→        title: form.id ? 'Recuerdo actualizado' : 'Recuerdo creado',
+   337→        description: form.id
+   338→          ? 'El vector se regeneró con el nuevo texto.'
+   339→          : 'Se guardó como recuerdo fijado: SIEMPRE entrará en el prompt.',
+   340→      });
+   341→      setFormOpen(false);
+   342→      load();
+   343→    } catch (err: any) {
+   344→      toast({ title: 'Error al guardar', description: err?.message || String(err), variant: 'destructive' });
+   345→    } finally {
+   346→      setSaving(false);
+   347→    }
+   348→  };
+   349→
+   350→  const archiveRecord = async (r: V2Record) => {
+   351→    try {
+   352→      const res = await fetch('/api/memory/v2', {
+   353→        method: 'POST',
+   354→        headers: { 'Content-Type': 'application/json' },
+   355→        body: JSON.stringify({ action: 'supersede', id: r.id }),
+   356→      });
+   357→      const data = await res.json();
+   358→      if (!data.success) throw new Error(data.error || 'Error');
+   359→      toast({ title: 'Recuerdo archivado', description: 'Ya no se inyecta. Queda en el historial (activa "Ver archivados").' });
+   360→      load();
+   361→    } catch (err: any) {
+   362→      toast({ title: 'Error al archivar', description: err?.message || String(err), variant: 'destructive' });
+   363→    }
+   364→  };
+   365→
+   366→  const hardDelete = async (r: V2Record) => {
+   367→    try {
+   368→      const res = await fetch('/api/memory/v2', {
+   369→        method: 'POST',
+   370→        headers: { 'Content-Type': 'application/json' },
+   371→        body: JSON.stringify({ action: 'hard-delete', id: r.id }),
+   372→      });
+   373→      const data = await res.json();
+   374→      if (!data.success) throw new Error(data.error || 'Error');
+   375→      toast({ title: 'Recuerdo eliminado', description: 'Eliminado definitivamente del almacén.' });
+   376→      setPendingHardDelete(null);
+   377→      load();
+   378→    } catch (err: any) {
+   379→      toast({ title: 'Error al eliminar', description: err?.message || String(err), variant: 'destructive' });
+   380→    }
+   381→  };
+   382→
+   383→  const runSearch = async () => {
+   384→    if (!searchQuery.trim() || (!charId && !groupId)) return;
+   385→    setSearching(true);
+   386→    setSearchResults(null);
+   387→    try {
+   388→      const scopeQuery = charId
+   389→        ? `charId=${encodeURIComponent(charId)}`
+   390→        : `groupId=${encodeURIComponent(groupId!)}`;
+   391→      const res = await fetch(`/api/memory/v2?action=search&${scopeQuery}&query=${encodeURIComponent(searchQuery)}&limit=10`);
+   392→      const data = await res.json();
+   393→      if (data.success) setSearchResults(data.results || []);
+   394→      else throw new Error(data.error);
+   395→    } catch (err: any) {
+   396→      toast({ title: 'Error en la búsqueda', description: err?.message || String(err), variant: 'destructive' });
+   397→    } finally {
+   398→      setSearching(false);
+   399→    }
+   400→  };
+   401→
+   402→  // ============ Render helpers ============
+   403→
+   404→  const backendBadge = () => {
+   405→    if (!health) return null;
+   406→    if (health.backend === 'lancedb') {
+   407→      return <Badge variant="outline" className="text-[9px] font-normal">LanceDB · {health.dimension}d</Badge>;
+   408→    }
+   409→    return (
+   410→      <Badge variant="outline" className="text-[9px] font-normal text-fuchsia-600 dark:text-fuchsia-400">
+   411→        JSON fallback{health.ollama?.reachable === false ? ' · sin Ollama' : ''}
+   412→      </Badge>
+   413→    );
+   414→  };
+   415→
+   416→  const renderRecord = (r: V2Record) => {
+   417→    const meta = TYPE_META[r.type];
+   418→    return (
+   419→      <div key={r.id} className={cn('group rounded-md bg-white/5 p-2', r.supersededBy && 'opacity-50')}>
+   420→        <div className="flex items-center gap-1.5 mb-0.5">
+   421→          {r.source === 'curada' ? (
+   422→            <Badge variant="secondary" className="text-[9px] px-1 py-0 gap-0.5">
+   423→              <Pin className="w-2 h-2" /> fijado
+   424→            </Badge>
+   425→          ) : (
+   426→            <Badge variant="outline" className="text-[9px] px-1 py-0 font-normal">auto</Badge>
+   427→          )}
+   428→          {r.supersededBy && (
+   429→            <Badge variant="outline" className="text-[9px] px-1 py-0 font-normal">
+   430→              {r.supersededBy === '__deleted__' ? 'eliminado' : 'reemplazado'}
+   431→            </Badge>
+   432→          )}
+   433→          <span className="text-[9px] text-muted-foreground inline-flex items-center gap-0.5">
+   434→            <CalendarDays className="w-2.5 h-2.5" /> {fmtDate(r.eventDate || r.createdAt)}
+   435→          </span>
+   436→          <span className="text-[9px] text-muted-foreground" title="Importancia">★ {(r.importance ?? 0).toFixed(1)}</span>
+   437→          <span className="text-[9px] text-muted-foreground" title="Accesos / calor">🔥 {r.heat?.toFixed?.(0) ?? r.heat}</span>
+   438→          <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+   439→            {!r.supersededBy && (
+   440→              <>
+   441→                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" title="Editar" onClick={() => openEdit(r)}>
+   442→                  <Pencil className="w-3 h-3" />
+   443→                </Button>
+   444→                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" title="Archivar (deja de inyectarse, se conserva en historial)" onClick={() => archiveRecord(r)}>
+   445→                  <Archive className="w-3 h-3" />
+   446→                </Button>
+   447→              </>
+   448→            )}
+   449→            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:text-red-600" title="Eliminar definitivamente" onClick={() => setPendingHardDelete(r)}>
+   450→              <Trash2 className="w-3 h-3" />
+   451→            </Button>
+   452→          </div>
+   453→        </div>
+   454→        <p className={cn('text-xs text-foreground/90', r.supersededBy && 'line-through decoration-muted-foreground/50')}>{r.content}</p>
+   455→        {r.supersededBy && r.supersededBy !== '__deleted__' && (
+   456→          <p className="text-[9px] text-muted-foreground mt-0.5">→ reemplazado por {r.supersededBy}</p>
+   457→        )}
+   458→        {!compact && meta && (
+   459→          <p className="text-[9px] text-muted-foreground/70 mt-1">{meta.block}</p>
+   460→        )}
+   461→      </div>
+   462→    );
+   463→  };
+   464→
+   465→  const recordsList = (
+   466→    <div className="space-y-2">
+   467→      {loading && !initialized ? (
+   468→        <div className="flex items-center justify-center py-4 text-muted-foreground text-xs">
+   469→          <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Cargando recuerdos…
+   470→        </div>
+   471→      ) : loadError ? (
+   472→        <div className="flex flex-col items-start gap-1.5 py-1">
+   473→          <p className="text-xs text-destructive flex items-center gap-1.5">
+   474→            <AlertTriangle className="w-3.5 h-3.5" /> Error al cargar recuerdos: {loadError}
+   475→          </p>
+   476→          <button
+   477→            className="text-[10px] underline text-muted-foreground hover:text-foreground"
+   478→            onClick={() => load()}
+   479→          >
+   480→            Reintentar
+   481→          </button>
+   482→        </div>
+   483→      ) : filtered.length === 0 ? (
+   484→        <p className="text-xs text-muted-foreground">
+   485→          {records.length === 0
+   486→            ? 'Sin recuerdos todavía. Se crean automáticamente al chatear (extracción) o manualmente con "+ Agregar".'
+   487→            : 'Ningún recuerdo coincide con los filtros actuales.'}
+   488→        </p>
+   489→      ) : (
+   490→        <div className={cn('space-y-2 overflow-y-auto custom-scrollbar', compact ? 'max-h-96' : 'max-h-[420px]')}>
+   491→          {ALL_TYPES.filter(t => grouped[t]?.length).map(t => {
+   492→            const meta = TYPE_META[t];
+   493→            const isExpanded = expandedTypes[t] !== false; // default open
+   494→            return (
+   495→              <div key={t} className="space-y-1">
+   496→                <button
+   497→                  className="flex items-center gap-1.5 px-1 py-0.5 w-full text-left hover:opacity-80"
+   498→                  onClick={() => setExpandedTypes(prev => ({ ...prev, [t]: !isExpanded }))}
+   499→                >
+   500→                  {isExpanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+   501→                  <div className={cn('w-1.5 h-1.5 rounded-full', meta.dot)} />
+   502→                  <span className="text-xs font-medium">{meta.plural}</span>
+   503→                  <span className="text-xs text-muted-foreground">({grouped[t].length})</span>
+   504→                </button>
+   505→                {isExpanded && grouped[t].map(renderRecord)}
+   506→              </div>
+   507→            );
+   508→          })}
+   509→        </div>
+   510→      )}
+   511→    </div>
+   512→  );
+   513→
+   514→  const searchPanel = !compact && (
+   515→    <div className="space-y-1.5 pt-1 border-t border-border/40">
+   516→      <Label className="text-xs text-muted-foreground">Simular recuperación (con reranking real)</Label>
+   517→      <div className="flex gap-1.5">
+   518→        <Input
+   519→          value={searchQuery}
+   520→          onChange={e => setSearchQuery(e.target.value)}
+   521→          onKeyDown={e => { if (e.key === 'Enter') runSearch(); }}
+   522→          placeholder={`Ej: ¿qué sientes hacia ${userName}? · ¿recuerdas aquella noche?`}
+   523→          className="h-8 text-xs"
+   524→        />
+   525→        <Button size="sm" variant="outline" className="h-8 px-2.5" onClick={runSearch} disabled={searching || !searchQuery.trim()}>
+   526→          {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+   527→        </Button>
+   528→      </div>
+   529→      {searchResults && (
+   530→        <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar pt-1">
+   531→          {searchResults.length === 0 ? (
+   532→            <p className="text-xs text-muted-foreground">Sin resultados relevantes (el LLM admitiría no recordar).</p>
+   533→          ) : (
+   534→            searchResults.map((r: any) => (
+   535→              <div key={r.id} className="rounded bg-white/5 p-1.5 flex items-start gap-2">
+   536→                <Badge variant="outline" className="text-[9px] px-1 py-0 font-mono shrink-0">{(r.score ?? 0).toFixed(2)}</Badge>
+   537→                <div className="min-w-0">
+   538→                  <p className="text-xs text-foreground/90">{r.content}</p>
+   539→                  <p className="text-[9px] text-muted-foreground">{TYPE_META[r.type as V2Type]?.label} · cos {r.cosine?.toFixed?.(2)}</p>
+   540→                </div>
+   541→              </div>
+   542→            ))
+   543→          )}
+   544→        </div>
+   545→      )}
+   546→    </div>
+   547→  );
+   548→
+   549→  const docsSection = !compact && (
+   550→    <Accordion type="single" collapsible className="pt-1 border-t border-border/40">
+   551→      <AccordionItem value="docs" className="border-0">
+   552→        <AccordionTrigger className="text-xs py-2 hover:no-underline">
+   553→          <span className="inline-flex items-center gap-1.5">
+   554→            <HelpCircle className="w-3.5 h-3.5 text-violet-400" />
+   555→            ¿Cómo funciona la Memoria V2?
+   556→          </span>
+   557→        </AccordionTrigger>
+   558→        <AccordionContent className="text-xs text-muted-foreground space-y-3 pt-1">
+   559→          <div>
+   560→            <p className="font-medium text-foreground">Qué es</p>
+   561→            <p>
+   562→              Una única memoria a largo plazo por personaje. Cada recuerdo es un registro con tipo, fecha absoluta,
+   563→              importancia y origen. Al chatear, el sistema inyecta al LLM tres bloques organizados:
+   564→            </p>
+   565→            <ul className="list-disc ml-4 mt-1 space-y-0.5">
+   566→              <li><span className="font-mono text-[10px] text-foreground">[HECHOS SOBRE {userName}]</span> — hechos, preferencias y notas.</li>
+   567→              <li><span className="font-mono text-[10px] text-foreground">[EVENTOS ANTERIORES]</span> — eventos y resúmenes de escena, con su fecha.</li>
+   568→              <li><span className="font-mono text-[10px] text-foreground">[ESTADO DE LA RELACIÓN]</span> — el vínculo emocional actual.</li>
+   569→            </ul>
+   570→          </div>
+   571→          <div>
+   572→            <p className="font-medium text-foreground">Recuerdos fijados vs automáticos</p>
+   573→            <p>
+   574→              <span className="text-foreground">Fijados (curada)</span>: los que creas/editas aquí. Siempre entran al prompt,
+   575→              nunca decaen ni se suprimen. <span className="text-foreground">Automáticos</span>: los extrae el LLM mientras
+   576→              chateas (eventos, hechos, cambios de relación) y se recuperan por relevancia cuando algo del mensaje
+   577→              del usuario los conecta (búsqueda vectorial + reranking con fecha, importancia y calor).
+   578→            </p>
+   579→          </div>
+   580→          <div>
+   581→            <p className="font-medium text-foreground">Cómo escribir un buen recuerdo</p>
+   582→            <ul className="list-disc ml-4 mt-1 space-y-0.5">
+   583→              <li>En 3ª persona y con los nombres reales: «Aitana besó a Marcos…», nunca «el usuario».</li>
+   584→              <li>Autocontenido: alguien que no lea el chat debe entenderlo.</li>
+   585→              <li>Con fecha real del evento (hoy por defecto). El LLM la usa para situarse en el tiempo.</li>
+   586→              <li>Importancia: 0.9-1 promesas/límites/confesiones · 0.6-0.8 eventos significativos · 0.3-0.5 detalles.</li>
+   587→            </ul>
+   588→          </div>
+   589→          <div>
+   590→            <p className="font-medium text-foreground">Archivar vs eliminar</p>
+   591→            <p>
+   592→              <span className="text-foreground">Archivar</span> quita el recuerdo del prompt pero conserva el historial
+   593→              (puedes verlo con «Archivados»). <span className="text-foreground">Eliminar</span> lo borra para siempre.
+   594→              La extracción automática también archiva cuando el personaje «actualiza» un recuerdo, dejando trazabilidad.
+   595→            </p>
+   596→          </div>
+   597→          <div>
+   598→            <p className="font-medium text-foreground">¿Y los Resúmenes y el Conocimiento?</p>
+   599→            <p>
+   600→              Los <span className="text-foreground">Resúmenes</span> comprimen mensajes antiguos para que el contexto no
+   601→              crezca (ahorro de tokens): son independientes de la memoria semántica. El{' '}
+   602→              <span className="text-foreground">Conocimiento</span> (archivos que subes para RAG) se indexa en la misma
+   603→              base vectorial y entra al prompt como [CONTEXTO RELEVANTE]. Esta tienda (Memoria V2) es el ÚNICO
+   604→              sistema de recuerdos del personaje: no existe memoria clásica paralela.
+   605→            </p>
+   606→          </div>
+   607→          {health?.error && (
+   608→            <div className="rounded bg-fuchsia-500/10 border border-fuchsia-500/30 p-2">
+   609→              <p className="text-fuchsia-600 dark:text-fuchsia-400 text-[11px]">
+   610→                Estado: {health.error}. Los recuerdos se guardan en JSON y la búsqueda usa coincidencia léxica;
+   611→                al conectar Ollama se migran a vectores automáticamente.
+   612→              </p>
+   613→            </div>
+   614→          )}
+   615→        </AccordionContent>
+   616→      </AccordionItem>
+   617→    </Accordion>
+   618→  );
+   619→
+   620→  const body = (
+   621→    <div className="space-y-2">
+   622→      {/* Toolbar: filtros */}
+   623→      <div className="flex flex-wrap items-center gap-1.5">
+   624→        <Select value={typeFilter} onValueChange={v => setTypeFilter(v as 'todos' | V2Type)}>
+   625→          <SelectTrigger className="h-7 w-[150px] text-xs">
+   626→            <SelectValue />
+   627→          </SelectTrigger>
+   628→          <SelectContent>
+   629→            <SelectItem value="todos">Todos los tipos</SelectItem>
+   630→            {ALL_TYPES.map(t => <SelectItem key={t} value={t}>{TYPE_META[t].plural}</SelectItem>)}
+   631→          </SelectContent>
+   632→        </Select>
+   633→        <Select value={sourceFilter} onValueChange={v => setSourceFilter(v as 'todas' | 'curada' | 'auto')}>
+   634→          <SelectTrigger className="h-7 w-[130px] text-xs">
+   635→            <SelectValue />
+   636→          </SelectTrigger>
+   637→          <SelectContent>
+   638→            <SelectItem value="todas">Fijados + auto</SelectItem>
+   639→            <SelectItem value="curada">Solo fijados</SelectItem>
+   640→            <SelectItem value="auto">Solo automáticos</SelectItem>
+   641→          </SelectContent>
+   642→        </Select>
+   643→        {!compact && (
+   644→          <div className="flex items-center gap-1.5">
+   645→            <Switch id={`arch-${charId || groupId || 'mgr'}`} checked={showArchived} onCheckedChange={setShowArchived} className="scale-90" />
+   646→            <Label htmlFor={`arch-${charId || groupId || 'mgr'}`} className="text-xs text-muted-foreground cursor-pointer">
+   647→              Archivados{archivedCount > 0 ? ` (${archivedCount})` : ''}
+   648→            </Label>
+   649→          </div>
+   650→        )}
+   651→        <div className="ml-auto flex items-center gap-1">
+   652→          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Recargar" onClick={load} disabled={loading}>
+   653→            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+   654→          </Button>
+   655→          <Button size="sm" className="h-7 gap-1 text-xs" onClick={openCreate}>
+   656→            <Plus className="w-3.5 h-3.5" /> Agregar
+   657→          </Button>
+   658→        </div>
+   659→      </div>
+   660→
+   661→      {recordsList}
+   662→      {searchPanel}
+   663→      {docsSection}
+   664→    </div>
+   665→  );
+   666→
+   667→  return (
+   668→    <div className={className}>
+   669→      {!compact ? (
+   670→        <Card className="border-violet-500/20">
+   671→          <CardHeader className="pb-2">
+   672→            <div className="flex items-center gap-2 flex-wrap">
+   673→              <DatabaseZap className="w-4 h-4 text-violet-500" />
+   674→              <CardTitle className="text-sm">{isGroupScope ? `Memoria del grupo · ${charName}` : `Memoria de ${charName}`}</CardTitle>
+   675→              <Badge variant="secondary" className="text-xs">{activeCount} activos</Badge>
+   676→              {backendBadge()}
+   677→              {health?.model && (
+   678→                <span className="text-[9px] text-muted-foreground">{health.model}</span>
+   679→              )}
+   680→            </div>
+   681→          </CardHeader>
+   682→          <CardContent>{body}</CardContent>
+   683→        </Card>
+   684→      ) : (
+   685→        body
+   686→      )}
+   687→
+   688→      {/* Dialogo crear/editar */}
+   689→      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+   690→        <DialogContent className="sm:max-w-md">
+   691→          <DialogHeader>
+   692→            <DialogTitle className="text-base">{form.id ? 'Editar recuerdo' : 'Nuevo recuerdo'}</DialogTitle>
+   693→            <DialogDescription className="text-xs">
+   694→              {form.id
+   695→                ? 'El cambio se guarda en el mismo registro y el vector se regenera.'
+   696→                : 'Se creará como recuerdo FIJADO: siempre se inyecta en el prompt y nunca decae.'}
+   697→            </DialogDescription>
+   698→          </DialogHeader>
+   699→          <div className="space-y-3 py-1">
+   700→            <div className="grid grid-cols-2 gap-3">
+   701→              <div className="space-y-1.5">
+   702→                <Label className="text-xs">Tipo</Label>
+   703→                <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v as V2Type }))}>
+   704→                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+   705→                  <SelectContent>
+   706→                    {ALL_TYPES.map(t => <SelectItem key={t} value={t}>{TYPE_META[t].label}</SelectItem>)}
+   707→                  </SelectContent>
+   708→                </Select>
+   709→              </div>
+   710→              <div className="space-y-1.5">
+   711→                <Label className="text-xs">Fecha del evento</Label>
+   712→                <Input
+   713→                  type="date"
+   714→                  value={form.eventDate}
+   715→                  onChange={e => setForm(f => ({ ...f, eventDate: e.target.value }))}
+   716→                  className="h-8 text-xs"
+   717→                />
+   718→              </div>
+   719→            </div>
+   720→            <div className="space-y-1.5">
+   721→              <Label className="text-xs">Recuerdo</Label>
+   722→              <Textarea
+   723→                value={form.content}
+   724→                onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
+   725→                placeholder={isGroupScope
+   726→                  ? `Ej: El grupo acordó viajar a la capital al amanecer`
+   727→                  : `Ej: ${charName} prometió a ${userName} no volver a mentirle después de lo del bar`}
+   728→                className="text-xs min-h-[80px] resize-y"
+   729→                maxLength={480}
+   730→              />
+   731→              <p className="text-[10px] text-muted-foreground">
+   732→                {isGroupScope ? 'Recuerdo GRUPAL: lo verán todos los personajes del grupo. ' : ''}
+   733→                {TYPE_META[form.type]?.help} · {form.content.length}/480
+   734→              </p>
+   735→            </div>
+   736→            <div className="space-y-1.5">
+   737→              <div className="flex items-center justify-between">
+   738→                <Label className="text-xs">Importancia</Label>
+   739→                <span className="text-xs text-muted-foreground">{form.importance.toFixed(1)}</span>
+   740→              </div>
+   741→              <Slider
+   742→                value={[form.importance]}
+   743→                onValueChange={([v]) => setForm(f => ({ ...f, importance: v }))}
+   744→                min={0}
+   745→                max={1}
+   746→                step={0.1}
+   747→              />
+   748→              <div className="flex justify-between text-[9px] text-muted-foreground">
+   749→                <span>detalle menor</span><span>evento normal</span><span>crítico</span>
+   750→              </div>
+   751→            </div>
+   752→          </div>
+   753→          <DialogFooter>
+   754→            <Button variant="outline" size="sm" onClick={() => setFormOpen(false)} disabled={saving}>Cancelar</Button>
+   755→            <Button size="sm" onClick={saveForm} disabled={saving || !form.content.trim()}>
+   756→              {saving && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
+   757→              {form.id ? 'Guardar cambios' : 'Crear recuerdo'}
+   758→            </Button>
+   759→          </DialogFooter>
+   760→        </DialogContent>
+   761→      </Dialog>
+   762→
+   763→      {/* Confirmación de borrado definitivo */}
+   764→      <AlertDialog open={!!pendingHardDelete} onOpenChange={o => !o && setPendingHardDelete(null)}>
+   765→        <AlertDialogContent>
+   766→          <AlertDialogHeader>
+   767→            <AlertDialogTitle className="text-base">¿Eliminar definitivamente?</AlertDialogTitle>
+   768→            <AlertDialogDescription className="text-xs">
+   769→              Este recuerdo se borrará del almacén sin dejar historial:
+   770→              «{pendingHardDelete?.content?.slice(0, 120)}».
+   771→              Si prefieres conservarlo fuera del prompt, usa Archivar.
+   772→            </AlertDialogDescription>
+   773→          </AlertDialogHeader>
+   774→          <AlertDialogFooter>
+   775→            <AlertDialogCancel className="text-xs">Cancelar</AlertDialogCancel>
+   776→            <AlertDialogAction
+   777→              className="bg-red-600 hover:bg-red-700 text-white text-xs"
+   778→              onClick={() => pendingHardDelete && hardDelete(pendingHardDelete)}
+   779→            >
+   780→              Eliminar
+   781→            </AlertDialogAction>
+   782→          </AlertDialogFooter>
+   783→        </AlertDialogContent>
+   784→      </AlertDialog>
+   785→    </div>
+   786→  );
+   787→}
+   788→
+   789→export default MemoryV2Manager;
+   790→

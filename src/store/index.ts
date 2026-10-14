@@ -30,6 +30,7 @@ import {
   createStatsSlice,
   createQuestTemplateSlice,
   createTimelineEditorSlice,
+  createScenarioLibrarySlice,
 } from './slices';
 
 // Import slice types
@@ -54,6 +55,7 @@ import type {
   StatsSlice,
   QuestTemplateSlice,
   TimelineEditorSlice,
+  ScenarioLibrarySlice,
 } from './slices';
 
 // Import defaults for merge function
@@ -81,7 +83,8 @@ export type TavernState = CharacterSlice &
   InventorySlice &
   StatsSlice &
   QuestTemplateSlice &
-  TimelineEditorSlice;
+  TimelineEditorSlice &
+  ScenarioLibrarySlice;
 
 // Create the combined store
 export const useTavernStore = create<TavernState>()(
@@ -108,6 +111,7 @@ export const useTavernStore = create<TavernState>()(
       ...createStatsSlice(set, get),
       ...createQuestTemplateSlice(set, get),
       ...createTimelineEditorSlice(set, get),
+      ...createScenarioLibrarySlice(set, get),
     }),
     {
       name: 'tavernflow-storage', // Same name for backward compatibility
@@ -169,6 +173,8 @@ export const useTavernStore = create<TavernState>()(
         // Stats state is stored within sessions.sessionStats
         // Timeline Editor state
         collections: state.collections,
+        // Scenario Library (App-level scenario collections, ESCENARIO V3)
+        scenarios: state.scenarios,
         // Handy / Haptic settings are stored within settings.handy
       }),
       merge: (persistedState: unknown, currentState) => {
@@ -452,4 +458,4 @@ export const useTavernStore = create<TavernState>()(
 );
 
 // Export types
-export type { CharacterSlice, SessionSlice, GroupSlice, LLMSlice, SettingsSlice, LorebookSlice, PersonaSlice, BackgroundSlice, SoundSlice, UISlice, SpriteSlice, HUDSlice, AtmosphereSlice, MemorySlice, QuestSlice, DialogueSlice, InventorySlice, StatsSlice, QuestTemplateSlice, TimelineEditorSlice };
+export type { CharacterSlice, SessionSlice, GroupSlice, LLMSlice, SettingsSlice, LorebookSlice, PersonaSlice, BackgroundSlice, SoundSlice, UISlice, SpriteSlice, HUDSlice, AtmosphereSlice, MemorySlice, QuestSlice, DialogueSlice, InventorySlice, StatsSlice, QuestTemplateSlice, TimelineEditorSlice, ScenarioLibrarySlice };

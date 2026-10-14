@@ -50,6 +50,7 @@ import {
 } from '@/lib/context-manager';
 import { detectMentions } from '@/lib/mention-detector';
 import { retrieveEmbeddingsContext, formatEmbeddingsForSSE } from '@/lib/embeddings/chat-context';
+import { setActiveScenarioLibrary } from '@/lib/scenario/library';
 import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
 import {
   getAllToolDefinitions,
@@ -353,7 +354,7 @@ async function executeGroupToolCalls(
   character: CharacterCard,
   sessionId: string,
   userName: string,
-  controller: { enqueue: (chunk: string) => void },
+  controller: { enqueue: (chunk: string | Uint8Array) => void },
   sessionQuests?: SessionQuestInstance[],
   questTemplates?: QuestTemplate[],
   statsConfig?: CharacterStatsConfig,
@@ -368,7 +369,7 @@ async function executeGroupToolCalls(
 
   let allDisplayMessages = '';
   const questActivations: QuestActivation[] = [];
-  const toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+  const toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean; details?: string; displayMessage?: string }> = [];
 
   for (let i = 0; i < toolCalls.length; i++) {
     const tc = toolCalls[i];
@@ -518,9 +519,15 @@ async function executeGroupToolCalls(
       }));
     }
 
-    // Check for stat modification from modify_stat tool and send SSE event
-    if (toolResult.statActivation) {
-      const stat = toolResult.statActivation;
+    // Check for stat modification from modify_stat tool and send SSE events.
+    // Batch "changes" support: one SSE event per change (same rationale as stream/route.ts).
+    const statActivations = toolResult.statActivations?.length
+      ? toolResult.statActivations
+      : toolResult.statActivation
+        ? [toolResult.statActivation]
+        : [];
+
+    for (const stat of statActivations) {
       console.log(`[GroupStream-Tools] Stat activation from ${tc.name}:`, stat.attributeKey, stat.oldValue, '→', stat.newValue);
 
       controller.enqueue(createSSEJSON({
@@ -533,6 +540,10 @@ async function executeGroupToolCalls(
         oldValue: stat.oldValue,
         newValue: stat.newValue,
         reason: stat.reason,
+        // Delta replay metadata: lets the client ADD/SUBTRACT on ITS current
+        // value so skill costs (client-side) and tool changes ACCUMULATE.
+        operator: stat.operator,
+        delta: stat.delta,
       }));
 
       // Keep the working sessionStats in sync so SUBSEQUENT tool calls read
@@ -611,6 +622,11 @@ async function executeGroupToolCalls(
         previousLocationId: sa.previousLocationId,
         changed: sa.changed,
         reason: sa.reason,
+        // ESCENARIO V3: collection switch + background + sprite pose sync
+        collectionId: sa.collectionId,
+        collectionName: sa.collectionName,
+        backgroundUrl: sa.backgroundUrl,
+        spritePose: sa.spritePose,
       }));
     }
 
@@ -729,6 +745,10 @@ export async function POST(request: NextRequest) {
 
     // Extract inventory data for Inventory V2 system
     const inventoryData: InventoryPromptData | undefined = body.inventoryData;
+
+    // ESCENARIO V3: register the App-level Scenario Library for this request
+    // ({{escenario}} key + manage_escenario tool resolution).
+    setActiveScenarioLibrary(Array.isArray(body.scenarios) ? body.scenarios : []);
 
     // Extract Sound data for {{sonidos}} key resolution
     const soundTriggers: SoundTrigger[] = body.soundTriggers || [];
@@ -1214,12 +1234,13 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // ESCENARIO V2: filter out the manage_escenario tool when NEITHER the
-            // group nor this character has a usable scenarioConfig (same pattern
-            // as manage_wardrobe). In groups the GROUP's scenario takes priority.
+            // ESCENARIO V3: filter out the manage_escenario tool when neither the
+            // group/character scenarioIds (+ Scenario Library) nor a legacy
+            // scenarioConfig provides a usable scenario (same pattern as manage_wardrobe).
             if (charAvailableTools.length > 0) {
-              const { isScenarioAvailable } = await import('@/lib/scenario');
-              if (!isScenarioAvailable(responder, group)) {
+              const { isScenarioLibraryAvailable } = await import('@/lib/scenario/library');
+              const scenariosLib = Array.isArray(body.scenarios) ? body.scenarios : [];
+              if (!isScenarioLibraryAvailable(responder, scenariosLib, group)) {
                 charAvailableTools = charAvailableTools.filter(t => t.id !== 'manage_escenario');
               }
             }
@@ -1412,8 +1433,6 @@ export async function POST(request: NextRequest) {
                         const toolResultPairs = buildGroupToolResultPairs(zaiAccumulator.toolCalls, charToolsUsed, displayMessages);
                         const toolMessages = buildToolMessagesForOpenAI(zaiAccumulator.toolCalls, toolResultPairs);
                         const followUpMessages = [...finalChatMessages, ...toolMessages];
-                        
-                        fullContent = '';
                         let zaiFollowUpContent = '';
                         for await (const chunk of streamZAI(followUpMessages as any, zaiRuntimeToken || llmConfig.apiKey || undefined, {
                             temperature: llmConfig.parameters?.temperature,
@@ -1424,7 +1443,7 @@ export async function POST(request: NextRequest) {
                           zaiFollowUpContent += chunk;
                         }
                         const cleanedZaiFollowUp = cleanModelArtifacts(zaiFollowUpContent);
-                        fullContent = cleanedZaiFollowUp;
+                        fullContent = (fullContent ? fullContent + '\n' : '') + cleanedZaiFollowUp; // PRESERVE pre-tool text from earlier rounds
                         for (const chunk of splitIntoChunks(cleanedZaiFollowUp)) {
                           controller.enqueue(createSSEJSON({
                             type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1464,7 +1483,6 @@ export async function POST(request: NextRequest) {
                         );
                         if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
                         if (shouldContinue) {
-                          fullContent = '';
                           const toolNames = textToolCalls.map(tc => tc.name).join(', ');
                           const followUpMessages = [
                             ...finalChatMessages,
@@ -1480,7 +1498,7 @@ export async function POST(request: NextRequest) {
                             zaiTextFollowUpContent += chunk;
                           }
                           const cleanedZaiTextFollowUp = cleanModelArtifacts(zaiTextFollowUpContent);
-                          fullContent = cleanedZaiTextFollowUp;
+                          fullContent = (fullContent ? fullContent + '\n' : '') + cleanedZaiTextFollowUp; // PRESERVE pre-tool text from earlier rounds
                           for (const chunk of splitIntoChunks(cleanedZaiTextFollowUp)) {
                             controller.enqueue(createSSEJSON({
                               type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1561,13 +1579,12 @@ export async function POST(request: NextRequest) {
                         const followUpMessages = [...openaiMessages, ...toolMessages];
 
                         // Buffer follow-up to clean model artifacts before streaming
-                        fullContent = '';
                         let nativeFollowUpContent = '';
                         for await (const chunk of streamOpenAICompatible(followUpMessages as any, llmConfig, llmConfig.provider)) {
                           nativeFollowUpContent += chunk;
                         }
                         const cleanedNativeFollowUp = cleanModelArtifacts(nativeFollowUpContent);
-                        fullContent = cleanedNativeFollowUp;
+                        fullContent = (fullContent ? fullContent + '\n' : '') + cleanedNativeFollowUp; // PRESERVE pre-tool text from earlier rounds
                         for (const chunk of splitIntoChunks(cleanedNativeFollowUp)) {
                           controller.enqueue(createSSEJSON({
                             type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1605,7 +1622,6 @@ export async function POST(request: NextRequest) {
                       );
                         if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
                         if (shouldContinue) {
-                          fullContent = '';
                           const toolNames = textToolCalls.map(tc => tc.name).join(', ');
                           const followUpMessages = [
                             ...openaiMessages,
@@ -1617,7 +1633,7 @@ export async function POST(request: NextRequest) {
                             textFollowUpContent += chunk;
                           }
                           const cleanedTextFollowUp = cleanModelArtifacts(textFollowUpContent);
-                          fullContent = cleanedTextFollowUp;
+                          fullContent = (fullContent ? fullContent + '\n' : '') + cleanedTextFollowUp; // PRESERVE pre-tool text from earlier rounds
                           for (const chunk of splitIntoChunks(cleanedTextFollowUp)) {
                             controller.enqueue(createSSEJSON({
                               type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1695,13 +1711,12 @@ export async function POST(request: NextRequest) {
                         const followUpMessages = [...anthropicMessages, ...toolMessages.flatMap(m => m)];
 
                         // Buffer follow-up to clean model artifacts before streaming
-                        fullContent = '';
                         let anthFollowUpContent = '';
                         for await (const chunk of streamAnthropic(followUpMessages as any, llmConfig)) {
                           anthFollowUpContent += chunk;
                         }
                         const cleanedAnthFollowUp = cleanModelArtifacts(anthFollowUpContent);
-                        fullContent = cleanedAnthFollowUp;
+                        fullContent = (fullContent ? fullContent + '\n' : '') + cleanedAnthFollowUp; // PRESERVE pre-tool text from earlier rounds
                         for (const chunk of splitIntoChunks(cleanedAnthFollowUp)) {
                           controller.enqueue(createSSEJSON({
                             type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1734,7 +1749,6 @@ export async function POST(request: NextRequest) {
                         allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
                         if (shouldContinue) {
-                          fullContent = '';
                           const toolNames = textToolCalls.map(tc => tc.name).join(', ');
                           const followUpMessages = [
                             ...anthropicMessages,
@@ -1746,7 +1760,7 @@ export async function POST(request: NextRequest) {
                             anthTextFollowUpContent += chunk;
                           }
                           const cleanedAnthTextFollowUp = cleanModelArtifacts(anthTextFollowUpContent);
-                          fullContent = cleanedAnthTextFollowUp;
+                          fullContent = (fullContent ? fullContent + '\n' : '') + cleanedAnthTextFollowUp; // PRESERVE pre-tool text from earlier rounds
                           for (const chunk of splitIntoChunks(cleanedAnthTextFollowUp)) {
                             controller.enqueue(createSSEJSON({
                               type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1820,7 +1834,6 @@ export async function POST(request: NextRequest) {
                         const followUpMessages = [...ollamaMessages, ...toolResultMessages];
 
                         // Buffer follow-up to clean model artifacts before streaming
-                        fullContent = '';
                         const combinedPrompt = followUpMessages.map(m =>
                           `${(m as any).role}: ${(m as any).content}`
                         ).join('\n') + `\n${responder.name}:`;
@@ -1829,7 +1842,7 @@ export async function POST(request: NextRequest) {
                           ollamaFollowUpContent += chunk;
                         }
                         const cleanedOllamaFollowUp = cleanModelArtifacts(ollamaFollowUpContent);
-                        fullContent = cleanedOllamaFollowUp;
+                        fullContent = (fullContent ? fullContent + '\n' : '') + cleanedOllamaFollowUp; // PRESERVE pre-tool text from earlier rounds
                         for (const chunk of splitIntoChunks(cleanedOllamaFollowUp)) {
                           controller.enqueue(createSSEJSON({
                             type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1862,7 +1875,6 @@ export async function POST(request: NextRequest) {
                         allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
                         if (shouldContinue) {
-                          fullContent = '';
                           const toolNames = textToolCalls.map(tc => tc.name).join(', ');
                           const followUpMessages = [
                             ...ollamaMessages,
@@ -1877,7 +1889,7 @@ export async function POST(request: NextRequest) {
                             ollamaTextFollowUpContent += chunk;
                           }
                           const cleanedOllamaTextFollowUp = cleanModelArtifacts(ollamaTextFollowUpContent);
-                          fullContent = cleanedOllamaTextFollowUp;
+                          fullContent = (fullContent ? fullContent + '\n' : '') + cleanedOllamaTextFollowUp; // PRESERVE pre-tool text from earlier rounds
                           for (const chunk of splitIntoChunks(cleanedOllamaTextFollowUp)) {
                             controller.enqueue(createSSEJSON({
                               type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1935,10 +1947,14 @@ export async function POST(request: NextRequest) {
 
                     if (hasToolCalls(accumulator)) {
                       if (roundContent.trim()) {
-                        for (const chunk of splitIntoChunks(roundContent)) {
-                          controller.enqueue(createSSEJSON({
-                            type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
-                          }));
+                        // Strip text-format tool calls from visible narrative (native calls are authoritative)
+                        const grokNativeDisplay = stripToolCallFromText(roundContent);
+                        if (grokNativeDisplay.trim()) {
+                          for (const chunk of splitIntoChunks(grokNativeDisplay)) {
+                            controller.enqueue(createSSEJSON({
+                              type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
+                            }));
+                          }
                         }
                       }
                       const { results: displayMessages, shouldContinue, questActivations, toolsUsed: charToolsUsed } = await executeGroupToolCalls(
@@ -1954,14 +1970,12 @@ export async function POST(request: NextRequest) {
                         const toolResultPairs = buildGroupToolResultPairs(accumulator.toolCalls, charToolsUsed, displayMessages);
                         const toolMessages = buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs);
                         const followUpMessages = [...grokMessages, ...toolMessages];
-                        
-                        fullContent = '';
                         let grokFollowUpContent = '';
                         for await (const chunk of streamGrok(followUpMessages as any, llmConfig)) {
                           grokFollowUpContent += chunk;
                         }
-                        const cleanedGrokFollowUp = cleanModelArtifacts(grokFollowUpContent);
-                        fullContent = cleanedGrokFollowUp;
+                        const cleanedGrokFollowUp = stripToolCallFromText(grokFollowUpContent);
+                        fullContent = (fullContent ? fullContent + '\n' : '') + cleanedGrokFollowUp; // PRESERVE pre-tool text from earlier rounds
                         for (const chunk of splitIntoChunks(cleanedGrokFollowUp)) {
                           controller.enqueue(createSSEJSON({
                             type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -1995,7 +2009,6 @@ export async function POST(request: NextRequest) {
                         allQuestActivations = [...allQuestActivations, ...questActivations];
                       if (charToolsUsed) allToolsUsed = [...allToolsUsed, ...charToolsUsed];
                         if (shouldContinue) {
-                          fullContent = '';
                           const toolNames = textToolCalls.map(tc => tc.name).join(', ');
                           const followUpMessages = [
                             ...grokMessages,
@@ -2005,8 +2018,8 @@ export async function POST(request: NextRequest) {
                           for await (const chunk of streamGrok(followUpMessages, llmConfig)) {
                             grokTextFollowUpContent += chunk;
                           }
-                          const cleanedGrokTextFollowUp = cleanModelArtifacts(grokTextFollowUpContent);
-                          fullContent = cleanedGrokTextFollowUp;
+                          const cleanedGrokTextFollowUp = stripToolCallFromText(grokTextFollowUpContent);
+                          fullContent = (fullContent ? fullContent + '\n' : '') + cleanedGrokTextFollowUp; // PRESERVE pre-tool text from earlier rounds
                           for (const chunk of splitIntoChunks(cleanedGrokTextFollowUp)) {
                             controller.enqueue(createSSEJSON({
                               type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -2014,7 +2027,7 @@ export async function POST(request: NextRequest) {
                           }
                         }
                       } else {
-                        const cleanedContent = cleanModelArtifacts(roundContent);
+                        const cleanedContent = stripToolCallFromText(roundContent);
                         for (const chunk of splitIntoChunks(cleanedContent)) {
                           controller.enqueue(createSSEJSON({
                             type: 'token', characterId: responder.id, characterName: responder.name, content: chunk
@@ -2075,14 +2088,12 @@ export async function POST(request: NextRequest) {
                         const toolResultPairs = buildGroupToolResultPairs(accumulator.toolCalls, charToolsUsed, displayMessages);
                         const toolMessages = buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs);
                         const followUpMessages = [...tgwuMessages, ...toolMessages];
-                        
-                        fullContent = '';
                         let tgwuFollowUpContent = '';
                         for await (const chunk of streamTextGenerationWebUIWithTools(followUpMessages as any, llmConfig, [], accumulator)) {
                           tgwuFollowUpContent += chunk;
                         }
                         const cleanedTgwufollowUp = cleanModelArtifacts(tgwuFollowUpContent);
-                        fullContent = cleanedTgwufollowUp;
+                        fullContent = (fullContent ? fullContent + '\n' : '') + cleanedTgwufollowUp; // PRESERVE pre-tool text from earlier rounds
                         for (const chunk of splitIntoChunks(cleanedTgwufollowUp)) {
                           controller.enqueue(createSSEJSON({
                             type: 'token', characterId: responder.id, characterName: responder.name, content: chunk

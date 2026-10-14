@@ -173,5 +173,17 @@ export function buildRewardStoreActions(store: AnyStore): RewardStoreActions {
     setBackground: store.setBackground?.bind(store),
 
     setActiveOverlays: store.setActiveOverlays?.bind(store),
+
+    // ESCENARIO V3: move the shared session scene (collection + location +
+    // background). The background change re-applies the saved sprite pose.
+    moveSceneToLocation: (sessionId: string, collectionId: string, locationId: string, backgroundUrl: string | null) => {
+      try {
+        if (collectionId) store.setActiveScenarioCollection?.(sessionId, collectionId);
+        if (locationId) store.setActiveScenario?.(sessionId, locationId);
+        if (backgroundUrl) store.setBackground?.(backgroundUrl);
+      } catch (err) {
+        console.error('[buildRewardStoreActions] moveSceneToLocation failed:', err);
+      }
+    },
   };
 }

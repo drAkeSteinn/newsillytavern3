@@ -43,7 +43,7 @@ import {
   type StatsResolutionContext,
 } from '@/lib/stats';
 import { isWardrobeAvailable, getWardrobeInfo } from '@/lib/wardrobe';
-import { isScenarioAvailable, getScenarioInfo } from '@/lib/scenario';
+// (scenario imports removed — ESCENARIO V3 injects via {{escenario}} key only)
 // NOTE: The [GESTIÓN DE ATRIBUTOS] block is NO longer auto-injected here.
 // It is ONLY injected where the user places the resolvable keys
 // {{attributes}} (list) / {{attributes_rulz}} (rules) — in any card section
@@ -67,23 +67,23 @@ import {
 
 export const SECTION_COLORS = {
   system: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
-  persona: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  character_description: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  persona: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+  character_description: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
   personality: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   scenario: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-  example_dialogue: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:bg-cyan-300',
+  example_dialogue: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:bg-fuchsia-300',
   character_note: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-  lorebook: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+  lorebook: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
   author_note: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300',
-  post_history: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  post_history: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
   chat_history: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  instructions: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+  instructions: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
   summary: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300',
   memory: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
   relationship: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
-  hud_context: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+  hud_context: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
   quest: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  inventory: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+  inventory: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
 } as const;
 
 // ============================================
@@ -488,7 +488,7 @@ export function buildSystemPrompt(
       type: 'scenario',
       label: 'World Time',
       content: `[TIEMPO DEL MUNDO] ${formatWorldClock(worldClock || createDefaultWorldClock())} (avanza ${worldClock?.minutesPerTurn || 20} min por turno)`,
-      color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
+      color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
     });
   }
 
@@ -534,22 +534,11 @@ export function buildSystemPrompt(
     });
   }
 
-  // FASE 5: Add emotional state injection
-  // When enabled, inject the character's current emotional state into the prompt
-  // This gives the LLM awareness of the character's mood for consistent behavior
-  if (character.emotionalConfig?.enabled && character.emotionalConfig.includeInPrompt) {
-    const emotionalState = sessionStats?.characterStats?.[character.id]?.emotionalState;
-    if (emotionalState) {
-      const format = character.emotionalConfig.promptInjectionFormat || 'Estado emocional actual: {estado}';
-      const emotionContent = format.replace('{estado}', emotionalState);
-      sections.push({
-        type: 'personality',
-        label: 'Estado Emocional',
-        content: emotionContent,
-        color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
-      });
-    }
-  }
+  // FASE 5 (UPDATED): The automatic "Estado Emocional" prompt section was REMOVED.
+  // The emotional state is now injected manually by the user via the {{estado}}
+  // key, which the key resolver replaces (in card sections, lorebook entries or
+  // system prompt templates) with the character's current emotional state.
+  // This gives full control over WHERE and HOW the state appears in the prompt.
 
   // Add scenario
   if (character.scenario) {
@@ -635,66 +624,11 @@ export function buildSystemPrompt(
     }
   }
 
-  // ESCENARIO V2: Scenario Section — tells the LLM about the available locations
-  // and how to use the manage_escenario tool. Only injected if the character has
-  // a scenarioConfig with at least 1 location.
-  {
-    if (isScenarioAvailable(character)) {
-      const scenarioInfo = getScenarioInfo(character, sessionStats);
-      if (scenarioInfo) {
-        const scenarioLines: string[] = [
-          `[ESCENARIO]`,
-          `La escena tiene varias ubicaciones disponibles. Dónde estáis ahora aparece en el bloque [ESCENARIO] del prompt.`,
-          ``,
-          `Ubicaciones disponibles:`,
-        ];
-        for (const location of scenarioInfo.locations) {
-          const isActive = scenarioInfo.current?.id === location.id;
-          const isDefault = scenarioInfo.defaultId === location.id;
-          const badges = [isActive ? '← UBICACIÓN ACTUAL' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
-          const desc = location.description?.trim() || '';
-          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
-          scenarioLines.push(`- "${location.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
-        }
-        scenarioLines.push('');
-        scenarioLines.push(`INSTRUCCIONES PARA GESTIONAR LA UBICACIÓN DE LA ESCENA (HERRAMIENTA OBLIGATORIA):`);
-        scenarioLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ubicación (moveros a otro lugar) DEBE reflejarse llamando a la herramienta "manage_escenario" con action "go" ANTES de narrarlo. NUNCA narres que os movisteis a otro lugar sin haber llamado primero a la herramienta.`);
-        scenarioLines.push(`- Si ${'{'}user${'}'} pide cambiar de lugar (ir a la cama, al sofá, al escritorio, salir, etc.), SIEMPRE responde con una tool call a "manage_escenario" eligiendo la ubicación más adecuada de tu escenario.`);
-        scenarioLines.push(`- Cuando la narrativa lo justifique (irse a dormir, ir a la cocina, entrar a otra habitación, salir de casa...), MUEVE la escena TÚ MISMO usando la herramienta "manage_escenario" con action "go" y el nombre del lugar.`);
-        scenarioLines.push(`- Elige la ubicación que mejor encaje con la escena, la hora y el estado de ánimo. No necesitas permiso del usuario para mover la escena.`);
-        scenarioLines.push(`- Usa el nombre EXACTO de la ubicación tal como aparece en la lista (ej: "Cama"). Con action "list" ves todas las ubicaciones con sus detalles.`);
-        scenarioLines.push(`- Mantén coherencia narrativa con la ubicación actual (bloque [ESCENARIO]): no narrues objetos o personas de otro lugar mientras estéis aquí.`);
-        scenarioLines.push(`- Usa la ubicación ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
-
-        // Safety net: if the character card doesn't include the {{escenario}} key
-        // in any section, inject the [ESCENARIO] block automatically so the
-        // active location description always reaches the prompt.
-        // NOTE: only {{escenario}} counts — {{scenario}} is the classic ST macro
-        // (resolves to character.scenario in key-resolver Phase 1) and must not
-        // suppress this block.
-        const cardText = [
-          character.description, character.personality, character.scenario,
-          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
-          character.authorNote, character.mesExample,
-        ].filter(Boolean).join('\n');
-        const cardHasKey = /\{\{escenario\}\}/i.test(cardText || '');
-        if (!cardHasKey) {
-          const header = character.scenarioConfig?.blockHeader || '[ESCENARIO]';
-          const activeDesc = scenarioInfo.current?.description?.trim();
-          if (activeDesc) {
-            scenarioLines.push('', header, activeDesc);
-          }
-        }
-
-        sections.push({
-          type: 'character_note',
-          label: 'Escenario',
-          content: scenarioLines.join('\n'),
-          color: SECTION_COLORS.character_note
-        });
-      }
-    }
-  }
+  // ESCENARIO V3: the hardcoded [ESCENARIO] prompt section was REMOVED.
+  // The full hierarchical scenario block (tree + manage_escenario instructions +
+  // current location description) is now injected ONLY via the {{escenario}} key
+  // (key-resolver Phase 5.95 → resolveScenarioKey in lib/scenario/library.ts).
+  // Cards without the {{escenario}} key get no scenario block by design.
 
   // Example Dialogue: Format as numbered [EJEMPLO N] text section
   // Each <START> block becomes a numbered example with --- separators.
@@ -813,7 +747,7 @@ export function buildLorebookSectionForPrompt(
         type: 'lorebook' as const,
         label: 'World Information',
         content: allSystemSections.map(s => s.content).join('\n\n'),
-        color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+        color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
       }
     : null;
 
@@ -1292,7 +1226,7 @@ export function buildGroupSystemPrompt(
       type: 'scenario',
       label: 'World Time',
       content: `[TIEMPO DEL MUNDO] ${formatWorldClock(worldClock || createDefaultWorldClock())} (avanza ${worldClock?.minutesPerTurn || 20} min por turno)`,
-      color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
+      color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
     });
   }
 
@@ -1366,20 +1300,8 @@ export function buildGroupSystemPrompt(
     }
   }
 
-  // FASE 5: Add emotional state injection for group chat
-  if (character.emotionalConfig?.enabled && character.emotionalConfig.includeInPrompt) {
-    const emotionalState = sessionStats?.characterStats?.[character.id]?.emotionalState;
-    if (emotionalState) {
-      const format = character.emotionalConfig.promptInjectionFormat || 'Estado emocional actual: {estado}';
-      const emotionContent = format.replace('{estado}', emotionalState);
-      sections.push({
-        type: 'personality',
-        label: `${character.name} - Estado Emocional`,
-        content: emotionContent,
-        color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
-      });
-    }
-  }
+  // FASE 5 (UPDATED): The automatic group-chat "Estado Emocional" section was
+  // REMOVED too — same {{estado}} key mechanism applies in group chats.
 
   // Add scenario - Group description takes priority over character scenario
   if (group.description?.trim()) {
@@ -1465,67 +1387,9 @@ export function buildGroupSystemPrompt(
     }
   }
 
-  // ESCENARIO V2: Scenario Section (group chat variant).
-  // GROUP PRIORITY: if the group defines its own scenarioConfig (enabled + ≥1
-  // location), it REPLACES every member's character-level scenario so all
-  // members share the same location list ("misma sintonía"). Otherwise each
-  // character falls back to their own scenarioConfig (legacy behavior).
-  // Note: the active location (SessionStats.activeScenarioId) is SESSION-level,
-  // so all members see and move the same shared scene location.
-  {
-    if (isScenarioAvailable(character, group)) {
-      const scenarioInfo = getScenarioInfo(character, sessionStats, group);
-      if (scenarioInfo) {
-        const scopeLine = scenarioInfo.isGroupScenario
-          ? `Escenario compartido del grupo "${group.name}" — TODOS los personajes usan esta misma lista de ubicaciones (ignora tu escenario individual).`
-          : `La escena tiene varias ubicaciones disponibles. Dónde estáis ahora aparece en el bloque [ESCENARIO] del prompt.`;
-        const scenarioLines: string[] = [
-          `[ESCENARIO]`,
-          scopeLine,
-          ``,
-          `Ubicaciones disponibles:`,
-        ];
-        for (const location of scenarioInfo.locations) {
-          const isActive = scenarioInfo.current?.id === location.id;
-          const isDefault = scenarioInfo.defaultId === location.id;
-          const badges = [isActive ? '← UBICACIÓN ACTUAL' : '', isDefault ? '(predeterminado)' : ''].filter(Boolean).join(' ');
-          const desc = location.description?.trim() || '';
-          const shortDesc = desc.length > 140 ? `${desc.slice(0, 137)}...` : desc;
-          scenarioLines.push(`- "${location.name}"${badges ? ` ${badges}` : ''}${shortDesc ? `: ${shortDesc}` : ''}`);
-        }
-        scenarioLines.push('');
-        scenarioLines.push(`INSTRUCCIONES PARA GESTIONAR LA UBICACIÓN DE LA ESCENA (HERRAMIENTA OBLIGATORIA):`);
-        scenarioLines.push(`- REGLA CRÍTICA: CUALQUIER cambio de ubicación (moveros a otro lugar) DEBE reflejarse llamando a la herramienta "manage_escenario" con action "go" ANTES de narrarlo. NUNCA narres que os movisteis a otro lugar sin haber llamado primero a la herramienta.`);
-        scenarioLines.push(`- Si el usuario pide cambiar de lugar (ir a la cama, al sofá, al escritorio, salir, etc.), SIEMPRE responde con una tool call a "manage_escenario" eligiendo la ubicación más adecuada de tu escenario.`);
-        scenarioLines.push(`- Cuando la narrativa lo justifique, MUEVE la escena TÚ MISMO usando la herramienta "manage_escenario" con action "go" y el nombre del lugar.`);
-        scenarioLines.push(`- Usa el nombre EXACTO de la ubicación tal como aparece en la lista. Con action "list" ves todas las ubicaciones con sus detalles.`);
-        scenarioLines.push(`- Usa la ubicación ACTIVAMENTE cuando la narrativa lo justifique. No esperes a que el usuario lo pida explícitamente.`);
-
-        // Safety net: inject the [ESCENARIO] block if the card has no {{escenario}} key
-        // ({{scenario}} does NOT count — it is the classic ST macro, see key-resolver Phase 1)
-        const cardText = [
-          character.description, character.personality, character.scenario,
-          character.systemPrompt, character.characterNote, character.postHistoryInstructions,
-          character.authorNote, character.mesExample,
-        ].filter(Boolean).join('\n');
-        const cardHasKey = /\{\{escenario\}\}/i.test(cardText || '');
-        if (!cardHasKey) {
-          const header = (scenarioInfo.isGroupScenario ? group.scenarioConfig?.blockHeader : character.scenarioConfig?.blockHeader) || '[ESCENARIO]';
-          const activeDesc = scenarioInfo.current?.description?.trim();
-          if (activeDesc) {
-            scenarioLines.push('', header, activeDesc);
-          }
-        }
-
-        sections.push({
-          type: 'character_note',
-          label: `${character.name} - Escenario`,
-          content: scenarioLines.join('\n'),
-          color: SECTION_COLORS.character_note
-        });
-      }
-    }
-  }
+  // ESCENARIO V3 (groups): the hardcoded group [ESCENARIO] section was REMOVED
+  // as well — same rationale as the 1:1 variant. The group's shared scene is
+  // injected via {{escenario}} (group.scenarioIds / scenarioConfig fallback).
 
   // Example Dialogue: Format as numbered [EJEMPLO N] text section (group chat variant)
   if (character.mesExample) {

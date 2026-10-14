@@ -140,6 +140,9 @@ export async function* streamAnthropicWithTools(
         content: m.content
       })),
       tools: anthropicTools,
+      // Explicit auto — Anthropic defaults to auto but being explicit keeps
+      // behavior stable across model versions.
+      tool_choice: { type: 'auto' },
       temperature: config.parameters.temperature,
       top_p: config.parameters.topP,
       stream: true

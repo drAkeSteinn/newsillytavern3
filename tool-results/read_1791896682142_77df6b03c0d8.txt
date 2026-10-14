@@ -1,0 +1,1242 @@
+     1→'use client';
+     2→
+     3→/**
+     4→ * RewardEditor Component
+     5→ * 
+     6→ * Componente reutilizable para editar recompensas de quests.
+     7→ * Soporta el sistema unificado de 2 tipos: attribute | trigger
+     8→ * 
+     9→ * Uso:
+    10→ * <RewardEditor
+    11→ *   reward={reward}
+    12→ *   onChange={(updated) => ...}
+    13→ *   onDelete={() => ...}
+    14→ *   compact={true} // Para UI compacta en objetivos
+    15→ * />
+    16→ */
+    17→
+    18→import type {
+    19→  QuestReward,
+    20→  QuestRewardActivateSpritePack,
+    21→  AttributeAction,
+    22→  TriggerCategory,
+    23→  TriggerTargetMode,
+    24→  TriggerFallbackMode,
+    25→} from '@/types';
+    26→import {
+    27→  normalizeReward,
+    28→  describeReward,
+    29→  createAttributeReward,
+    30→  createTriggerReward,
+    31→  createCurrencyReward,
+    32→  createConditionalSpriteCollectionReward,
+    33→  createActivateSpritePackReward,
+    34→  getActionSymbol,
+    35→} from '@/lib/quest/quest-reward-utils';
+    36→import { cn } from '@/lib/utils';
+    37→import { Button } from '@/components/ui/button';
+    38→import { Input } from '@/components/ui/input';
+    39→import { Label } from '@/components/ui/label';
+    40→import { Badge } from '@/components/ui/badge';
+    41→import {
+    42→  Select,
+    43→  SelectContent,
+    44→  SelectItem,
+    45→  SelectTrigger,
+    46→  SelectValue,
+    47→} from '@/components/ui/select';
+    48→import {
+    49→  X,
+    50→  Hash,
+    51→  Zap,
+    52→  Image as ImageIcon,
+    53→  Volume2,
+    54→  Wallpaper,
+    55→  Users,
+    56→  User,
+    57→  Crosshair,
+    58→  ChevronDown,
+    59→  Coins,
+    60→  GitBranch,
+    61→  Package,
+    62→} from 'lucide-react';
+    63→
+    64→// ============================================
+    65→// Types
+    66→// ============================================
+    67→
+    68→export interface RewardEditorProps {
+    69→  /** Recompensa a editar */
+    70→  reward: QuestReward;
+    71→  /** Callback cuando la recompensa cambia */
+    72→  onChange: (reward: QuestReward) => void;
+    73→  /** Callback cuando se solicita eliminar */
+    74→  onDelete: () => void;
+    75→  /** Lista de atributos disponibles para autocompletado */
+    76→  availableAttributes?: string[];
+    77→  /** Triggers disponibles por categoría */
+    78→  availableTriggers?: {
+    79→    sprites?: string[];
+    80→    sounds?: string[];
+    81→    backgrounds?: string[];
+    82→  };
+    83→  /** Si es chat grupal, mostrar opciones de targetMode */
+    84→  isGroupChat?: boolean;
+    85→  /** Modo compacto (para usar en objetivos) */
+    86→  compact?: boolean;
+    87→  /** Clase CSS adicional */
+    88→  className?: string;
+    89→  /** Mostrar campo de ID editable */
+    90→  showIdField?: boolean;
+    91→  /** Colecciones de triggers condicionales disponibles */
+    92→  availableConditionalCollections?: Array<{ id: string; name: string }>;
+    93→  /** Sprite packs V2 disponibles para activate_sprite_pack */
+    94→  availableSpritePacks?: Array<{ id: string; name: string; conditionalMode?: boolean; spriteCount?: number }>;
+    95→  /** Targets disponibles (otros personajes) para target mode en activate_sprite_pack */
+    96→  availableTargets?: Array<{
+    97→    id: string;
+    98→    name: string;
+    99→    spritePacks?: Array<{ id: string; name: string; conditionalMode?: boolean; spriteCount: number }>;
+   100→  }>;
+   101→}
+   102→
+   103→// ============================================
+   104→// Constants
+   105→// ============================================
+   106→
+   107→const ACTION_OPTIONS: { value: AttributeAction; label: string; symbol: string }[] = [
+   108→  { value: 'set', label: 'Establecer', symbol: '=' },
+   109→  { value: 'add', label: 'Sumar', symbol: '+' },
+   110→  { value: 'subtract', label: 'Restar', symbol: '-' },
+   111→  { value: 'multiply', label: 'Multiplicar', symbol: '×' },
+   112→  { value: 'divide', label: 'Dividir', symbol: '÷' },
+   113→  { value: 'percent', label: 'Porcentaje', symbol: '%' },
+   114→];
+   115→
+   116→const TRIGGER_CATEGORIES: { value: TriggerCategory; label: string; icon: React.ReactNode }[] = [
+   117→  { value: 'sprite', label: 'Sprite', icon: <ImageIcon className="w-3.5 h-3.5" /> },
+   118→  { value: 'sound', label: 'Sonido', icon: <Volume2 className="w-3.5 h-3.5" /> },
+   119→  { value: 'background', label: 'Fondo', icon: <Wallpaper className="w-3.5 h-3.5" /> },
+   120→];
+   121→
+   122→const TARGET_MODES: { value: TriggerTargetMode; label: string; icon: React.ReactNode }[] = [
+   123→  { value: 'self', label: 'Mismo personaje', icon: <User className="w-3.5 h-3.5" /> },
+   124→  { value: 'all', label: 'Todos', icon: <Users className="w-3.5 h-3.5" /> },
+   125→  { value: 'target', label: 'Objetivo', icon: <Crosshair className="w-3.5 h-3.5" /> },
+   126→];
+   127→
+   128→// ============================================
+   129→// Component
+   130→// ============================================
+   131→
+   132→export function RewardEditor({
+   133→  reward,
+   134→  onChange,
+   135→  onDelete,
+   136→  availableAttributes,
+   137→  availableTriggers,
+   138→  availableConditionalCollections,
+   139→  availableSpritePacks,
+   140→  availableTargets,
+   141→  isGroupChat = false,
+   142→  compact = false,
+   143→  className,
+   144→  showIdField = false,
+   145→}: RewardEditorProps) {
+   146→  // Normalizar reward para obtener valores actuales
+   147→  const normalized = normalizeReward(reward);
+   148→  const isAttribute = normalized.type === 'attribute';
+   149→  const isTrigger = normalized.type === 'trigger';
+   150→  const isCurrency = normalized.type === 'currency';
+   151→  const isConditionalSpriteCollection = normalized.type === 'conditional_sprite_collection';
+   152→  const isActivateSpritePack = normalized.type === 'activate_sprite_pack';
+   153→
+   154→  // Handlers
+   155→  const handleTypeChange = (newType: 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack') => {
+   156→    if (newType === normalized.type) return;
+   157→
+   158→    let newReward: QuestReward;
+   159→    if (newType === 'attribute') {
+   160→      newReward = createAttributeReward(
+   161→        normalized.attribute?.key || normalized.key || '',
+   162→        normalized.attribute?.value ?? normalized.value ?? 0,
+   163→        normalized.attribute?.action || 'add',
+   164→        { id: reward.id }
+   165→      );
+   166→    } else if (newType === 'currency') {
+   167→      newReward = createCurrencyReward(0, { id: reward.id });
+   168→    } else if (newType === 'conditional_sprite_collection') {
+   169→      newReward = createConditionalSpriteCollectionReward('', { id: reward.id });
+   170→    } else if (newType === 'activate_sprite_pack') {
+   171→      newReward = createActivateSpritePackReward('', { id: reward.id });
+   172→    } else {
+   173→      newReward = createTriggerReward(
+   174→        normalized.trigger?.category || 'sprite',
+   175→        normalized.trigger?.key || normalized.key || '',
+   176→        normalized.trigger?.targetMode || 'self',
+   177→        { id: reward.id }
+   178→      );
+   179→    }
+   180→    onChange(newReward);
+   181→  };
+   182→
+   183→  const handleAttributeChange = (updates: Partial<NonNullable<QuestReward['attribute']>>) => {
+   184→    const currentAttr = normalized.attribute || { key: '', value: 0, action: 'add' as AttributeAction };
+   185→    onChange({
+   186→      ...reward,
+   187→      type: 'attribute',
+   188→      attribute: { ...currentAttr, ...updates },
+   189→    });
+   190→  };
+   191→
+   192→  const handleTriggerChange = (updates: Partial<NonNullable<QuestReward['trigger']>>) => {
+   193→    const currentTrigger = normalized.trigger || { 
+   194→      category: 'sprite' as TriggerCategory, 
+   195→      key: '', 
+   196→      targetMode: 'self' as TriggerTargetMode 
+   197→    };
+   198→    onChange({
+   199→      ...reward,
+   200→      type: 'trigger',
+   201→      trigger: { ...currentTrigger, ...updates },
+   202→    });
+   203→  };
+   204→
+   205→  const handleCurrencyChange = (updates: Partial<NonNullable<QuestReward['currency']>>) => {
+   206→    const currentCurrency = normalized.currency || { amount: 0 };
+   207→    onChange({
+   208→      ...reward,
+   209→      type: 'currency',
+   210→      currency: { ...currentCurrency, ...updates },
+   211→    });
+   212→  };
+   213→
+   214→  const handleConditionalSpriteCollectionChange = (updates: Partial<NonNullable<QuestReward['conditional_sprite_collection']>>) => {
+   215→    const current = normalized.conditional_sprite_collection || {
+   216→      collectionId: '',
+   217→      targetMode: 'self' as TriggerTargetMode,
+   218→      returnToIdleMs: 0,
+   219→      fallbackMode: 'idle_collection' as TriggerFallbackMode,
+   220→    };
+   221→    onChange({
+   222→      ...reward,
+   223→      type: 'conditional_sprite_collection',
+   224→      conditional_sprite_collection: { ...current, ...updates },
+   225→    });
+   226→  };
+   227→
+   228→  const handleActivateSpritePackChange = (updates: Partial<NonNullable<QuestReward['activate_sprite_pack']>>) => {
+   229→    const current = normalized.activate_sprite_pack || {
+   230→      packId: '',
+   231→      targetMode: 'self' as TriggerTargetMode,
+   232→      returnToIdleMs: 0,
+   233→      fallbackMode: 'idle_collection' as TriggerFallbackMode,
+   234→    };
+   235→    onChange({
+   236→      ...reward,
+   237→      type: 'activate_sprite_pack',
+   238→      activate_sprite_pack: { ...current, ...updates },
+   239→    });
+   240→  };
+   241→
+   242→  // Derived expiry mode for unified "Al expirar" dropdown
+   243→  const getExpiryMode = (): string => {
+   244→    const pack = normalized.activate_sprite_pack;
+   245→    if (!pack) return 'idle_collection';
+   246→    if (pack.fallbackPackId) return 'fallback_pack';
+   247→    return pack.fallbackMode || 'idle_collection';
+   248→  };
+   249→
+   250→  const handleExpiryModeChange = (value: string) => {
+   251→    if (value === 'fallback_pack') {
+   252→      handleActivateSpritePackChange({
+   253→        fallbackMode: 'custom_sprite' as const,
+   254→        fallbackPackId: normalized.activate_sprite_pack?.fallbackPackId || undefined,
+   255→      });
+   256→    } else {
+   257→      handleActivateSpritePackChange({
+   258→        fallbackMode: value as TriggerFallbackMode,
+   259→        fallbackPackId: undefined,
+   260→      });
+   261→    }
+   262→  };
+   263→
+   264→  // Compact mode
+   265→  if (compact) {
+   266→    return (
+   267→      <div className={cn("p-2 rounded bg-muted/20 space-y-2", className)}>
+   268→        {/* Tipo y preview */}
+   269→        <div className="flex items-center gap-2">
+   270→          <Select 
+   271→            value={normalized.type} 
+   272→            onValueChange={(v) => handleTypeChange(v as 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack')}
+   273→          >
+   274→            <SelectTrigger className="bg-background h-6 text-xs w-24">
+   275→              <SelectValue />
+   276→            </SelectTrigger>
+   277→            <SelectContent>
+   278→              <SelectItem value="attribute">📊 Atributo</SelectItem>
+   279→              <SelectItem value="trigger">⚡ Trigger</SelectItem>
+   280→              <SelectItem value="currency">💰 Divisa</SelectItem>
+   281→              <SelectItem value="conditional_sprite_collection">🔀 Cond. Sprite</SelectItem>
+   282→              <SelectItem value="activate_sprite_pack">🎨 Sprite Pack</SelectItem>
+   283→            </SelectContent>
+   284→          </Select>
+   285→          <Badge variant="outline" className="text-[10px] flex-1">
+   286→            {describeReward(normalized)}
+   287→          </Badge>
+   288→          <Button
+   289→            variant="ghost"
+   290→            size="sm"
+   291→            className="h-6 w-6 p-0 text-red-500 hover:bg-red-500/10"
+   292→            onClick={onDelete}
+   293→          >
+   294→            <X className="w-3 h-3" />
+   295→          </Button>
+   296→        </div>
+   297→        
+   298→        {/* Config attribute */}
+   299→        {isAttribute && normalized.attribute && (
+   300→          <div className="grid grid-cols-3 gap-2">
+   301→            <Input
+   302→              value={normalized.attribute.key}
+   303→              onChange={(e) => handleAttributeChange({ key: e.target.value })}
+   304→              placeholder="Key"
+   305→              className="bg-background h-6 text-xs"
+   306→              list={availableAttributes ? "available-attributes" : undefined}
+   307→            />
+   308→            {availableAttributes && (
+   309→              <datalist id="available-attributes">
+   310→                {availableAttributes.map(attr => (
+   311→                  <option key={attr} value={attr} />
+   312→                ))}
+   313→              </datalist>
+   314→            )}
+   315→            <Input
+   316→              type="number"
+   317→              value={normalized.attribute.value}
+   318→              onChange={(e) => handleAttributeChange({ value: Number(e.target.value) })}
+   319→              placeholder="Valor"
+   320→              className="bg-background h-6 text-xs"
+   321→            />
+   322→            <Select 
+   323→              value={normalized.attribute.action} 
+   324→              onValueChange={(v) => handleAttributeChange({ action: v as AttributeAction })}
+   325→            >
+   326→              <SelectTrigger className="bg-background h-6 text-xs">
+   327→                <SelectValue />
+   328→              </SelectTrigger>
+   329→              <SelectContent>
+   330→                {ACTION_OPTIONS.map(opt => (
+   331→                  <SelectItem key={opt.value} value={opt.value}>
+   332→                    {opt.symbol}
+   333→                  </SelectItem>
+   334→                ))}
+   335→              </SelectContent>
+   336→            </Select>
+   337→          </div>
+   338→        )}
+   339→        
+   340→        {/* Config trigger */}
+   341→        {isTrigger && normalized.trigger && (
+   342→          <div className="grid grid-cols-3 gap-2">
+   343→            <Select 
+   344→              value={normalized.trigger.category} 
+   345→              onValueChange={(v) => handleTriggerChange({ category: v as TriggerCategory })}
+   346→            >
+   347→              <SelectTrigger className="bg-background h-6 text-xs">
+   348→                <SelectValue />
+   349→              </SelectTrigger>
+   350→              <SelectContent>
+   351→                {TRIGGER_CATEGORIES.map(cat => (
+   352→                  <SelectItem key={cat.value} value={cat.value}>
+   353→                    <span className="flex items-center gap-1">
+   354→                      {cat.icon}
+   355→                      {cat.label}
+   356→                    </span>
+   357→                  </SelectItem>
+   358→                ))}
+   359→              </SelectContent>
+   360→            </Select>
+   361→            <Input
+   362→              value={normalized.trigger.key}
+   363→              onChange={(e) => handleTriggerChange({ key: e.target.value })}
+   364→              placeholder="Key"
+   365→              className="bg-background h-6 text-xs"
+   366→              list={getTriggerDatalistId(normalized.trigger.category, availableTriggers)}
+   367→            />
+   368→            {isGroupChat ? (
+   369→              <Select 
+   370→                value={normalized.trigger.targetMode} 
+   371→                onValueChange={(v) => handleTriggerChange({ targetMode: v as TriggerTargetMode })}
+   372→              >
+   373→                <SelectTrigger className="bg-background h-6 text-xs">
+   374→                  <SelectValue />
+   375→                </SelectTrigger>
+   376→                <SelectContent>
+   377→                  {TARGET_MODES.map(mode => (
+   378→                    <SelectItem key={mode.value} value={mode.value}>
+   379→                      <span className="flex items-center gap-1">
+   380→                        {mode.icon}
+   381→                        {mode.label}
+   382→                      </span>
+   383→                    </SelectItem>
+   384→                  ))}
+   385→                </SelectContent>
+   386→              </Select>
+   387→            ) : (
+   388→              <Input
+   389→                type="number"
+   390→                min={0}
+   391→                value={normalized.trigger.returnToIdleMs || 0}
+   392→                onChange={(e) => handleTriggerChange({ returnToIdleMs: Number(e.target.value) })}
+   393→                placeholder="Idle ms"
+   394→                className="bg-background h-6 text-xs"
+   395→              />
+   396→            )}
+   397→          </div>
+   398→        )}
+   399→
+   400→        {/* Config currency */}
+   401→        {isCurrency && normalized.currency && (
+   402→          <div className="flex items-center gap-2">
+   403→            <Input
+   404→              type="number"
+   405→              value={normalized.currency.amount}
+   406→              onChange={(e) => handleCurrencyChange({ amount: Number(e.target.value) })}
+   407→              placeholder="Cantidad"
+   408→              className="bg-background h-6 text-xs w-20"
+   409→            />
+   410→            <span className="text-[10px] text-muted-foreground">divisa para persona</span>
+   411→          </div>
+   412→        )}
+   413→
+   414→        {/* Config conditional_sprite_collection */}
+   415→        {isConditionalSpriteCollection && normalized.conditional_sprite_collection && (
+   416→          <div className="grid grid-cols-2 gap-2">
+   417→            <Input
+   418→              value={normalized.conditional_sprite_collection.collectionId}
+   419→              onChange={(e) => handleConditionalSpriteCollectionChange({ collectionId: e.target.value })}
+   420→              placeholder="ID Colección"
+   421→              className="bg-background h-6 text-xs"
+   422→            />
+   423→            <Select
+   424→              value={normalized.conditional_sprite_collection.targetMode || 'self'}
+   425→              onValueChange={(v) => handleConditionalSpriteCollectionChange({ targetMode: v as TriggerTargetMode })}
+   426→            >
+   427→              <SelectTrigger className="bg-background h-6 text-xs">
+   428→                <SelectValue />
+   429→              </SelectTrigger>
+   430→              <SelectContent>
+   431→                {TARGET_MODES.map(mode => (
+   432→                  <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+   433→                ))}
+   434→              </SelectContent>
+   435→            </Select>
+   436→          </div>
+   437→        )}
+   438→
+   439→        {/* Config activate_sprite_pack */}
+   440→        {isActivateSpritePack && normalized.activate_sprite_pack && (
+   441→          <div className="space-y-1.5">
+   442→            {/* Target mode */}
+   443→            <Select
+   444→              value={normalized.activate_sprite_pack.targetMode || 'self'}
+   445→              onValueChange={(v) => handleActivateSpritePackChange({ targetMode: v as TriggerTargetMode })}
+   446→            >
+   447→              <SelectTrigger className="bg-background h-6 text-xs">
+   448→                <SelectValue />
+   449→              </SelectTrigger>
+   450→              <SelectContent>
+   451→                {TARGET_MODES.map(mode => (
+   452→                  <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+   453→                ))}
+   454→              </SelectContent>
+   455→            </Select>
+   456→
+   457→            {/* Pack selectors — varies by mode */}
+   458→            {(normalized.activate_sprite_pack.targetMode || 'self') === 'self' ? (
+   459→              <Select
+   460→                value={normalized.activate_sprite_pack.packId}
+   461→                onValueChange={(v) => handleActivateSpritePackChange({ packId: v })}
+   462→              >
+   463→                <SelectTrigger className="bg-background h-6 text-xs">
+   464→                  <SelectValue placeholder="Sprite Pack..." />
+   465→                </SelectTrigger>
+   466→                <SelectContent>
+   467→                  {availableSpritePacks?.map(p => (
+   468→                    <SelectItem key={p.id} value={p.id}>
+   469→                      <div className="flex items-center gap-1">
+   470→                        <Package className="w-3 h-3" />
+   471→                        {p.name}
+   472→                        {p.conditionalMode && <span className="text-[9px] text-purple-500">cond.</span>}
+   473→                      </div>
+   474→                    </SelectItem>
+   475→                  ))}
+   476→                </SelectContent>
+   477→              </Select>
+   478→            ) : (normalized.activate_sprite_pack.targetMode) === 'target' ? (
+   479→              <div className="grid grid-cols-2 gap-2">
+   480→                <Select
+   481→                  value={normalized.activate_sprite_pack.targetCharacterId || ''}
+   482→                  onValueChange={(v) => handleActivateSpritePackChange({ targetCharacterId: v, targetPackId: undefined })}
+   483→                >
+   484→                  <SelectTrigger className="bg-background h-6 text-xs">
+   485→                    <SelectValue placeholder="Personaje..." />
+   486→                  </SelectTrigger>
+   487→                  <SelectContent>
+   488→                    {availableTargets?.map(t => (
+   489→                      <SelectItem key={t.id} value={t.id}>
+   490→                        {t.id === '__user__' ? '👤 ' : '🎭 '}{t.name}
+   491→                      </SelectItem>
+   492→                    ))}
+   493→                  </SelectContent>
+   494→                </Select>
+   495→                <Select
+   496→                  value={normalized.activate_sprite_pack.targetPackId || ''}
+   497→                  onValueChange={(v) => handleActivateSpritePackChange({ targetPackId: v })}
+   498→                >
+   499→                  <SelectTrigger className="bg-background h-6 text-xs">
+   500→                    <SelectValue placeholder="Pack objetivo..." />
+   501→                  </SelectTrigger>
+   502→                  <SelectContent>
+   503→                    {(() => {
+   504→                      const sel = availableTargets?.find(t => t.id === normalized.activate_sprite_pack!.targetCharacterId);
+   505→                      return sel?.spritePacks?.map(p => (
+   506→                        <SelectItem key={p.id} value={p.id}>
+   507→                          {p.name}
+   508→                        </SelectItem>
+   509→                      )) || [];
+   510→                    })()}
+   511→                  </SelectContent>
+   512→                </Select>
+   513→              </div>
+   514→            ) : (
+   515→              <Select
+   516→                value={normalized.activate_sprite_pack.packId}
+   517→                onValueChange={(v) => handleActivateSpritePackChange({ packId: v })}
+   518→              >
+   519→                <SelectTrigger className="bg-background h-6 text-xs">
+   520→                  <SelectValue placeholder="Sprite Pack..." />
+   521→                </SelectTrigger>
+   522→                <SelectContent>
+   523→                  {availableSpritePacks?.map(p => (
+   524→                    <SelectItem key={p.id} value={p.id}>
+   525→                      {p.name}
+   526→                    </SelectItem>
+   527→                  ))}
+   528→                </SelectContent>
+   529→              </Select>
+   530→            )}
+   531→
+   532→            {/* Duration + Al expirar */}
+   533→            <div className="grid grid-cols-2 gap-2">
+   534→              <Input
+   535→                type="number"
+   536→                min={0}
+   537→                value={normalized.activate_sprite_pack.returnToIdleMs || 0}
+   538→                onChange={(e) => handleActivateSpritePackChange({ returnToIdleMs: Number(e.target.value) })}
+   539→                placeholder="Duración ms"
+   540→                className="bg-background h-6 text-xs"
+   541→              />
+   542→              <Select
+   543→                value={getExpiryMode()}
+   544→                onValueChange={handleExpiryModeChange}
+   545→              >
+   546→                <SelectTrigger className="bg-background h-6 text-xs">
+   547→                  <SelectValue />
+   548→                </SelectTrigger>
+   549→                <SelectContent>
+   550→                  <SelectItem value="idle_collection">↩️ Idle</SelectItem>
+   551→                  <SelectItem value="collection_default">⭐ Default</SelectItem>
+   552→                  {(normalized.activate_sprite_pack.targetMode || 'self') !== 'target' && (
+   553→                    <SelectItem value="fallback_pack">
+   554→                      <div className="flex items-center gap-1">
+   555→                        <Package className="w-3 h-3" /> Otro Pack
+   556→                      </div>
+   557→                    </SelectItem>
+   558→                  )}
+   559→                </SelectContent>
+   560→              </Select>
+   561→            </div>
+   562→
+   563→            {/* Fallback pack selector (only when Al expirar = fallback_pack, not target mode) */}
+   564→            {getExpiryMode() === 'fallback_pack' && (normalized.activate_sprite_pack.targetMode || 'self') !== 'target' && (
+   565→              <Select
+   566→                value={normalized.activate_sprite_pack.fallbackPackId || ''}
+   567→                onValueChange={(v) => handleActivateSpritePackChange({ fallbackPackId: v })}
+   568→              >
+   569→                <SelectTrigger className="bg-background h-6 text-xs">
+   570→                  <SelectValue placeholder="Pack alternativo..." />
+   571→                </SelectTrigger>
+   572→                <SelectContent>
+   573→                  {availableSpritePacks?.filter(p => p.id !== normalized.activate_sprite_pack!.packId).map(p => (
+   574→                    <SelectItem key={p.id} value={p.id}>
+   575→                      {p.name}
+   576→                    </SelectItem>
+   577→                  ))}
+   578→                </SelectContent>
+   579→              </Select>
+   580→            )}
+   581→          </div>
+   582→        )}
+   583→      </div>
+   584→    );
+   585→  }
+   586→
+   587→  // Full mode
+   588→  return (
+   589→    <div className={cn("space-y-3", className)}>
+   590→      {/* Type selector and preview */}
+   591→      <div className="flex items-center gap-3">
+   592→        <div className="flex-1">
+   593→          <Label className="text-[10px] text-muted-foreground mb-1 block">Tipo de Recompensa</Label>
+   594→          <Select 
+   595→            value={normalized.type} 
+   596→            onValueChange={(v) => handleTypeChange(v as 'attribute' | 'trigger' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack')}
+   597→          >
+   598→            <SelectTrigger className="bg-background h-9">
+   599→              <SelectValue />
+   600→            </SelectTrigger>
+   601→            <SelectContent>
+   602→              <SelectItem value="attribute">
+   603→                <div className="flex items-center gap-2">
+   604→                  <Hash className="w-4 h-4" />
+   605→                  Atributo
+   606→                </div>
+   607→              </SelectItem>
+   608→              <SelectItem value="trigger">
+   609→                <div className="flex items-center gap-2">
+   610→                  <Zap className="w-4 h-4" />
+   611→                  Trigger
+   612→                </div>
+   613→              </SelectItem>
+   614→              <SelectItem value="currency">
+   615→                <div className="flex items-center gap-2">
+   616→                  <Coins className="w-4 h-4" />
+   617→                  Divisa
+   618→                </div>
+   619→              </SelectItem>
+   620→              <SelectItem value="conditional_sprite_collection">
+   621→                <div className="flex items-center gap-2">
+   622→                  <GitBranch className="w-4 h-4" />
+   623→                  Col. Sprite Condicional
+   624→                </div>
+   625→              </SelectItem>
+   626→              <SelectItem value="activate_sprite_pack">
+   627→                <div className="flex items-center gap-2">
+   628→                  <Package className="w-4 h-4" />
+   629→                  Sprite Pack
+   630→                </div>
+   631→              </SelectItem>
+   632→            </SelectContent>
+   633→          </Select>
+   634→        </div>
+   635→        
+   636→        {/* Preview badge */}
+   637→        <div className="pt-5">
+   638→          <Badge variant="outline" className="text-xs">
+   639→            {describeReward(normalized)}
+   640→          </Badge>
+   641→        </div>
+   642→      </div>
+   643→
+   644→      {/* ATTRIBUTE CONFIG */}
+   645→      {isAttribute && normalized.attribute && (
+   646→        <div className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-muted/30">
+   647→          <div className="space-y-1">
+   648→            <Label className="text-[10px] text-muted-foreground">Key del Atributo</Label>
+   649→            <Input
+   650→              value={normalized.attribute.key}
+   651→              onChange={(e) => handleAttributeChange({ key: e.target.value })}
+   652→              placeholder="HP, oro, exp..."
+   653→              className="bg-background font-mono text-xs h-8"
+   654→              list={availableAttributes ? "attr-list" : undefined}
+   655→            />
+   656→            {availableAttributes && (
+   657→              <datalist id="attr-list">
+   658→                {availableAttributes.map(attr => (
+   659→                  <option key={attr} value={attr} />
+   660→                ))}
+   661→              </datalist>
+   662→            )}
+   663→          </div>
+   664→          <div className="space-y-1">
+   665→            <Label className="text-[10px] text-muted-foreground">Valor</Label>
+   666→            <Input
+   667→              type="number"
+   668→              value={normalized.attribute.value}
+   669→              onChange={(e) => handleAttributeChange({ value: Number(e.target.value) })}
+   670→              className="bg-background h-8"
+   671→            />
+   672→          </div>
+   673→          <div className="space-y-1">
+   674→            <Label className="text-[10px] text-muted-foreground">Acción</Label>
+   675→            <Select 
+   676→              value={normalized.attribute.action} 
+   677→              onValueChange={(v) => handleAttributeChange({ action: v as AttributeAction })}
+   678→            >
+   679→              <SelectTrigger className="bg-background h-8">
+   680→                <SelectValue />
+   681→              </SelectTrigger>
+   682→              <SelectContent>
+   683→                {ACTION_OPTIONS.map(opt => (
+   684→                  <SelectItem key={opt.value} value={opt.value}>
+   685→                    {opt.symbol} {opt.label}
+   686→                  </SelectItem>
+   687→                ))}
+   688→              </SelectContent>
+   689→            </Select>
+   690→          </div>
+   691→        </div>
+   692→      )}
+   693→
+   694→      {/* TRIGGER CONFIG */}
+   695→      {isTrigger && normalized.trigger && (
+   696→        <div className="space-y-3 p-3 rounded-lg bg-muted/30">
+   697→          <div className="grid grid-cols-3 gap-3">
+   698→            <div className="space-y-1">
+   699→              <Label className="text-[10px] text-muted-foreground">Categoría</Label>
+   700→              <Select 
+   701→                value={normalized.trigger.category} 
+   702→                onValueChange={(v) => handleTriggerChange({ category: v as TriggerCategory })}
+   703→              >
+   704→                <SelectTrigger className="bg-background h-8">
+   705→                  <SelectValue />
+   706→                </SelectTrigger>
+   707→                <SelectContent>
+   708→                  {TRIGGER_CATEGORIES.map(cat => (
+   709→                    <SelectItem key={cat.value} value={cat.value}>
+   710→                      <div className="flex items-center gap-2">
+   711→                        {cat.icon}
+   712→                        {cat.label}
+   713→                      </div>
+   714→                    </SelectItem>
+   715→                  ))}
+   716→                </SelectContent>
+   717→              </Select>
+   718→            </div>
+   719→            <div className="space-y-1">
+   720→              <Label className="text-[10px] text-muted-foreground">Key del Trigger</Label>
+   721→              <Input
+   722→                value={normalized.trigger.key}
+   723→                onChange={(e) => handleTriggerChange({ key: e.target.value })}
+   724→                placeholder="feliz, victory, forest..."
+   725→                className="bg-background font-mono text-xs h-8"
+   726→                list={getTriggerDatalistId(normalized.trigger.category, availableTriggers)}
+   727→              />
+   728→              {availableTriggers && renderTriggerDatalist(normalized.trigger.category, availableTriggers)}
+   729→            </div>
+   730→            <div className="space-y-1">
+   731→              <Label className="text-[10px] text-muted-foreground">Objetivo</Label>
+   732→              <Select 
+   733→                value={normalized.trigger.targetMode} 
+   734→                onValueChange={(v) => handleTriggerChange({ targetMode: v as TriggerTargetMode })}
+   735→              >
+   736→                <SelectTrigger className="bg-background h-8">
+   737→                  <SelectValue />
+   738→                </SelectTrigger>
+   739→                <SelectContent>
+   740→                  {TARGET_MODES.map(mode => (
+   741→                    <SelectItem key={mode.value} value={mode.value}>
+   742→                      <div className="flex items-center gap-2">
+   743→                        {mode.icon}
+   744→                        {mode.label}
+   745→                      </div>
+   746→                    </SelectItem>
+   747→                  ))}
+   748→                </SelectContent>
+   749→              </Select>
+   750→            </div>
+   751→          </div>
+   752→
+   753→          {/* Category-specific options */}
+   754→          {normalized.trigger.category === 'sprite' && (
+   755→            <div className="grid grid-cols-2 gap-3">
+   756→              <div className="space-y-1">
+   757→                <Label className="text-[10px] text-muted-foreground">Volver a Idle (ms)</Label>
+   758→                <Input
+   759→                  type="number"
+   760→                  min={0}
+   761→                  value={normalized.trigger.returnToIdleMs || 0}
+   762→                  onChange={(e) => handleTriggerChange({ returnToIdleMs: Number(e.target.value) })}
+   763→                  placeholder="0 = no volver"
+   764→                  className="bg-background h-8"
+   765→                />
+   766→              </div>
+   767→              <div className="flex items-end pb-1">
+   768→                <p className="text-[10px] text-muted-foreground">
+   769→                  0 = mantener sprite indefinidamente
+   770→                </p>
+   771→              </div>
+   772→            </div>
+   773→          )}
+   774→
+   775→          {normalized.trigger.category === 'sound' && (
+   776→            <div className="grid grid-cols-2 gap-3">
+   777→              <div className="space-y-1">
+   778→                <Label className="text-[10px] text-muted-foreground">Volumen (0-1)</Label>
+   779→                <Input
+   780→                  type="number"
+   781→                  min={0}
+   782→                  max={1}
+   783→                  step={0.1}
+   784→                  value={normalized.trigger.volume ?? 0.8}
+   785→                  onChange={(e) => handleTriggerChange({ volume: Number(e.target.value) })}
+   786→                  className="bg-background h-8"
+   787→                />
+   788→              </div>
+   789→              <div className="flex items-end pb-1">
+   790→                <p className="text-[10px] text-muted-foreground">
+   791→                  Formato key: "coleccion/archivo"
+   792→                </p>
+   793→              </div>
+   794→            </div>
+   795→          )}
+   796→
+   797→          {normalized.trigger.category === 'background' && (
+   798→            <div className="grid grid-cols-2 gap-3">
+   799→              <div className="space-y-1">
+   800→                <Label className="text-[10px] text-muted-foreground">Duración Transición (ms)</Label>
+   801→                <Input
+   802→                  type="number"
+   803→                  min={0}
+   804→                  value={normalized.trigger.transitionDuration ?? 500}
+   805→                  onChange={(e) => handleTriggerChange({ transitionDuration: Number(e.target.value) })}
+   806→                  className="bg-background h-8"
+   807→                />
+   808→              </div>
+   809→              <div className="flex items-end pb-1">
+   810→                <p className="text-[10px] text-muted-foreground">
+   811→                  Key puede ser URL o nombre
+   812→                </p>
+   813→              </div>
+   814→            </div>
+   815→          )}
+   816→        </div>
+   817→      )}
+   818→
+   819→      {/* CURRENCY CONFIG */}
+   820→      {isCurrency && normalized.currency && (
+   821→        <div className="p-3 rounded-lg bg-muted/30">
+   822→          <div className="grid grid-cols-2 gap-3">
+   823→            <div className="space-y-1">
+   824→              <Label className="text-[10px] text-muted-foreground">Cantidad</Label>
+   825→              <Input
+   826→                type="number"
+   827→                value={normalized.currency.amount}
+   828→                onChange={(e) => handleCurrencyChange({ amount: Number(e.target.value) })}
+   829→                className="bg-background h-8"
+   830→                placeholder="Ej: 50, 100, -10"
+   831→              />
+   832→            </div>
+   833→            <div className="flex items-end pb-1">
+   834→              <p className="text-[10px] text-muted-foreground">
+   835→                Cantidad positiva suma divisa a la persona. Negativa resta.
+   836→              </p>
+   837→            </div>
+   838→          </div>
+   839→        </div>
+   840→      )}
+   841→
+   842→      {/* CONDITIONAL SPRITE COLLECTION CONFIG */}
+   843→      {isConditionalSpriteCollection && normalized.conditional_sprite_collection && (
+   844→        <div className="space-y-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+   845→          <div className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+   846→            <GitBranch className="w-3.5 h-3.5" />
+   847→            Colección de Sprite Condicional
+   848→          </div>
+   849→          <p className="text-[10px] text-muted-foreground">
+   850→            Activa una colección de sprites que evalúa condiciones de atributos para seleccionar el sprite.
+   851→          </p>
+   852→
+   853→          <div className="grid grid-cols-2 gap-3">
+   854→            <div className="space-y-1">
+   855→              <Label className="text-[10px] text-muted-foreground">Colección</Label>
+   856→              <Select
+   857→                value={normalized.conditional_sprite_collection.collectionId}
+   858→                onValueChange={(v) => handleConditionalSpriteCollectionChange({ collectionId: v })}
+   859→              >
+   860→                <SelectTrigger className="bg-background h-8">
+   861→                  <SelectValue placeholder="Seleccionar colección..." />
+   862→                </SelectTrigger>
+   863→                <SelectContent>
+   864→                  {/* List conditional mode trigger collections */}
+   865→                  {availableConditionalCollections?.map(col => (
+   866→                    <SelectItem key={col.id} value={col.id}>
+   867→                      <div className="flex items-center gap-2">
+   868→                        <GitBranch className="w-3 h-3" />
+   869→                        {col.name}
+   870→                      </div>
+   871→                    </SelectItem>
+   872→                  ))}
+   873→                </SelectContent>
+   874→              </Select>
+   875→            </div>
+   876→            <div className="space-y-1">
+   877→              <Label className="text-[10px] text-muted-foreground">Objetivo</Label>
+   878→              <Select
+   879→                value={normalized.conditional_sprite_collection.targetMode || 'self'}
+   880→                onValueChange={(v) => handleConditionalSpriteCollectionChange({ targetMode: v as TriggerTargetMode })}
+   881→              >
+   882→                <SelectTrigger className="bg-background h-8">
+   883→                  <SelectValue />
+   884→                </SelectTrigger>
+   885→                <SelectContent>
+   886→                  {TARGET_MODES.map(mode => (
+   887→                    <SelectItem key={mode.value} value={mode.value}>
+   888→                      <div className="flex items-center gap-2">
+   889→                        {mode.icon}
+   890→                        {mode.label}
+   891→                      </div>
+   892→                    </SelectItem>
+   893→                  ))}
+   894→                </SelectContent>
+   895→              </Select>
+   896→            </div>
+   897→          </div>
+   898→
+   899→          <div className="grid grid-cols-2 gap-3">
+   900→            <div className="space-y-1">
+   901→              <Label className="text-[10px] text-muted-foreground">Volver a Idle (ms)</Label>
+   902→              <Input
+   903→                type="number"
+   904→                min={0}
+   905→                value={normalized.conditional_sprite_collection.returnToIdleMs || 0}
+   906→                onChange={(e) => handleConditionalSpriteCollectionChange({ returnToIdleMs: Number(e.target.value) })}
+   907→                placeholder="0 = no volver"
+   908→                className="bg-background h-8"
+   909→              />
+   910→            </div>
+   911→            <div className="space-y-1">
+   912→              <Label className="text-[10px] text-muted-foreground">Modo Fallback</Label>
+   913→              <Select
+   914→                value={normalized.conditional_sprite_collection.fallbackMode || 'idle_collection'}
+   915→                onValueChange={(v) => handleConditionalSpriteCollectionChange({ fallbackMode: v as TriggerFallbackMode })}
+   916→              >
+   917→                <SelectTrigger className="bg-background h-8">
+   918→                  <SelectValue />
+   919→                </SelectTrigger>
+   920→                <SelectContent>
+   921→                  <SelectItem value="idle_collection">Colección Idle</SelectItem>
+   922→                  <SelectItem value="custom_sprite">Sprite Personalizado</SelectItem>
+   923→                  <SelectItem value="collection_default">Default de Colección</SelectItem>
+   924→                </SelectContent>
+   925→              </Select>
+   926→            </div>
+   927→          </div>
+   928→        </div>
+   929→      )}
+   930→
+   931→      {/* ACTIVATE SPRITE PACK CONFIG */}
+   932→      {isActivateSpritePack && normalized.activate_sprite_pack && (
+   933→        <div className="space-y-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+   934→          <div className="text-xs text-purple-600 font-medium flex items-center gap-1">
+   935→            <Package className="w-3.5 h-3.5" />
+   936→            Activar Sprite Pack
+   937→          </div>
+   938→          <p className="text-[10px] text-muted-foreground">
+   939→            Activa un Sprite Pack. Si el pack tiene modo condicional, evaluará las condiciones de cada sprite para seleccionar el correcto.
+   940→          </p>
+   941→          
+   942→          {/* Target Mode */}
+   943→          <div className="space-y-1">
+   944→            <Label className="text-[10px] text-muted-foreground">Objetivo</Label>
+   945→            <Select
+   946→              value={normalized.activate_sprite_pack.targetMode || 'self'}
+   947→              onValueChange={(v) => handleActivateSpritePackChange({ 
+   948→                targetMode: v as TriggerTargetMode,
+   949→                targetCharacterId: v === 'target' ? normalized.activate_sprite_pack!.targetCharacterId : undefined,
+   950→                targetPackId: v === 'target' ? normalized.activate_sprite_pack!.targetPackId : undefined,
+   951→                fallbackPackId: v !== 'target' ? normalized.activate_sprite_pack!.fallbackPackId : undefined,
+   952→              })}
+   953→            >
+   954→              <SelectTrigger className="bg-background h-8">
+   955→                <SelectValue />
+   956→              </SelectTrigger>
+   957→              <SelectContent>
+   958→                {TARGET_MODES.map(mode => (
+   959→                  <SelectItem key={mode.value} value={mode.value}>
+   960→                    <div className="flex items-center gap-2">
+   961→                      {mode.icon}
+   962→                      {mode.label}
+   963→                    </div>
+   964→                  </SelectItem>
+   965→                ))}
+   966→              </SelectContent>
+   967→            </Select>
+   968→          </div>
+   969→
+   970→          {/* SELF mode: Select own sprite pack */}
+   971→          {(normalized.activate_sprite_pack.targetMode || 'self') === 'self' && (
+   972→            <div className="space-y-2 p-2 rounded-md bg-purple-500/5 border border-purple-500/10">
+   973→              <div className="text-[10px] text-purple-500 font-medium">Activar en sí mismo</div>
+   974→              <div className="space-y-1">
+   975→                <Label className="text-[10px] text-muted-foreground">Sprite Pack</Label>
+   976→                <Select
+   977→                  value={normalized.activate_sprite_pack.packId}
+   978→                  onValueChange={(v) => handleActivateSpritePackChange({ packId: v })}
+   979→                >
+   980→                  <SelectTrigger className="bg-background h-8">
+   981→                    <SelectValue placeholder="Seleccionar pack..." />
+   982→                  </SelectTrigger>
+   983→                  <SelectContent>
+   984→                    {availableSpritePacks?.map(p => (
+   985→                      <SelectItem key={p.id} value={p.id}>
+   986→                        <div className="flex items-center gap-2">
+   987→                          <Package className="w-3 h-3" />
+   988→                          {p.name}
+   989→                          {p.conditionalMode && (
+   990→                            <span className="text-[9px] text-purple-500">(condicional)</span>
+   991→                          )}
+   992→                        </div>
+   993→                      </SelectItem>
+   994→                    ))}
+   995→                  </SelectContent>
+   996→                </Select>
+   997→              </div>
+   998→            </div>
+   999→          )}
+  1000→
+  1001→          {/* ALL mode */}
+  1002→          {(normalized.activate_sprite_pack.targetMode) === 'all' && (
+  1003→            <div className="space-y-2 p-2 rounded-md bg-purple-500/5 border border-purple-500/10">
+  1004→              <div className="text-[10px] text-purple-500 font-medium">Activar en todos los personajes</div>
+  1005→              <div className="space-y-1">
+  1006→                <Label className="text-[10px] text-muted-foreground">Sprite Pack</Label>
+  1007→                <Select
+  1008→                  value={normalized.activate_sprite_pack.packId}
+  1009→                  onValueChange={(v) => handleActivateSpritePackChange({ packId: v })}
+  1010→                >
+  1011→                  <SelectTrigger className="bg-background h-8">
+  1012→                    <SelectValue placeholder="Seleccionar pack..." />
+  1013→                  </SelectTrigger>
+  1014→                  <SelectContent>
+  1015→                    {availableSpritePacks?.map(p => (
+  1016→                      <SelectItem key={p.id} value={p.id}>
+  1017→                        <div className="flex items-center gap-2">
+  1018→                          <Package className="w-3 h-3" />
+  1019→                          {p.name}
+  1020→                          {p.conditionalMode && (
+  1021→                            <span className="text-[9px] text-purple-500">(condicional)</span>
+  1022→                          )}
+  1023→                        </div>
+  1024→                      </SelectItem>
+  1025→                    ))}
+  1026→                  </SelectContent>
+  1027→                </Select>
+  1028→              </div>
+  1029→            </div>
+  1030→          )}
+  1031→
+  1032→          {/* TARGET mode: Select character + their sprite pack */}
+  1033→          {(normalized.activate_sprite_pack.targetMode) === 'target' && (
+  1034→            <div className="space-y-2 p-2 rounded-md bg-violet-500/5 border border-violet-500/10">
+  1035→              <div className="text-[10px] text-violet-500 font-medium">Activar en personaje objetivo</div>
+  1036→              <div className="grid grid-cols-2 gap-3">
+  1037→                <div className="space-y-1">
+  1038→                  <Label className="text-[10px] text-muted-foreground">Personaje objetivo</Label>
+  1039→                  <Select
+  1040→                    value={normalized.activate_sprite_pack.targetCharacterId || ''}
+  1041→                    onValueChange={(v) => handleActivateSpritePackChange({ targetCharacterId: v, targetPackId: undefined })}
+  1042→                  >
+  1043→                    <SelectTrigger className="bg-background h-8">
+  1044→                      <SelectValue placeholder="Seleccionar personaje..." />
+  1045→                    </SelectTrigger>
+  1046→                    <SelectContent>
+  1047→                      {availableTargets && availableTargets.length > 0 ? (
+  1048→                        availableTargets.map(t => (
+  1049→                          <SelectItem key={t.id} value={t.id}>
+  1050→                            {t.id === '__user__' ? '👤 ' : '🎭 '}{t.name}
+  1051→                          </SelectItem>
+  1052→                        ))
+  1053→                      ) : (
+  1054→                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+  1055→                          No hay otros personajes disponibles
+  1056→                        </div>
+  1057→                      )}
+  1058→                    </SelectContent>
+  1059→                  </Select>
+  1060→                </div>
+  1061→                <div className="space-y-1">
+  1062→                  <Label className="text-[10px] text-muted-foreground">Sprite Pack del objetivo</Label>
+  1063→                  <Select
+  1064→                    value={normalized.activate_sprite_pack.targetPackId || ''}
+  1065→                    onValueChange={(v) => handleActivateSpritePackChange({ targetPackId: v })}
+  1066→                  >
+  1067→                    <SelectTrigger className="bg-background h-8">
+  1068→                      <SelectValue placeholder="Seleccionar pack..." />
+  1069→                    </SelectTrigger>
+  1070→                    <SelectContent>
+  1071→                      {(() => {
+  1072→                        const sel = availableTargets?.find(t => t.id === normalized.activate_sprite_pack!.targetCharacterId);
+  1073→                        const packs = sel?.spritePacks || [];
+  1074→                        return packs.length > 0 ? (
+  1075→                          packs.map(p => (
+  1076→                            <SelectItem key={p.id} value={p.id}>
+  1077→                              <div className="flex items-center gap-2">
+  1078→                                <Package className="w-3 h-3" />
+  1079→                                {p.name} ({p.spriteCount})
+  1080→                                {p.conditionalMode && (
+  1081→                                  <span className="text-[9px] text-purple-500">(cond.)</span>
+  1082→                                )}
+  1083→                              </div>
+  1084→                            </SelectItem>
+  1085→                          ))
+  1086→                        ) : (
+  1087→                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+  1088→                            {normalized.activate_sprite_pack!.targetCharacterId 
+  1089→                              ? 'Este personaje no tiene sprite packs' 
+  1090→                              : 'Selecciona un personaje primero'}
+  1091→                          </div>
+  1092→                        );
+  1093→                      })()}
+  1094→                    </SelectContent>
+  1095→                  </Select>
+  1096→                </div>
+  1097→              </div>
+  1098→              {!normalized.activate_sprite_pack.targetCharacterId && (
+  1099→                <p className="text-[10px] text-muted-foreground italic">Selecciona un personaje objetivo para ver sus sprite packs disponibles</p>
+  1100→              )}
+  1101→            </div>
+  1102→          )}
+  1103→
+  1104→          {/* Comportamiento al expirar */}
+  1105→          <div className="space-y-2 p-2 rounded-md bg-muted/20 border border-muted/30">
+  1106→            <div className="text-[10px] text-muted-foreground font-medium">
+  1107→              Comportamiento al expirar
+  1108→            </div>
+  1109→            <p className="text-[9px] text-muted-foreground">
+  1110→              Define qué sucede cuando la activación del sprite pack termina
+  1111→            </p>
+  1112→            <div className="grid grid-cols-2 gap-3">
+  1113→              <div className="space-y-1">
+  1114→                <Label className="text-[10px] text-muted-foreground">Duración (ms)</Label>
+  1115→                <Input
+  1116→                  type="number"
+  1117→                  min={0}
+  1118→                  value={normalized.activate_sprite_pack.returnToIdleMs || 0}
+  1119→                  onChange={(e) => handleActivateSpritePackChange({ returnToIdleMs: Number(e.target.value) })}
+  1120→                  placeholder="0 = indefinido"
+  1121→                  className="bg-background h-8"
+  1122→                />
+  1123→                <p className="text-[9px] text-muted-foreground">0 = el sprite se mantiene indefinidamente</p>
+  1124→              </div>
+  1125→              <div className="space-y-1">
+  1126→                <Label className="text-[10px] text-muted-foreground">Al expirar</Label>
+  1127→                <Select
+  1128→                  value={getExpiryMode()}
+  1129→                  onValueChange={handleExpiryModeChange}
+  1130→                >
+  1131→                  <SelectTrigger className="bg-background h-8">
+  1132→                    <SelectValue />
+  1133→                  </SelectTrigger>
+  1134→                  <SelectContent>
+  1135→                    <SelectItem value="idle_collection">
+  1136→                      <div className="flex items-center gap-2">
+  1137→                        <span>↩️</span> Volver a estado Idle
+  1138→                      </div>
+  1139→                    </SelectItem>
+  1140→                    <SelectItem value="collection_default">
+  1141→                      <div className="flex items-center gap-2">
+  1142→                        <span>⭐</span> Default del Pack
+  1143→                      </div>
+  1144→                    </SelectItem>
+  1145→                    {(normalized.activate_sprite_pack.targetMode || 'self') !== 'target' && (
+  1146→                      <SelectItem value="fallback_pack">
+  1147→                        <div className="flex items-center gap-2">
+  1148→                          <Package className="w-3 h-3" /> Activar otro Pack
+  1149→                        </div>
+  1150→                      </SelectItem>
+  1151→                    )}
+  1152→                  </SelectContent>
+  1153→                </Select>
+  1154→                <p className="text-[9px] text-muted-foreground">Qué hacer cuando la activación expira</p>
+  1155→              </div>
+  1156→            </div>
+  1157→            {getExpiryMode() === 'fallback_pack' && (normalized.activate_sprite_pack.targetMode || 'self') !== 'target' && (
+  1158→              <div className="space-y-1">
+  1159→                <Label className="text-[10px] text-muted-foreground">Pack alternativo</Label>
+  1160→                <Select
+  1161→                  value={normalized.activate_sprite_pack.fallbackPackId || ''}
+  1162→                  onValueChange={(v) => handleActivateSpritePackChange({ fallbackPackId: v })}
+  1163→                >
+  1164→                  <SelectTrigger className="bg-background h-8">
+  1165→                    <SelectValue placeholder="Seleccionar pack alternativo..." />
+  1166→                  </SelectTrigger>
+  1167→                  <SelectContent>
+  1168→                    {availableSpritePacks?.filter(p => p.id !== normalized.activate_sprite_pack!.packId).map(p => (
+  1169→                      <SelectItem key={p.id} value={p.id}>
+  1170→                        <div className="flex items-center gap-2">
+  1171→                          <Package className="w-3 h-3" />
+  1172→                          {p.name}
+  1173→                        </div>
+  1174→                      </SelectItem>
+  1175→                    ))}
+  1176→                  </SelectContent>
+  1177→                </Select>
+  1178→              </div>
+  1179→            )}
+  1180→          </div>
+  1181→        </div>
+  1182→      )}
+  1183→
+  1184→      {/* ID field (collapsible) */}
+  1185→      {showIdField && (
+  1186→        <details className="group">
+  1187→          <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground flex items-center gap-1">
+  1188→            <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" />
+  1189→            ID: {reward.id}
+  1190→          </summary>
+  1191→          <div className="mt-2">
+  1192→            <Input
+  1193→              value={reward.id}
+  1194→              onChange={(e) => onChange({ ...reward, id: e.target.value })}
+  1195→              className="bg-background font-mono text-xs h-7"
+  1196→            />
+  1197→          </div>
+  1198→        </details>
+  1199→      )}
+  1200→    </div>
+  1201→  );
+  1202→}
+  1203→
+  1204→// ============================================
+  1205→// Helper Functions
+  1206→// ============================================
+  1207→
+  1208→function getTriggerDatalistId(
+  1209→  category: TriggerCategory,
+  1210→  availableTriggers?: RewardEditorProps['availableTriggers']
+  1211→): string | undefined {
+  1212→  if (!availableTriggers) return undefined;
+  1213→  return `trigger-list-${category}`;
+  1214→}
+  1215→
+  1216→function renderTriggerDatalist(
+  1217→  category: TriggerCategory,
+  1218→  availableTriggers: NonNullable<RewardEditorProps['availableTriggers']>
+  1219→): React.ReactNode {
+  1220→  const triggers = category === 'sprite' 
+  1221→    ? availableTriggers.sprites 
+  1222→    : category === 'sound' 
+  1223→      ? availableTriggers.sounds 
+  1224→      : availableTriggers.backgrounds;
+  1225→  
+  1226→  if (!triggers?.length) return null;
+  1227→  
+  1228→  return (
+  1229→    <datalist id={`trigger-list-${category}`}>
+  1230→      {triggers.map(trigger => (
+  1231→        <option key={trigger} value={trigger} />
+  1232→      ))}
+  1233→    </datalist>
+  1234→  );
+  1235→}
+  1236→
+  1237→// ============================================
+  1238→// Exports
+  1239→// ============================================
+  1240→
+  1241→export default RewardEditor;
+  1242→

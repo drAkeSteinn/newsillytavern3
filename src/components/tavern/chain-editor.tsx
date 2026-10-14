@@ -638,7 +638,7 @@ export function ChainEditor(props: ChainEditorProps) {
 
               {/* Preview info */}
               {stepCount > 0 && type === 'sprite' && (chain as SpriteChain).loop && (
-                <div className="flex items-center gap-2 p-2 bg-amber-500/10 border border-amber-500/20 rounded text-xs text-amber-600">
+                <div className="flex items-center gap-2 p-2 bg-fuchsia-500/10 border border-fuchsia-500/20 rounded text-xs text-fuchsia-600">
                   <AlertCircle className="w-3 h-3" />
                   <span>La secuencia se repetirá infinitamente hasta ser interrumpida</span>
                 </div>

@@ -49,6 +49,7 @@ import {
   Loader2,
   Wrench,
   Library,
+  MapPin,
 } from 'lucide-react';
 import {
   Select,
@@ -81,7 +82,8 @@ import { cn } from '@/lib/utils';
 import type { LLMProvider, AppSettings } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { SoundTriggersSettings } from './sound-triggers-settings';
-import { BackgroundTriggersSettings } from './background-triggers-settings';
+import { BackgroundsPanel } from './backgrounds-panel';
+import { ScenarioLibraryPanel } from './scenario-library-panel';
 import { PersonaPanel } from './persona-panel';
 import { LorebookPanel } from './lorebook-panel';
 import { HUDManager } from '@/components/settings/hud-manager';
@@ -889,7 +891,7 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
     }
   };
 
-  // Export everything (config + characters + sessions + groups)
+  // Export everything (config + characters + sessions + groups + memoria V2)
   const handleExportAll = async () => {
     try {
       // Fetch embeddings config from server (not in Zustand store)
@@ -906,8 +908,23 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
         }
       } catch { /* non-critical */ }
 
+      // Fetch Memory V2 records from server (LanceDB / fallback JSON — not in Zustand store)
+      // Includes eventos, hechos, preferencias, relaciones, notas y resúmenes de escena.
+      let memoryV2Records: unknown[] = [];
+      let memoryV2Backend = '';
+      try {
+        const v2Resp = await fetch('/api/memory/v2?action=export-all');
+        if (v2Resp.ok) {
+          const v2Data = await v2Resp.json();
+          if (v2Data.success && Array.isArray(v2Data.records)) {
+            memoryV2Records = v2Data.records;
+            memoryV2Backend = v2Data.backend || '';
+          }
+        }
+      } catch { /* non-critical */ }
+
       const allData = {
-        version: '2.0',
+        version: '2.1',
         exportedAt: new Date().toISOString(),
         type: 'full',
         data: {
@@ -972,6 +989,11 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
           activePersonaId: store.activePersonaId,
           // Knowledge / Embeddings config (server-side only, not in store)
           ...(embeddingsConfig ? { embeddingsConfig } : {}),
+          // Memory V2 (server-side store: LanceDB + JSON fallback, not in Zustand)
+          memoryV2: memoryV2Records,
+          ...(memoryV2Backend ? { memoryV2Backend } : {}),
+          // Scenario Library (App-level scenario collections, ESCENARIO V3)
+          scenarios: store.scenarios,
         }
       };
 
@@ -987,7 +1009,9 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
 
       toast({
         title: 'Backup completo exportado',
-        description: 'Todos los datos se han exportado correctamente.',
+        description: memoryV2Records.length > 0
+          ? `Todos los datos exportados (incluye ${memoryV2Records.length} registros de memoria).`
+          : 'Todos los datos se han exportado correctamente.',
       });
     } catch (error) {
       toast({
@@ -1034,6 +1058,8 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
           'collections',
           // Data
           'characters', 'sessions', 'groups',
+          // Scenario Library (ESCENARIO V3)
+          'scenarios',
           // Active states
           'activeSessionId', 'activeCharacterId', 'activeGroupId',
           'activeBackground', 'activeOverlayBack', 'activeOverlayFront', 'activePersonaId'
@@ -1112,9 +1138,36 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
           }
         }
 
+        // Restore Memory V2 records to server (LanceDB / JSON fallback — not in Zustand store).
+        // Merge-by-id semantics: existing record ids are SKIPPED (local copy wins, idempotent),
+        // missing ids are added with all original fields preserved (importance, heat, dates,
+        // archived status, charId/groupId...). The store re-embeds content automatically.
+        let memoryV2Imported = 0;
+        if (Array.isArray(data.memoryV2) && data.memoryV2.length > 0) {
+          try {
+            const resp = await fetch('/api/memory/v2', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'import-records', records: data.memoryV2 }),
+            });
+            const v2Data = await resp.json().catch(() => null);
+            if (resp.ok && v2Data?.success) {
+              memoryV2Imported = Number(v2Data.added ?? 0);
+              const skipped = Number(v2Data.skipped ?? 0);
+              console.log(`[ImportAll] Memory V2 restored: ${memoryV2Imported} añadidos, ${skipped} ya existentes (de ${v2Data.total ?? data.memoryV2.length})`);
+            } else {
+              console.warn('[ImportAll] Failed to restore Memory V2 records:', resp.status, v2Data?.error);
+            }
+          } catch (v2Err) {
+            console.warn('[ImportAll] Error restoring Memory V2 records:', v2Err);
+          }
+        }
+
         toast({
           title: 'Backup importado',
-          description: `${Object.keys(updates).length} secciones importadas correctamente.`,
+          description: memoryV2Imported > 0
+            ? `${Object.keys(updates).length} secciones + ${memoryV2Imported} registros de memoria importados correctamente.`
+            : `${Object.keys(updates).length} secciones importadas correctamente.`,
         });
       } catch (error) {
         toast({
@@ -1255,18 +1308,23 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
   };
 
   const handleAddConfig = () => {
+    // Anti-repetition defaults: frequency/presence penalties > 0 avoid the
+    // classic RP loop (repeating phrases / re-calling the same tools) on
+    // OpenAI-compatible APIs (OpenAI, vLLM, LM Studio, etc.). The Grok
+    // provider strips them automatically for the official xAI API, which
+    // rejects them with a 400 (verified: grok-4.3/4.5/4.20).
     addLLMConfig({
       ...newConfig,
       model: '',
       parameters: {
-        temperature: 0.7,
-        topP: 0.9,
+        temperature: 0.9,
+        topP: 0.95,
         topK: 40,
-        maxTokens: 512,
+        maxTokens: 1024,
         contextSize: 4096,
         repetitionPenalty: 1.1,
-        frequencyPenalty: 0,
-        presencePenalty: 0,
+        frequencyPenalty: 0.45,
+        presencePenalty: 0.25,
         stopStrings: [],
         stream: true
       },
@@ -1378,6 +1436,7 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
     { value: 'appearance', label: 'Apariencia', icon: Palette },
     { value: 'sounds', label: 'Sonidos', icon: Music },
     { value: 'backgrounds', label: 'Fondos', icon: ImageIcon },
+    { value: 'escenarios', label: 'Escenarios', icon: MapPin },
     { value: 'voice', label: 'Voz / TTS', icon: Volume2 },
     { value: 'hotkeys', label: 'Atajos', icon: Keyboard },
     { value: 'data', label: 'Datos', icon: Database },
@@ -1505,13 +1564,13 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
               <TooltipProvider>
               <div className="space-y-4">
                 {/* Info Banner */}
-                <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/20 rounded-lg p-3">
+                <div className="bg-gradient-to-r from-violet-500/10 to-fuchsia-500/10 border border-violet-500/20 rounded-lg p-3">
                   <div className="flex items-start gap-3">
-                    <div className="p-2 bg-blue-500/20 rounded-lg">
-                      <Bot className="w-5 h-5 text-blue-500" />
+                    <div className="p-2 bg-violet-500/20 rounded-lg">
+                      <Bot className="w-5 h-5 text-violet-500" />
                     </div>
                     <div className="flex-1">
-                      <h4 className="text-sm font-medium text-blue-600 dark:text-blue-400">Configuración de LLM</h4>
+                      <h4 className="text-sm font-medium text-violet-600 dark:text-violet-400">Configuración de LLM</h4>
                       <p className="text-xs text-muted-foreground mt-1">
                         Gestiona tus conexiones a modelos de lenguaje. Soporta proveedores locales como <strong>Ollama</strong>, <strong>KoboldCPP</strong> y APIs remotas.
                       </p>
@@ -1909,6 +1968,12 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
                             </div>
                           </div>
 
+                          {config.provider === 'grok' && (
+                            <p className="text-xs text-muted-foreground">
+                              ⚠️ La API de xAI (modelos grok-4.x) no soporta penalizaciones de frecuencia/presencia: se omiten automáticamente al enviar (verificado contra api.x.ai). Anti-bucle en Grok: temperatura 0.8–0.9 + la guardia anti-bucle de tools, que ya está activa.
+                            </p>
+                          )}
+
                           {/* Toggles in row */}
                           <div className="flex items-center gap-6 pt-2">
                             <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -1958,9 +2023,14 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
               <SoundTriggersSettings />
             </TabsContent>
 
-            {/* Background Triggers Settings */}
-            <TabsContent value="backgrounds" className="h-full overflow-hidden p-6 m-0 data-[state=inactive]:hidden">
-              <BackgroundTriggersSettings />
+            {/* Fondos — panel integrado con pestañas: Galería / Subir / Colecciones / Activación */}
+            <TabsContent value="backgrounds" className="h-full overflow-hidden p-4 md:p-6 m-0 data-[state=inactive]:hidden">
+              <BackgroundsPanel />
+            </TabsContent>
+
+            {/* Scenario Library (ESCENARIO V3) */}
+            <TabsContent value="escenarios" className="h-full overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
+              <ScenarioLibraryPanel />
             </TabsContent>
 
             {/* Voice Settings */}
@@ -1972,13 +2042,13 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
             <TabsContent value="hotkeys" className="h-full overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
               <div className="space-y-4">
                 {/* Banner Informativo */}
-                <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-lg p-3">
+                <div className="bg-gradient-to-r from-fuchsia-500/10 to-violet-500/10 border border-fuchsia-500/20 rounded-lg p-3">
                   <div className="flex items-start gap-3">
-                    <div className="p-2 bg-amber-500/20 rounded-lg">
-                      <Keyboard className="w-5 h-5 text-amber-500" />
+                    <div className="p-2 bg-fuchsia-500/20 rounded-lg">
+                      <Keyboard className="w-5 h-5 text-fuchsia-500" />
                     </div>
                     <div className="flex-1">
-                      <h4 className="text-sm font-medium text-amber-600">Atajos de Teclado</h4>
+                      <h4 className="text-sm font-medium text-fuchsia-600">Atajos de Teclado</h4>
                       <p className="text-xs text-muted-foreground mt-1">
                         Personaliza los atajos de teclado para acciones rápidas. 
                         Haz clic en un atajo para editarlo y presiona la nueva combinación.
@@ -2279,11 +2349,11 @@ export function SettingsPanel({ open, onOpenChange, initialTab = 'llm' }: Settin
                 </div>
 
                 {/* Info box */}
-                <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm">
+                <div className="p-4 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 text-sm">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                    <AlertCircle className="w-4 h-4 text-fuchsia-500 mt-0.5 flex-shrink-0" />
                     <div className="space-y-1">
-                      <p className="font-medium text-amber-600 dark:text-amber-400">Recomendación</p>
+                      <p className="font-medium text-fuchsia-600 dark:text-fuchsia-400">Recomendación</p>
                       <p className="text-muted-foreground">
                         Exporta regularmente un backup completo para respaldar toda tu información.
                         El archivo de configuración es más ligero y solo incluye ajustes.

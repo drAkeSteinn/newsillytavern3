@@ -75,12 +75,12 @@ export function OnboardingHints({
   return (
     <div
       className={cn(
-        'flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 text-amber-200/90 text-xs shadow-sm backdrop-blur-sm max-w-md',
+        'flex items-center gap-2 px-3 py-1.5 rounded-full border border-fuchsia-500/25 bg-fuchsia-500/10 text-fuchsia-200/90 text-xs shadow-sm backdrop-blur-sm max-w-md',
         className
       )}
       role="status"
     >
-      <Lightbulb className="w-3.5 h-3.5 flex-shrink-0 text-amber-400" />
+      <Lightbulb className="w-3.5 h-3.5 flex-shrink-0 text-fuchsia-400" />
       <span className="leading-snug">{hint.text}</span>
       <button
         type="button"
@@ -88,7 +88,7 @@ export function OnboardingHints({
           dismiss(hint.key);
           setActiveIndex(-1);
         }}
-        className="ml-1 p-0.5 rounded-full hover:bg-amber-500/20 transition-colors flex-shrink-0"
+        className="ml-1 p-0.5 rounded-full hover:bg-fuchsia-500/20 transition-colors flex-shrink-0"
         aria-label="Descartar consejo"
       >
         <X className="w-3 h-3" />

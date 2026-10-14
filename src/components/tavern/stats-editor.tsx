@@ -65,6 +65,8 @@ import {
   Heart,
   Star,
   Crown,
+  Users,
+  Undo2,
 } from 'lucide-react';
 import type {
   CharacterStatsConfig,
@@ -91,6 +93,7 @@ import type {
 } from '@/types';
 import { DEFAULT_STATS_BLOCK_HEADERS, DEFAULT_STATS_CONFIG, DEFAULT_EMOTIONAL_CONFIG } from '@/types';
 import type { EmotionalStateConfig } from '@/types';
+import { RELATIONSHIP_STAGES } from '@/lib/relationships';
 import {
   createTriggerReward,
   createObjectiveReward,
@@ -99,9 +102,11 @@ import {
   createCurrencyReward,
   createActivateSpritePackReward,
   createMessageReward,
+  createUbicacionReward,
   describeReward,
   normalizeReward,
 } from '@/lib/quest/quest-reward-utils';
+import { UbicacionRewardEditor } from '@/components/quests/ubicacion-reward-editor';
 
 interface StatsEditorProps {
   statsConfig: CharacterStatsConfig | undefined;
@@ -124,6 +129,9 @@ interface StatsEditorProps {
   spritePacksV2?: SpritePackV2[];  // for activate_sprite_pack reward
   emotionalConfig?: import('@/types').EmotionalStateConfig;  // FASE 5: Emotional state config
   onEmotionalConfigChange?: (config: import('@/types').EmotionalStateConfig) => void;  // FASE 5
+  /** Custom bond stage labels (relationship "Extraños/Conocidos/..." names) */
+  relationshipStageLabels?: Record<string, string>;
+  onRelationshipStageLabelsChange?: (labels: Record<string, string>) => void;
 }
 
 // ============================================
@@ -167,9 +175,9 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
           )}
           <Badge variant="outline" className={cn(
             "text-xs capitalize",
-            attribute.type === 'number' ? 'border-blue-500/30 text-blue-500' :
+            attribute.type === 'number' ? 'border-violet-500/30 text-violet-500' :
             attribute.type === 'keyword' ? 'border-purple-500/30 text-purple-500' :
-            'border-amber-500/30 text-amber-500'
+            'border-fuchsia-500/30 text-fuchsia-500'
           )}>
             {attribute.type === 'number' ? '🔢 Numérico' : attribute.type === 'keyword' ? '🏷️ Estado' : '📝 Texto'}
           </Badge>
@@ -181,7 +189,7 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
           )}
           {/* Main attribute badge — shown when this attribute is marked as the primary one */}
           {attribute.isMain && (
-            <Badge variant="outline" className="text-xs border-amber-500/50 text-amber-500 bg-amber-500/10">
+            <Badge variant="outline" className="text-xs border-fuchsia-500/50 text-fuchsia-500 bg-fuchsia-500/10">
               <Crown className="w-2.5 h-2.5 mr-0.5" />
               Principal
             </Badge>
@@ -200,8 +208,8 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
                 className={cn(
                   "h-7 w-7",
                   attribute.isMain
-                    ? "text-amber-500 hover:bg-amber-500/10"
-                    : "text-muted-foreground/40 hover:text-amber-500 hover:bg-amber-500/10"
+                    ? "text-fuchsia-500 hover:bg-fuchsia-500/10"
+                    : "text-muted-foreground/40 hover:text-fuchsia-500 hover:bg-fuchsia-500/10"
                 )}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -305,8 +313,8 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
                   className={cn(
                     'flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all',
                     attribute.type === 'number'
-                      ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                      : 'border-border hover:border-blue-500/50 hover:bg-blue-500/5'
+                      ? 'border-violet-500 bg-violet-500/10 text-violet-600 dark:text-violet-400'
+                      : 'border-border hover:border-violet-500/50 hover:bg-violet-500/5'
                   )}
                   onClick={() => onChange(index, { type: 'number', defaultValue: 0 })}
                 >
@@ -320,8 +328,8 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
                     className={cn(
                       'w-full flex items-center gap-2 p-2 rounded-lg border-2 transition-all',
                       attribute.type === 'text'
-                        ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                        : 'border-border hover:border-amber-500/50 hover:bg-amber-500/5'
+                        ? 'border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400'
+                        : 'border-border hover:border-fuchsia-500/50 hover:bg-fuchsia-500/5'
                     )}
                     onClick={() => onChange(index, { type: 'text', defaultValue: '' })}
                   >
@@ -386,7 +394,62 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
               )}
             </div>
           </div>
-          
+
+          {/* Esencia para el LLM — semántica inyectada en {{attributes_rulz}} */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <Label className="text-xs font-medium">Esencia para el LLM</Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-md">
+                  <p>Texto que verá el LLM en {'{{attributes_rulz}}'} para saber cómo mover este atributo. Define su significado, qué lo sube, qué lo baja y su ritmo.</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Recomendado: 200-300 caracteres. Si se deja vacío, el bloque solo muestra el tipo y el rango del atributo.</p>
+                  <p className="mt-1 text-xs text-muted-foreground">El prefijo "- Nombre (key):" se añade automáticamente; aquí escribes solo la semántica.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            {/* Presets — plantillas editables */}
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: '💗 Deseo / Excitación', template: 'Deseo/excitación de {nombre}. Sube +5/+10 con contacto físico, halagos explícitos o juegos previos. Baja -2/-5 solo si pasan varios turnos sin intimidad. No desaparece de un turno para otro.' },
+                { label: '🔗 Adicción / Obsesión', template: 'Obsesión de {nombre} hacia {user}. Sube +5/+10 cada vez que cede al impulso aunque no quiera. Baja -2/-5 solo si pasan varios turnos sin contacto. NUNCA baja por un rechazo: lo racionaliza.' },
+                { label: '⚡ Energía', template: 'Vitalidad física de {nombre}. Baja -5/-10 con esfuerzo físico o actividad prolongada. Sube +5/+10 al descansar, comer o recibir mimos. A 0 queda exhausto y necesita detenerse.' },
+                { label: '🎭 Estado emocional', template: 'Estados válidos de {nombre}: feliz|neutral|nerviosa|enojada|sensual. Caricias o elogios → feliz; contacto sensual → sensual; discusión fuerte → enojada; amenazas → nerviosa.' },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  className="text-[10px] px-2 py-1 rounded border border-border hover:border-amber-500/60 hover:bg-amber-500/10 transition-colors text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    onChange(index, {
+                      llmEssence: preset.template.replace(/\{nombre\}/g, attribute.name || 'el personaje'),
+                    })
+                  }
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <Textarea
+              value={attribute.llmEssence || ''}
+              onChange={(e) => onChange(index, { llmEssence: e.target.value || undefined })}
+              placeholder="Sube con: ... | Baja con: ... | Ritmo: ... | Nota: ..."
+              className="min-h-[70px] text-xs"
+              rows={3}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] text-muted-foreground truncate">
+                Se inyecta como: <code className="bg-muted px-1 rounded font-mono">- {attribute.name || '?'} ({attribute.key || '?'}): {'<esencia>'}</code>
+              </p>
+              <span className={cn('text-[10px] shrink-0', (attribute.llmEssence || '').length > 500 ? 'text-amber-500' : 'text-muted-foreground')}>
+                {(attribute.llmEssence || '').length}/600
+              </span>
+            </div>
+          </div>
+
           {/* Number-specific: Min/Max */}
           {attribute.type === 'number' && (
             <div className="grid grid-cols-2 gap-3">
@@ -434,7 +497,7 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
           {/* Detection Keys (Post-LLM) - Similar to HUD Field System */}
           <div className="space-y-3 p-3 bg-muted/50 rounded-lg border">
             <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-amber-500" />
+              <Zap className="w-4 h-4 text-fuchsia-500" />
               <Label className="text-xs font-medium">Detección automática (Post-LLM)</Label>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -448,7 +511,7 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
             </div>
             
             {/* Primary Key Display */}
-            <div className="flex items-center gap-2 p-2 bg-amber-500/10 rounded border border-amber-500/20">
+            <div className="flex items-center gap-2 p-2 bg-fuchsia-500/10 rounded border border-fuchsia-500/20">
               <span className="text-xs text-muted-foreground">Key principal:</span>
               <code className="text-xs bg-background px-2 py-0.5 rounded font-mono">
                 {attribute.key || '(sin key)'}
@@ -588,7 +651,7 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
           {attribute.showInHUD !== false && (
             <div className="p-3 bg-muted/30 rounded-lg border border-border/40 space-y-3">
               <div className="flex items-center gap-2">
-                <Settings2 className="w-4 h-4 text-cyan-500" />
+                <Settings2 className="w-4 h-4 text-fuchsia-500" />
                 <Label className="text-xs font-medium">Personalización del HUD</Label>
               </div>
               
@@ -939,7 +1002,7 @@ function AttributeEditor({ attribute, index, onChange, onDelete, allAttributes, 
                         className={cn(
                           "h-5 px-1.5 text-[9px] transition-colors",
                           (!attribute.timer?.conditionOperator || attribute.timer.conditionOperator === 'AND')
-                            ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                            ? "bg-violet-500/20 text-violet-400 border-violet-500/30"
                             : "bg-muted/30 text-muted-foreground border-transparent"
                         )}
                         onClick={() => {
@@ -1017,36 +1080,36 @@ function AttributeHUDPreview({ attribute }: AttributeHUDPreviewProps) {
   const colorClasses: Record<string, string> = {
     red: 'text-red-400',
     green: 'text-green-400',
-    blue: 'text-blue-400',
+    blue: 'text-violet-400',
     yellow: 'text-yellow-400',
     purple: 'text-purple-400',
-    orange: 'text-orange-400',
+    orange: 'text-violet-400',
     pink: 'text-pink-400',
-    cyan: 'text-cyan-400',
+    cyan: 'text-fuchsia-400',
     default: 'text-white/80',
   };
   
   const bgColorClasses: Record<string, string> = {
     red: 'bg-red-500/20 border-red-500/30',
     green: 'bg-green-500/20 border-green-500/30',
-    blue: 'bg-blue-500/20 border-blue-500/30',
+    blue: 'bg-violet-500/20 border-violet-500/30',
     yellow: 'bg-yellow-500/20 border-yellow-500/30',
     purple: 'bg-purple-500/20 border-purple-500/30',
-    orange: 'bg-orange-500/20 border-orange-500/30',
+    orange: 'bg-violet-500/20 border-violet-500/30',
     pink: 'bg-pink-500/20 border-pink-500/30',
-    cyan: 'bg-cyan-500/20 border-cyan-500/30',
+    cyan: 'bg-fuchsia-500/20 border-fuchsia-500/30',
     default: 'bg-white/10 border-white/20',
   };
   
   const progressColorClasses: Record<string, string> = {
     red: 'bg-red-500',
     green: 'bg-green-500',
-    blue: 'bg-blue-500',
+    blue: 'bg-violet-500',
     yellow: 'bg-yellow-500',
     purple: 'bg-purple-500',
-    orange: 'bg-orange-500',
+    orange: 'bg-violet-500',
     pink: 'bg-pink-500',
-    cyan: 'bg-cyan-500',
+    cyan: 'bg-fuchsia-500',
     default: 'bg-white/50',
   };
   
@@ -1207,7 +1270,7 @@ function RequirementOperatorToggle({ operator, onChange, requirementCount }: Req
           className={cn(
             'px-2 py-0.5 text-xs rounded border transition-colors',
             currentOperator === 'AND'
-              ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+              ? 'bg-violet-500/20 text-violet-400 border-violet-500/30'
               : 'bg-muted/30 text-muted-foreground border-transparent'
           )}
           onClick={() => onChange('AND')}
@@ -1352,7 +1415,7 @@ function RequirementEditor({ requirement, availableAttributes, availableTargets 
               {targetAttrs.map((attr, i) => (
                 <SelectItem key={attr.key || `attr-${i}`} value={attr.key}>
                   <span className="flex items-center gap-1">
-                    <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-blue-400' : 'text-green-400'}>
+                    <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-violet-400' : 'text-green-400'}>
                       {attr.type === 'text' ? '📝' : attr.type === 'keyword' ? '🏷️' : '🔢'}
                     </span>
                     {attr.name}
@@ -1383,7 +1446,7 @@ function RequirementEditor({ requirement, availableAttributes, availableTargets 
             {availableAttributes.map(attr => (
               <SelectItem key={attr.id} value={attr.key}>
                 <span className="flex items-center gap-1">
-                  <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-blue-400' : 'text-green-400'}>
+                  <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-violet-400' : 'text-green-400'}>
                     {attr.type === 'text' ? '📝' : attr.type === 'keyword' ? '🏷️' : '🔢'}
                   </span>
                   {attr.name}
@@ -1669,6 +1732,9 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
       case 'message':
         newReward = createMessageReward('');
         break;
+      case 'ubicacion':
+        newReward = createUbicacionReward('', '');
+        break;
       default:
         newReward = createTriggerReward('sprite', '', 'self');
     }
@@ -1900,7 +1966,7 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
                   className={cn(
                     "h-6 px-2 text-[10px] transition-colors",
                     (!localEffect.conditionOperator || localEffect.conditionOperator === 'AND')
-                      ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                      ? "bg-violet-500/20 text-violet-400 border-violet-500/30"
                       : "bg-muted/30 text-muted-foreground border-transparent"
                   )}
                   onClick={() => updateEffect({ conditionOperator: 'AND' })}
@@ -1930,12 +1996,12 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
           </div>
 
           {/* Rewards Section */}
-          <div className="space-y-3 p-3 bg-amber-500/5 rounded-lg border border-amber-500/20">
+          <div className="space-y-3 p-3 bg-fuchsia-500/5 rounded-lg border border-fuchsia-500/20">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Gift className="w-4 h-4 text-amber-400" />
-                <Label className="text-sm font-medium text-amber-400">Recompensas</Label>
-                <Badge variant="outline" className="text-[10px] text-amber-300 border-amber-500/30">
+                <Gift className="w-4 h-4 text-fuchsia-400" />
+                <Label className="text-sm font-medium text-fuchsia-400">Recompensas</Label>
+                <Badge variant="outline" className="text-[10px] text-fuchsia-300 border-fuchsia-500/30">
                   {localEffect.rewards.length} {localEffect.rewards.length === 1 ? 'recompensa' : 'recompensas'}
                 </Badge>
               </div>
@@ -1946,23 +2012,26 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
               <Button variant="outline" size="sm" className="h-6 text-[10px] border-purple-500/30 hover:bg-purple-500/10" onClick={() => addReward('trigger')}>
                 <Plus className="w-2.5 h-2.5 mr-0.5" /> ⚡ Efecto
               </Button>
-              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-amber-400 hover:bg-amber-500/10 border border-dashed border-amber-500/30" onClick={() => addReward('attribute')}>
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-fuchsia-400 hover:bg-fuchsia-500/10 border border-dashed border-fuchsia-500/30" onClick={() => addReward('attribute')}>
                 <Plus className="w-2.5 h-2.5 mr-0.5" /> 📊 Atributo
               </Button>
-              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-blue-400 hover:bg-blue-500/10 border border-dashed border-blue-500/30" onClick={() => addReward('target_attribute')}>
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-violet-400 hover:bg-violet-500/10 border border-dashed border-violet-500/30" onClick={() => addReward('target_attribute')}>
                 <Plus className="w-2.5 h-2.5 mr-0.5" /> 🔗 Atributo Target
               </Button>
-              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-amber-400 hover:bg-amber-500/10 border border-dashed border-amber-500/30" onClick={() => addReward('currency')}>
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-fuchsia-400 hover:bg-fuchsia-500/10 border border-dashed border-fuchsia-500/30" onClick={() => addReward('currency')}>
                 <Plus className="w-2.5 h-2.5 mr-0.5" /> 💰 Divisa
               </Button>
               <Button variant="ghost" size="sm" className="h-6 text-[10px] text-emerald-400 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30" onClick={() => addReward('activate_sprite_pack')}>
                 <Plus className="w-2.5 h-2.5 mr-0.5" /> 🎨 Sprite Pack
               </Button>
-              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-cyan-400 hover:bg-cyan-500/10 border border-dashed border-cyan-500/30" onClick={() => addReward('conditional_sprite_collection')}>
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-fuchsia-400 hover:bg-fuchsia-500/10 border border-dashed border-fuchsia-500/30" onClick={() => addReward('conditional_sprite_collection')}>
                 <Plus className="w-2.5 h-2.5 mr-0.5" /> 🖼️ Colección Condicional
               </Button>
               <Button variant="ghost" size="sm" className="h-6 text-[10px] text-pink-400 hover:bg-pink-500/10 border border-dashed border-pink-500/30" onClick={() => addReward('message')}>
                 <Plus className="w-2.5 h-2.5 mr-0.5" /> 💬 Mensaje
+              </Button>
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-emerald-400 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30" onClick={() => addReward('ubicacion')}>
+                <Plus className="w-2.5 h-2.5 mr-0.5" /> 📍 Ubicación
               </Button>
             </div>
 
@@ -1981,28 +2050,31 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
               const isSpritePack = normalized.type === 'activate_sprite_pack';
               const isCondSprite = normalized.type === 'conditional_sprite_collection';
               const isMessage = normalized.type === 'message';
+              const isUbicacion = normalized.type === 'ubicacion';
 
               return (
                 <div key={reward.id} className={`p-2.5 rounded border space-y-2 ${
+                  isUbicacion ? 'bg-emerald-500/5 border-emerald-500/10' :
                   isSpritePack ? 'bg-emerald-500/5 border-emerald-500/10' :
-                  isCondSprite ? 'bg-cyan-500/5 border-cyan-500/10' :
-                  isAttr ? 'bg-amber-500/5 border-amber-500/10' :
-                  isTargetAttr ? 'bg-blue-500/5 border-blue-500/10' :
-                  isCurrency ? 'bg-amber-500/5 border-amber-500/10' :
+                  isCondSprite ? 'bg-fuchsia-500/5 border-fuchsia-500/10' :
+                  isAttr ? 'bg-fuchsia-500/5 border-fuchsia-500/10' :
+                  isTargetAttr ? 'bg-violet-500/5 border-violet-500/10' :
+                  isCurrency ? 'bg-fuchsia-500/5 border-fuchsia-500/10' :
                   isMessage ? 'bg-pink-500/5 border-pink-500/10' :
                   'bg-purple-500/5 border-purple-500/10'
                 }`}>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className={`text-[10px] ${
+                      isUbicacion ? 'text-emerald-400 border-emerald-500/30' :
                       isSpritePack ? 'text-emerald-400 border-emerald-500/30' :
-                      isCondSprite ? 'text-cyan-400 border-cyan-500/30' :
-                      isAttr ? 'text-amber-400 border-amber-500/30' :
-                      isTargetAttr ? 'text-blue-400 border-blue-500/30' :
-                      isCurrency ? 'text-amber-400 border-amber-500/30' :
+                      isCondSprite ? 'text-fuchsia-400 border-fuchsia-500/30' :
+                      isAttr ? 'text-fuchsia-400 border-fuchsia-500/30' :
+                      isTargetAttr ? 'text-violet-400 border-violet-500/30' :
+                      isCurrency ? 'text-fuchsia-400 border-fuchsia-500/30' :
                       isMessage ? 'text-pink-400 border-pink-500/30' :
                       'text-purple-400 border-purple-500/30'
                     }`}>
-                      {isSpritePack ? '🎨 Sprite Pack' : isCondSprite ? '🖼️ Col. Condicional' : isAttr ? '📊 Atributo' : isTargetAttr ? '🔗 Atributo Target' : isCurrency ? '💰 Divisa' : isMessage ? '💬 Mensaje' : '⚡ Trigger'}
+                      {isUbicacion ? '📍 Ubicación' : isSpritePack ? '🎨 Sprite Pack' : isCondSprite ? '🖼️ Col. Condicional' : isAttr ? '📊 Atributo' : isTargetAttr ? '🔗 Atributo Target' : isCurrency ? '💰 Divisa' : isMessage ? '💬 Mensaje' : '⚡ Trigger'}
                     </Badge>
                     <span className="text-[10px] text-muted-foreground ml-auto">
                       {describeReward(normalized)}
@@ -2405,6 +2477,14 @@ export function ThresholdEffectDialog({ effect, open, onOpenChange, onSave, allA
                       </div>
                     </div>
                   )}
+
+                  {/* Ubicación reward editor (ESCENARIO V3) */}
+                  {isUbicacion && (
+                    <UbicacionRewardEditor
+                      reward={normalized}
+                      onChange={(updated) => updateReward(rewardIdx, updated)}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -2567,13 +2647,13 @@ function ThresholdEffectsSection({ attribute, index, onChange, allAttributes, av
 
       {/* Migration banner */}
       {needsMigration && (
-        <div className="flex items-center gap-2 p-2 bg-amber-500/10 rounded border border-amber-500/20 text-xs">
-          <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <span className="text-amber-300">Existen efectos de umbral en formato antiguo (min/max).</span>
+        <div className="flex items-center gap-2 p-2 bg-fuchsia-500/10 rounded border border-fuchsia-500/20 text-xs">
+          <AlertCircle className="w-3.5 h-3.5 text-fuchsia-400 shrink-0" />
+          <span className="text-fuchsia-300">Existen efectos de umbral en formato antiguo (min/max).</span>
           <Button
             variant="ghost"
             size="sm"
-            className="h-5 text-[10px] text-amber-300 hover:bg-amber-500/10 ml-auto shrink-0"
+            className="h-5 text-[10px] text-fuchsia-300 hover:bg-fuchsia-500/10 ml-auto shrink-0"
             onClick={handleMigrate}
           >
             Migrar al nuevo formato
@@ -2608,7 +2688,7 @@ function ThresholdEffectsSection({ attribute, index, onChange, allAttributes, av
                 {effect.name || 'Sin nombre'}
               </span>
               {effect.priority > 0 && (
-                <Badge variant="outline" className="text-[9px] text-amber-400 border-amber-500/30">
+                <Badge variant="outline" className="text-[9px] text-fuchsia-400 border-fuchsia-500/30">
                   ⬆ Prio: {effect.priority}
                 </Badge>
               )}
@@ -2648,10 +2728,10 @@ function ThresholdEffectsSection({ attribute, index, onChange, allAttributes, av
                 return (
                   <Badge key={ri} variant="outline" className={`text-[9px] ${
                     normalized.type === 'activate_sprite_pack' ? 'text-emerald-400 border-emerald-500/20' :
-                    normalized.type === 'conditional_sprite_collection' ? 'text-cyan-400 border-cyan-500/20' :
-                    normalized.type === 'attribute' ? 'text-amber-400 border-amber-500/20' :
-                    normalized.type === 'target_attribute' ? 'text-blue-400 border-blue-500/20' :
-                    normalized.type === 'currency' ? 'text-amber-400 border-amber-500/20' :
+                    normalized.type === 'conditional_sprite_collection' ? 'text-fuchsia-400 border-fuchsia-500/20' :
+                    normalized.type === 'attribute' ? 'text-fuchsia-400 border-fuchsia-500/20' :
+                    normalized.type === 'target_attribute' ? 'text-violet-400 border-violet-500/20' :
+                    normalized.type === 'currency' ? 'text-fuchsia-400 border-fuchsia-500/20' :
                     'text-purple-400 border-purple-500/20'
                   }`}>
                     {normalized.type === 'activate_sprite_pack' ? '🎨' :
@@ -2714,7 +2794,7 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
       >
         <div className="flex items-center gap-2">
           <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-          <Sword className="w-4 h-4 text-amber-500" />
+          <Sword className="w-4 h-4 text-fuchsia-500" />
           <span className="font-medium text-sm">{skill.name || `Acción #${index + 1}`}</span>
           {skill.key && (
             <code className="text-xs bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
@@ -2722,7 +2802,7 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
             </code>
           )}
           {skill.type && (
-            <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+            <Badge variant="outline" className="text-xs bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20">
               {skill.type === 'preparacion' ? '📋 Prep' : '⚔️ Ejec'}
             </Badge>
           )}
@@ -3066,7 +3146,7 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 text-xs border-amber-500/30 hover:bg-amber-500/10"
+                  className="h-6 text-xs border-fuchsia-500/30 hover:bg-fuchsia-500/10"
                   onClick={() => {
                     const newReward = createObjectiveReward('', undefined, { id: `skill-reward-${Date.now().toString(36)}` });
                     onChange(index, { activationRewards: [...(skill.activationRewards || []), newReward] });
@@ -3088,7 +3168,7 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 text-xs border-blue-500/30 hover:bg-blue-500/10"
+                  className="h-6 text-xs border-violet-500/30 hover:bg-violet-500/10"
                   onClick={() => {
                     const newReward = createTargetAttributeReward('', '', 0, 'set', { id: `skill-reward-${Date.now().toString(36)}` });
                     onChange(index, { activationRewards: [...(skill.activationRewards || []), newReward] });
@@ -3099,7 +3179,7 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 text-xs border-amber-500/30 hover:bg-amber-500/10"
+                  className="h-6 text-xs border-fuchsia-500/30 hover:bg-fuchsia-500/10"
                   onClick={() => {
                     const newReward = createCurrencyReward(0, { id: `skill-reward-${Date.now().toString(36)}` });
                     onChange(index, { activationRewards: [...(skill.activationRewards || []), newReward] });
@@ -3118,6 +3198,17 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
                 >
                   <Plus className="w-3 h-3 mr-1" /> 🎨 Sprite Pack
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs border-emerald-500/30 hover:bg-emerald-500/10"
+                  onClick={() => {
+                    const newReward = createUbicacionReward('', '', { id: `skill-reward-${Date.now().toString(36)}` });
+                    onChange(index, { activationRewards: [...(skill.activationRewards || []), newReward] });
+                  }}
+                >
+                  <Plus className="w-3 h-3 mr-1" /> 📍 Ubicación
+                </Button>
               </div>
             </div>
             <div className="space-y-1">
@@ -3129,12 +3220,13 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
                 const isTargetAttr = normalized.type === 'target_attribute';
                 const isCurrency = normalized.type === 'currency';
                 const isActivateSpritePack = normalized.type === 'activate_sprite_pack';
+                const isUbicacion = normalized.type === 'ubicacion';
 
                 return (
-                  <div key={reward.id} className={`p-2 rounded border space-y-2 ${isObj ? 'bg-amber-500/5 border-amber-500/10' : isSol ? 'bg-violet-500/5 border-violet-500/10' : isTargetAttr ? 'bg-blue-500/5 border-blue-500/10' : isCurrency ? 'bg-amber-500/5 border-amber-500/10' : isActivateSpritePack ? 'bg-purple-500/5 border-purple-500/10' : 'bg-green-500/5 border-green-500/10'}`}>
+                  <div key={reward.id} className={`p-2 rounded border space-y-2 ${isObj ? 'bg-fuchsia-500/5 border-fuchsia-500/10' : isSol ? 'bg-violet-500/5 border-violet-500/10' : isTargetAttr ? 'bg-violet-500/5 border-violet-500/10' : isCurrency ? 'bg-fuchsia-500/5 border-fuchsia-500/10' : isActivateSpritePack ? 'bg-purple-500/5 border-purple-500/10' : isUbicacion ? 'bg-emerald-500/5 border-emerald-500/10' : 'bg-green-500/5 border-green-500/10'}`}>
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={`text-[10px] ${isObj ? 'text-amber-400 border-amber-500/30' : isSol ? 'text-violet-400 border-violet-500/30' : isTargetAttr ? 'text-blue-400 border-blue-500/30' : isCurrency ? 'text-amber-400 border-amber-500/30' : isActivateSpritePack ? 'text-purple-400 border-purple-500/30' : 'text-green-400 border-green-500/30'}`}>
-                        {isObj ? '🎯 Objetivo' : isSol ? '📋 Solicitud' : isTargetAttr ? '🔗 Atributo Target' : isCurrency ? '💰 Divisa' : isActivateSpritePack ? '🎨 Sprite Pack' : '⚡ Trigger'}
+                      <Badge variant="outline" className={`text-[10px] ${isObj ? 'text-fuchsia-400 border-fuchsia-500/30' : isSol ? 'text-violet-400 border-violet-500/30' : isTargetAttr ? 'text-violet-400 border-violet-500/30' : isCurrency ? 'text-fuchsia-400 border-fuchsia-500/30' : isActivateSpritePack ? 'text-purple-400 border-purple-500/30' : isUbicacion ? 'text-emerald-400 border-emerald-500/30' : 'text-green-400 border-green-500/30'}`}>
+                        {isObj ? '🎯 Objetivo' : isSol ? '📋 Solicitud' : isTargetAttr ? '🔗 Atributo Target' : isCurrency ? '💰 Divisa' : isActivateSpritePack ? '🎨 Sprite Pack' : isUbicacion ? '📍 Ubicación' : '⚡ Trigger'}
                       </Badge>
                       <Badge variant="outline" className="text-[10px]">
                         {describeReward(normalized)}
@@ -3324,7 +3416,7 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
                               placeholder="Key del objetivo (ej: psycompletado)"
                               className="bg-background h-6 text-xs font-mono flex-1"
                             />
-                            <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/30">
+                            <Badge variant="outline" className="text-[10px] text-fuchsia-500 border-fuchsia-500/30">
                               Sin quests asignadas
                             </Badge>
                           </div>
@@ -3710,8 +3802,8 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
 
                         {/* TARGET mode: Select target character + their sprite pack */}
                         {(normalized.activate_sprite_pack.targetMode) === 'target' && (
-                          <div className="space-y-2 p-2 rounded-md bg-blue-500/5 border border-blue-500/10">
-                            <div className="text-[10px] text-blue-500 font-medium">Activar en personaje objetivo</div>
+                          <div className="space-y-2 p-2 rounded-md bg-violet-500/5 border border-violet-500/10">
+                            <div className="text-[10px] text-violet-500 font-medium">Activar en personaje objetivo</div>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1">
                                 <Label className="text-[10px] text-muted-foreground">Personaje objetivo</Label>
@@ -3867,6 +3959,18 @@ function SkillEditor({ skill, index, availableAttributes, availableObjectives = 
                         })()}
                       </div>
                     )}
+                    {/* Ubicación Reward Editor (ESCENARIO V3) */}
+                    {isUbicacion && (
+                      <UbicacionRewardEditor
+                        reward={normalized}
+                        compact
+                        onChange={(updated) => {
+                          const updatedRewards = [...(skill.activationRewards || [])];
+                          updatedRewards[rewardIdx] = updated;
+                          onChange(index, { activationRewards: updatedRewards });
+                        }}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -3935,20 +4039,20 @@ function TriggerKeyEditor({
       keyText: 'text-purple-400',
     },
     cyan: {
-      bg: 'bg-cyan-500/10',
-      border: 'border-cyan-500/20',
-      icon: 'text-cyan-400',
-      label: 'text-cyan-400',
-      keyBg: 'bg-cyan-500/10',
-      keyText: 'text-cyan-400',
+      bg: 'bg-fuchsia-500/10',
+      border: 'border-fuchsia-500/20',
+      icon: 'text-fuchsia-400',
+      label: 'text-fuchsia-400',
+      keyBg: 'bg-fuchsia-500/10',
+      keyText: 'text-fuchsia-400',
     },
     amber: {
-      bg: 'bg-amber-500/10',
-      border: 'border-amber-500/20',
-      icon: 'text-amber-400',
-      label: 'text-amber-400',
-      keyBg: 'bg-amber-500/10',
-      keyText: 'text-amber-400',
+      bg: 'bg-fuchsia-500/10',
+      border: 'border-fuchsia-500/20',
+      icon: 'text-fuchsia-400',
+      label: 'text-fuchsia-400',
+      keyBg: 'bg-fuchsia-500/10',
+      keyText: 'text-fuchsia-400',
     },
     emerald: {
       bg: 'bg-emerald-500/10',
@@ -4096,10 +4200,10 @@ function SolicitudDefinitionEditor({ solicitud, index, availableAttributes, avai
       >
         <div className="flex items-center gap-2">
           <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-          <Inbox className="w-4 h-4 text-cyan-500" />
+          <Inbox className="w-4 h-4 text-fuchsia-500" />
           <span className="font-medium text-sm">{solicitud.name || `Solicitud #${index + 1}`}</span>
           {solicitud.peticionKey && (
-            <code className="text-xs bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 px-1.5 py-0.5 rounded">
+            <code className="text-xs bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 px-1.5 py-0.5 rounded">
               pet: {solicitud.peticionKey}
             </code>
           )}
@@ -4268,10 +4372,10 @@ function SolicitudDefinitionEditor({ solicitud, index, availableAttributes, avai
           </div>
 
           {/* Expiration Section */}
-          <div className="space-y-2 pt-2 border-t border-cyan-500/20">
+          <div className="space-y-2 pt-2 border-t border-fuchsia-500/20">
             <div className="flex items-center gap-2">
-              <Clock className="w-3.5 h-3.5 text-cyan-400" />
-              <Label className="text-xs font-medium text-cyan-400">Expiración</Label>
+              <Clock className="w-3.5 h-3.5 text-fuchsia-400" />
+              <Label className="text-xs font-medium text-fuchsia-400">Expiración</Label>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
@@ -4467,7 +4571,7 @@ function InvitationEditor({ invitation, index, availableAttributes, allCharacter
                     <p><strong>Key de activación:</strong> <code className="bg-muted px-1 rounded">{selectedSolicitud.peticionKey}</code></p>
                     <p><strong>Descripción:</strong> {selectedSolicitud.peticionDescription || '(sin descripción)'}</p>
                     {selectedSolicitud.requirements.length > 0 && (
-                      <p className="text-amber-600 dark:text-amber-400">
+                      <p className="text-fuchsia-600 dark:text-fuchsia-400">
                         ⚠️ Esta solicitud tiene requisitos que el objetivo debe cumplir
                       </p>
                     )}
@@ -4816,41 +4920,84 @@ function EmotionalStateEditor({ config, onChange }: EmotionalStateEditorProps) {
           </div>
 
           {/* Include in Prompt */}
-          <div className="flex items-center justify-between">
+          <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-              <Label className="text-xs font-medium">Incluir en el Prompt</Label>
+              <Label className="text-xs font-medium">Inyección en el Prompt</Label>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  <p>Cuando está activado, se inyecta "Estado emocional actual: {'{estado}'}" en el prompt del personaje. Esto le da al LLM conciencia de su emoción para respuestas más coherentes.</p>
+                  <p>La sección automática "Estado emocional" del prompt fue eliminada. Ahora controlas dónde y cómo se inyecta el estado con la key {'{{estado}}'} en las secciones de la card o en entries de lorebooks.</p>
                 </TooltipContent>
               </Tooltip>
             </div>
-            <Switch
-              checked={config.includeInPrompt}
-              onCheckedChange={(includeInPrompt) => updateConfig({ includeInPrompt })}
-            />
+            <p className="text-xs text-muted-foreground">
+              Usa la key <code className="bg-muted px-1 rounded">{'{{estado}}'}</code> en cualquier sección de la card o entry de lorebook: se reemplazará por el estado emocional actual del personaje (ej: <code className="bg-muted px-1 rounded">Estado emocional: {'{{estado}}'}</code>). Si el sistema está desactivado o aún no hay estado, se resuelve vacío.
+            </p>
           </div>
-
-          {/* Custom Prompt Format */}
-          {config.includeInPrompt && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Formato de Inyección</Label>
-              <p className="text-xs text-muted-foreground">
-                Usa <code className="bg-muted px-1 rounded">{'{estado}'}</code> como placeholder para el estado emocional.
-              </p>
-              <Input
-                value={config.promptInjectionFormat || 'Estado emocional actual: {estado}'}
-                onChange={(e) => updateConfig({ promptInjectionFormat: e.target.value })}
-                placeholder="Estado emocional actual: {estado}"
-                className="h-8 text-sm"
-              />
-            </div>
-          )}
         </>
       )}
+    </div>
+  );
+}
+
+// ============================================
+// Bond Stages Editor — customizable stage names for the relationship system
+// (Extraños / Conocidos / Amigos / Íntimos / Pareja by default). Only the
+// display names are editable; the point ranges stay fixed.
+// ============================================
+
+function BondStagesEditor({ labels, onChange }: { labels?: Record<string, string>; onChange: (labels: Record<string, string>) => void }) {
+  const updateLabel = (key: string, value: string) => {
+    onChange({ ...(labels || {}), [key]: value });
+  };
+
+  const resetLabel = (key: string) => {
+    const next = { ...(labels || {}) };
+    delete next[key];
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Personaliza los nombres de las etapas del vínculo para este personaje. Los rangos de puntos se mantienen fijos;
+        solo cambian los nombres con los que se muestran (panel de relaciones, espejo <code className="bg-muted px-1 rounded">relacion_etapa</code>, key <code className="bg-muted px-1 rounded">{'{{relacion_etapa}}'}</code> y la herramienta manage_relationship).
+      </p>
+      <div className="space-y-2">
+        {RELATIONSHIP_STAGES.map(stage => {
+          const custom = labels?.[stage.key] ?? '';
+          const isCustom = custom.trim().length > 0 && custom !== stage.label;
+          return (
+            <div key={stage.key} className="flex items-center gap-2">
+              <Badge variant="outline" className="text-[9px] shrink-0 w-20 justify-center">
+                {stage.min}-{stage.max}
+              </Badge>
+              <Input
+                value={custom}
+                onChange={(e) => updateLabel(stage.key, e.target.value)}
+                placeholder={stage.label}
+                className="h-8 text-sm"
+                aria-label={`Etapa ${stage.label}`}
+              />
+              {isCustom && (
+                <button
+                  type="button"
+                  onClick={() => resetLabel(stage.key)}
+                  className="h-7 w-7 shrink-0 flex items-center justify-center rounded hover:bg-muted"
+                  title="Restaurar nombre por defecto"
+                >
+                  <Undo2 className="w-3 h-3 text-muted-foreground" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Deja el campo vacío para usar el nombre por defecto de cada etapa.
+      </p>
     </div>
   );
 }
@@ -4859,7 +5006,7 @@ function EmotionalStateEditor({ config, onChange }: EmotionalStateEditorProps) {
 // Main Stats Editor Component
 // ============================================
 
-export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTemplates = [], questTemplateIds, availableTargets = [], spritePacksV2, emotionalConfig, onEmotionalConfigChange }: StatsEditorProps) {
+export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTemplates = [], questTemplateIds, availableTargets = [], spritePacksV2, emotionalConfig, onEmotionalConfigChange, relationshipStageLabels, onRelationshipStageLabelsChange }: StatsEditorProps) {
   const config: CharacterStatsConfig = statsConfig || DEFAULT_STATS_CONFIG;
   
   const updateConfig = (updates: Partial<CharacterStatsConfig>) => {
@@ -5019,7 +5166,7 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
                   <div className="text-xs space-y-1 text-muted-foreground pt-2 border-t">
                     <p className="font-medium text-foreground">Keys del prompt:</p>
                     <p>• <code className="text-emerald-400">{'{{attributes}}'}</code> — se expande al bloque [GESTIÓN DE ATRIBUTOS]: lista de atributos con sus valores actuales (se actualiza en cada turno).</p>
-                    <p>• <code className="text-emerald-400">{'{{attributes_rulz}}'}</code> — se expande a la explicación del atributo PRINCIPAL 👑 y a las reglas para que el LLM use la herramienta <code>modify_stat</code> (+10 / -5 / =50, estados, reason...).</p>
+                    <p>• <code className="text-emerald-400">{'{{attributes_rulz}}'}</code> — se expande a la explicación del atributo PRINCIPAL 👑, la semántica (esencia) de cada atributo y las reglas para que el LLM use la herramienta <code>modify_stat</code> (+10 / -5 / =50, estados, reason...). Los ejemplos usan las keys reales del personaje.</p>
                     <p className="text-muted-foreground/80">Colócalas donde quieras que aparezcan: en cualquier sección de la card (descripción, personalidad, escenario, nota del personaje, Author's Note, Post-History Instructions...) o en entradas de lorebook de cualquier posición. Si no las colocas en ninguna parte, el LLM NO recibe la sección de atributos.</p>
                   </div>
                 </div>
@@ -5173,7 +5320,7 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
                       <div className="text-xs space-y-1 text-muted-foreground pt-1.5 border-t">
                         <p className="font-medium text-foreground">Inyección en el prompt (manual):</p>
                         <p>• <code className="text-emerald-400">{'{{attributes}}'}</code> — bloque [GESTIÓN DE ATRIBUTOS] con la lista y valores actuales.</p>
-                        <p>• <code className="text-emerald-400">{'{{attributes_rulz}}'}</code> — atributo PRINCIPAL 👑 + reglas de modify_stat.</p>
+                        <p>• <code className="text-emerald-400">{'{{attributes_rulz}}'}</code> — atributo PRINCIPAL 👑 + esencia de cada atributo + reglas de modify_stat (con keys reales del personaje).</p>
                         <p className="text-muted-foreground/80">Escríbelas en cualquier sección de la card o en una entrada de lorebook (cualquier posición). Sin ellas, el LLM no recibe el bloque de atributos.</p>
                       </div>
                     </div>
@@ -5206,7 +5353,7 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
               <div className="flex items-center px-4">
                 <AccordionTrigger className="px-0 hover:no-underline flex-1">
                   <div className="flex items-center gap-2">
-                    <Sword className="w-4 h-4 text-amber-500" />
+                    <Sword className="w-4 h-4 text-fuchsia-500" />
                     <span>Acciones</span>
                     <Badge variant="secondary" className="ml-2">{config.skills.length}</Badge>
                   </div>
@@ -5359,7 +5506,7 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
               <div className="flex items-center px-4">
                 <AccordionTrigger className="px-0 hover:no-underline flex-1">
                   <div className="flex items-center gap-2">
-                    <Inbox className="w-4 h-4 text-cyan-500" />
+                    <Inbox className="w-4 h-4 text-fuchsia-500" />
                     <span>Solicitudes</span>
                     <Badge variant="secondary" className="ml-2">{(config.solicitudDefinitions || []).length}</Badge>
                   </div>
@@ -5541,7 +5688,7 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
                           El estado emocional se puede usar en:
                         </p>
                         <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
-                          <li><code className="bg-muted px-1 rounded">{'{{emocion}}'}</code> — Se resuelve al estado actual en el prompt</li>
+                          <li><code className="bg-muted px-1 rounded">{'{{estado}}'}</code> — Se resuelve al estado actual donde la coloques (secciones de la card o lorebooks)</li>
                           <li>Condiciones de sprites — Para cambiar expresión según emoción</li>
                           <li>Condiciones de atributos — Para habilitar/deshabilitar acciones</li>
                         </ul>
@@ -5560,12 +5707,64 @@ export function StatsEditor({ statsConfig, onChange, allCharacters = [], questTe
           </div>
         )}
 
+        {/* Bond Stages Section — customizable stage names for the relationship system */}
+        {onRelationshipStageLabelsChange && (
+          <div className="mt-4 border rounded-lg">
+            <Accordion type="multiple" defaultValue={[]}>
+              <AccordionItem value="bond-stages" className="border-0">
+                <div className="flex items-center px-4">
+                  <AccordionTrigger className="px-0 hover:no-underline flex-1">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-fuchsia-500" />
+                      <span>Etapas del Vínculo</span>
+                      <Badge variant="secondary" className="ml-2">
+                        {(() => {
+                          const count = Object.values(relationshipStageLabels || {}).filter(v => v && v.trim() && RELATIONSHIP_STAGES.some(s => s.label !== v.trim())).length;
+                          return count > 0 ? `${count} personalizadas` : 'Por defecto';
+                        })()}
+                      </Badge>
+                    </div>
+                  </AccordionTrigger>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Info className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80">
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-sm">Etapas del Vínculo</h4>
+                        <p className="text-xs text-muted-foreground">
+                          El sistema de relaciones divide el vínculo (0-100) en etapas predefinidas (Extraños, Conocidos, Amigos, Íntimos, Pareja).
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Aquí puedes personalizar los nombres de esas etapas para este personaje. El nombre personalizado se usa en el panel de relaciones, en el espejo <code className="bg-muted px-1 rounded">relacion_etapa</code>, en la key <code className="bg-muted px-1 rounded">{'{{relacion_etapa}}'}</code> y en la herramienta manage_relationship.
+                        </p>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <AccordionContent className="px-4 pb-4">
+                  <BondStagesEditor
+                    labels={relationshipStageLabels}
+                    onChange={onRelationshipStageLabelsChange}
+                  />
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </div>
+        )}
+
         {/* Usage Help */}
         <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3 space-y-2">
           <p className="font-medium">Uso de keys en el personaje:</p>
           <div className="space-y-1 pl-2">
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{attributes}}'}</code> → Bloque [GESTIÓN DE ATRIBUTOS]: lista de atributos con sus valores actuales (se actualiza en cada turno)</p>
-            <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{attributes_rulz}}'}</code> → Atributo PRINCIPAL 👑 + reglas para que el LLM use la herramienta modify_stat</p>
+            <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{attributes_rulz}}'}</code> → Atributo PRINCIPAL 👑 + semántica (esencia) de cada atributo + reglas para que el LLM use la herramienta modify_stat</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{vida}}'}</code> → Muestra el valor del atributo</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{acciones}}'}</code> → Lista de acciones disponibles</p>
             <p>• <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{'{{intenciones}}'}</code> → Lista de intenciones disponibles</p>

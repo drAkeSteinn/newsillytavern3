@@ -70,7 +70,7 @@ const statusConfig: Record<QuestStatus, { label: string; color: string; icon: Re
   },
   completed: {
     label: 'Completada',
-    color: 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/30',
+    color: 'bg-violet-500/20 text-violet-600 dark:text-violet-400 border-violet-500/30',
     icon: <CheckCircle2 className="w-3.5 h-3.5" />,
   },
   failed: {
@@ -80,7 +80,7 @@ const statusConfig: Record<QuestStatus, { label: string; color: string; icon: Re
   },
   paused: {
     label: 'Pausada',
-    color: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30',
+    color: 'bg-fuchsia-500/20 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30',
     icon: <Pause className="w-3.5 h-3.5" />,
   },
 };
@@ -88,12 +88,12 @@ const statusConfig: Record<QuestStatus, { label: string; color: string; icon: Re
 const priorityConfig: Record<QuestPriority, { label: string; color: string; icon: React.ReactNode }> = {
   main: {
     label: 'Principal',
-    color: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30',
+    color: 'bg-fuchsia-500/20 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30',
     icon: <Star className="w-3.5 h-3.5" />,
   },
   side: {
     label: 'Secundaria',
-    color: 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/30',
+    color: 'bg-violet-500/20 text-violet-600 dark:text-violet-400 border-violet-500/30',
     icon: <Target className="w-3.5 h-3.5" />,
   },
   hidden: {
@@ -313,7 +313,7 @@ export function QuestInstanceEditor({
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-amber-500" />
+                    <Trophy className="w-4 h-4 text-fuchsia-500" />
                     Recompensas
                   </CardTitle>
                 </CardHeader>
@@ -330,8 +330,8 @@ export function QuestInstanceEditor({
                           variant="secondary" 
                           className={cn(
                             "gap-1.5 py-1 px-2",
-                            isAttribute && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
-                            isTrigger && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                            isAttribute && "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/30",
+                            isTrigger && "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30"
                           )}
                         >
                           {isAttribute && <Hash className="w-3 h-3" />}

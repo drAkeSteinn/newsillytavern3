@@ -61,7 +61,7 @@ const STATE_CONFIG: {
     label: 'Idle (Reposo)', 
     icon: <Sparkles className="w-4 h-4" />, 
     description: 'Sprite por defecto cuando no hace nada',
-    color: 'text-amber-500'
+    color: 'text-fuchsia-500'
   },
   { 
     key: 'talk', 
@@ -75,7 +75,7 @@ const STATE_CONFIG: {
     label: 'Thinking (Pensando)', 
     icon: <Brain className="w-4 h-4" />, 
     description: 'Sprite cuando está pensando',
-    color: 'text-blue-500'
+    color: 'text-violet-500'
   },
 ];
 
@@ -380,7 +380,7 @@ export function StateCollectionEditorV2({
                   {collection.behavior === 'principal' && sprites.length > 1 && (
                     <div className="space-y-2">
                       <Label className="text-xs flex items-center gap-1">
-                        <Crown className="w-3 h-3 text-amber-500" />
+                        <Crown className="w-3 h-3 text-fuchsia-500" />
                         Sprite Principal — Selecciona el sprite principal
                       </Label>
                       <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
@@ -390,7 +390,7 @@ export function StateCollectionEditorV2({
                             className={cn(
                               "relative border-2 rounded-lg overflow-hidden cursor-pointer transition-all shrink-0 w-28",
                               collection.principalSpriteId === sprite.id
-                                ? "border-amber-500 ring-2 ring-amber-500/30"
+                                ? "border-fuchsia-500 ring-2 ring-fuchsia-500/30"
                                 : "border-border hover:border-primary"
                             )}
                             onClick={() => handlePrincipalSpriteChange(stateConfig.key, sprite.id)}
@@ -403,8 +403,8 @@ export function StateCollectionEditorV2({
                                 objectFit="contain"
                               />
                               {collection.principalSpriteId === sprite.id && (
-                                <div className="absolute inset-0 bg-amber-500/15 flex items-center justify-center">
-                                  <div className="bg-amber-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+                                <div className="absolute inset-0 bg-fuchsia-500/15 flex items-center justify-center">
+                                  <div className="bg-fuchsia-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
                                     <Check className="w-3 h-3" />
                                   </div>
                                 </div>
@@ -453,9 +453,9 @@ export function StateCollectionEditorV2({
                               key={sprite.id}
                               className={cn(
                                 "relative border rounded-lg overflow-hidden shrink-0 w-32",
-                                isSelected ? "border-amber-500 ring-2 ring-amber-500/20" : "border-border",
+                                isSelected ? "border-fuchsia-500 ring-2 ring-fuchsia-500/20" : "border-border",
                                 isCondEnabled && "border-purple-500/50",
-                                isDefault && pack?.conditionalMode && "border-amber-500/50"
+                                isDefault && pack?.conditionalMode && "border-fuchsia-500/50"
                               )}
                             >
                               <div className="aspect-square relative bg-muted/30">
@@ -476,7 +476,7 @@ export function StateCollectionEditorV2({
                                 {/* Default badge */}
                                 {isDefault && pack?.conditionalMode && (
                                   <div className="absolute bottom-1 left-1">
-                                    <Badge variant="secondary" className="text-[8px] h-3.5 px-1 bg-amber-500/80 text-white">
+                                    <Badge variant="secondary" className="text-[8px] h-3.5 px-1 bg-fuchsia-500/80 text-white">
                                       ★ Default
                                     </Badge>
                                   </div>
@@ -484,7 +484,7 @@ export function StateCollectionEditorV2({
                                 {/* Selected indicator */}
                                 {isSelected && (
                                   <div className="absolute top-1 right-1">
-                                    <Badge variant="secondary" className="text-[8px] h-3.5 px-1 bg-amber-500/80 text-white">
+                                    <Badge variant="secondary" className="text-[8px] h-3.5 px-1 bg-fuchsia-500/80 text-white">
                                       <Crown className="w-2.5 h-2.5" />
                                     </Badge>
                                   </div>
@@ -535,7 +535,7 @@ export function StateCollectionEditorV2({
 
               {/* Pack empty */}
               {collection && pack && sprites.length === 0 && (
-                <div className="text-center py-4 text-amber-600 border border-amber-500/30 rounded-lg bg-amber-500/5">
+                <div className="text-center py-4 text-fuchsia-600 border border-fuchsia-500/30 rounded-lg bg-fuchsia-500/5">
                   <Package className="w-6 h-6 mx-auto mb-1 opacity-50" />
                   <p className="text-xs">El pack &quot;{pack?.name}&quot; está vacío</p>
                   <p className="text-[10px] mt-0.5">
@@ -550,7 +550,7 @@ export function StateCollectionEditorV2({
 
       {/* Summary */}
       {spritePacksV2.length === 0 && (
-        <div className="text-center py-4 text-amber-600 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+        <div className="text-center py-4 text-fuchsia-600 bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg">
           <Package className="w-6 h-6 mx-auto mb-2" />
           <p className="text-sm font-medium">No hay Sprite Packs creados</p>
           <p className="text-xs mt-1">

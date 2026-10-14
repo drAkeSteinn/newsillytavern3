@@ -35,6 +35,8 @@ const PERSIST_KEYS = [
   'spriteIndex', 'spriteLibraries',
   // Timeline
   'collections',
+  // Scenario Library (ESCENARIO V3)
+  'scenarios',
 ] as const;
 
 type PersistKey = typeof PERSIST_KEYS[number];
@@ -256,6 +258,11 @@ export function usePersistenceSync() {
           updates.collections = data.collections;
         }
 
+        // Scenario Library (ESCENARIO V3)
+        if (Array.isArray(data.scenarios)) {
+          updates.scenarios = data.scenarios;
+        }
+
         // MIGRATION (global slots → persona slots): the Slots section was removed
         // from the Inventory UI. Slots are now managed exclusively in Persona and
         // Character configuration. Move any legacy global equipmentSlots to the
@@ -395,6 +402,8 @@ export function usePersistenceSync() {
         },
         // Timeline
         collections: state.collections,
+        // Scenario Library (ESCENARIO V3)
+        scenarios: state.scenarios,
         // Active states
         activeStates: {
           activeSessionId: state.activeSessionId,

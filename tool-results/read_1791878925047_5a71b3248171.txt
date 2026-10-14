@@ -1,0 +1,455 @@
+   460→   460→            >
+   461→   461→              {/* Collections Sidebar */}
+   462→   462→              <div className="w-14 md:w-64 border-r bg-muted/30 flex flex-col flex-shrink-0">
+   463→   463→                <div className="p-1.5 md:p-2 border-b">
+   464→   464→                  <Tooltip>
+   465→   465→                    <TooltipTrigger asChild>
+   466→   466→                      <Button
+   467→   467→                        variant="default"
+   468→   468→                        size="sm"
+   469→   469→                        className="w-full h-8"
+   470→   470→                        onClick={() => setShowCreateDialog(true)}
+   471→   471→                      >
+   472→   472→                        <FolderPlus className="w-4 h-4 shrink-0" />
+   473→   473→                        <span className="hidden md:inline ml-2">Nueva Colección</span>
+   474→   474→                      </Button>
+   475→   475→                    </TooltipTrigger>
+   476→   476→                    <TooltipContent side="right" className="md:hidden">
+   477→   477→                      Nueva Colección
+   478→   478→                    </TooltipContent>
+   479→   479→                  </Tooltip>
+   480→   480→                </div>
+   481→   481→                <ScrollArea className="flex-1">
+   482→   482→                  <div className="p-1.5 md:p-2 space-y-0.5">
+   483→   483→                    {collections.map(collection => (
+   484→   484→                      <Tooltip key={collection.name}>
+   485→   485→                        <TooltipTrigger asChild>
+   486→   486→                          <div
+   487→   487→                            className={cn(
+   488→   488→                              "group flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors",
+   489→   489→                              selectedCollectionName === collection.name
+   490→   490→                                ? "bg-primary text-primary-foreground"
+   491→   491→                                : "hover:bg-muted"
+   492→   492→                            )}
+   493→   493→                            onClick={() => handleSelectCollection(collection)}
+   494→   494→                          >
+   495→   495→                            <FolderOpen className="w-4 h-4 flex-shrink-0" />
+   496→   496→                            <div className="flex-1 min-w-0 hidden md:block">
+   497→   497→                              <p className="font-medium truncate text-sm">{collection.name}</p>
+   498→   498→                              <p className="text-xs opacity-70">
+   499→   499→                                {collection.files.length} archivo{collection.files.length !== 1 ? 's' : ''}
+   500→   500→                              </p>
+   501→   501→                            </div>
+   502→   502→                            <Button
+   503→   503→                              variant="ghost"
+   504→   504→                              size="icon"
+   505→   505→                              className={cn(
+   506→   506→                                "h-6 w-6 shrink-0",
+   507→   507→                                selectedCollectionName === collection.name 
+   508→   508→                                  ? "text-primary-foreground hover:text-primary-foreground hover:bg-primary/80" 
+   509→   509→                                  : "opacity-0 group-hover:opacity-100"
+   510→   510→                              )}
+   511→   511→                              onClick={(e) => {
+   512→   512→                                e.stopPropagation();
+   513→   513→                                setDeleteTarget({ type: 'collection', name: collection.name });
+   514→   514→                                setShowDeleteDialog(true);
+   515→   515→                              }}
+   516→   516→                            >
+   517→   517→                              <Trash2 className="w-3 h-3" />
+   518→   518→                            </Button>
+   519→   519→                          </div>
+   520→   520→                        </TooltipTrigger>
+   521→   521→                        <TooltipContent side="right" className="md:hidden">
+   522→   522→                          {collection.name}
+   523→   523→                        </TooltipContent>
+   524→   524→                      </Tooltip>
+   525→   525→                    ))}
+   526→   526→                    
+   527→   527→                    {collections.length === 0 && !isLoading && (
+   528→   528→                      <div className="text-center py-8 text-muted-foreground">
+   529→   529→                        <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
+   530→   530→                        <p className="text-sm hidden md:block">Sin colecciones</p>
+   531→   531→                        <p className="text-xs mt-1 hidden md:block">Crea una para comenzar</p>
+   532→   532→                      </div>
+   533→   533→                    )}
+   534→   534→                  </div>
+   535→   535→                </ScrollArea>
+   536→   536→              </div>
+   537→   537→
+   538→   538→              {/* Main Content */}
+   539→   539→              <div className="flex-1 flex flex-col overflow-hidden">
+   540→   540→                {localCollection ? (
+   541→   541→                  <>
+   542→   542→                    {/* Collection Header */}
+   543→   543→                    <div className="p-4 border-b bg-muted/20 flex-shrink-0">
+   544→   544→                      <div className="flex items-start justify-between gap-4">
+   545→   545→                        <div className="flex-1 space-y-2">
+   546→   546→                          <Input
+   547→   547→                            value={localCollection.name}
+   548→   548→                            onChange={(e) => updateLocalCollection({ name: e.target.value })}
+   549→   549→                            className="font-semibold text-lg border-none bg-transparent px-0 focus-visible:ring-0"
+   550→   550→                          />
+   551→   551→                          <Textarea
+   552→   552→                            value={localCollection.description || ''}
+   553→   553→                            onChange={(e) => updateLocalCollection({ description: e.target.value })}
+   554→   554→                            placeholder="Descripción de la colección..."
+   555→   555→                            className="min-h-[40px] resize-none border-none bg-transparent px-0 focus-visible:ring-0 text-sm"
+   556→   556→                          />
+   557→   557→                        </div>
+   558→   558→                        <div className="flex items-center gap-2">
+   559→   559→                          <input
+   560→   560→                            type="file"
+   561→   561→                            ref={fileInputRef}
+   562→   562→                            onChange={handleUploadFile}
+   563→   563→                            accept="image/*,video/*"
+   564→   564→                            className="hidden"
+   565→   565→                          />
+   566→   566→                          <Button
+   567→   567→                            variant="default"
+   568→   568→                            size="sm"
+   569→   569→                            onClick={() => fileInputRef.current?.click()}
+   570→   570→                            disabled={isUploading}
+   571→   571→                          >
+   572→   572→                            {isUploading ? (
+   573→   573→                              <Loader2 className="w-4 h-4 animate-spin" />
+   574→   574→                            ) : (
+   575→   575→                              <Upload className="w-4 h-4" />
+   576→   576→                            )}
+   577→   577→                            <span className="ml-1">Subir</span>
+   578→   578→                          </Button>
+   579→   579→                          <Button
+   580→   580→                            variant="outline"
+   581→   581→                            size="sm"
+   582→   582→                            onClick={syncEntriesWithFiles}
+   583→   583→                            title="Sincronizar entradas con archivos"
+   584→   584→                          >
+   585→   585→                            <RefreshCw className="w-4 h-4" />
+   586→   586→                          </Button>
+   587→   587→                        </div>
+   588→   588→                      </div>
+   589→   589→                    </div>
+   590→   590→
+   591→   591→                    {/* Files Accordion */}
+   592→   592→                    <ScrollArea className="flex-1">
+   593→   593→                      <div className="p-4">
+   594→   594→                        {localCollection.files.length === 0 ? (
+   595→   595→                          <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+   596→   596→                            <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
+   597→   597→                            <p>Sin fondos en esta colección</p>
+   598→   598→                            <p className="text-xs mt-1">Sube imágenes o videos para comenzar</p>
+   599→   599→                          </div>
+   600→   600→                        ) : (
+   601→   601→                          <Accordion type="multiple" className="w-full space-y-2">
+   602→   602→                            {localCollection.files.map((file, index) => {
+   603→   603→                              const entry = getEntryForFile(file);
+   604→   604→                              const isVideo = file.type === 'video';
+   605→   605→                              
+   606→   606→                              return (
+   607→   607→                                <AccordionItem 
+   608→   608→                                  key={file.url} 
+   609→   609→                                  value={`file-${index}`}
+   610→   610→                                  className="border rounded-lg bg-card overflow-hidden"
+   611→   611→                                >
+   612→   612→                                  <div className="flex items-center">
+   613→   613→                                    <AccordionTrigger className="px-3 py-2 hover:no-underline hover:bg-muted/50 flex-1">
+   614→   614→                                      <div className="flex items-center gap-3 w-full pr-4">
+   615→   615→                                        {/* Small Thumbnail */}
+   616→   616→                                        <div className="w-12 h-8 flex-shrink-0 relative rounded overflow-hidden bg-muted">
+   617→   617→                                          {isVideo ? (
+   618→   618→                                            <video
+   619→   619→                                              src={file.url}
+   620→   620→                                              className="w-full h-full object-cover"
+   621→   621→                                              muted
+   622→   622→                                            />
+   623→   623→                                          ) : (
+   624→   624→                                            <img
+   625→   625→                                              src={file.url}
+   626→   626→                                              alt={file.name}
+   627→   627→                                              className="w-full h-full object-cover"
+   628→   628→                                            />
+   629→   629→                                          )}
+   630→   630→                                          {isVideo && (
+   631→   631→                                            <Video className="absolute inset-0 m-auto w-3 h-3 text-white drop-shadow" />
+   632→   632→                                          )}
+   633→   633→                                        </div>
+   634→   634→                                        
+   635→   635→                                        {/* File name */}
+   636→   636→                                        <div className="flex-1 min-w-0 text-left">
+   637→   637→                                          <p className="font-medium text-sm truncate">
+   638→   638→                                            {entry?.name || file.name.replace(/\.[^.]+$/, '')}
+   639→   639→                                          </p>
+   640→   640→                                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+   641→   641→                                            <span>{file.name}</span>
+   642→   642→                                            {(entry?.triggerKeys?.length || 0) > 0 && (
+   643→   643→                                              <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+   644→   644→                                                {entry?.triggerKeys?.length} trigger{(entry?.triggerKeys?.length || 0) > 1 ? 's' : ''}
+   645→   645→                                              </Badge>
+   646→   646→                                            )}
+   647→   647→                                          </div>
+   648→   648→                                        </div>
+   649→   649→                                      </div>
+   650→   650→                                    </AccordionTrigger>
+   651→   651→                                    
+   652→   652→                                    {/* Quick actions - outside the button */}
+   653→   653→                                    <TooltipProvider>
+   654→   654→                                      <Tooltip>
+   655→   655→                                        <TooltipTrigger asChild>
+   656→   656→                                          <button
+   657→   657→                                            type="button"
+   658→   658→                                            className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors mr-2"
+   659→   659→                                            onClick={(e) => {
+   660→   660→                                              e.stopPropagation();
+   661→   661→                                              setDeleteTarget({ 
+   662→   662→                                                type: 'file', 
+   663→   663→                                                name: localCollection.name,
+   664→   664→                                                filename: file.name 
+   665→   665→                                              });
+   666→   666→                                              setShowDeleteDialog(true);
+   667→   667→                                            }}
+   668→   668→                                          >
+   669→   669→                                            <Trash2 className="w-3.5 h-3.5" />
+   670→   670→                                          </button>
+   671→   671→                                        </TooltipTrigger>
+   672→   672→                                        <TooltipContent>Eliminar archivo</TooltipContent>
+   673→   673→                                      </Tooltip>
+   674→   674→                                    </TooltipProvider>
+   675→   675→                                  </div>
+   676→   676→                                  
+   677→   677→                                  <AccordionContent className="px-4 pb-4">
+   678→   678→                                    <div className="space-y-3 pt-2">
+   679→   679→                                      {/* Name */}
+   680→   680→                                      <div>
+   681→   681→                                        <Label className="text-xs text-muted-foreground">Nombre</Label>
+   682→   682→                                        <Input
+   683→   683→                                          value={entry?.name || file.name.replace(/\.[^.]+$/, '')}
+   684→   684→                                          onChange={(e) => {
+   685→   685→                                            if (entry) {
+   686→   686→                                              updateEntry(entry.id, { name: e.target.value });
+   687→   687→                                            }
+   688→   688→                                          }}
+   689→   689→                                          className="h-8 mt-1"
+   690→   690→                                        />
+   691→   691→                                      </div>
+   692→   692→
+   693→   693→                                      {/* Trigger Keys */}
+   694→   694→                                      <div>
+   695→   695→                                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+   696→   696→                                          <Key className="w-3 h-3" />
+   697→   697→                                          Claves de Activación
+   698→   698→                                        </Label>
+   699→   699→                                        <div className="flex flex-wrap gap-1 mt-1">
+   700→   700→                                          {(entry?.triggerKeys || []).map((key, i) => (
+   701→   701→                                            <Badge 
+   702→   702→                                              key={i} 
+   703→   703→                                              variant="secondary"
+   704→   704→                                              className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground text-xs"
+   705→   705→                                              onClick={() => {
+   706→   706→                                                if (entry) {
+   707→   707→                                                  updateEntry(entry.id, {
+   708→   708→                                                    triggerKeys: entry.triggerKeys.filter((_, idx) => idx !== i)
+   709→   709→                                                  });
+   710→   710→                                                }
+   711→   711→                                              }}
+   712→   712→                                            >
+   713→   713→                                              {key}
+   714→   714→                                              <X className="w-2.5 h-2.5 ml-0.5" />
+   715→   715→                                            </Badge>
+   716→   716→                                          ))}
+   717→   717→                                          <Input
+   718→   718→                                            placeholder="Agregar..."
+   719→   719→                                            className="h-6 w-20 text-xs px-2"
+   720→   720→                                            onKeyDown={(e) => {
+   721→   721→                                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+   722→   722→                                                if (entry) {
+   723→   723→                                                  updateEntry(entry.id, {
+   724→   724→                                                    triggerKeys: [...(entry.triggerKeys || []), e.currentTarget.value.trim().toLowerCase()]
+   725→   725→                                                  });
+   726→   726→                                                }
+   727→   727→                                                e.currentTarget.value = '';
+   728→   728→                                              }
+   729→   729→                                            }}
+   730→   730→                                          />
+   731→   731→                                        </div>
+   732→   732→                                      </div>
+   733→   733→
+   734→   734→                                      {/* Context Keys */}
+   735→   735→                                      <div>
+   736→   736→                                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+   737→   737→                                          <Tag className="w-3 h-3" />
+   738→   738→                                          Claves de Contexto
+   739→   739→                                        </Label>
+   740→   740→                                        <div className="flex flex-wrap gap-1 mt-1">
+   741→   741→                                          {(entry?.contextKeys || []).map((key, i) => (
+   742→   742→                                            <Badge 
+   743→   743→                                              key={i} 
+   744→   744→                                              variant="outline"
+   745→   745→                                              className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground text-xs"
+   746→   746→                                              onClick={() => {
+   747→   747→                                                if (entry) {
+   748→   748→                                                  updateEntry(entry.id, {
+   749→   749→                                                    contextKeys: entry.contextKeys.filter((_, idx) => idx !== i)
+   750→   750→                                                  });
+   751→   751→                                                }
+   752→   752→                                              }}
+   753→   753→                                            >
+   754→   754→                                              {key}
+   755→   755→                                              <X className="w-2.5 h-2.5 ml-0.5" />
+   756→   756→                                            </Badge>
+   757→   757→                                          ))}
+   758→   758→                                          <Input
+   759→   759→                                            placeholder="Agregar..."
+   760→   760→                                            className="h-6 w-20 text-xs px-2"
+   761→   761→                                            onKeyDown={(e) => {
+   762→   762→                                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+   763→   763→                                                if (entry) {
+   764→   764→                                                  updateEntry(entry.id, {
+   765→   765→                                                    contextKeys: [...(entry.contextKeys || []), e.currentTarget.value.trim().toLowerCase()]
+   766→   766→                                                  });
+   767→   767→                                                }
+   768→   768→                                                e.currentTarget.value = '';
+   769→   769→                                              }
+   770→   770→                                            }}
+   771→   771→                                          />
+   772→   772→                                        </div>
+   773→   773→                                      </div>
+   774→   774→
+   775→   775→                                      {/* Tags */}
+   776→   776→                                      <div>
+   777→   777→                                        <Label className="text-xs text-muted-foreground">Etiquetas</Label>
+   778→   778→                                        <div className="flex flex-wrap gap-1 mt-1">
+   779→   779→                                          {(entry?.tags || []).map((tag, i) => (
+   780→   780→                                            <Badge 
+   781→   781→                                              key={i} 
+   782→   782→                                              variant="default"
+   783→   783→                                              className="cursor-pointer hover:bg-destructive text-xs"
+   784→   784→                                              onClick={() => {
+   785→   785→                                                if (entry) {
+   786→   786→                                                  updateEntry(entry.id, {
+   787→   787→                                                    tags: entry.tags?.filter((_, idx) => idx !== i)
+   788→   788→                                                  });
+   789→   789→                                                }
+   790→   790→                                              }}
+   791→   791→                                            >
+   792→   792→                                              {tag}
+   793→   793→                                              <X className="w-2.5 h-2.5 ml-0.5" />
+   794→   794→                                            </Badge>
+   795→   795→                                          ))}
+   796→   796→                                          <Input
+   797→   797→                                            placeholder="Agregar..."
+   798→   798→                                            className="h-6 w-20 text-xs px-2"
+   799→   799→                                            onKeyDown={(e) => {
+   800→   800→                                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+   801→   801→                                                if (entry) {
+   802→   802→                                                  updateEntry(entry.id, {
+   803→   803→                                                    tags: [...(entry.tags || []), e.currentTarget.value.trim().toLowerCase()]
+   804→   804→                                                  });
+   805→   805→                                                }
+   806→   806→                                                e.currentTarget.value = '';
+   807→   807→                                              }
+   808→   808→                                            }}
+   809→   809→                                          />
+   810→   810→                                        </div>
+   811→   811→                                      </div>
+   812→   812→                                    </div>
+   813→   813→                                  </AccordionContent>
+   814→   814→                                </AccordionItem>
+   815→   815→                              );
+   816→   816→                            })}
+   817→   817→                          </Accordion>
+   818→   818→                        )}
+   819→   819→                      </div>
+   820→   820→                    </ScrollArea>
+   821→   821→                  </>
+   822→   822→                ) : (
+   823→   823→                  <div className="flex-1 flex items-center justify-center text-muted-foreground">
+   824→   824→                    <div className="text-center">
+   825→   825→                      <FolderOpen className="w-12 h-12 mx-auto mb-2 opacity-50" />
+   826→   826→                      <p>Selecciona una colección para gestionar</p>
+   827→   827→                      <p className="text-xs mt-1">O crea una nueva</p>
+   828→   828→                    </div>
+   829→   829→                  </div>
+   830→   830→                )}
+   831→   831→              </div>
+   832→   832→            </motion.div>
+   833→   833→          </div>
+   834→   834→
+   835→   835→          {/* Create Collection Dialog */}
+   836→   836→          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+   837→   837→            <DialogContent>
+   838→   838→              <DialogHeader>
+   839→   839→                <DialogTitle>Crear Nueva Colección</DialogTitle>
+   840→   840→                <DialogDescription>
+   841→   841→                  Crea una nueva colección de fondos. Se creará una carpeta en el directorio de fondos.
+   842→   842→                </DialogDescription>
+   843→   843→              </DialogHeader>
+   844→   844→              <div className="space-y-4 py-4">
+   845→   845→                <div className="space-y-2">
+   846→   846→                  <Label>Nombre de la Colección</Label>
+   847→   847→                  <Input
+   848→   848→                    value={newCollectionName}
+   849→   849→                    onChange={(e) => setNewCollectionName(e.target.value)}
+   850→   850→                    placeholder="Ej: Bosque, Castillo, Playa"
+   851→   851→                  />
+   852→   852→                </div>
+   853→   853→                <div className="space-y-2">
+   854→   854→                  <Label>Descripción (opcional)</Label>
+   855→   855→                  <Textarea
+   856→   856→                    value={newCollectionDescription}
+   857→   857→                    onChange={(e) => setNewCollectionDescription(e.target.value)}
+   858→   858→                    placeholder="Describe esta colección..."
+   859→   859→                  />
+   860→   860→                </div>
+   861→   861→              </div>
+   862→   862→              <DialogFooter>
+   863→   863→                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+   864→   864→                  Cancelar
+   865→   865→                </Button>
+   866→   866→                <Button onClick={handleCreateCollection} disabled={!newCollectionName.trim() || isLoading}>
+   867→   867→                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderPlus className="w-4 h-4" />}
+   868→   868→                  Crear
+   869→   869→                </Button>
+   870→   870→              </DialogFooter>
+   871→   871→            </DialogContent>
+   872→   872→          </Dialog>
+   873→   873→
+   874→   874→          {/* Delete Confirmation Dialog */}
+   875→   875→          <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+   876→   876→            <AlertDialogContent>
+   877→   877→              <AlertDialogHeader>
+   878→   878→                <AlertDialogTitle className="flex items-center gap-2">
+   879→   879→                  <AlertTriangle className="w-5 h-5 text-destructive" />
+   880→   880→                  Confirmar Eliminación
+   881→   881→                </AlertDialogTitle>
+   882→   882→                <AlertDialogDescription>
+   883→   883→                  {deleteTarget?.type === 'collection' ? (
+   884→   884→                    <>
+   885→   885→                      ¿Estás seguro de que quieres eliminar la colección <strong>{deleteTarget.name}</strong>?
+   886→   886→                      Se eliminarán permanentemente todos los archivos de esta colección. Esta acción no se puede deshacer.
+   887→   887→                    </>
+   888→   888→                  ) : (
+   889→   889→                    <>
+   890→   890→                      ¿Estás seguro de que quieres eliminar <strong>{deleteTarget?.filename}</strong>?
+   891→   891→                      Esta acción no se puede deshacer.
+   892→   892→                    </>
+   893→   893→                  )}
+   894→   894→                </AlertDialogDescription>
+   895→   895→              </AlertDialogHeader>
+   896→   896→              <AlertDialogFooter>
+   897→   897→                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+   898→   898→                <AlertDialogAction
+   899→   899→                  onClick={deleteTarget?.type === 'collection' ? handleDeleteCollection : handleDeleteFile}
+   900→   900→                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   901→   901→                >
+   902→   902→                  Eliminar
+   903→   903→                </AlertDialogAction>
+   904→   904→              </AlertDialogFooter>
+   905→   905→            </AlertDialogContent>
+   906→   906→          </AlertDialog>
+   907→   907→        </motion.div>
+   908→   908→      )}
+   909→   909→    </AnimatePresence>
+   910→   910→  );
+   911→   911→}
+   912→   912→
+   913→   913→export default BackgroundCollectionManager;
+   914→   914→

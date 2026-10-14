@@ -203,7 +203,7 @@ function parseSillyTavernFormat(
             "font-medium",
             isUser
               ? "text-yellow-200"
-              : "text-amber-600 dark:text-amber-400"
+              : "text-fuchsia-600 dark:text-fuchsia-400"
           )}>
             "{dialogueText}"
           </span>
@@ -221,7 +221,7 @@ function parseSillyTavernFormat(
         );
       } else {
         elements.push(
-          <span key={key++} className="italic text-blue-600 dark:text-blue-400">
+          <span key={key++} className="italic text-violet-600 dark:text-violet-400">
             ({thoughtText})
           </span>
         );

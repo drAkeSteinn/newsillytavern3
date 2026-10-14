@@ -241,13 +241,13 @@ export function QuestEditor({
                         <SelectContent>
                           <SelectItem value="main">
                             <div className="flex items-center gap-2">
-                              <Star className="w-3.5 h-3.5 text-amber-500" />
+                              <Star className="w-3.5 h-3.5 text-fuchsia-500" />
                               Principal
                             </div>
                           </SelectItem>
                           <SelectItem value="side">
                             <div className="flex items-center gap-2">
-                              <Target className="w-3.5 h-3.5 text-blue-400" />
+                              <Target className="w-3.5 h-3.5 text-violet-400" />
                               Secundaria
                             </div>
                           </SelectItem>
@@ -279,7 +279,7 @@ export function QuestEditor({
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm flex items-center gap-2">
-                      <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                      <Trophy className="w-3.5 h-3.5 text-fuchsia-500" />
                       Recompensas
                     </CardTitle>
                     <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={addReward}>

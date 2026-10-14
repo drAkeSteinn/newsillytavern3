@@ -69,7 +69,7 @@ import { DEFAULT_CHATBOX_APPEARANCE } from '@/types';
 // ============================================
 
 const THEME_PRESETS: { value: ChatboxTheme; label: string; colors: { primary: string; bg: string }; icon?: string }[] = [
-  { value: 'default', label: 'Por defecto', colors: { primary: '#3b82f6', bg: '#18181b' } },
+  { value: 'default', label: 'Por defecto', colors: { primary: '#ff3ed8', bg: '#0d0512' } },
   { value: 'midnight', label: 'Medianoche', colors: { primary: '#6366f1', bg: '#0f0f23' } },
   { value: 'forest', label: 'Bosque', colors: { primary: '#22c55e', bg: '#0a1f0a' } },
   { value: 'sunset', label: 'Atardecer', colors: { primary: '#f97316', bg: '#1a0f0a' } },
@@ -245,7 +245,7 @@ function LivePreview({ settings }: { settings: ChatboxAppearanceSettings }) {
           <div className="flex gap-2 justify-end">
             {settings.avatars.show && (
               <div 
-                className={cn(avatarSize, getAvatarRadius(), 'flex-shrink-0 border-2 flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600')}
+                className={cn(avatarSize, getAvatarRadius(), 'flex-shrink-0 border-2 flex items-center justify-center bg-gradient-to-br from-violet-400 to-violet-600')}
                 style={{ 
                   borderColor: settings.avatars.borderColor,
                   borderWidth: settings.avatars.showBorder ? settings.avatars.borderWidth : 0
@@ -272,7 +272,7 @@ function LivePreview({ settings }: { settings: ChatboxAppearanceSettings }) {
           <div className="flex gap-2">
             {settings.avatars.show && (
               <div 
-                className={cn(avatarSize, getAvatarRadius(), 'flex-shrink-0 border-2 flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-600')}
+                className={cn(avatarSize, getAvatarRadius(), 'flex-shrink-0 border-2 flex items-center justify-center bg-gradient-to-br from-fuchsia-400 to-violet-600')}
                 style={{ 
                   borderColor: settings.avatars.borderColor,
                   borderWidth: settings.avatars.showBorder ? settings.avatars.borderWidth : 0
@@ -488,12 +488,12 @@ export function AppearanceSettingsPanel() {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-lg bg-muted/30">
                       <ColorPicker
                         label="Principal"
-                        value={safeAppearance.customThemeColors?.primary || '#3b82f6'}
+                        value={safeAppearance.customThemeColors?.primary || '#ff3ed8'}
                         onChange={(primary) => updateChatboxAppearance({ 
                           customThemeColors: { 
                             primary,
-                            secondary: safeAppearance.customThemeColors?.secondary || '#6366f1',
-                            accent: safeAppearance.customThemeColors?.accent || '#f59e0b',
+                            secondary: safeAppearance.customThemeColors?.secondary || '#8e3fd0',
+                            accent: safeAppearance.customThemeColors?.accent || '#ff3ed8',
                             background: safeAppearance.customThemeColors?.background || '#18181b',
                             surface: safeAppearance.customThemeColors?.surface || '#27272a',
                             text: safeAppearance.customThemeColors?.text || '#fafafa',
@@ -502,12 +502,12 @@ export function AppearanceSettingsPanel() {
                       />
                       <ColorPicker
                         label="Secundario"
-                        value={safeAppearance.customThemeColors?.secondary || '#6366f1'}
+                        value={safeAppearance.customThemeColors?.secondary || '#8e3fd0'}
                         onChange={(secondary) => updateChatboxAppearance({ 
                           customThemeColors: { 
-                            primary: safeAppearance.customThemeColors?.primary || '#3b82f6',
+                            primary: safeAppearance.customThemeColors?.primary || '#ff3ed8',
                             secondary,
-                            accent: safeAppearance.customThemeColors?.accent || '#f59e0b',
+                            accent: safeAppearance.customThemeColors?.accent || '#ff3ed8',
                             background: safeAppearance.customThemeColors?.background || '#18181b',
                             surface: safeAppearance.customThemeColors?.surface || '#27272a',
                             text: safeAppearance.customThemeColors?.text || '#fafafa',
@@ -516,11 +516,11 @@ export function AppearanceSettingsPanel() {
                       />
                       <ColorPicker
                         label="Acento"
-                        value={safeAppearance.customThemeColors?.accent || '#f59e0b'}
+                        value={safeAppearance.customThemeColors?.accent || '#ff3ed8'}
                         onChange={(accent) => updateChatboxAppearance({ 
                           customThemeColors: { 
-                            primary: safeAppearance.customThemeColors?.primary || '#3b82f6',
-                            secondary: safeAppearance.customThemeColors?.secondary || '#6366f1',
+                            primary: safeAppearance.customThemeColors?.primary || '#ff3ed8',
+                            secondary: safeAppearance.customThemeColors?.secondary || '#8e3fd0',
                             accent,
                             background: safeAppearance.customThemeColors?.background || '#18181b',
                             surface: safeAppearance.customThemeColors?.surface || '#27272a',
@@ -611,7 +611,7 @@ export function AppearanceSettingsPanel() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-sm">
-                    <Droplet className="w-4 h-4 text-blue-500" />
+                    <Droplet className="w-4 h-4 text-violet-500" />
                     Fondo del Chat
                   </CardTitle>
                 </CardHeader>
@@ -667,7 +667,7 @@ export function AppearanceSettingsPanel() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-sm">
-                    <Type className="w-4 h-4 text-amber-500" />
+                    <Type className="w-4 h-4 text-fuchsia-500" />
                     Tipografía
                   </CardTitle>
                 </CardHeader>
@@ -888,7 +888,7 @@ export function AppearanceSettingsPanel() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-sm">
-                    <MessageSquare className="w-4 h-4 text-blue-500" />
+                    <MessageSquare className="w-4 h-4 text-violet-500" />
                     Estilo de Burbujas
                   </CardTitle>
                 </CardHeader>
@@ -1021,9 +1021,9 @@ export function AppearanceSettingsPanel() {
                   <CollapsibleContent>
                     <CardContent className="space-y-4 pt-4">
                   {/* User Bubble */}
-                  <div className="p-3 rounded-lg bg-blue-500/10 space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-medium text-blue-600">
-                      <div className="w-3 h-3 rounded-full bg-blue-500" />
+                  <div className="p-3 rounded-lg bg-violet-500/10 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-violet-600">
+                      <div className="w-3 h-3 rounded-full bg-violet-500" />
                       Burbuja de Usuario
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -1041,9 +1041,9 @@ export function AppearanceSettingsPanel() {
                   </div>
                   
                   {/* Character Bubble */}
-                  <div className="p-3 rounded-lg bg-amber-500/10 space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-medium text-amber-600">
-                      <div className="w-3 h-3 rounded-full bg-amber-500" />
+                  <div className="p-3 rounded-lg bg-fuchsia-500/10 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-fuchsia-600">
+                      <div className="w-3 h-3 rounded-full bg-fuchsia-500" />
                       Burbuja de Personaje
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -1339,7 +1339,7 @@ export function AppearanceSettingsPanel() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-sm">
-                    <Monitor className="w-4 h-4 text-cyan-500" />
+                    <Monitor className="w-4 h-4 text-fuchsia-500" />
                     Caja de Entrada
                   </CardTitle>
                   <CardDescription className="text-xs">

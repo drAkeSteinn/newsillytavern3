@@ -412,13 +412,13 @@ export function PersonaPanel() {
                                 </Badge>
                               )}
                               {(persona.statsConfig.invitations?.length || 0) > 0 && (
-                                <Badge className="text-[9px] bg-blue-500/10 text-blue-400 border-blue-500/20">
+                                <Badge className="text-[9px] bg-violet-500/10 text-violet-400 border-violet-500/20">
                                   <Send className="w-2.5 h-2.5 mr-0.5" />
                                   {persona.statsConfig.invitations?.length} peticiones
                                 </Badge>
                               )}
                               {(persona.statsConfig.solicitudDefinitions?.length || 0) > 0 && (
-                                <Badge className="text-[9px] bg-amber-500/10 text-amber-400 border-amber-500/20">
+                                <Badge className="text-[9px] bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20">
                                   <Inbox className="w-2.5 h-2.5 mr-0.5" />
                                   {persona.statsConfig.solicitudDefinitions?.length} solicitudes
                                 </Badge>
@@ -475,9 +475,9 @@ export function PersonaPanel() {
         </div>
 
         {/* Help Text */}
-        <div className="p-3 bg-cyan-500/5 border border-cyan-500/20 rounded-lg text-xs flex-shrink-0">
+        <div className="p-3 bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg text-xs flex-shrink-0">
           <div className="flex items-start gap-2">
-            <HelpCircle className="w-4 h-4 text-cyan-500 mt-0.5 flex-shrink-0" />
+            <HelpCircle className="w-4 h-4 text-fuchsia-500 mt-0.5 flex-shrink-0" />
             <div>
               <p className="font-medium text-foreground">Acerca de Personas</p>
               <p className="text-muted-foreground mt-1">
@@ -699,12 +699,12 @@ function PersonaEditorPanel({
             {/* Divisa Section */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <div className="p-1.5 rounded-md bg-amber-500/10">
-                  <Coins className="w-4 h-4 text-amber-500" />
+                <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                  <Coins className="w-4 h-4 text-fuchsia-500" />
                 </div>
                 Divisa
               </div>
-              <div className="p-4 rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-500/5 to-amber-500/10 space-y-4">
+              <div className="p-4 rounded-xl border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/5 to-fuchsia-500/10 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {/* Currency Icon */}
                   <div className="space-y-1.5">
@@ -742,7 +742,7 @@ function PersonaEditorPanel({
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="h-10 w-10 shrink-0 border-amber-500/30 hover:bg-amber-500/10"
+                        className="h-10 w-10 shrink-0 border-fuchsia-500/30 hover:bg-fuchsia-500/10"
                         onClick={() => setEditForm(prev => ({ ...prev, currency: Math.max(0, prev.currency - 1) }))}
                         disabled={uploading}
                       >
@@ -760,7 +760,7 @@ function PersonaEditorPanel({
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="h-10 w-10 shrink-0 border-amber-500/30 hover:bg-amber-500/10"
+                        className="h-10 w-10 shrink-0 border-fuchsia-500/30 hover:bg-fuchsia-500/10"
                         onClick={() => setEditForm(prev => ({ ...prev, currency: prev.currency + 1 }))}
                         disabled={uploading}
                       >
@@ -770,12 +770,12 @@ function PersonaEditorPanel({
                   </div>
                 </div>
                 {/* Currency preview */}
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/15">
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/15">
                   <span className="text-lg">{editForm.currencyIcon || '💰'}</span>
-                  <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                  <span className="text-sm font-medium text-fuchsia-700 dark:text-fuchsia-300">
                     {editForm.currencyName || 'Divisa'}
                   </span>
-                  <span className="text-sm font-bold text-amber-600 dark:text-amber-400 ml-auto">
+                  <span className="text-sm font-bold text-fuchsia-600 dark:text-fuchsia-400 ml-auto">
                     {editForm.currency}
                   </span>
                 </div>
@@ -874,7 +874,7 @@ function PersonaEditorPanel({
                                 <span>{item.name}</span>
                                 <span className="text-xs text-muted-foreground">({getItemTypeLabel(item.type || 'consumable')})</span>
                                 {item.price > 0 && (
-                                  <span className="text-xs text-amber-400 ml-1">💰{item.price}</span>
+                                  <span className="text-xs text-fuchsia-400 ml-1">💰{item.price}</span>
                                 )}
                               </span>
                             </SelectItem>
@@ -918,8 +918,8 @@ function PersonaEditorPanel({
             {/* Stats System - Uses shared StatsEditor component (same as character editor) */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <div className="p-1.5 rounded-md bg-cyan-500/10">
-                  <Settings2 className="w-4 h-4 text-cyan-500" />
+                <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                  <Settings2 className="w-4 h-4 text-fuchsia-500" />
                 </div>
                 Atributos y Estadísticas
                 {(editForm.statsConfig?.attributes?.length || 0) > 0 && (
@@ -928,12 +928,12 @@ function PersonaEditorPanel({
                   </Badge>
                 )}
                 {(editForm.statsConfig?.invitations?.length || 0) > 0 && (
-                  <Badge className="bg-blue-500/20 text-blue-400 text-[10px]">
+                  <Badge className="bg-violet-500/20 text-violet-400 text-[10px]">
                     {editForm.statsConfig?.invitations?.length} peticiones
                   </Badge>
                 )}
                 {(editForm.statsConfig?.solicitudDefinitions?.length || 0) > 0 && (
-                  <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
+                  <Badge className="bg-fuchsia-500/20 text-fuchsia-400 text-[10px]">
                     {editForm.statsConfig?.solicitudDefinitions?.length} solicitudes
                   </Badge>
                 )}
@@ -952,12 +952,12 @@ function PersonaEditorPanel({
             {/* Equipment Slots - same editor as characters (global slots removed) */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <div className="p-1.5 rounded-md bg-orange-500/10">
-                  <Settings2 className="w-4 h-4 text-orange-500" />
+                <div className="p-1.5 rounded-md bg-violet-500/10">
+                  <Settings2 className="w-4 h-4 text-violet-500" />
                 </div>
                 Slots de Equipo
                 {(editForm.equipmentSlots?.length || 0) > 0 && (
-                  <Badge className="bg-orange-500/20 text-orange-400 text-[10px]">
+                  <Badge className="bg-violet-500/20 text-violet-400 text-[10px]">
                     {editForm.equipmentSlots?.length} slots
                   </Badge>
                 )}
@@ -1013,7 +1013,7 @@ function PersonaEditorPanel({
                 <div className="p-4 rounded-xl border border-border/60 bg-gradient-to-br from-muted/30 to-muted/10 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">{editForm.currencyIcon} {editForm.currencyName || 'Divisa'}</span>
-                    <span className="font-medium text-amber-600 dark:text-amber-400">{editForm.currency}</span>
+                    <span className="font-medium text-fuchsia-600 dark:text-fuchsia-400">{editForm.currency}</span>
                   </div>
                   <Separator className="bg-border/30" />
                   <div className="flex items-center justify-between text-xs">

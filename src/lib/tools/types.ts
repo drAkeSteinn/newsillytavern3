@@ -75,6 +75,37 @@ export interface ToolContext {
   /** The group (ESCENARIO V2: when set, manage_escenario uses the GROUP's
    *  scenarioConfig — shared scene — instead of the character's own). */
   group?: import('@/types').CharacterGroup | null;
+  /** ESCENARIO V3: App-level scenario library (ScenarioDefinition collections).
+   *  Sent by the client in the chat request body; manage_escenario uses the
+   *  collections referenced by character.scenarioIds / group.scenarioIds. */
+  scenarios?: import('@/types').ScenarioDefinition[];
+}
+
+/** Activation payload emitted when a tool changes one attribute */
+export interface StatActivation {
+  characterId: string;
+  attributeKey: string;
+  attributeName: string;
+  attributeType: 'number' | 'keyword' | 'text';
+  oldValue: number | string | undefined;
+  newValue: number | string;
+  reason: string;
+  /**
+   * Operation the server performed to reach newValue:
+   *  '+' → delta ADDED to oldValue · '-' → delta SUBTRACTED from oldValue
+   *  '=' → explicit absolute set (parser "=50" or bare numeric)
+   *  'set' → keyword/text assignment (non-numeric)
+   * The client uses this to REPLAY the operation as a delta on ITS current
+   * value, so skill costs (applied client-side) and tool changes (computed
+   * server-side from the request snapshot) ACCUMULATE instead of cancelling
+   * each other when both touch the same attribute in the same turn.
+   */
+  operator?: '+' | '-' | '=' | 'set';
+  /** Signed magnitude for operator '+'/'-' (always positive; sign comes from operator) */
+  delta?: number;
+  /** Present when the change could not be applied (unknown stat, bad value, ...) */
+  failed?: boolean;
+  errorMessage?: string;
 }
 
 /** Result from tool execution */
@@ -116,15 +147,9 @@ export interface ToolExecutionResult {
     peticionKey?: string;
   };
   /** Special result for stat modification tools — syncs to client-side store */
-  statActivation?: {
-    characterId: string;
-    attributeKey: string;
-    attributeName: string;
-    attributeType: 'number' | 'keyword' | 'text';
-    oldValue: number | string | undefined;
-    newValue: number | string;
-    reason: string;
-  };
+  statActivation?: StatActivation;
+  /** ALL stat changes from a batch modify_stat call (one SSE per change) */
+  statActivations?: StatActivation[];
   /** Special result for scene management tools (group chats) — synced to client group store */
   sceneActivation?: {
     /** 'scene_change' mutates isPresent; 'scene_focus' only logs a narrative event */
@@ -197,7 +222,7 @@ export interface ToolExecutionResult {
     characterId: string;
     /** Action taken: list (info only), go (move the scene), get_info */
     action: 'list' | 'go' | 'get_info';
-    /** The location now active (null = follow default) */
+    /** The place-or-spot id now active (null = follow default) */
     locationId: string | null;
     /** Name of the location after the action (for toast / UI display) */
     locationName: string;
@@ -209,6 +234,14 @@ export interface ToolExecutionResult {
     changed: boolean;
     /** Reason for the change (narrative) */
     reason?: string;
+    /** ESCENARIO V3: id of the ScenarioDefinition (collection) the scene is now in. */
+    collectionId?: string | null;
+    /** Name of the ScenarioDefinition (collection) the scene is now in. */
+    collectionName?: string;
+    /** Background resolved for the new location (spot → place → scenario default). */
+    backgroundUrl?: string | null;
+    /** Sprite pose saved for the new location (applied by the client to the sprite). */
+    spritePose?: { x: number; y: number; width: number; height: number; opacity: number } | null;
   };
 }
 

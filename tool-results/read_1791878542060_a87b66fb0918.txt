@@ -1,0 +1,765 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useCallback } from 'react';
+     4→import { useTavernStore } from '@/store/tavern-store';
+     5→import { Button } from '@/components/ui/button';
+     6→import { Input } from '@/components/ui/input';
+     7→import { Label } from '@/components/ui/label';
+     8→import { Switch } from '@/components/ui/switch';
+     9→import { Slider } from '@/components/ui/slider';
+    10→import { ScrollArea } from '@/components/ui/scroll-area';
+    11→import {
+    12→  Select,
+    13→  SelectContent,
+    14→  SelectItem,
+    15→  SelectTrigger,
+    16→  SelectValue,
+    17→} from '@/components/ui/select';
+    18→import {
+    19→  Accordion,
+    20→  AccordionContent,
+    21→  AccordionItem,
+    22→  AccordionTrigger,
+    23→} from '@/components/ui/accordion';
+    24→import { cn } from '@/lib/utils';
+    25→import type { BackgroundTriggerPack, BackgroundTriggerItem, BackgroundCollection, BackgroundMatchMode } from '@/types';
+    26→import {
+    27→  Plus,
+    28→  Trash2,
+    29→  RefreshCw,
+    30→  Image as ImageIcon,
+    31→  Layers,
+    32→  Key,
+    33→  Palette,
+    34→  ArrowUpDown,
+    35→  Clock,
+    36→  Target,
+    37→  Sparkles,
+    38→} from 'lucide-react';
+    39→
+    40→const MATCH_MODE_DESCRIPTIONS: Record<BackgroundMatchMode, { label: string; description: string }> = {
+    41→  any_any: { label: 'ANY + ANY', description: 'Cualquier trigger + cualquier context' },
+    42→  all_any: { label: 'ALL + ANY', description: 'Todos los triggers + cualquier context' },
+    43→  any_all: { label: 'ANY + ALL', description: 'Cualquier trigger + todos los context' },
+    44→  all_all: { label: 'ALL + ALL', description: 'Todos los triggers + todos los context' },
+    45→};
+    46→
+    47→export function BackgroundTriggersSettings() {
+    48→  const {
+    49→    backgroundTriggerPacks,
+    50→    backgroundCollections,
+    51→    settings,
+    52→    addBackgroundTriggerPack,
+    53→    updateBackgroundTriggerPack,
+    54→    deleteBackgroundTriggerPack,
+    55→    toggleBackgroundTriggerPack,
+    56→    setBackgroundCollections,
+    57→    addBackgroundTriggerItem,
+    58→    updateBackgroundTriggerItem,
+    59→    deleteBackgroundTriggerItem,
+    60→    updateSettings,
+    61→  } = useTavernStore();
+    62→
+    63→  const [isLoading, setIsLoading] = useState(false);
+    64→  const [expandedPacks, setExpandedPacks] = useState<string[]>([]);
+    65→  const [previewBackground, setPreviewBackground] = useState<string | null>(null);
+    66→
+    67→  // Fetch background collections
+    68→  const fetchCollections = useCallback(async () => {
+    69→    setIsLoading(true);
+    70→    try {
+    71→      const response = await fetch('/api/backgrounds/collections');
+    72→      if (!response.ok) {
+    73→        console.warn('[BgTriggers] Failed to fetch collections, status:', response.status);
+    74→        return;
+    75→      }
+    76→      const data = await response.json();
+    77→      console.log('[BgTriggers] Loaded collections:', data.collections?.length || 0);
+    78→      setBackgroundCollections(data.collections || []);
+    79→    } catch (error) {
+    80→      console.error('[BgTriggers] Failed to fetch collections:', error);
+    81→    } finally {
+    82→      setIsLoading(false);
+    83→    }
+    84→  }, [setBackgroundCollections]);
+    85→
+    86→  // Fetch collections on mount
+    87→  useEffect(() => {
+    88→    fetchCollections();
+    89→  }, [fetchCollections]);
+    90→
+    91→  // Create new trigger pack
+    92→  const handleAddPack = () => {
+    93→    const firstCollection = backgroundCollections[0];
+    94→    const newPack: Omit<BackgroundTriggerPack, 'id' | 'createdAt' | 'updatedAt'> = {
+    95→      name: `Nuevo Pack ${backgroundTriggerPacks.length + 1}`,
+    96→      active: true,
+    97→      collection: firstCollection?.name || '',
+    98→      priority: backgroundTriggerPacks.length * 10, // Auto-increment priority
+    99→      cooldown: 0,
+   100→      matchMode: 'any_any',
+   101→      transitionDuration: 500,
+   102→      transitionType: 'fade',
+   103→      items: [],
+   104→      returnToDefault: false,
+   105→      returnToDefaultAfter: 0,
+   106→      defaultBackground: '',
+   107→    };
+   108→    addBackgroundTriggerPack(newPack);
+   109→  };
+   110→
+   111→  // Add item from collection to pack
+   112→  const handleAddItemToPack = (packId: string, collection: BackgroundCollection) => {
+   113→    const maxPriority = backgroundTriggerPacks
+   114→      .find(p => p.id === packId)?.items.reduce((max, item) => Math.max(max, item.priority ?? 0), 0) ?? 0;
+   115→
+   116→    addBackgroundTriggerItem(packId, {
+   117→      backgroundUrl: collection.entries[0]?.url || '',
+   118→      backgroundName: collection.entries[0]?.name || 'Nuevo Item',
+   119→      triggerKeys: [],
+   120→      contextKeys: [],
+   121→      enabled: true,
+   122→      priority: maxPriority + 10,
+   123→    });
+   124→  };
+   125→
+   126→  // Get collection by name
+   127→  const getCollection = (name: string): BackgroundCollection | undefined => {
+   128→    return backgroundCollections.find(c => c.name === name);
+   129→  };
+   130→
+   131→  return (
+   132→    <div className="h-full flex flex-col gap-4 min-h-0">
+   133→      {/* Global Settings */}
+   134→      <div className="p-4 rounded-lg border bg-muted/30 space-y-4 flex-shrink-0">
+   135→        <h4 className="font-medium flex items-center gap-2">
+   136→          <Layers className="w-4 h-4" />
+   137→          Configuración Global de Backgrounds
+   138→        </h4>
+   139→
+   140→        <div className="grid grid-cols-4 gap-4">
+   141→          <label className="flex items-center justify-between p-2 rounded border bg-background">
+   142→            <span className="text-sm">Habilitar</span>
+   143→            <Switch
+   144→              checked={settings.backgroundTriggers?.enabled ?? true}
+   145→              onCheckedChange={(checked) =>
+   146→                updateSettings({
+   147→                  backgroundTriggers: { ...settings.backgroundTriggers, enabled: checked }
+   148→                })
+   149→              }
+   150→            />
+   151→          </label>
+   152→
+   153→          <label className="flex items-center justify-between p-2 rounded border bg-background">
+   154→            <span className="text-sm">Tiempo Real</span>
+   155→            <Switch
+   156→              checked={settings.backgroundTriggers?.realtimeEnabled ?? true}
+   157→              onCheckedChange={(checked) =>
+   158→                updateSettings({
+   159→                  backgroundTriggers: { ...settings.backgroundTriggers, realtimeEnabled: checked }
+   160→                })
+   161→              }
+   162→            />
+   163→          </label>
+   164→
+   165→          <div className="col-span-2">
+   166→            <div className="flex justify-between text-sm mb-1">
+   167→              <span>Duración Transición</span>
+   168→              <span className="text-muted-foreground">{settings.backgroundTriggers?.transitionDuration ?? 500}ms</span>
+   169→            </div>
+   170→            <Slider
+   171→              value={[settings.backgroundTriggers?.transitionDuration ?? 500]}
+   172→              min={0}
+   173→              max={2000}
+   174→              step={50}
+   175→              onValueChange={([value]) =>
+   176→                updateSettings({
+   177→                  backgroundTriggers: { ...settings.backgroundTriggers, transitionDuration: value }
+   178→                })
+   179→              }
+   180→            />
+   181→          </div>
+   182→        </div>
+   183→
+   184→        {/* Return to Default Settings */}
+   185→        <div className="grid grid-cols-4 gap-4 p-3 rounded border bg-background/50">
+   186→          <label className="flex items-center justify-between p-2 rounded border bg-background">
+   187→            <span className="text-sm flex items-center gap-1">
+   188→              <Clock className="w-3 h-3" />
+   189→              Return to Default
+   190→            </span>
+   191→            <Switch
+   192→              checked={settings.backgroundTriggers?.returnToDefaultEnabled ?? false}
+   193→              onCheckedChange={(checked) =>
+   194→                updateSettings({
+   195→                  backgroundTriggers: { ...settings.backgroundTriggers, returnToDefaultEnabled: checked }
+   196→                })
+   197→              }
+   198→            />
+   199→          </label>
+   200→
+   201→          <div>
+   202→            <Label className="text-xs">Tiempo de inactividad (min)</Label>
+   203→            <Input
+   204→              type="number"
+   205→              min={0}
+   206→              step={1}
+   207→              value={Math.floor((settings.backgroundTriggers?.returnToDefaultAfter ?? 300000) / 60000)}
+   208→              onChange={(e) =>
+   209→                updateSettings({
+   210→                  backgroundTriggers: { 
+   211→                    ...settings.backgroundTriggers, 
+   212→                    returnToDefaultAfter: (parseInt(e.target.value) || 5) * 60000 
+   213→                  }
+   214→                })
+   215→              }
+   216→              className="mt-1 h-8"
+   217→            />
+   218→          </div>
+   219→
+   220→          <div className="col-span-2">
+   221→            <Label className="text-xs">Fondo por defecto global</Label>
+   222→            <Select
+   223→              value={settings.backgroundTriggers?.defaultBackgroundUrl || ''}
+   224→              onValueChange={(url) =>
+   225→                updateSettings({
+   226→                  backgroundTriggers: { ...settings.backgroundTriggers, defaultBackgroundUrl: url }
+   227→                })
+   228→              }
+   229→            >
+   230→              <SelectTrigger className="mt-1 h-8">
+   231→                <SelectValue placeholder="Seleccionar fondo" />
+   232→              </SelectTrigger>
+   233→              <SelectContent>
+   234→                {backgroundCollections.flatMap(col => 
+   235→                  col.entries.map(entry => (
+   236→                    <SelectItem key={entry.id} value={entry.url}>
+   237→                      {col.name} / {entry.name}
+   238→                    </SelectItem>
+   239→                  ))
+   240→                )}
+   241→              </SelectContent>
+   242→            </Select>
+   243→          </div>
+   244→        </div>
+   245→
+   246→        <div className="grid grid-cols-3 gap-4">
+   247→          <div>
+   248→            <Label className="text-xs">Enfriamiento Global (ms)</Label>
+   249→            <Input
+   250→              type="number"
+   251→              min={0}
+   252→              step={50}
+   253→              value={settings.backgroundTriggers?.globalCooldown ?? 0}
+   254→              onChange={(e) =>
+   255→                updateSettings({
+   256→                  backgroundTriggers: { ...settings.backgroundTriggers, globalCooldown: parseInt(e.target.value) || 0 }
+   257→                })
+   258→              }
+   259→              className="mt-1 h-8"
+   260→            />
+   261→            <p className="text-xs text-muted-foreground mt-1">0 = sin límite</p>
+   262→          </div>
+   263→          <div className="flex items-end">
+   264→            <Button
+   265→              variant="outline"
+   266→              size="sm"
+   267→              onClick={fetchCollections}
+   268→              disabled={isLoading}
+   269→              className="w-full h-8"
+   270→            >
+   271→              <RefreshCw className={cn("w-3.5 h-3.5 mr-1", isLoading && "animate-spin")} />
+   272→              Actualizar Colecciones
+   273→            </Button>
+   274→          </div>
+   275→          <div className="flex items-end">
+   276→            <p className="text-xs text-muted-foreground">
+   277→              {backgroundCollections.length} colecciones · {backgroundCollections.reduce((acc, c) => acc + c.entries.length, 0)} fondos
+   278→            </p>
+   279→          </div>
+   280→        </div>
+   281→      </div>
+   282→
+   283→      {/* Trigger Packs Header */}
+   284→      <div className="flex items-center justify-between flex-shrink-0">
+   285→        <h4 className="font-medium flex items-center gap-2">
+   286→          <Palette className="w-4 h-4" />
+   287→          Packs de Background Triggers ({backgroundTriggerPacks.length})
+   288→        </h4>
+   289→        <Button size="sm" onClick={handleAddPack}>
+   290→          <Plus className="w-4 h-4 mr-1" />
+   291→          Agregar Pack
+   292→        </Button>
+   293→      </div>
+   294→
+   295→      {/* No Collections Warning */}
+   296→      {!isLoading && backgroundCollections.length === 0 && (
+   297→        <div className="p-4 rounded-lg border border-yellow-500/50 bg-yellow-500/10 text-sm flex-shrink-0">
+   298→          <p className="font-medium text-yellow-500">No se encontraron colecciones de backgrounds</p>
+   299→          <p className="text-muted-foreground mt-1">
+   300→            Agrega carpetas con imágenes a <code className="bg-muted px-1 rounded">public/backgrounds/</code> con un archivo <code className="bg-muted px-1 rounded">collection.json</code>
+   301→          </p>
+   302→        </div>
+   303→      )}
+   304→
+   305→      {/* Trigger Packs Accordion */}
+   306→      {backgroundTriggerPacks.length === 0 ? (
+   307→        <div className="flex-1 flex items-center justify-center text-muted-foreground min-h-0">
+   308→          <div className="text-center">
+   309→            <ImageIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
+   310→            <p>No hay packs de background triggers configurados</p>
+   311→            <p className="text-xs mt-1">Agrega un pack para cambiar fondos basados en palabras clave</p>
+   312→          </div>
+   313→        </div>
+   314→      ) : (
+   315→        <div className="flex-1 min-h-0 overflow-hidden">
+   316→          <ScrollArea className="h-full">
+   317→            <Accordion
+   318→              type="multiple"
+   319→              value={expandedPacks}
+   320→              onValueChange={setExpandedPacks}
+   321→              className="space-y-2 pr-4"
+   322→            >
+   323→            {backgroundTriggerPacks
+   324→              .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+   325→              .map((pack) => {
+   326→                const collection = getCollection(pack.collection);
+   327→
+   328→                return (
+   329→                  <AccordionItem
+   330→                    key={pack.id}
+   331→                    value={pack.id}
+   332→                    className="border rounded-lg data-[state=open]:bg-muted/10"
+   333→                  >
+   334→                    <AccordionTrigger className="px-4 py-2 hover:no-underline">
+   335→                      <div className="flex items-center gap-3 w-full">
+   336→                        <div
+   337→                          className={cn(
+   338→                            "w-2 h-2 rounded-full flex-shrink-0",
+   339→                            pack.active ? "bg-green-500" : "bg-muted-foreground"
+   340→                          )}
+   341→                        />
+   342→                        <span className="font-medium text-sm">{pack.name}</span>
+   343→                        <span className="text-xs text-muted-foreground ml-auto mr-2 flex items-center gap-2">
+   344→                          <span className="flex items-center gap-1">
+   345→                            <ArrowUpDown className="w-3 h-3" />
+   346→                            {pack.priority}
+   347→                          </span>
+   348→                          <span>{pack.items.length} items</span>
+   349→                        </span>
+   350→                      </div>
+   351→                    </AccordionTrigger>
+   352→
+   353→                    <AccordionContent className="px-4 pb-4">
+   354→                      <div className="space-y-3 pt-2">
+   355→                        {/* Pack Settings Row */}
+   356→                                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+   357→                          <div>
+   358→                            <Label className="text-xs">Nombre</Label>
+   359→                            <Input
+   360→                              value={pack.name}
+   361→                              onChange={(e) => updateBackgroundTriggerPack(pack.id, { name: e.target.value })}
+   362→                              className="mt-1 h-8"
+   363→                            />
+   364→                          </div>
+   365→                          <div className="flex items-end pb-1">
+   366→                            <label className="flex items-center gap-2 text-sm cursor-pointer">
+   367→                              <Switch
+   368→                                checked={pack.active}
+   369→                                onCheckedChange={() => toggleBackgroundTriggerPack(pack.id)}
+   370→                              />
+   371→                              Activo
+   372→                            </label>
+   373→                          </div>
+   374→                          <div>
+   375→                            <Label className="text-xs flex items-center gap-1">
+   376→                              <ArrowUpDown className="w-3 h-3" />
+   377→                              Prioridad
+   378→                            </Label>
+   379→                            <Input
+   380→                              type="number"
+   381→                              min={0}
+   382→                              max={100}
+   383→                              value={pack.priority ?? 0}
+   384→                              onChange={(e) =>
+   385→                                updateBackgroundTriggerPack(pack.id, { priority: parseInt(e.target.value) || 0 })
+   386→                              }
+   387→                              className="mt-1 h-8"
+   388→                            />
+   389→                          </div>
+   390→                          <div>
+   391→                            <Label className="text-xs">Colección</Label>
+   392→                            <Select
+   393→                              value={pack.collection}
+   394→                              onValueChange={(value) => updateBackgroundTriggerPack(pack.id, { collection: value })}
+   395→                            >
+   396→                              <SelectTrigger className="mt-1 h-8">
+   397→                                <SelectValue placeholder="Seleccionar" />
+   398→                              </SelectTrigger>
+   399→                              <SelectContent>
+   400→                                {backgroundCollections.map((col) => (
+   401→                                  <SelectItem key={col.name} value={col.name}>
+   402→                                    {col.name}
+   403→                                    <span className="text-xs text-muted-foreground ml-1">
+   404→                                      ({col.entries.length})
+   405→                                    </span>
+   406→                                  </SelectItem>
+   407→                                ))}
+   408→                              </SelectContent>
+   409→                            </Select>
+   410→                          </div>
+   411→                          <div>
+   412→                            <Label className="text-xs flex items-center gap-1">
+   413→                              <Target className="w-3 h-3" />
+   414→                              Modo Match
+   415→                            </Label>
+   416→                            <Select
+   417→                              value={pack.matchMode ?? 'any_any'}
+   418→                              onValueChange={(value: BackgroundMatchMode) =>
+   419→                                updateBackgroundTriggerPack(pack.id, { matchMode: value })
+   420→                              }
+   421→                            >
+   422→                              <SelectTrigger className="mt-1 h-8">
+   423→                                <SelectValue />
+   424→                              </SelectTrigger>
+   425→                              <SelectContent>
+   426→                                {Object.entries(MATCH_MODE_DESCRIPTIONS).map(([mode, { label }]) => (
+   427→                                  <SelectItem key={mode} value={mode}>
+   428→                                    {label}
+   429→                                  </SelectItem>
+   430→                                ))}
+   431→                              </SelectContent>
+   432→                            </Select>
+   433→                          </div>
+   434→                          <div>
+   435→                            <Label className="text-xs">Transición</Label>
+   436→                            <Select
+   437→                              value={pack.transitionType}
+   438→                              onValueChange={(value: 'fade' | 'slide' | 'none') =>
+   439→                                updateBackgroundTriggerPack(pack.id, { transitionType: value })
+   440→                              }
+   441→                            >
+   442→                              <SelectTrigger className="mt-1 h-8">
+   443→                                <SelectValue />
+   444→                              </SelectTrigger>
+   445→                              <SelectContent>
+   446→                                <SelectItem value="fade">Fade</SelectItem>
+   447→                                <SelectItem value="slide">Slide</SelectItem>
+   448→                                <SelectItem value="none">Ninguna</SelectItem>
+   449→                              </SelectContent>
+   450→                            </Select>
+   451→                          </div>
+   452→                        </div>
+   453→
+   454→                        {/* Pack Return to Default Settings */}
+   455→                        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 p-3 rounded border bg-muted/20">
+   456→                          <label className="flex items-center gap-2 text-sm cursor-pointer">
+   457→                            <Switch
+   458→                              checked={pack.returnToDefault ?? false}
+   459→                              onCheckedChange={(checked) =>
+   460→                                updateBackgroundTriggerPack(pack.id, { returnToDefault: checked })
+   461→                              }
+   462→                            />
+   463→                            <Clock className="w-3 h-3" />
+   464→                            Return to Default
+   465→                          </label>
+   466→                          <div>
+   467→                            <Label className="text-xs">Después de (min)</Label>
+   468→                            <Input
+   469→                              type="number"
+   470→                              min={0}
+   471→                              step={1}
+   472→                              value={Math.floor((pack.returnToDefaultAfter ?? 0) / 60000)}
+   473→                              onChange={(e) =>
+   474→                                updateBackgroundTriggerPack(pack.id, { 
+   475→                                  returnToDefaultAfter: (parseInt(e.target.value) || 0) * 60000 
+   476→                                })
+   477→                              }
+   478→                              className="mt-1 h-8"
+   479→                              disabled={!pack.returnToDefault}
+   480→                            />
+   481→                          </div>
+   482→                          <div className="col-span-2">
+   483→                            <Label className="text-xs">Fondo Default del Pack</Label>
+   484→                            <Select
+   485→                              value={pack.defaultBackground || ''}
+   486→                              onValueChange={(url) =>
+   487→                                updateBackgroundTriggerPack(pack.id, { defaultBackground: url })
+   488→                              }
+   489→                              disabled={!pack.returnToDefault}
+   490→                            >
+   491→                              <SelectTrigger className="mt-1 h-8">
+   492→                                <SelectValue placeholder="Seleccionar" />
+   493→                              </SelectTrigger>
+   494→                              <SelectContent>
+   495→                                {collection?.entries.map((entry) => (
+   496→                                  <SelectItem key={entry.id} value={entry.url}>
+   497→                                    {entry.name}
+   498→                                  </SelectItem>
+   499→                                ))}
+   500→                              </SelectContent>
+   501→                            </Select>
+   502→                          </div>
+   503→                        </div>
+   504→
+   505→                        {/* Items Header */}
+   506→                        <div className="flex items-center justify-between pt-2">
+   507→                          <h5 className="text-sm font-medium flex items-center gap-2">
+   508→                            <ImageIcon className="w-3.5 h-3.5" />
+   509→                            Items del Pack (ordenados por prioridad)
+   510→                          </h5>
+   511→                          {collection && (
+   512→                            <Button
+   513→                              variant="outline"
+   514→                              size="sm"
+   515→                              className="h-7 text-xs"
+   516→                              onClick={() => handleAddItemToPack(pack.id, collection)}
+   517→                            >
+   518→                              <Plus className="w-3 h-3 mr-1" />
+   519→                              Agregar Item
+   520→                            </Button>
+   521→                          )}
+   522→                        </div>
+   523→
+   524→                        {/* Match Mode Explanation */}
+   525→                        <div className="p-2 rounded bg-muted/30 text-xs text-muted-foreground flex items-center gap-2">
+   526→                          <Sparkles className="w-3 h-3" />
+   527→                          <span>
+   528→                            <strong>{MATCH_MODE_DESCRIPTIONS[pack.matchMode ?? 'any_any'].label}</strong>: 
+   529→                            {' '}{MATCH_MODE_DESCRIPTIONS[pack.matchMode ?? 'any_any'].description}
+   530→                          </span>
+   531→                        </div>
+   532→
+   533→                        {/* Items List */}
+   534→                        {pack.items.length === 0 ? (
+   535→                          <div className="text-center p-4 border rounded bg-muted/20 text-muted-foreground text-sm">
+   536→                            No hay items configurados. Agrega un item desde la colección.
+   537→                          </div>
+   538→                        ) : (
+   539→                          <div className="space-y-2">
+   540→                            {pack.items
+   541→                              .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+   542→                              .map((item) => (
+   543→                                <div
+   544→                                  key={item.id}
+   545→                                  className={cn(
+   546→                                    "p-3 border rounded-lg",
+   547→                                    !item.enabled && "opacity-50"
+   548→                                  )}
+   549→                                >
+   550→                                  <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2 items-center">
+   551→                                    {/* Background Preview */}
+   552→                                    <div className="relative">
+   553→                                      <div
+   554→                                        className="w-full h-16 rounded border overflow-hidden bg-muted cursor-pointer"
+   555→                                        onClick={() => setPreviewBackground(
+   556→                                          previewBackground === item.backgroundUrl ? null : item.backgroundUrl
+   557→                                        )}
+   558→                                      >
+   559→                                        {item.backgroundUrl && (
+   560→                                          <img
+   561→                                            src={item.backgroundUrl}
+   562→                                            alt={item.backgroundName}
+   563→                                            className="w-full h-full object-cover"
+   564→                                          />
+   565→                                        )}
+   566→                                      </div>
+   567→                                      <p className="text-xs text-center mt-1 truncate">{item.backgroundName}</p>
+   568→                                    </div>
+   569→
+   570→                                    {/* Background Selector */}
+   571→                                    <div>
+   572→                                      <Label className="text-xs">Fondo</Label>
+   573→                                      <Select
+   574→                                        value={item.backgroundUrl}
+   575→                                        onValueChange={(url) => {
+   576→                                          const entry = collection?.entries.find(e => e.url === url);
+   577→                                          updateBackgroundTriggerItem(pack.id, item.id, {
+   578→                                            backgroundUrl: url,
+   579→                                            backgroundName: entry?.name || item.backgroundName,
+   580→                                          });
+   581→                                        }}
+   582→                                      >
+   583→                                        <SelectTrigger className="mt-1 h-8">
+   584→                                          <SelectValue />
+   585→                                        </SelectTrigger>
+   586→                                        <SelectContent>
+   587→                                          {collection?.entries.map((entry) => (
+   588→                                            <SelectItem key={entry.id} value={entry.url}>
+   589→                                              {entry.name}
+   590→                                            </SelectItem>
+   591→                                          ))}
+   592→                                        </SelectContent>
+   593→                                      </Select>
+   594→                                    </div>
+   595→
+   596→                                    {/* Trigger Keys */}
+   597→                                    <div>
+   598→                                      <Label className="text-xs flex items-center gap-1">
+   599→                                        <Key className="w-3 h-3" />
+   600→                                        Trigger Keys
+   601→                                      </Label>
+   602→                                      <Input
+   603→                                        value={item.triggerKeys.join(', ')}
+   604→                                        onChange={(e) =>
+   605→                                          updateBackgroundTriggerItem(pack.id, item.id, {
+   606→                                            triggerKeys: e.target.value.split(',').map(k => k.trim().toLowerCase()).filter(k => k),
+   607→                                          })
+   608→                                        }
+   609→                                        placeholder="bosque, forest"
+   610→                                        className="mt-1 h-8"
+   611→                                      />
+   612→                                    </div>
+   613→
+   614→                                    {/* Context Keys */}
+   615→                                    <div>
+   616→                                      <Label className="text-xs flex items-center gap-1">
+   617→                                        <Key className="w-3 h-3 text-muted-foreground" />
+   618→                                        Context Keys
+   619→                                      </Label>
+   620→                                      <Input
+   621→                                        value={item.contextKeys.join(', ')}
+   622→                                        onChange={(e) =>
+   623→                                          updateBackgroundTriggerItem(pack.id, item.id, {
+   624→                                            contextKeys: e.target.value.split(',').map(k => k.trim().toLowerCase()).filter(k => k),
+   625→                                          })
+   626→                                        }
+   627→                                        placeholder="noche, night"
+   628→                                        className="mt-1 h-8"
+   629→                                      />
+   630→                                    </div>
+   631→
+   632→                                    {/* Priority */}
+   633→                                    <div>
+   634→                                      <Label className="text-xs flex items-center gap-1">
+   635→                                        <ArrowUpDown className="w-3 h-3" />
+   636→                                        Prioridad
+   637→                                      </Label>
+   638→                                      <Input
+   639→                                        type="number"
+   640→                                        min={0}
+   641→                                        max={100}
+   642→                                        value={item.priority ?? 0}
+   643→                                        onChange={(e) =>
+   644→                                          updateBackgroundTriggerItem(pack.id, item.id, {
+   645→                                            priority: parseInt(e.target.value) || 0,
+   646→                                          })
+   647→                                        }
+   648→                                        className="mt-1 h-8"
+   649→                                      />
+   650→                                    </div>
+   651→
+   652→                                    {/* Actions */}
+   653→                                    <div className="flex items-center gap-2">
+   654→                                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+   655→                                        <Switch
+   656→                                          checked={item.enabled}
+   657→                                          onCheckedChange={(checked) =>
+   658→                                            updateBackgroundTriggerItem(pack.id, item.id, { enabled: checked })
+   659→                                          }
+   660→                                        />
+   661→                                      </label>
+   662→                                      <Button
+   663→                                        variant="ghost"
+   664→                                        size="sm"
+   665→                                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+   666→                                        onClick={() => deleteBackgroundTriggerItem(pack.id, item.id)}
+   667→                                      >
+   668→                                        <Trash2 className="w-3.5 h-3.5" />
+   669→                                      </Button>
+   670→                                    </div>
+   671→                                  </div>
+   672→
+   673→                                  {/* Item-specific match mode override */}
+   674→                                  <div className="mt-2 flex items-center gap-2">
+   675→                                    <Label className="text-xs">Modo Match (override):</Label>
+   676→                                    <Select
+   677→                                      value={item.matchMode || 'default'}
+   678→                                      onValueChange={(value: BackgroundMatchMode | 'default') =>
+   679→                                        updateBackgroundTriggerItem(pack.id, item.id, {
+   680→                                          matchMode: value === 'default' ? undefined : value,
+   681→                                        })
+   682→                                      }
+   683→                                    >
+   684→                                      <SelectTrigger className="h-7 w-40">
+   685→                                        <SelectValue placeholder="Usar default" />
+   686→                                      </SelectTrigger>
+   687→                                      <SelectContent>
+   688→                                        <SelectItem value="default">Usar default del pack</SelectItem>
+   689→                                        {Object.entries(MATCH_MODE_DESCRIPTIONS).map(([mode, { label }]) => (
+   690→                                          <SelectItem key={mode} value={mode}>
+   691→                                            {label}
+   692→                                          </SelectItem>
+   693→                                        ))}
+   694→                                      </SelectContent>
+   695→                                    </Select>
+   696→                                  </div>
+   697→                                </div>
+   698→                              ))}
+   699→                          </div>
+   700→                        )}
+   701→
+   702→                        {/* Pack Actions */}
+   703→                        <div className="flex gap-2 pt-2">
+   704→                          <Button
+   705→                            variant="outline"
+   706→                            size="sm"
+   707→                            className="h-7 text-xs"
+   708→                            onClick={() => {
+   709→                              const newPack: Omit<BackgroundTriggerPack, 'id' | 'createdAt' | 'updatedAt'> = {
+   710→                                name: `${pack.name} (copy)`,
+   711→                                active: pack.active,
+   712→                                collection: pack.collection,
+   713→                                priority: pack.priority,
+   714→                                cooldown: pack.cooldown,
+   715→                                matchMode: pack.matchMode,
+   716→                                transitionDuration: pack.transitionDuration,
+   717→                                transitionType: pack.transitionType,
+   718→                                items: pack.items,
+   719→                                returnToDefault: pack.returnToDefault,
+   720→                                returnToDefaultAfter: pack.returnToDefaultAfter,
+   721→                                defaultBackground: pack.defaultBackground,
+   722→                              };
+   723→                              addBackgroundTriggerPack(newPack);
+   724→                            }}
+   725→                          >
+   726→                            <Trash2 className="w-3 h-3 mr-1" />
+   727→                            Clonar Pack
+   728→                          </Button>
+   729→                          <Button
+   730→                            variant="destructive"
+   731→                            size="sm"
+   732→                            className="h-7 text-xs"
+   733→                            onClick={() => deleteBackgroundTriggerPack(pack.id)}
+   734→                          >
+   735→                            <Trash2 className="w-3 h-3 mr-1" />
+   736→                            Eliminar Pack
+   737→                          </Button>
+   738→                        </div>
+   739→                      </div>
+   740→                    </AccordionContent>
+   741→                  </AccordionItem>
+   742→                );
+   743→              })}
+   744→          </Accordion>
+   745→        </ScrollArea>
+   746→        </div>
+   747→      )}
+   748→
+   749→      {/* Preview Modal */}
+   750→      {previewBackground && (
+   751→        <div
+   752→          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+   753→          onClick={() => setPreviewBackground(null)}
+   754→        >
+   755→          <img
+   756→            src={previewBackground}
+   757→            alt="Preview"
+   758→            className="max-w-full max-h-full object-contain rounded-lg"
+   759→          />
+   760→        </div>
+   761→      )}
+   762→    </div>
+   763→  );
+   764→}
+   765→

@@ -213,6 +213,8 @@ function executeCompletionRewards(
         transitionDuration: get().settings?.backgroundTriggers?.transitionDuration ?? 500,
         defaultTransitionType: get().settings?.backgroundTriggers?.defaultTransitionType ?? 'fade',
       },
+      // ESCENARIO V3: library for 'ubicacion' rewards
+      scenarios: get().scenarios,
     };
     
     const actions: RewardStoreActions = {
@@ -242,6 +244,16 @@ function executeCompletionRewards(
       },
       setActiveOverlays: (overlays: any) => {
         get().setActiveOverlays?.(overlays);
+      },
+      // ESCENARIO V3: 'ubicacion' rewards move the shared scene
+      moveSceneToLocation: (sid: string, collectionId: string, locationId: string, backgroundUrl: string | null) => {
+        try {
+          if (collectionId) get().setActiveScenarioCollection?.(sid, collectionId);
+          if (locationId) get().setActiveScenario?.(sid, locationId);
+          if (backgroundUrl) get().setBackground?.(backgroundUrl);
+        } catch (err) {
+          console.error('[Quest Rewards] moveSceneToLocation failed:', err);
+        }
       },
     };
     
@@ -2125,6 +2137,8 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
             transitionDuration: get().settings?.backgroundTriggers?.transitionDuration ?? 500,
             defaultTransitionType: get().settings?.backgroundTriggers?.defaultTransitionType ?? 'fade',
           },
+          // ESCENARIO V3: library for 'ubicacion' rewards
+          scenarios: get().scenarios,
         };
 
         const actions: RewardStoreActions = {
@@ -2155,6 +2169,16 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
           },
           setActiveOverlays: (overlays: any) => {
             get().setActiveOverlays?.(overlays);
+          },
+          // ESCENARIO V3: 'ubicacion' rewards move the shared scene
+          moveSceneToLocation: (sid: string, collectionId: string, locationId: string, backgroundUrl: string | null) => {
+            try {
+              if (collectionId) get().setActiveScenarioCollection?.(sid, collectionId);
+              if (locationId) get().setActiveScenario?.(sid, locationId);
+              if (backgroundUrl) get().setBackground?.(backgroundUrl);
+            } catch (err) {
+              console.error('[activateSkillByTool] moveSceneToLocation failed:', err);
+            }
           },
         };
 

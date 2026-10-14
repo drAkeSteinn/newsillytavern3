@@ -131,7 +131,7 @@ const getFormatIcon = (format: string) => {
   switch (format) {
     case 'webm':
     case 'mp4':
-      return <FileVideo className="w-4 h-4 text-blue-400" />;
+      return <FileVideo className="w-4 h-4 text-violet-400" />;
     case 'gif':
       return <Film className="w-4 h-4 text-purple-400" />;
     case 'webp':
@@ -2714,7 +2714,7 @@ export function SpriteTimelineEditor() {
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-amber-500" />
+          <Sparkles className="w-5 h-5 text-fuchsia-500" />
           <h3 className="font-semibold">Editor de Sprite Timeline</h3>
           <Badge variant="outline" className="text-xs">
             {spriteCollections.length} colecciones
@@ -3086,9 +3086,9 @@ export function SpriteTimelineEditor() {
                           className="absolute left-0 right-0 z-20 pointer-events-none"
                           style={{ top: `${guides.topY * 100}%` }}
                         >
-                          <div className="h-0 border-t-2 border-dashed border-cyan-400/80" />
+                          <div className="h-0 border-t-2 border-dashed border-fuchsia-400/80" />
                           <div
-                            className="absolute -left-1.5 -top-2.5 w-5 h-5 rounded-full bg-cyan-500 border-2 border-white shadow-lg cursor-ns-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+                            className="absolute -left-1.5 -top-2.5 w-5 h-5 rounded-full bg-fuchsia-500 border-2 border-white shadow-lg cursor-ns-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
                             title="Guía superior (posición 100 = arriba) — arrastra ↑/↓"
                             onMouseDown={(e) => {
                               if (isPlaying) return;
@@ -3111,7 +3111,7 @@ export function SpriteTimelineEditor() {
                           >
                             <span className="text-[10px] text-white font-bold leading-none">↑</span>
                           </div>
-                          <div className="absolute left-1/2 -translate-x-1/2 -top-5 px-1.5 py-0.5 rounded bg-cyan-500/90 text-white text-[10px] font-mono pointer-events-none whitespace-nowrap shadow">
+                          <div className="absolute left-1/2 -translate-x-1/2 -top-5 px-1.5 py-0.5 rounded bg-fuchsia-500/90 text-white text-[10px] font-mono pointer-events-none whitespace-nowrap shadow">
                             Max {(guides.topY * 100).toFixed(0)}%
                           </div>
                         </div>
@@ -3121,9 +3121,9 @@ export function SpriteTimelineEditor() {
                           className="absolute left-0 right-0 z-20 pointer-events-none"
                           style={{ top: `${guides.bottomY * 100}%` }}
                         >
-                          <div className="h-0 border-t-2 border-dashed border-cyan-400/80" />
+                          <div className="h-0 border-t-2 border-dashed border-fuchsia-400/80" />
                           <div
-                            className="absolute -left-1.5 -top-2.5 w-5 h-5 rounded-full bg-cyan-600 border-2 border-white shadow-lg cursor-ns-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
+                            className="absolute -left-1.5 -top-2.5 w-5 h-5 rounded-full bg-fuchsia-600 border-2 border-white shadow-lg cursor-ns-resize pointer-events-auto flex items-center justify-center hover:scale-110 transition-transform"
                             title="Guía inferior (posición 0 = abajo) — arrastra ↑/↓"
                             onMouseDown={(e) => {
                               if (isPlaying) return;
@@ -3146,7 +3146,7 @@ export function SpriteTimelineEditor() {
                           >
                             <span className="text-[10px] text-white font-bold leading-none">↓</span>
                           </div>
-                          <div className="absolute left-1/2 -translate-x-1/2 top-1.5 px-1.5 py-0.5 rounded bg-cyan-600/90 text-white text-[10px] font-mono pointer-events-none whitespace-nowrap shadow">
+                          <div className="absolute left-1/2 -translate-x-1/2 top-1.5 px-1.5 py-0.5 rounded bg-fuchsia-600/90 text-white text-[10px] font-mono pointer-events-none whitespace-nowrap shadow">
                             Min {(guides.bottomY * 100).toFixed(0)}%
                           </div>
                         </div>
@@ -3225,7 +3225,7 @@ export function SpriteTimelineEditor() {
                       selectedSprite.format === 'webm' || selectedSprite.format === 'mp4'
                         ? "bg-violet-500/20 border-violet-400/30 text-violet-300"
                         : selectedSprite.format === 'webp' || selectedSprite.format === 'gif'
-                          ? "bg-teal-500/20 border-teal-400/30 text-teal-300"
+                          ? "bg-emerald-500/20 border-emerald-400/30 text-emerald-300"
                           : "bg-white/10 border-white/20 text-white/70"
                     )}>
                       {selectedSprite.format}
@@ -3235,7 +3235,7 @@ export function SpriteTimelineEditor() {
                     <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-sm px-3 py-1 rounded-md text-sm font-mono text-white tabular-nums shadow-lg">
                       {formatTime(playbackTime)}
                       {decoderInfo.supported && decoderInfo.frameCount > 0 && previewFrameIndex >= 0 && (
-                        <span className="ml-2 text-teal-300">
+                        <span className="ml-2 text-emerald-300">
                           Frame {previewFrameIndex + 1}/{decoderInfo.frameCount}
                         </span>
                       )}
@@ -3316,7 +3316,7 @@ export function SpriteTimelineEditor() {
                       className={cn(
                         "h-8 gap-1.5 text-xs",
                         guides.enabled
-                          ? "bg-cyan-600/15 border-cyan-500/40 text-cyan-400 hover:bg-cyan-600/25 hover:text-cyan-300"
+                          ? "bg-fuchsia-600/15 border-fuchsia-500/40 text-fuchsia-400 hover:bg-fuchsia-600/25 hover:text-fuchsia-300"
                           : "text-muted-foreground",
                       )}
                       onClick={() => setGuides(g => ({ ...g, enabled: !g.enabled }))}
@@ -3581,7 +3581,7 @@ export function SpriteTimelineEditor() {
                       <DropdownMenuLabel> Tipo de Track </DropdownMenuLabel>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => handleAddTrack('sound')}>
-                        <Music className="w-3 h-3 mr-2 text-blue-400" />
+                        <Music className="w-3 h-3 mr-2 text-violet-400" />
                         Sound Track
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleAddTrack('haptic')}>
@@ -3697,7 +3697,7 @@ export function SpriteTimelineEditor() {
                           <div className="flex items-center gap-1.5">
                             <span className={cn(
                               "flex items-center justify-center w-5 h-5 rounded-md flex-shrink-0",
-                              track.type === 'tracking' ? "bg-red-500/15 text-red-400" : isHaptic ? "bg-fuchsia-500/15 text-fuchsia-400" : "bg-blue-500/15 text-blue-400"
+                              track.type === 'tracking' ? "bg-red-500/15 text-red-400" : isHaptic ? "bg-fuchsia-500/15 text-fuchsia-400" : "bg-violet-500/15 text-violet-400"
                             )}>
                               {track.type === 'tracking' ? (
                                 <Crosshair className="w-3 h-3" />
@@ -3714,7 +3714,7 @@ export function SpriteTimelineEditor() {
                             )}>{track.name}</span>
                             <span className={cn(
                               "text-[9px] font-mono px-1 py-0.5 rounded-sm flex-shrink-0",
-                              track.type === 'tracking' ? "bg-red-500/10 text-red-400/80" : isHaptic ? "bg-fuchsia-500/10 text-fuchsia-400/80" : "bg-blue-500/10 text-blue-400/80"
+                              track.type === 'tracking' ? "bg-red-500/10 text-red-400/80" : isHaptic ? "bg-fuchsia-500/10 text-fuchsia-400/80" : "bg-violet-500/10 text-violet-400/80"
                             )}>
                               {track.keyframes.length}
                             </span>
@@ -3904,7 +3904,7 @@ export function SpriteTimelineEditor() {
                             "flex-1 relative bg-muted/10 transition-colors duration-150",
                             isHaptic && "timeline-haptic-lane bg-fuchsia-950/5",
                             track.type === 'tracking' && "bg-red-950/5",
-                            !isHaptic && track.type !== 'tracking' && dragOverTrackId === track.id && "bg-blue-100 dark:bg-blue-950/40 ring-1 ring-blue-400 dark:ring-blue-600 ring-inset"
+                            !isHaptic && track.type !== 'tracking' && dragOverTrackId === track.id && "bg-violet-100 dark:bg-violet-950/40 ring-1 ring-violet-400 dark:ring-violet-600 ring-inset"
                           )}
                           data-track-content
                           style={{ width: `${timelineWidth}px`, minHeight: `${trackHeight}px` }}
@@ -4255,13 +4255,13 @@ export function SpriteTimelineEditor() {
                                   key={keyframe.id}
                                   data-keyframe
                                   className={cn(
-                                    "timeline-keyframe text-amber-500 absolute top-1/2 -translate-y-1/2 w-5 h-7 rounded cursor-grab active:cursor-grabbing group",
+                                    "timeline-keyframe text-fuchsia-500 absolute top-1/2 -translate-y-1/2 w-5 h-7 rounded cursor-grab active:cursor-grabbing group",
                                     editorState.selectedKeyframeId === keyframe.id
-                                      ? "bg-amber-500 hover:bg-amber-400 border-2 border-amber-300 shadow-md shadow-amber-500/30"
+                                      ? "bg-fuchsia-500 hover:bg-fuchsia-400 border-2 border-fuchsia-300 shadow-md shadow-fuchsia-500/30"
                                       : isInMultiSelection
-                                      ? "bg-amber-400 hover:bg-amber-300 border-2 border-amber-200"
-                                      : "bg-blue-500 hover:bg-blue-400 border border-blue-300",
-                                    draggingKeyframe?.keyframeId === keyframe.id && "scale-110 bg-amber-500 border-2 border-white"
+                                      ? "bg-fuchsia-400 hover:bg-fuchsia-300 border-2 border-fuchsia-200"
+                                      : "bg-violet-500 hover:bg-violet-400 border border-violet-300",
+                                    draggingKeyframe?.keyframeId === keyframe.id && "scale-110 bg-fuchsia-500 border-2 border-white"
                                   )}
                                   style={{ left: `${keyframe.time * pixelsPerMs - 10}px` }}
                                   onClick={(e) => {
@@ -4311,7 +4311,7 @@ export function SpriteTimelineEditor() {
                                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-black/80 text-white text-[10px] rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-30">
                                     {formatTime(keyframe.time)}
                                     {(keyframe.value as SoundKeyframeValue & { soundTriggerName?: string })?.soundTriggerName && (
-                                      <span className="block text-blue-300">
+                                      <span className="block text-violet-300">
                                         {(keyframe.value as SoundKeyframeValue & { soundTriggerName?: string }).soundTriggerName}
                                       </span>
                                     )}
@@ -4345,7 +4345,7 @@ export function SpriteTimelineEditor() {
                             
                             return (
                               <div
-                                className="absolute border border-blue-400 bg-blue-400/15 pointer-events-none z-30 rounded-sm"
+                                className="absolute border border-violet-400 bg-violet-400/15 pointer-events-none z-30 rounded-sm"
                                 style={{
                                   left: `${x1}px`,
                                   width: `${x2 - x1}px`,
@@ -4500,8 +4500,8 @@ export function SpriteTimelineEditor() {
                         </div>
                         
                         {(selectedKeyframe.value as SoundKeyframeValue & { soundTriggerName?: string }).soundTriggerName && (
-                          <div className="p-2 bg-blue-500/10 rounded border border-blue-500/30">
-                            <span className="text-xs text-blue-400">Trigger: </span>
+                          <div className="p-2 bg-violet-500/10 rounded border border-violet-500/30">
+                            <span className="text-xs text-violet-400">Trigger: </span>
                             <span className="text-xs font-medium">
                               {(selectedKeyframe.value as SoundKeyframeValue & { soundTriggerName?: string }).soundTriggerName}
                             </span>
@@ -4689,7 +4689,7 @@ export function SpriteTimelineEditor() {
                             draggable
                             onDragStart={(e) => handleDragStart(e, trigger)}
                           >
-                            <Volume2 className="w-3 h-3 text-blue-400 shrink-0" />
+                            <Volume2 className="w-3 h-3 text-violet-400 shrink-0" />
                             <span className="text-xs truncate">{trigger.name}</span>
                             <Badge variant="secondary" className="text-[9px] shrink-0">
                               {trigger.sounds?.length || 0}
@@ -4698,7 +4698,7 @@ export function SpriteTimelineEditor() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 shrink-0 text-blue-500 hover:text-blue-400 hover:bg-blue-500/10"
+                            className="h-6 w-6 shrink-0 text-violet-500 hover:text-violet-400 hover:bg-violet-500/10"
                             title={`Agregar "${trigger.name}" en ${formatTime(playbackTime)}`}
                             disabled={!selectedSprite}
                             onClick={() => handleAddSoundAtPlayhead(trigger)}

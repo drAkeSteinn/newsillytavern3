@@ -109,6 +109,8 @@ export async function PUT(request: NextRequest) {
       atmosphere, memory, quests, dialogue, inventory,
       // Timeline
       collections,
+      // Scenario Library (ESCENARIO V3)
+      scenarios,
       // Active states
       activeStates,
     } = body;
@@ -153,6 +155,9 @@ export async function PUT(request: NextRequest) {
 
     // Timeline
     if (collections !== undefined) results.collections = safeWritePersistentData('collections', collections);
+
+    // Scenario Library (ESCENARIO V3)
+    if (scenarios !== undefined) results.scenarios = safeWritePersistentData('scenarios', scenarios);
 
     // Active states
     if (activeStates !== undefined) results.activeStates = safeWritePersistentData('activeStates', activeStates);

@@ -56,3 +56,7 @@ export type { QuestTemplateSlice } from './questTemplateSlice';
 // Timeline Editor Slice (V3 - Keyframe-based sprite animation)
 export { createTimelineEditorSlice, useTimelineEditorCollections, useTimelineEditorState, useSelectedCollection, useSelectedSprite } from './timelineEditorSlice';
 export type { TimelineEditorSlice } from './timelineEditorSlice';
+
+// Scenario Library Slice (App-level scenario collections, ESCENARIO V3)
+export { createScenarioLibrarySlice } from './scenarioLibrarySlice';
+export type { ScenarioLibrarySlice } from './scenarioLibrarySlice';

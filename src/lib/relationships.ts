@@ -29,6 +29,19 @@ export const RELATIONSHIP_STAGES: RelationshipStage[] = [
   { key: 'pareja', label: 'Pareja', min: 86, max: 100 },
 ];
 
+/**
+ * Custom per-character bond stage labels (editable from the character stats
+ * editor). Map of stage key → custom label. Ranges stay fixed; only the
+ * display name is overridable (e.g. extranos: 'Desconocidos').
+ */
+export type RelationshipStageLabels = Record<string, string>;
+
+/** Resolve the effective label for a stage key (custom label wins if non-empty) */
+export function relationshipStageLabel(stage: RelationshipStage, customLabels?: RelationshipStageLabels): string {
+  const custom = customLabels?.[stage.key];
+  return custom && custom.trim() ? custom.trim() : stage.label;
+}
+
 /** Default bond for brand-new pairs */
 export const DEFAULT_RELATIONSHIP_POINTS = 15;
 
@@ -47,22 +60,25 @@ export function clampRelationshipPoints(points: number): number {
   return Math.min(100, Math.max(0, Math.round(points)));
 }
 
-/** Derive stage from points */
-export function computeRelationshipStage(points: number): RelationshipStage {
+/** Derive stage from points (with optional per-character custom labels) */
+export function computeRelationshipStage(points: number, customLabels?: RelationshipStageLabels): RelationshipStage {
   const p = clampRelationshipPoints(points);
-  return RELATIONSHIP_STAGES.find(s => p >= s.min && p <= s.max) || RELATIONSHIP_STAGES[0];
+  const stage = RELATIONSHIP_STAGES.find(s => p >= s.min && p <= s.max) || RELATIONSHIP_STAGES[0];
+  const label = relationshipStageLabel(stage, customLabels);
+  return label !== stage.label ? { ...stage, label } : stage;
 }
 
 /** Find a bond from a raw relationships record */
 export function getRelationship(
   relationships: Record<string, unknown> | undefined,
   aId: string,
-  bId: string
+  bId: string,
+  customLabels?: RelationshipStageLabels
 ): { pairKey: string; points: number; stage: RelationshipStage } | null {
   const rec = relationships?.[relationshipPairKey(aId, bId)] as { points?: number } | undefined;
   if (!rec) return null;
   const points = clampRelationshipPoints(rec.points ?? DEFAULT_RELATIONSHIP_POINTS);
-  return { pairKey: relationshipPairKey(aId, bId), points, stage: computeRelationshipStage(points) };
+  return { pairKey: relationshipPairKey(aId, bId), points, stage: computeRelationshipStage(points, customLabels) };
 }
 
 /** User aliases accepted as relationship target */

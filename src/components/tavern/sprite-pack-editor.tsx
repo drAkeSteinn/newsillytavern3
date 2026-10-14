@@ -431,8 +431,8 @@ export function SpritePackEditor({ packs, libraries, spriteIndex, onChange }: Sp
           ¿Cómo funcionan los Packs?
         </div>
         <div className="grid grid-cols-2 gap-3 mt-2">
-          <div className="p-2 bg-amber-500/10 rounded border border-amber-500/20">
-            <div className="font-medium text-amber-600 flex items-center gap-1">
+          <div className="p-2 bg-fuchsia-500/10 rounded border border-fuchsia-500/20">
+            <div className="font-medium text-fuchsia-600 flex items-center gap-1">
               <Zap className="w-3 h-3" />
               Pack Keywords (ANY)
             </div>
@@ -441,8 +441,8 @@ export function SpritePackEditor({ packs, libraries, spriteIndex, onChange }: Sp
               Ejemplo: |happy|, |smile|, |joy|
             </p>
           </div>
-          <div className="p-2 bg-blue-500/10 rounded border border-blue-500/20">
-            <div className="font-medium text-blue-600 flex items-center gap-1">
+          <div className="p-2 bg-violet-500/10 rounded border border-violet-500/20">
+            <div className="font-medium text-violet-600 flex items-center gap-1">
               <Key className="w-3 h-3" />
               Item Keys (ALL)
             </div>

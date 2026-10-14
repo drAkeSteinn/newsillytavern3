@@ -230,7 +230,7 @@ export interface CharacterSpriteState {
   
   // Current sprite state (thinking/talk/idle)
   spriteState: SpriteState;
-  
+
   // NEW V2: Trigger queue for this character
   triggerQueue: TriggerQueueState;
   

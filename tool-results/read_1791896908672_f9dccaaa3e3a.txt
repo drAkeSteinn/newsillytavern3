@@ -1,0 +1,810 @@
+     1→// ============================================
+     2→// Skill Activation Handler - Handles Skill Triggers Post-LLM
+     3→// ============================================
+     4→//
+     5→// This handler detects skill activation keys in LLM responses
+     6→// and applies the associated activation costs to character stats.
+     7→//
+     8→// Detection patterns:
+     9→// - key:value  (habilidad:uso, golpe:activo)
+    10→// - key=value  (habilidad=1, golpe=si)
+    11→// - key_suffix (habilidad_1, golpe_x)
+    12→// - |key|      (pipe delimiters)
+    13→//
+    14→// Requirements check:
+    15→// Before activating a skill, the handler verifies that all requirements are met.
+    16→
+    17→import type { DetectedToken } from '../token-detector';
+    18→import type { TriggerMatch, TriggerContext } from '../types';
+    19→import type { TriggerBus } from '../trigger-bus';
+    20→import type {
+    21→  CharacterStatsConfig,
+    22→  SessionStats,
+    23→  SkillDefinition,
+    24→  ActivationCost,
+    25→  CharacterCard,
+    26→  CostOperator,
+    27→  StatRequirement,
+    28→  RequirementOperator,
+    29→  AttributeDefinition,
+    30→  QuestReward,
+    31→} from '@/types';
+    32→import { getTokenDetector, normalizeToken } from '../token-detector';
+    33→
+    34→// ============================================
+    35→// Types
+    36→// ============================================
+    37→
+    38→export interface RequirementCheckResult {
+    39→  met: boolean;
+    40→  failedRequirements: Array<{
+    41→    attributeKey: string;
+    42→    attributeName: string;
+    43→    currentValue: number | string;
+    44→    requiredValue: number | string;
+    45→    operator: RequirementOperator;
+    46→    valueMax?: number;
+    47→  }>;
+    48→}
+    49→
+    50→export interface SkillActivationMatch {
+    51→  skillId: string;
+    52→  skillName: string;
+    53→  skillKey: string;
+    54→  matchedKey: string;          // The key that was matched
+    55→  matchedToken: string;         // The full token that matched
+    56→  activationCosts: ActivationCost[];
+    57→  activationRewards: QuestReward[];  // Trigger rewards to execute on activation
+    58→  characterId: string;
+    59→  requirementsMet: boolean;     // Whether all requirements are met
+    60→  requirementCheck?: RequirementCheckResult; // Details of requirement check
+    61→}
+    62→
+    63→export interface SkillActivationResult {
+    64→  matched: boolean;
+    65→  matches: SkillActivationMatch[];
+    66→  triggers: TriggerMatch[];
+    67→}
+    68→
+    69→export interface SkillActivationHandlerState {
+    70→  processedMessages: Set<string>;
+    71→  activationHistory: Map<string, number>; // skillId -> last activation timestamp
+    72→  activatedSkillsPerMessage: Map<string, Set<string>>; // messageKey -> Set of activated skillIds
+    73→}
+    74→
+    75→// ============================================
+    76→// State Management
+    77→// ============================================
+    78→
+    79→export function createSkillActivationHandlerState(): SkillActivationHandlerState {
+    80→  return {
+    81→    processedMessages: new Set(),
+    82→    activationHistory: new Map(),
+    83→    activatedSkillsPerMessage: new Map(),
+    84→  };
+    85→}
+    86→
+    87→export function resetSkillActivationState(
+    88→  state: SkillActivationHandlerState,
+    89→  messageKey: string
+    90→): void {
+    91→  state.processedMessages.delete(messageKey);
+    92→  state.activatedSkillsPerMessage.delete(messageKey);
+    93→}
+    94→
+    95→export function clearSkillActivationHandlerState(
+    96→  state: SkillActivationHandlerState
+    97→): void {
+    98→  state.processedMessages.clear();
+    99→  state.activationHistory.clear();
+   100→  state.activatedSkillsPerMessage.clear();
+   101→}
+   102→
+   103→// ============================================
+   104→// Requirements Check Functions
+   105→// ============================================
+   106→
+   107→/**
+   108→ * Check a single requirement against current attribute values
+   109→ */
+   110→function checkRequirement(
+   111→  requirement: StatRequirement,
+   112→  currentValue: number | string | undefined,
+   113→  attributeName: string
+   114→): { met: boolean; failedRequirement?: RequirementCheckResult['failedRequirements'][0] } {
+   115→  // If no current value, requirement is not met
+   116→  if (currentValue === undefined) {
+   117→    return {
+   118→      met: false,
+   119→      failedRequirement: {
+   120→        attributeKey: requirement.attributeKey,
+   121→        attributeName,
+   122→        currentValue: 'undefined',
+   123→        requiredValue: requirement.value,
+   124→        operator: requirement.operator,
+   125→        valueMax: requirement.valueMax,
+   126→      },
+   127→    };
+   128→  }
+   129→
+   130→  const isTextOperator = requirement.operator === 'contains' || requirement.operator === 'not_contains';
+   131→
+   132→  // Text comparison for text operators or non-numeric values
+   133→  if (isTextOperator || (typeof currentValue === 'string' && isNaN(parseFloat(currentValue)))) {
+   134→    const currentStr = String(currentValue).toLowerCase();
+   135→    const requiredStr = String(requirement.value).toLowerCase();
+   136→
+   137→    let met = false;
+   138→    switch (requirement.operator) {
+   139→      case '==':
+   140→        met = currentStr === requiredStr;
+   141→        break;
+   142→      case '!=':
+   143→        met = currentStr !== requiredStr;
+   144→        break;
+   145→      case 'contains':
+   146→        met = currentStr.includes(requiredStr);
+   147→        break;
+   148→      case 'not_contains':
+   149→        met = !currentStr.includes(requiredStr);
+   150→        break;
+   151→      default:
+   152→        met = false;
+   153→    }
+   154→
+   155→    if (!met) {
+   156→      return {
+   157→        met: false,
+   158→        failedRequirement: {
+   159→          attributeKey: requirement.attributeKey,
+   160→          attributeName,
+   161→          currentValue,
+   162→          requiredValue: requirement.value,
+   163→          operator: requirement.operator,
+   164→          valueMax: requirement.valueMax,
+   165→        },
+   166→      };
+   167→    }
+   168→    return { met: true };
+   169→  }
+   170→
+   171→  const current = typeof currentValue === 'string' ? parseFloat(currentValue) || 0 : currentValue;
+   172→  const required = typeof requirement.value === 'string' ? parseFloat(requirement.value) || 0 : requirement.value;
+   173→  const requiredMax = requirement.valueMax !== undefined
+   174→    ? (typeof requirement.valueMax === 'string' ? parseFloat(requirement.valueMax) || 0 : requirement.valueMax)
+   175→    : undefined;
+   176→
+   177→  let met = false;
+   178→
+   179→  switch (requirement.operator) {
+   180→    case '>=':
+   181→      met = current >= required;
+   182→      break;
+   183→    case '>':
+   184→      met = current > required;
+   185→      break;
+   186→    case '<=':
+   187→      met = current <= required;
+   188→      break;
+   189→    case '<':
+   190→      met = current < required;
+   191→      break;
+   192→    case '==':
+   193→      met = current === required;
+   194→      break;
+   195→    case '!=':
+   196→      met = current !== required;
+   197→      break;
+   198→    case 'between':
+   199→      if (requiredMax !== undefined) {
+   200→        met = current >= required && current <= requiredMax;
+   201→      } else {
+   202→        met = false; // Invalid between without max
+   203→      }
+   204→      break;
+   205→    default:
+   206→      met = false;
+   207→  }
+   208→
+   209→  if (met) {
+   210→    return { met: true };
+   211→  }
+   212→
+   213→  return {
+   214→    met: false,
+   215→    failedRequirement: {
+   216→      attributeKey: requirement.attributeKey,
+   217→      attributeName,
+   218→      currentValue: current,
+   219→      requiredValue: requirement.value,
+   220→      operator: requirement.operator,
+   221→      valueMax: requirement.valueMax,
+   222→    },
+   223→  };
+   224→}
+   225→
+   226→/**
+   227→ * Check all requirements for a skill against current attribute values
+   228→ * Supports target requirements (checking attributes of other characters or persona)
+   229→ */
+   230→export function checkAllRequirements(
+   231→  requirements: StatRequirement[],
+   232→  statsConfig: CharacterStatsConfig,
+   233→  currentValues: Record<string, number | string>,
+   234→  sessionStats?: SessionStats
+   235→): RequirementCheckResult {
+   236→  const result: RequirementCheckResult = {
+   237→    met: true,
+   238→    failedRequirements: [],
+   239→  };
+   240→
+   241→  for (const requirement of requirements) {
+   242→    if (!requirement.attributeKey) continue;
+   243→
+   244→    // Determine where to get the attribute value from
+   245→    let currentValue: number | string | undefined;
+   246→    let attributeName: string;
+   247→
+   248→    if (requirement.targetCharacterId) {
+   249→      // Target mode - get value from another character or persona
+   250→      const targetCharStats = sessionStats?.characterStats?.[requirement.targetCharacterId];
+   251→      currentValue = targetCharStats?.attributeValues?.[requirement.attributeKey];
+   252→      attributeName = requirement.targetAttributeName
+   253→        ? `${requirement.targetAttributeName} (${requirement.attributeKey})`
+   254→        : requirement.attributeKey;
+   255→    } else {
+   256→      // Self mode - get value from own attributes
+   257→      const attribute = statsConfig.attributes.find(a => a.key === requirement.attributeKey);
+   258→      currentValue = currentValues[requirement.attributeKey];
+   259→      attributeName = attribute?.name || requirement.attributeKey;
+   260→    }
+   261→
+   262→    const check = checkRequirement(requirement, currentValue, attributeName);
+   263→
+   264→    if (!check.met) {
+   265→      result.met = false;
+   266→      if (check.failedRequirement) {
+   267→        result.failedRequirements.push(check.failedRequirement);
+   268→      }
+   269→    }
+   270→  }
+   271→
+   272→  return result;
+   273→}
+   274→
+   275→/**
+   276→ * Get current attribute values for a character from session stats
+   277→ */
+   278→function getCurrentAttributeValues(
+   279→  characterId: string,
+   280→  sessionStats: SessionStats | undefined,
+   281→  statsConfig: CharacterStatsConfig
+   282→): Record<string, number | string> {
+   283→  const charStats = sessionStats?.characterStats?.[characterId];
+   284→  const values: Record<string, number | string> = {};
+   285→
+   286→  // Initialize with default values
+   287→  for (const attr of statsConfig.attributes) {
+   288→    values[attr.key] = charStats?.attributeValues?.[attr.key] ?? attr.defaultValue ?? 0;
+   289→  }
+   290→
+   291→  // Override with current session values
+   292→  if (charStats?.attributeValues) {
+   293→    Object.assign(values, charStats.attributeValues);
+   294→  }
+   295→
+   296→  return values;
+   297→}
+   298→
+   299→// ============================================
+   300→// Key Matching Functions
+   301→// ============================================
+   302→
+   303→/**
+   304→ * Check if a token matches a skill's activation key
+   305→ * Supports multiple formats:
+   306→ * - Exact match: "golpe" matches "golpe"
+   307→ * - Key:value format: "golpe:uso" matches activationKey "golpe"
+   308→ * - Key=value format: "golpe=1" matches activationKey "golpe"
+   309→ * - Key_suffix format: "golpe_1" matches activationKey "golpe"
+   310→ * - Pipe format: "|golpe|" matches activationKey "golpe"
+   311→ */
+   312→function tokenMatchesActivationKey(
+   313→  token: DetectedToken,
+   314→  activationKey: string,
+   315→  caseSensitive: boolean = false
+   316→): { matches: boolean; matchedKey: string } {
+   317→  const normalizedToken = normalizeToken(token.token, { caseSensitive });
+   318→  const normalizedKey = normalizeToken(activationKey, { caseSensitive });
+   319→  
+   320→  if (!normalizedKey || !normalizedToken) {
+   321→    return { matches: false, matchedKey: '' };
+   322→  }
+   323→  
+   324→  // 1. Exact match
+   325→  if (normalizedToken === normalizedKey) {
+   326→    return { matches: true, matchedKey: activationKey };
+   327→  }
+   328→  
+   329→  // For key:value and key=value patterns, use the ORIGINAL token text
+   330→  // because normalizeToken strips special characters like : and =
+   331→  const originalLower = token.original.toLowerCase();
+   332→  
+   333→  // 2. Key:value format (key:value or key: value)
+   334→  if (originalLower.includes(':')) {
+   335→    const [keyPart] = originalLower.split(':');
+   336→    const normalizedKeyPart = normalizeToken(keyPart, { caseSensitive });
+   337→    if (normalizedKeyPart === normalizedKey) {
+   338→      return { matches: true, matchedKey: activationKey };
+   339→    }
+   340→  }
+   341→  
+   342→  // 3. Key=value format
+   343→  if (originalLower.includes('=')) {
+   344→    const [keyPart] = originalLower.split('=');
+   345→    const normalizedKeyPart = normalizeToken(keyPart, { caseSensitive });
+   346→    if (normalizedKeyPart === normalizedKey) {
+   347→      return { matches: true, matchedKey: activationKey };
+   348→    }
+   349→  }
+   350→  
+   351→  // 4. Key_suffix format (key_1, key_x, etc.)
+   352→  if (normalizedToken.startsWith(normalizedKey + '_')) {
+   353→    return { matches: true, matchedKey: activationKey };
+   354→  }
+   355→  
+   356→  // 5. Token starts with key (partial match for compound words)
+   357→  if (normalizedToken.startsWith(normalizedKey) && normalizedToken.length > normalizedKey.length) {
+   358→    // Only match if followed by separator or number
+   359→    const afterKey = normalizedToken.slice(normalizedKey.length);
+   360→    if (/^[_:=-]/.test(afterKey) || /^\d/.test(afterKey)) {
+   361→      return { matches: true, matchedKey: activationKey };
+   362→    }
+   363→  }
+   364→  
+   365→  return { matches: false, matchedKey: '' };
+   366→}
+   367→
+   368→/**
+   369→ * Find all skills that match a token
+   370→ */
+   371→function findMatchingSkills(
+   372→  token: DetectedToken,
+   373→  skills: SkillDefinition[]
+   374→): Array<{ skill: SkillDefinition; matchedKey: string }> {
+   375→  const matches: Array<{ skill: SkillDefinition; matchedKey: string }> = [];
+   376→  
+   377→  for (const skill of skills) {
+   378→    if (!skill.activationKey && (!skill.activationKeys || skill.activationKeys.length === 0)) {
+   379→      continue; // No activation keys defined
+   380→    }
+   381→    
+   382→    const caseSensitive = skill.activationKeyCaseSensitive ?? false;
+   383→    
+   384→    // Check primary activation key
+   385→    if (skill.activationKey) {
+   386→      const result = tokenMatchesActivationKey(token, skill.activationKey, caseSensitive);
+   387→      if (result.matches) {
+   388→        matches.push({ skill, matchedKey: result.matchedKey });
+   389→        continue;
+   390→      }
+   391→    }
+   392→    
+   393→    // Check alternative keys
+   394→    if (skill.activationKeys) {
+   395→      for (const altKey of skill.activationKeys) {
+   396→        const result = tokenMatchesActivationKey(token, altKey, caseSensitive);
+   397→        if (result.matches) {
+   398→          matches.push({ skill, matchedKey: result.matchedKey });
+   399→          break;
+   400→        }
+   401→      }
+   402→    }
+   403→  }
+   404→  
+   405→  return matches;
+   406→}
+   407→
+   408→// ============================================
+   409→// Main Detection Functions
+   410→// ============================================
+   411→
+   412→/**
+   413→ * Detect skill activations in text
+   414→ */
+   415→export function detectSkillActivations(
+   416→  text: string,
+   417→  characterId: string,
+   418→  statsConfig: CharacterStatsConfig | undefined,
+   419→  sessionStats: SessionStats | undefined,
+   420→  state: SkillActivationHandlerState,
+   421→  messageKey: string
+   422→): SkillActivationResult {
+   423→  const result: SkillActivationResult = {
+   424→    matched: false,
+   425→    matches: [],
+   426→    triggers: [],
+   427→  };
+   428→  
+   429→  // Check if stats system is enabled
+   430→  if (!statsConfig?.enabled) {
+   431→    return result;
+   432→  }
+   433→  
+   434→  // Get skills with activation keys
+   435→  const skillsWithKeys = (statsConfig.skills || []).filter(
+   436→    s => s.activationKey || (s.activationKeys && s.activationKeys.length > 0)
+   437→  );
+   438→  
+   439→  if (skillsWithKeys.length === 0) {
+   440→    return result;
+   441→  }
+   442→  
+   443→  // Get already activated skills for this message (prevent duplicates across streaming)
+   444→  const activatedSkills = state.activatedSkillsPerMessage.get(messageKey) ?? new Set<string>();
+   445→  
+   446→  // Get current attribute values for requirement checking
+   447→  const currentValues = getCurrentAttributeValues(characterId, sessionStats, statsConfig);
+   448→  
+   449→  // Get token detector and process text
+   450→  const detector = getTokenDetector();
+   451→  const tokens = detector.processFull(text, messageKey);
+   452→  
+   453→  // Check each token against skill activation keys
+   454→  for (const token of tokens) {
+   455→    const skillMatches = findMatchingSkills(token, skillsWithKeys);
+   456→    
+   457→    for (const { skill, matchedKey } of skillMatches) {
+   458→      // Allow multiple activations of the same skill
+   459→      // Each occurrence triggers the skill independently
+   460→      
+   461→      // Mark as activated for tracking (but don't skip)
+   462→      activatedSkills.add(skill.id);
+   463→      
+   464→      // Check requirements
+   465→      const requirementCheck = checkAllRequirements(
+   466→        skill.requirements || [],
+   467→        statsConfig,
+   468→        currentValues,
+   469→        sessionStats
+   470→      );
+   471→      
+   472→      const match: SkillActivationMatch = {
+   473→        skillId: skill.id,
+   474→        skillName: skill.name,
+   475→        skillKey: skill.key,
+   476→        matchedKey,
+   477→        matchedToken: token.original,
+   478→        activationCosts: skill.activationCosts || [],
+   479→        activationRewards: skill.activationRewards || [],
+   480→        characterId,
+   481→        requirementsMet: requirementCheck.met,
+   482→        requirementCheck: requirementCheck.failedRequirements.length > 0 ? requirementCheck : undefined,
+   483→      };
+   484→      
+   485→      result.matches.push(match);
+   486→      
+   487→      // Create trigger match
+   488→      result.triggers.push({
+   489→        triggerId: `skill_${skill.id}`,
+   490→        triggerType: 'skill_activation',
+   491→        keyword: matchedKey,
+   492→        data: match,
+   493→      });
+   494→      
+   495→      // Update activation history
+   496→      state.activationHistory.set(skill.id, Date.now());
+   497→    }
+   498→  }
+   499→  
+   500→  // Save activated skills back to state
+   501→  state.activatedSkillsPerMessage.set(messageKey, activatedSkills);
+   502→  
+   503→  result.matched = result.matches.length > 0;
+   504→  
+   505→  return result;
+   506→}
+   507→
+   508→/**
+   509→ * Detect skill activations incrementally (for streaming)
+   510→ */
+   511→export function detectSkillActivationsIncremental(
+   512→  newText: string,
+   513→  fullText: string,
+   514→  characterId: string,
+   515→  statsConfig: CharacterStatsConfig | undefined,
+   516→  sessionStats: SessionStats | undefined,
+   517→  state: SkillActivationHandlerState,
+   518→  messageKey: string
+   519→): SkillActivationResult {
+   520→  const result: SkillActivationResult = {
+   521→    matched: false,
+   522→    matches: [],
+   523→    triggers: [],
+   524→  };
+   525→  
+   526→  // Check if stats system is enabled
+   527→  if (!statsConfig?.enabled) {
+   528→    return result;
+   529→  }
+   530→  
+   531→  // Get skills with activation keys
+   532→  const skillsWithKeys = (statsConfig.skills || []).filter(
+   533→    s => s.activationKey || (s.activationKeys && s.activationKeys.length > 0)
+   534→  );
+   535→  
+   536→  if (skillsWithKeys.length === 0) {
+   537→    return result;
+   538→  }
+   539→  
+   540→  // Get already activated skills for this message (prevent duplicates across streaming)
+   541→  const activatedSkills = state.activatedSkillsPerMessage.get(messageKey) ?? new Set<string>();
+   542→  
+   543→  // Get current attribute values for requirement checking
+   544→  const currentValues = getCurrentAttributeValues(characterId, sessionStats, statsConfig);
+   545→  
+   546→  // Get token detector and process incrementally
+   547→  const detector = getTokenDetector();
+   548→  const newTokens = detector.processIncremental(fullText, messageKey);
+   549→  
+   550→  // Check each new token against skill activation keys
+   551→  for (const token of newTokens) {
+   552→    const skillMatches = findMatchingSkills(token, skillsWithKeys);
+   553→    
+   554→    for (const { skill, matchedKey } of skillMatches) {
+   555→      // Allow multiple activations of the same skill
+   556→      // Each occurrence triggers the skill independently
+   557→      
+   558→      // Mark as activated for tracking (but don't skip)
+   559→      activatedSkills.add(skill.id);
+   560→      
+   561→      // Check requirements
+   562→      const requirementCheck = checkAllRequirements(
+   563→        skill.requirements || [],
+   564→        statsConfig,
+   565→        currentValues,
+   566→        sessionStats
+   567→      );
+   568→      
+   569→      const match: SkillActivationMatch = {
+   570→        skillId: skill.id,
+   571→        skillName: skill.name,
+   572→        skillKey: skill.key,
+   573→        matchedKey,
+   574→        matchedToken: token.original,
+   575→        activationCosts: skill.activationCosts || [],
+   576→        activationRewards: skill.activationRewards || [],
+   577→        characterId,
+   578→        requirementsMet: requirementCheck.met,
+   579→        requirementCheck: requirementCheck.failedRequirements.length > 0 ? requirementCheck : undefined,
+   580→      };
+   581→      
+   582→      result.matches.push(match);
+   583→      
+   584→      // Create trigger match
+   585→      result.triggers.push({
+   586→        triggerId: `skill_${skill.id}_${Date.now()}`, // Unique ID for each activation
+   587→        triggerType: 'skill_activation',
+   588→        keyword: matchedKey,
+   589→        data: match,
+   590→      });
+   591→      
+   592→      // Update activation history
+   593→      state.activationHistory.set(skill.id, Date.now());
+   594→    }
+   595→  }
+   596→  
+   597→  // Save activated skills back to state
+   598→  state.activatedSkillsPerMessage.set(messageKey, activatedSkills);
+   599→  
+   600→  result.matched = result.matches.length > 0;
+   601→  
+   602→  return result;
+   603→}
+   604→
+   605→// ============================================
+   606→// Cost Application Functions
+   607→// ============================================
+   608→
+   609→/**
+   610→ * Apply an activation cost to stats
+   611→ */
+   612→export function applyActivationCost(
+   613→  currentValue: number | string,
+   614→  cost: ActivationCost
+   615→): number | string {
+   616→  // Only apply to numeric values
+   617→  if (typeof currentValue !== 'number') {
+   618→    return currentValue;
+   619→  }
+   620→  
+   621→  const costValue = cost.value;
+   622→  
+   623→  switch (cost.operator) {
+   624→    case '-':
+   625→      return currentValue - costValue;
+   626→    case '+':
+   627→      return currentValue + costValue;
+   628→    case '*':
+   629→      return currentValue * costValue;
+   630→    case '/':
+   631→      return costValue !== 0 ? currentValue / costValue : currentValue;
+   632→    case '=':
+   633→      return costValue;
+   634→    case 'set_min':
+   635→      return Math.max(currentValue, costValue);
+   636→    case 'set_max':
+   637→      return Math.min(currentValue, costValue);
+   638→    default:
+   639→      return currentValue;
+   640→  }
+   641→}
+   642→
+   643→/**
+   644→ * Execute skill activation - apply costs to stats
+   645→ * Only applies costs if requirements are met
+   646→ * Returns changes and rewards to execute
+   647→ */
+   648→export function executeSkillActivation(
+   649→  match: SkillActivationMatch,
+   650→  context: {
+   651→    sessionId: string;
+   652→    characterId: string;
+   653→    sessionStats: SessionStats | undefined;
+   654→    statsConfig: CharacterStatsConfig | undefined;
+   655→  },
+   656→  storeActions?: {
+   657→    updateCharacterStat: (
+   658→      sessionId: string,
+   659→      characterId: string,
+   660→      attributeKey: string,
+   661→      value: number | string,
+   662→      reason?: 'llm_detection' | 'manual' | 'trigger'
+   663→    ) => void;
+   664→  }
+   665→): { 
+   666→  changes: Array<{ attributeKey: string; oldValue: number | string; newValue: number | string }>;
+   667→  rewards: QuestReward[];
+   668→} {
+   669→  const result: { 
+   670→    changes: Array<{ attributeKey: string; oldValue: number | string; newValue: number | string }>;
+   671→    rewards: QuestReward[];
+   672→  } = { changes: [], rewards: [] };
+   673→  
+   674→  // Check if requirements are met
+   675→  if (!match.requirementsMet) {
+   676→    console.log(
+   677→      `[SkillActivation] Skill "${match.skillName}" not activated - requirements not met:`,
+   678→      match.requirementCheck?.failedRequirements.map(r => 
+   679→        `${r.attributeName} ${r.operator} ${r.requiredValue} (current: ${r.currentValue})`
+   680→      ).join(', ')
+   681→    );
+   682→    return result;
+   683→  }
+   684→  
+   685→  // Apply activation costs if store actions provided
+   686→  if (storeActions && context.statsConfig && match.activationCosts.length > 0) {
+   687→    const charStats = context.sessionStats?.characterStats?.[context.characterId];
+   688→    const currentValues = charStats?.attributeValues || {};
+   689→    
+   690→    for (const cost of match.activationCosts) {
+   691→      if (!cost.attributeKey) continue;
+   692→      
+   693→      const attribute = context.statsConfig.attributes.find(a => a.key === cost.attributeKey);
+   694→      if (!attribute) continue;
+   695→      
+   696→      const oldValue = currentValues[cost.attributeKey] ?? attribute.defaultValue ?? 0;
+   697→      const newValue = applyActivationCost(oldValue, cost);
+   698→      
+   699→      // Apply min/max constraints if defined
+   700→      let finalValue = newValue;
+   701→      if (typeof newValue === 'number') {
+   702→        if (attribute.min !== undefined) {
+   703→          finalValue = Math.max(finalValue, attribute.min);
+   704→        }
+   705→        if (attribute.max !== undefined) {
+   706→          finalValue = Math.min(finalValue, attribute.max);
+   707→        }
+   708→      }
+   709→      
+   710→      storeActions.updateCharacterStat(
+   711→        context.sessionId,
+   712→        context.characterId,
+   713→        cost.attributeKey,
+   714→        finalValue,
+   715→        'trigger' // Mark as trigger-initiated
+   716→      );
+   717→      
+   718→      result.changes.push({
+   719→        attributeKey: cost.attributeKey,
+   720→        oldValue,
+   721→        newValue: finalValue,
+   722→      });
+   723→    }
+   724→  }
+   725→  
+   726→  // Return rewards to execute (will be processed by trigger executor)
+   727→  result.rewards = match.activationRewards || [];
+   728→  
+   729→  return result;
+   730→}
+   731→
+   732→/**
+   733→ * Execute all skill activations from a result
+   734→ */
+   735→export function executeAllSkillActivations(
+   736→  result: SkillActivationResult,
+   737→  context: {
+   738→    sessionId: string;
+   739→    characterId: string;
+   740→    sessionStats: SessionStats | undefined;
+   741→    statsConfig: CharacterStatsConfig | undefined;
+   742→  },
+   743→  storeActions?: {
+   744→    updateCharacterStat: (
+   745→      sessionId: string,
+   746→      characterId: string,
+   747→      attributeKey: string,
+   748→      value: number | string,
+   749→      reason?: 'llm_detection' | 'manual' | 'trigger'
+   750→    ) => void;
+   751→  }
+   752→): { 
+   753→  skillResults: Array<{ skillId: string; skillName: string; changes: Array<{ attributeKey: string; oldValue: number | string; newValue: number | string }> }>;
+   754→  allRewards: QuestReward[];
+   755→} {
+   756→  const skillResults: Array<{ skillId: string; skillName: string; changes: Array<{ attributeKey: string; oldValue: number | string; newValue: number | string }> }> = [];
+   757→  const allRewards: QuestReward[] = [];
+   758→  
+   759→  for (const match of result.matches) {
+   760→    const executionResult = executeSkillActivation(match, context, storeActions);
+   761→    if (executionResult.changes.length > 0 || executionResult.rewards.length > 0) {
+   762→      skillResults.push({
+   763→        skillId: match.skillId,
+   764→        skillName: match.skillName,
+   765→        changes: executionResult.changes,
+   766→      });
+   767→      allRewards.push(...executionResult.rewards);
+   768→    }
+   769→  }
+   770→  
+   771→  return { skillResults, allRewards };
+   772→}
+   773→
+   774→// ============================================
+   775→// Trigger Handler Interface
+   776→// ============================================
+   777→
+   778→export interface SkillActivationTriggerContext extends TriggerContext {
+   779→  characterId: string;
+   780→  statsConfig: CharacterStatsConfig | undefined;
+   781→  sessionStats: SessionStats | undefined;
+   782→}
+   783→
+   784→/**
+   785→ * Check skill activation triggers during streaming or at message end
+   786→ */
+   787→export function checkSkillActivationTriggersInText(
+   788→  text: string,
+   789→  context: SkillActivationTriggerContext,
+   790→  state: SkillActivationHandlerState
+   791→): SkillActivationResult {
+   792→  const { characterId, statsConfig, sessionStats, messageKey } = context;
+   793→  
+   794→  return detectSkillActivations(text, characterId, statsConfig, sessionStats, state, messageKey);
+   795→}
+   796→
+   797→/**
+   798→ * Check skill activation triggers incrementally (for streaming)
+   799→ */
+   800→export function checkSkillActivationTriggersIncremental(
+   801→  newText: string,
+   802→  fullText: string,
+   803→  context: SkillActivationTriggerContext,
+   804→  state: SkillActivationHandlerState
+   805→): SkillActivationResult {
+   806→  const { characterId, statsConfig, sessionStats, messageKey } = context;
+   807→  
+   808→  return detectSkillActivationsIncremental(newText, fullText, characterId, statsConfig, sessionStats, state, messageKey);
+   809→}
+   810→

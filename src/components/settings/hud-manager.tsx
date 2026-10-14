@@ -156,9 +156,9 @@ export function HUDManager() {
     'card': 'bg-gradient-to-br from-slate-900/80 to-slate-800/60 border border-white/10',
     'panel': 'bg-gradient-to-br from-slate-900/90 to-slate-800/80 border-2 border-white/20',
     'glass': 'bg-white/5 border border-white/20',
-    'neon': 'bg-slate-900/80 border-2 border-cyan-500/50',
-    'holographic': 'bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-pink-500/20 border border-cyan-400/30',
-    'fantasy': 'bg-gradient-to-br from-amber-950/80 to-stone-900/80 border-2 border-amber-600/40',
+    'neon': 'bg-slate-900/80 border-2 border-fuchsia-500/50',
+    'holographic': 'bg-gradient-to-r from-fuchsia-500/20 via-purple-500/20 to-pink-500/20 border border-fuchsia-400/30',
+    'fantasy': 'bg-gradient-to-br from-fuchsia-950/80 to-stone-900/80 border-2 border-fuchsia-600/40',
     'retro': 'bg-black/90 border-4 border-green-500/70',
   };
   
@@ -177,7 +177,7 @@ export function HUDManager() {
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <h2 className="text-2xl font-bold flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30">
+                <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/20 border border-emerald-500/30">
                   <Layers className="w-5 h-5 text-emerald-500" />
                 </div>
                 HUD Templates
@@ -188,7 +188,7 @@ export function HUDManager() {
             </div>
             <Button 
               onClick={handleCreate}
-              className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25 transition-all duration-200 hover:shadow-emerald-500/40"
+              className="bg-gradient-to-r from-emerald-600 to-emerald-600 hover:from-emerald-700 hover:to-emerald-700 text-white shadow-lg shadow-emerald-500/25 transition-all duration-200 hover:shadow-emerald-500/40"
             >
               <Plus className="w-4 h-4 mr-2" />
               Crear Template
@@ -226,17 +226,17 @@ export function HUDManager() {
                       "hover:shadow-xl hover:shadow-slate-500/10 hover:-translate-y-1",
                       "border",
                       isActive 
-                        ? "border-emerald-500/50 bg-gradient-to-br from-emerald-500/5 to-teal-500/5" 
+                        ? "border-emerald-500/50 bg-gradient-to-br from-emerald-500/5 to-emerald-500/5" 
                         : "border-border/60 bg-gradient-to-br from-card to-muted/30 hover:border-emerald-500/30"
                     )}
                   >
                     {/* Active indicator */}
                     {isActive && (
-                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-emerald-500" />
                     )}
                     
                     {/* Background decoration */}
-                    <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-gradient-to-br from-emerald-500/5 to-teal-500/5 group-hover:scale-150 transition-transform duration-500" />
+                    <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-gradient-to-br from-emerald-500/5 to-emerald-500/5 group-hover:scale-150 transition-transform duration-500" />
                     
                     <CardHeader className="pb-3 relative">
                       <div className="flex items-start justify-between gap-2">
@@ -494,21 +494,21 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
       label: 'Neón',
       icon: <Zap className="w-4 h-4" />,
       desc: 'Brillo cyberpunk cyan',
-      preview: 'bg-slate-900/80 border-2 border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+      preview: 'bg-slate-900/80 border-2 border-fuchsia-500/50 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
     },
     {
       value: 'holographic',
       label: 'Holográfico',
       icon: <Layers className="w-4 h-4" />,
       desc: 'Efecto futurista iridiscente',
-      preview: 'bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 border border-cyan-400/30'
+      preview: 'bg-gradient-to-r from-fuchsia-500/10 via-purple-500/10 to-pink-500/10 border border-fuchsia-400/30'
     },
     {
       value: 'fantasy',
       label: 'Fantasía',
       icon: <span className="text-sm">⚔</span>,
       desc: 'Estilo medieval antiguo',
-      preview: 'bg-gradient-to-br from-amber-950/80 via-stone-900/80 to-amber-950/80 border-2 border-amber-600/40'
+      preview: 'bg-gradient-to-br from-fuchsia-950/80 via-stone-900/80 to-fuchsia-950/80 border-2 border-fuchsia-600/40'
     },
     {
       value: 'retro',
@@ -533,7 +533,7 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/20 border border-emerald-500/30">
               {isNew ? <Plus className="w-5 h-5 text-emerald-500" /> : <Pencil className="w-5 h-5 text-emerald-500" />}
             </div>
             <div>
@@ -549,7 +549,7 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
           <Button 
             onClick={handleSave} 
             disabled={!name.trim()}
-            className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white"
+            className="bg-gradient-to-r from-emerald-600 to-emerald-600 hover:from-emerald-700 hover:to-emerald-700 text-white"
           >
             <Save className="w-4 h-4 mr-2" />
             Guardar
@@ -673,9 +673,9 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
                           <span className={cn(
                             "text-[8px] font-bold",
                             opt.value === 'retro' && "text-green-400 font-mono",
-                            opt.value === 'fantasy' && "text-amber-400",
-                            opt.value === 'neon' && "text-cyan-400",
-                            opt.value === 'holographic' && "text-cyan-300",
+                            opt.value === 'fantasy' && "text-fuchsia-400",
+                            opt.value === 'neon' && "text-fuchsia-400",
+                            opt.value === 'holographic' && "text-fuchsia-300",
                             !['retro', 'fantasy', 'neon', 'holographic'].includes(opt.value) && "text-white/80"
                           )}>
                             HUD
@@ -757,8 +757,8 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-orange-500/10">
-                    <Type className="w-4 h-4 text-orange-500" />
+                  <div className="p-1.5 rounded-md bg-violet-500/10">
+                    <Type className="w-4 h-4 text-violet-500" />
                   </div>
                   Campos del HUD
                 </div>
@@ -827,12 +827,12 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
                                 className={cn("w-3 h-3 rounded-full", 
                                   field.color === 'red' && 'bg-red-500',
                                   field.color === 'green' && 'bg-green-500',
-                                  field.color === 'blue' && 'bg-blue-500',
+                                  field.color === 'blue' && 'bg-violet-500',
                                   field.color === 'yellow' && 'bg-yellow-500',
                                   field.color === 'purple' && 'bg-purple-500',
-                                  field.color === 'orange' && 'bg-orange-500',
+                                  field.color === 'orange' && 'bg-violet-500',
                                   field.color === 'pink' && 'bg-pink-500',
-                                  field.color === 'cyan' && 'bg-cyan-500',
+                                  field.color === 'cyan' && 'bg-fuchsia-500',
                                 )}
                               />
                             )}
@@ -870,11 +870,11 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-cyan-500/10">
-                    <FileText className="w-4 h-4 text-cyan-500" />
+                  <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                    <FileText className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   Contexto
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20">
                     Inyección de Prompt
                   </Badge>
                 </div>
@@ -943,7 +943,7 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
                     value={contextContent}
                     onChange={(e) => setContextContent(e.target.value)}
                     placeholder="Escribe aquí el texto que se inyectará en el prompt...&#10;&#10;Ejemplo:&#10;El personaje está en un combate intenso.&#10;Mantén un tono dramático y tenso.&#10;El HP actual del personaje es bajo."
-                    className="w-full min-h-[150px] p-3 rounded-lg border border-border/50 bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/50 transition-all"
+                    className="w-full min-h-[150px] p-3 rounded-lg border border-border/50 bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 focus:border-fuchsia-500/50 transition-all"
                     disabled={!contextEnabled}
                   />
                   <div className="flex justify-between items-center">
@@ -994,7 +994,7 @@ function HUDEditorPanel({ template, isNew, onSave, onClose }: HUDEditorPanelProp
                     {contextEnabled && (
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground">Contexto</span>
-                        <Badge variant="outline" className="text-[10px] bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20">Activo</Badge>
+                        <Badge variant="outline" className="text-[10px] bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20">Activo</Badge>
                       </div>
                     )}
                   </div>
@@ -1077,11 +1077,11 @@ const COLOR_OPTIONS = [
   { value: 'default', color: 'bg-slate-400', label: 'Default' },
   { value: 'red', color: 'bg-red-500', label: 'Rojo' },
   { value: 'green', color: 'bg-emerald-500', label: 'Verde' },
-  { value: 'yellow', color: 'bg-amber-500', label: 'Amarillo' },
+  { value: 'yellow', color: 'bg-fuchsia-500', label: 'Amarillo' },
   { value: 'purple', color: 'bg-purple-500', label: 'Púrpura' },
-  { value: 'orange', color: 'bg-orange-500', label: 'Naranja' },
+  { value: 'orange', color: 'bg-violet-500', label: 'Naranja' },
   { value: 'pink', color: 'bg-pink-500', label: 'Rosa' },
-  { value: 'cyan', color: 'bg-cyan-500', label: 'Cyan' },
+  { value: 'cyan', color: 'bg-fuchsia-500', label: 'Cyan' },
 ];
 
 function HUDFieldEditorDialog({ field, onSave, onClose }: HUDFieldEditorDialogProps) {
@@ -1169,12 +1169,12 @@ function HUDFieldEditorDialog({ field, onSave, onClose }: HUDFieldEditorDialogPr
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader className="pb-4 border-b border-border/50">
           <DialogTitle className="flex items-center gap-3 text-xl">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30">
-              {field ? <Pencil className="w-5 h-5 text-orange-500" /> : <Plus className="w-5 h-5 text-orange-500" />}
+            <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border border-violet-500/30">
+              {field ? <Pencil className="w-5 h-5 text-violet-500" /> : <Plus className="w-5 h-5 text-violet-500" />}
             </div>
             {field ? 'Editar Campo' : 'Nuevo Campo'}
             {name && (
-              <Badge variant="secondary" className="ml-2 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20">
+              <Badge variant="secondary" className="ml-2 bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20">
                 {name}
               </Badge>
             )}
@@ -1209,11 +1209,11 @@ function HUDFieldEditorDialog({ field, onSave, onClose }: HUDFieldEditorDialogPr
               {/* Key Detection Section - MANTENER ASÍ */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-cyan-500/10">
-                    <Settings2 className="w-4 h-4 text-cyan-500" />
+                  <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                    <Settings2 className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   Detección de Keys
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20">
                     Cómo el LLM actualiza este campo
                   </Badge>
                 </div>
@@ -1245,7 +1245,7 @@ function HUDFieldEditorDialog({ field, onSave, onClose }: HUDFieldEditorDialogPr
                     {keys && (
                       <div className="flex flex-wrap gap-1">
                         {keys.split(',').map((k, i) => k.trim() && (
-                          <Badge key={i} variant="secondary" className="text-xs font-mono bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+                          <Badge key={i} variant="secondary" className="text-xs font-mono bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400">
                             {k.trim()}
                           </Badge>
                         ))}
@@ -1372,8 +1372,8 @@ function HUDFieldEditorDialog({ field, onSave, onClose }: HUDFieldEditorDialogPr
               {/* Section: Color e Icono */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-amber-500/10">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
+                  <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                    <Sparkles className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   Color e Icono
                 </div>
@@ -1421,8 +1421,8 @@ function HUDFieldEditorDialog({ field, onSave, onClose }: HUDFieldEditorDialogPr
               {/* Section: Valor por defecto y opciones */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-teal-500/10">
-                    <Hash className="w-4 h-4 text-teal-500" />
+                  <div className="p-1.5 rounded-md bg-emerald-500/10">
+                    <Hash className="w-4 h-4 text-emerald-500" />
                   </div>
                   Configuración del valor
                 </div>
@@ -1590,7 +1590,7 @@ function HUDFieldEditorDialog({ field, onSave, onClose }: HUDFieldEditorDialogPr
           <Button 
             onClick={handleSave} 
             disabled={!name.trim()}
-            className="bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white"
+            className="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white"
           >
             {field ? 'Guardar Cambios' : 'Agregar Campo'}
           </Button>
@@ -1616,36 +1616,36 @@ function HUDFieldPreview({ field, value }: HUDFieldPreviewProps) {
   const colorClasses: Record<string, string> = {
     red: 'text-red-400',
     green: 'text-emerald-400',
-    blue: 'text-blue-400',
-    yellow: 'text-amber-400',
+    blue: 'text-violet-400',
+    yellow: 'text-fuchsia-400',
     purple: 'text-purple-400',
-    orange: 'text-orange-400',
+    orange: 'text-violet-400',
     pink: 'text-pink-400',
-    cyan: 'text-cyan-400',
+    cyan: 'text-fuchsia-400',
     default: 'text-white/80',
   };
   
   const bgColorClasses: Record<string, string> = {
     red: 'bg-red-500/20 border-red-500/30',
     green: 'bg-emerald-500/20 border-emerald-500/30',
-    blue: 'bg-blue-500/20 border-blue-500/30',
-    yellow: 'bg-amber-500/20 border-amber-500/30',
+    blue: 'bg-violet-500/20 border-violet-500/30',
+    yellow: 'bg-fuchsia-500/20 border-fuchsia-500/30',
     purple: 'bg-purple-500/20 border-purple-500/30',
-    orange: 'bg-orange-500/20 border-orange-500/30',
+    orange: 'bg-violet-500/20 border-violet-500/30',
     pink: 'bg-pink-500/20 border-pink-500/30',
-    cyan: 'bg-cyan-500/20 border-cyan-500/30',
+    cyan: 'bg-fuchsia-500/20 border-fuchsia-500/30',
     default: 'bg-white/10 border-white/20',
   };
   
   const progressColorClasses: Record<string, string> = {
     red: 'bg-red-500',
     green: 'bg-emerald-500',
-    blue: 'bg-blue-500',
-    yellow: 'bg-amber-500',
+    blue: 'bg-violet-500',
+    yellow: 'bg-fuchsia-500',
     purple: 'bg-purple-500',
-    orange: 'bg-orange-500',
+    orange: 'bg-violet-500',
     pink: 'bg-pink-500',
-    cyan: 'bg-cyan-500',
+    cyan: 'bg-fuchsia-500',
     default: 'bg-white/50',
   };
   

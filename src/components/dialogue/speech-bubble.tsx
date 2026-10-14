@@ -49,8 +49,8 @@ const STYLE_CONFIG: Record<SpeechBubbleStyle, {
   },
   elegant: {
     container: 'flex gap-3',
-    bubble: 'rounded-xl px-4 py-3 bg-gradient-to-r from-amber-500/10 to-rose-500/10 border border-amber-500/20',
-    avatar: 'rounded-full ring-2 ring-amber-500/30',
+    bubble: 'rounded-xl px-4 py-3 bg-gradient-to-r from-fuchsia-500/10 to-rose-500/10 border border-fuchsia-500/20',
+    avatar: 'rounded-full ring-2 ring-fuchsia-500/30',
   },
   dark: {
     container: 'flex gap-3',

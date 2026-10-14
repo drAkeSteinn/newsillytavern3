@@ -238,9 +238,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const CATEGORY_COLORS: Record<string, string> = {
   in_character: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-  cognitive: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+  cognitive: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
   real_world: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  system: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  system: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
 };
 
 const NATIVE_TOOL_PROVIDERS = ['OpenAI', 'Anthropic', 'Ollama', 'vLLM', 'LM Studio', 'Custom', 'Grok', 'Text Generation WebUI', 'KoboldCPP'];
@@ -360,13 +360,13 @@ export function ToolsSettingsPanel() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-lg p-4">
+      <div className="bg-gradient-to-r from-fuchsia-500/10 to-violet-500/10 border border-fuchsia-500/20 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <div className="p-2 bg-amber-500/20 rounded-lg">
-            <Wrench className="w-5 h-5 text-amber-500" />
+          <div className="p-2 bg-fuchsia-500/20 rounded-lg">
+            <Wrench className="w-5 h-5 text-fuchsia-500" />
           </div>
           <div className="flex-1">
-            <h4 className="text-sm font-medium text-amber-600 dark:text-amber-400">
+            <h4 className="text-sm font-medium text-fuchsia-600 dark:text-fuchsia-400">
               Herramientas / Acciones
             </h4>
             <p className="text-xs text-muted-foreground mt-1">
@@ -378,9 +378,9 @@ export function ToolsSettingsPanel() {
       </div>
 
       {/* Provider Compatibility Notice */}
-      <div className={`p-3 rounded-lg border ${providerSupportsTools ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-amber-500/5 border-amber-500/20'}`}>
+      <div className={`p-3 rounded-lg border ${providerSupportsTools ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-fuchsia-500/5 border-fuchsia-500/20'}`}>
         <div className="flex items-start gap-2.5">
-          <Terminal className={`w-4 h-4 shrink-0 mt-0.5 ${providerSupportsTools ? 'text-emerald-500' : 'text-amber-500'}`} />
+          <Terminal className={`w-4 h-4 shrink-0 mt-0.5 ${providerSupportsTools ? 'text-emerald-500' : 'text-fuchsia-500'}`} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium">Proveedor activo: {providerLabel}</span>
@@ -389,7 +389,7 @@ export function ToolsSettingsPanel() {
                   Soporta Tool Calling
                 </Badge>
               ) : (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300">
                   No soporta Tool Calling
                 </Badge>
               )}
@@ -411,8 +411,8 @@ export function ToolsSettingsPanel() {
       {/* Master Toggle */}
       <div className="flex items-center justify-between p-4 border rounded-lg">
         <div className="flex items-center gap-3">
-          <div className="p-1.5 bg-amber-500/15 rounded-md">
-            <Zap className="w-4 h-4 text-amber-500" />
+          <div className="p-1.5 bg-fuchsia-500/15 rounded-md">
+            <Zap className="w-4 h-4 text-fuchsia-500" />
           </div>
           <div>
             <Label className="text-sm font-medium">Herramientas habilitadas</Label>

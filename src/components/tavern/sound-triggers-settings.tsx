@@ -1210,7 +1210,7 @@ function ComicTemplatesSettings() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h4 className="font-medium flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-500" />
+            <Sparkles className="w-4 h-4 text-fuchsia-500" />
             Templates Cómic de Sonidos
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1354,7 +1354,7 @@ function ComicTemplatesSettings() {
         {/* Live Preview */}
         <div className="space-y-3">
           <Label className="text-sm font-medium flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <Sparkles className="w-3.5 h-3.5 text-fuchsia-500" />
             Vista Previa en Vivo
           </Label>
           <div className="p-4 rounded-lg border bg-background space-y-3">
@@ -1418,8 +1418,8 @@ function ComicTemplatesSettings() {
         </div>
 
         {/* Info */}
-        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-          <p className="text-xs text-amber-600 font-medium mb-1">Efectos Manga</p>
+        <div className="p-3 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20">
+          <p className="text-xs text-fuchsia-600 font-medium mb-1">Efectos Manga</p>
           <p className="text-xs text-muted-foreground">
             Los efectos usan líneas temblorosas (boiling lines), filtros SVG de tinta (ink wobble) y texto dinámico (text rattle).
             Duración total: <strong>{(comic.duration / 1000).toFixed(1)}s</strong>. El preset se selecciona automáticamente según el largo del texto.

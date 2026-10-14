@@ -90,6 +90,11 @@ function mergeWithMetadata(
           contextKeys: entry.contextKeys || [],
           tags: entry.tags,
           transitionDuration: entry.transitionDuration,
+          // ESCENARIO V3.2: per-character sprite poses saved on this fondo
+          // (written by the PUT pose branch — must survive every scan).
+          ...(entry.spritePoses && typeof entry.spritePoses === 'object'
+            ? { spritePoses: entry.spritePoses }
+            : {}),
         });
         usedUrls.add(entry.url);
       }
@@ -166,21 +171,19 @@ async function scanBackgroundsDirectory(): Promise<BackgroundCollection[]> {
             };
           })
           .sort((a, b) => a.name.localeCompare(b.name));
-        
-        if (mediaFiles.length > 0) {
-          // Read metadata if exists
-          const metadata = await readCollectionMetadata(collectionPath, collectionName);
-          
-          // Merge files with metadata
-          const collection = mergeWithMetadata(
-            mediaFiles,
-            metadata,
-            collectionName,
-            collectionPath
-          );
-          
-          collections.push(collection);
-        }
+
+        // NOTE: empty collections ARE included so newly created collections
+        // appear immediately and files can be uploaded into them (Task 16).
+        const metadata = await readCollectionMetadata(collectionPath, collectionName);
+
+        const collection = mergeWithMetadata(
+          mediaFiles,
+          metadata,
+          collectionName,
+          collectionPath
+        );
+
+        collections.push(collection);
       }
     }
 
@@ -276,11 +279,110 @@ export async function POST(request: NextRequest) {
 }
 
 // ============================================
-// PUT - Update collection metadata or rename
+// PUT - Update collection metadata, rename, or set sprite poses (V3.2)
 // ============================================
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
+
+    // -------------------------------------------------------------
+    // ESCENARIO V3.2 — Sprite pose branch: save/clear a character's
+    // sprite pose ON ONE FONDO entry, persisted in the collection's
+    // collection.json (the user-facing JSON of that collection folder).
+    // Body: { folderName, entryUrl, poseAction: 'set'|'clear'|'clear-all',
+    //         characterId?, pose? }
+    // -------------------------------------------------------------
+    const poseAction = body.poseAction;
+    if (poseAction === 'set' || poseAction === 'clear' || poseAction === 'clear-all') {
+      const { folderName, entryUrl } = body;
+      if (!folderName || !entryUrl) {
+        return NextResponse.json(
+          { error: 'folderName and entryUrl are required' },
+          { status: 400 }
+        );
+      }
+      if (poseAction !== 'clear-all' && !body.characterId) {
+        return NextResponse.json(
+          { error: 'characterId is required for set/clear' },
+          { status: 400 }
+        );
+      }
+
+      const collectionPath = path.join(BACKGROUNDS_DIR, folderName);
+      if (!existsSync(collectionPath)) {
+        return NextResponse.json(
+          { error: `Collection "${folderName}" not found` },
+          { status: 404 }
+        );
+      }
+
+      const metadata = (await readCollectionMetadata(collectionPath, folderName)) || {
+        name: folderName,
+        version: '1.0',
+        entries: [],
+      };
+      const entries: BackgroundCollectionEntry[] = Array.isArray(metadata.entries)
+        ? metadata.entries
+        : [];
+      metadata.entries = entries;
+
+      // Find (or create) the entry that owns this fondo URL
+      let entry = entries.find((e) => e.url === entryUrl);
+      if (!entry) {
+        const filename = entryUrl.split('/').pop() || entryUrl;
+        entry = {
+          id: generateEntryId(),
+          name: filename.replace(MEDIA_EXTENSIONS, ''),
+          url: entryUrl,
+          triggerKeys: [],
+          contextKeys: [],
+        };
+        entries.push(entry);
+      }
+
+      // Mutate spritePoses
+      const poses = { ...(entry.spritePoses || {}) };
+      if (poseAction === 'set') {
+        const p = body.pose || {};
+        const num = (v: unknown, fb: number, min: number, max: number) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fb;
+        };
+        poses[body.characterId] = {
+          x: num(p.x, 50, 0, 100),
+          y: num(p.y, 0, 0, 100),
+          width: num(p.width, 30, 5, 90),
+          height: num(p.height, 5, 5, 95),
+          opacity: num(p.opacity, 1, 0, 1),
+        };
+      } else if (poseAction === 'clear') {
+        delete poses[body.characterId];
+      } else {
+        // clear-all: drop every character's pose for this fondo
+        for (const key of Object.keys(poses)) delete poses[key];
+      }
+      const remaining = Object.keys(poses).length;
+      if (remaining > 0) {
+        entry.spritePoses = poses;
+      } else {
+        delete entry.spritePoses;
+      }
+
+      await saveCollectionMetadata(collectionPath, metadata);
+
+      return NextResponse.json({
+        success: true,
+        poseAction,
+        entryUrl,
+        characterId: body.characterId ?? null,
+        spritePoses: entry.spritePoses || null,
+        message: remaining > 0 ? 'Sprite pose saved to collection.json' : 'Sprite poses cleared',
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Default branch: collection metadata update / rename
+    // -------------------------------------------------------------
     const { folderName, newName, newFolderName, description, entries, transitionDuration } = body;
 
     if (!folderName) {

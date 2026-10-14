@@ -66,9 +66,9 @@ import { useToast } from '@/hooks/use-toast';
 
 function ActiveEffectBadge({ effect, onRemove }: { effect: ActiveConsumableEffect; onRemove: () => void }) {
   return (
-    <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-xs">
-      <Clock className="w-3 h-3 text-amber-500 shrink-0" />
-      <span className="truncate font-medium text-amber-600 dark:text-amber-400">
+    <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-fuchsia-500/10 border border-fuchsia-500/20 text-xs">
+      <Clock className="w-3 h-3 text-fuchsia-500 shrink-0" />
+      <span className="truncate font-medium text-fuchsia-600 dark:text-fuchsia-400">
         {effect.itemName}
       </span>
       <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 shrink-0">
@@ -578,10 +578,10 @@ export function InventoryPanel() {
 
       {/* Active Effects */}
       {activeEffects.length > 0 && (
-        <div className="px-3 py-2 border-b bg-amber-500/5 shrink-0">
+        <div className="px-3 py-2 border-b bg-fuchsia-500/5 shrink-0">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+            <Sparkles className="w-3.5 h-3.5 text-fuchsia-500" />
+            <span className="text-xs font-semibold text-fuchsia-600 dark:text-fuchsia-400">
               Efectos Activos
             </span>
           </div>
@@ -769,7 +769,7 @@ export function InventoryPanel() {
             {/* Currency display */}
             {persona && (
               <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50 shrink-0">
-                <Coins className="w-5 h-5 text-amber-500" />
+                <Coins className="w-5 h-5 text-fuchsia-500" />
                 <span className="font-bold">{persona.currency ?? 0}</span>
                 <span className="text-sm text-muted-foreground">{persona.currencyName || 'Divisa'}</span>
               </div>
@@ -1018,9 +1018,9 @@ export function InventoryPanel() {
                   </label>
                 </div>
 
-                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
+                <div className="p-3 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 text-xs">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                    <AlertCircle className="w-3.5 h-3.5 text-fuchsia-500 mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">
                       Importar items reemplazará los items y efectos activos existentes. La configuración del inventario también se sobreescribirá si está incluida en el archivo.
                     </span>

@@ -1,27 +1,38 @@
 // ============================================
-// Tool: Manage Scenario (ESCENARIO V2)
+// Tool: Manage Scenario (ESCENARIO V3)
 // ============================================
 // Category: in_character
-// Lets the character manage the scene location: see the available locations
-// and MOVE the scene to one by name or id. The active location is stored in
-// the SESSION state (SessionStats.activeScenarioId — shared by all chat
-// participants) and its description is injected via {{escenario}}.
+// Lets the character manage the scene location across the scenario hierarchy:
+//   ScenarioDefinition ("Departamento") → ScenarioPlace ("Cuarto") → ScenarioSpot ("Cama")
+//
+// Sources: App-level Scenario Library (context.scenarios filtered by
+// character.scenarioIds / group.scenarioIds) with a LEGACY fallback that
+// synthesizes a single collection from the old scenarioConfig (flat locations).
 //
 // Actions:
-// - list:     see all locations (names + descriptions + which is active/default)
-// - go:       move the scene to a specific location (by name or id)
-// - get_info: details of the current location (or a specific one)
+// - list:     current scenario full tree (places + spots) + other scenarios by name
+// - go:       move the scene to a spot / place / another scenario (by name or id)
+// - get_info: details of the current location or a specific one
+//
+// The tool NEVER invents locations: "go" only accepts names/ids that exist in
+// the hierarchy (exact id, normalized name or substring match). On success the
+// scenarioActivation carries collectionId + backgroundUrl + spritePose so the
+// client can sync session state, background and character sprite pose.
 //
 // After a "go", the next turn's {{escenario}} key injects the new location's
-// description, and the change persists in the session JSON.
+// context, and the change persists in the session JSON.
 
 import type { ToolDefinition, ToolContext, ToolExecutionResult } from '../types';
+import type { ScenarioDefinition, SpritePose } from '@/types';
 import {
-  getScenarioInfo,
-  resolveActiveLocation,
-  findLocationByNameOrId,
-  isScenarioAvailable,
-} from '@/lib/scenario';
+  getEffectiveScenarioDefinitions,
+  resolveActiveScenarioLocation,
+  resolveLocationBackground,
+  resolveLocationPose,
+  findInScenarioHierarchy,
+  getActiveScenarioLibrary,
+  type ActiveScenarioLocation,
+} from '@/lib/scenario/library';
 
 export const manageScenarioTool: ToolDefinition = {
   id: 'manage_escenario',
@@ -32,7 +43,9 @@ export const manageScenarioTool: ToolDefinition = {
     'Gestiona la ubicación de la escena. Permite ver los lugares disponibles y mover la escena ' +
     'al que quieras (por nombre o id) o ver dónde estáis ahora. ' +
     'La ubicación actual se inyecta en tu prompt como [ESCENARIO]. ' +
-    'Usa "list" para ver los lugares disponibles y "go" para mover la escena según la narrativa.',
+    'Usa "list" para ver los lugares disponibles y "go" para mover la escena según la narrativa. ' +
+    'Puedes moveros a un punto de interés (ej: "Cama"), a otro lugar del escenario (ej: "Cocina") ' +
+    'o a otro escenario disponible (ej: "Bar") si la narrativa lo justifica.',
   category: 'in_character',
   parameters: {
     type: 'object',
@@ -48,8 +61,9 @@ export const manageScenarioTool: ToolDefinition = {
       location: {
         type: 'string',
         description:
-          'Nombre o id del lugar (para "go" y "get_info"). Ej: "Cama", "Sofá", "Escritorio", "Departamento". ' +
-          'Debe coincidir con un lugar de tu escenario.',
+          'Nombre o id del lugar (para "go" y "get_info"). Puede ser un punto de interés (ej: "Cama"), ' +
+          'un lugar del escenario (ej: "Cocina") o el nombre de otro escenario disponible (ej: "Bar"). ' +
+          'Debe coincidir con una ubicación de tu escenario.',
         required: false,
       },
       reason: {
@@ -62,6 +76,47 @@ export const manageScenarioTool: ToolDefinition = {
   },
   permissionMode: 'auto',
 };
+
+/** Build the activation payload shared by all actions. */
+function buildActivation(
+  context: ToolContext,
+  action: 'list' | 'go' | 'get_info',
+  active: ActiveScenarioLocation | null,
+  opts: {
+    target?: ActiveScenarioLocation | null;
+    previousId?: string | null;
+    changed?: boolean;
+    reason?: string;
+  } = {}
+) {
+  const target = opts.target ?? active;
+  const backgroundUrl = resolveLocationBackground(target);
+  const spritePose = resolveLocationPose(target);
+  return {
+    characterId: context.characterId,
+    action,
+    locationId: target?.locationId ?? null,
+    locationName: target?.locationName ?? '',
+    locationDescription: target?.locationDescription ?? '',
+    previousLocationId: opts.previousId ?? active?.locationId ?? null,
+    changed: opts.changed ?? false,
+    ...(opts.reason ? { reason: opts.reason } : {}),
+    ...(target ? { collectionId: target.definition.id, collectionName: target.definition.name } : {}),
+    ...(backgroundUrl ? { backgroundUrl } : {}),
+    ...(spritePose ? { spritePose } : {}),
+  };
+}
+
+/** Render one active-location line for display messages. */
+function describeTarget(active: ActiveScenarioLocation): string {
+  if (active.isScenarioLevel) {
+    return `"${active.definition.name}" (escenario)`;
+  }
+  if (active.isSpot && active.spot) {
+    return `"${active.spot.name}" (${active.place.name} · ${active.definition.name})`;
+  }
+  return `"${active.place.name}" (${active.definition.name})`;
+}
 
 export async function manageScenarioExecutor(
   params: Record<string, unknown>,
@@ -82,25 +137,30 @@ export async function manageScenarioExecutor(
     };
   }
 
-  // ESCENARIO V2 (groups): context.group carries the group — when it has its
-  // own usable scenarioConfig it REPLACES the character-level one so all
-  // members share the same scene locations.
-  const group = context.group;
+  // ESCENARIO V3: effective App-level definitions (library filtered by
+  // character/group scenarioIds) with a legacy synthesis fallback.
+  // The library comes from the tool context when available; otherwise from the
+  // per-request registry set by the chat routes (setActiveScenarioLibrary).
+  // GROUP: context.group carries the group — its scenarioIds/scenarioConfig
+  // REPLACE the character-level ones so all members share the same scene.
+  const definitions: ScenarioDefinition[] = getEffectiveScenarioDefinitions(
+    character,
+    context.scenarios ?? getActiveScenarioLibrary() ?? undefined,
+    context.group
+  );
 
-  if (!isScenarioAvailable(character, group)) {
+  if (definitions.length === 0) {
     return {
       success: false,
       toolName: 'manage_escenario',
       result: null,
-      displayMessage: group
-        ? `El escenario no está configurado ni para el grupo "${group.name}" ni para ${character.name}. Se necesita un escenario habilitado con al menos 1 ubicación.`
-        : 'El escenario no está configurado para este personaje. Necesita un scenarioConfig habilitado con al menos 1 ubicación.',
+      displayMessage: groupFallbackMessage(character.name, context.group?.name),
       error: 'Scenario not available',
     };
   }
 
-  const info = getScenarioInfo(character, context.sessionStats, group);
-  if (!info) {
+  const active = resolveActiveScenarioLocation(definitions, context.sessionStats);
+  if (!active) {
     return {
       success: false,
       toolName: 'manage_escenario',
@@ -110,25 +170,37 @@ export async function manageScenarioExecutor(
     };
   }
 
-  const current = info.current;
-  const scopeLabel = info.isGroupScenario ? `el grupo ${group?.name}` : character.name;
-
-  // LIST: show all locations
+  // LIST: current scenario full tree + other scenarios by name
   if (action === 'list') {
-    const lines = [
-      `📍 **Escenario de ${scopeLabel}** (${info.totalLocations} ubicaciones):`,
-      '',
-    ];
-    for (const location of info.locations) {
-      const isActive = current?.id === location.id;
-      const isDefault = info.defaultId === location.id;
-      const badges = [
-        isActive ? '← ubicación actual' : '',
-        isDefault ? '(predeterminado)' : '',
-      ].filter(Boolean).join(' ');
-      lines.push(`• "${location.name}"${badges ? ` ${badges}` : ''}`);
-      if (location.description?.trim()) {
-        lines.push(`  ${location.description.trim()}`);
+    const lines: string[] = [];
+    lines.push(`📍 **Escenario actual:** "${active.definition.name}" — estás en ${describeTarget(active)}`);
+    lines.push('');
+    lines.push(`Lugares de "${active.definition.name}" (los puntos de interés del lugar actual se listan debajo):`);
+    for (const place of active.definition.places) {
+      const isCurrentPlace = place.id === active.place.id;
+      const spotCount = place.spots.length;
+      lines.push(
+        `• "${place.name}"${spotCount > 0 ? ` (${spotCount} punto${spotCount !== 1 ? 's' : ''} de interés)` : ''}${isCurrentPlace ? ' ← lugar actual' : ''}`
+      );
+      if (place.description?.trim()) {
+        lines.push(`  ${place.description.trim()}`);
+      }
+      // Spots are listed for the current place (the others on demand via get_info)
+      if (isCurrentPlace && place.spots.length > 0) {
+        for (const spot of place.spots) {
+          const isCurrentSpot = active.isSpot && spot.id === active.spot?.id;
+          lines.push(`    - ${spot.name}${isCurrentSpot ? ' ← ubicación actual' : ''}`);
+          if (spot.description?.trim()) lines.push(`      ${spot.description.trim()}`);
+        }
+      }
+    }
+    const otherScenarios = definitions.filter(d => d.id !== active.definition.id);
+    if (otherScenarios.length > 0) {
+      lines.push('');
+      lines.push('Otros escenarios disponibles (muévete a ellos con "go" y sus lugares se revelarán; NUNCA inventes lugares de estos escenarios):');
+      for (const def of otherScenarios) {
+        const d = def.description?.trim();
+        lines.push(`• "${def.name}"${d ? `: ${d}` : ''}`);
       }
     }
     lines.push('');
@@ -138,25 +210,17 @@ export async function manageScenarioExecutor(
       success: true,
       toolName: 'manage_escenario',
       result: {
-        locations: info.locations,
-        currentLocationId: current?.id ?? null,
-        defaultLocationId: info.defaultId,
+        currentScenario: active.definition.name,
+        places: active.definition.places,
+        otherScenarios: otherScenarios.map(d => d.name),
+        currentLocation: active.locationName,
       },
       displayMessage: lines.join('\n'),
-      scenarioActivation: {
-        characterId: context.characterId,
-        action: 'list',
-        locationId: current?.id ?? null,
-        locationName: current?.name || '',
-        locationDescription: current?.description || '',
-        previousLocationId: current?.id ?? null,
-        changed: false,
-        reason: reason || undefined,
-      },
+      scenarioActivation: buildActivation(context, 'list', active, { reason }),
     };
   }
 
-  // GO: move the scene to a specific location (by name or id)
+  // GO: move the scene (spot / place / other scenario)
   if (action === 'go') {
     if (!locationQuery) {
       return {
@@ -168,92 +232,175 @@ export async function manageScenarioExecutor(
       };
     }
 
-    const target = findLocationByNameOrId(info.locations, locationQuery);
-    if (!target) {
-      const available = info.locations.map(l => `"${l.name}"`).join(', ');
+    const match = findInScenarioHierarchy(definitions, locationQuery, active.definition.id);
+    if (!match) {
+      // NEVER invent locations: list what actually exists
+      const available = definitions.map(d => `"${d.name}"`).join(', ');
+      const currentPlaces = active.definition.places.map(p => `"${p.name}"`).join(', ');
       return {
         success: false,
         toolName: 'manage_escenario',
         result: null,
-        displayMessage: `No existe la ubicación "${locationQuery}" en tu escenario. Ubicaciones disponibles: ${available}.`,
+        displayMessage: `No existe la ubicación "${locationQuery}" en tu escenario. ` +
+          `Lugares del escenario actual: ${currentPlaces}. Otros escenarios: ${available}. ` +
+          `NO inventes ubicaciones nuevas: usa solo las listadas.`,
         error: 'Location not found',
       };
     }
 
-    const changed = current?.id !== target.id;
+    let target: ActiveScenarioLocation;
+    if (match.type === 'spot') {
+      target = {
+        definition: match.definition,
+        place: match.place,
+        spot: match.spot,
+        locationId: match.spot.id,
+        locationName: match.spot.name,
+        locationDescription: match.spot.description?.trim() || '',
+        isSpot: true,
+        isScenarioLevel: false,
+        isLegacy: match.definition.id.startsWith('legacy:'),
+      };
+    } else if (match.type === 'place') {
+      target = {
+        definition: match.definition,
+        place: match.place,
+        spot: null,
+        locationId: match.place.id,
+        locationName: match.place.name,
+        locationDescription: match.place.description?.trim() || '',
+        isSpot: false,
+        isScenarioLevel: false,
+        isLegacy: match.definition.id.startsWith('legacy:'),
+      };
+    } else {
+      // V3.2: scenario switch → park the scene AT THE SCENARIO LEVEL itself
+      // (locationId = def.id). Its OWN fondo (defaultBackgroundUrl) is the one
+      // carried in the activation; the places are revealed via list/get_info.
+      const def = match.definition;
+      const place = def.places.find(p => p.id === def.defaultPlaceId) || def.places[0];
+      target = {
+        definition: def,
+        place,
+        spot: null,
+        locationId: def.id,
+        locationName: def.name,
+        locationDescription: def.description?.trim() || '',
+        isSpot: false,
+        isScenarioLevel: true,
+        isLegacy: def.id.startsWith('legacy:'),
+      };
+    }
+
+    const changed = target.locationId !== active.locationId || target.definition.id !== active.definition.id;
+    const movedScenarios = target.definition.id !== active.definition.id;
+
+    const lines = [
+      changed ? '📍 **La escena se mueve a:**' : '📍 **La escena ya está en:**',
+      `   ${describeTarget(target)}`,
+    ];
+    if (movedScenarios) lines.push(`   (antes: ${describeTarget(active)})`);
+    if (changed && reason) lines.push(`   Razón: ${reason}`);
+    if (changed) {
+      const bg = resolveLocationBackground(target);
+      if (bg) lines.push('   (el fondo de la escena cambia automáticamente)');
+    }
+
     return {
       success: true,
       toolName: 'manage_escenario',
       result: {
         action: 'go',
-        locationId: target.id,
-        locationName: target.name,
-        previousLocation: current?.name ?? null,
+        locationId: target.locationId,
+        locationName: target.locationName,
+        collectionId: target.definition.id,
+        collectionName: target.definition.name,
+        previousLocation: active.locationName,
+        backgroundUrl: resolveLocationBackground(target),
+        spritePose: resolveLocationPose(target),
       },
-      displayMessage: `📍 **La escena se mueve a:** "${target.name}"${current && changed ? `\n  Antes estabais en: "${current.name}"` : ''}${reason ? `\n  Razón: ${reason}` : ''}`,
-      scenarioActivation: {
-        characterId: context.characterId,
-        action: 'go',
-        locationId: target.id,
-        locationName: target.name,
-        locationDescription: target.description || '',
-        previousLocationId: current?.id ?? null,
+      displayMessage: lines.join('\n'),
+      scenarioActivation: buildActivation(context, 'go', active, {
+        target,
+        previousId: active.locationId,
         changed,
-        reason: reason || undefined,
-      },
+        reason,
+      }),
     };
   }
 
   // GET_INFO: detail of the current location (or a specific one)
   if (action === 'get_info') {
-    const target = locationQuery ? findLocationByNameOrId(info.locations, locationQuery) : current;
-    if (!target) {
-      return {
-        success: false,
-        toolName: 'manage_escenario',
-        result: null,
-        displayMessage: `No existe la ubicación "${locationQuery}" en tu escenario. Usa "list" para verlas.`,
-        error: 'Location not found',
-      };
+    let target: ActiveScenarioLocation | null = active;
+    if (locationQuery) {
+      const match = findInScenarioHierarchy(definitions, locationQuery, active.definition.id);
+      if (!match || match.type === 'collection') {
+        const available = definitions.map(d => `"${d.name}"`).join(', ');
+        return {
+          success: false,
+          toolName: 'manage_escenario',
+          result: null,
+          displayMessage: `No existe la ubicación "${locationQuery}" en tu escenario. Usa "list" para verlas. Escenarios: ${available}.`,
+          error: 'Location not found',
+        };
+      }
+      target = match.type === 'spot'
+        ? {
+            definition: match.definition, place: match.place, spot: match.spot,
+            locationId: match.spot.id, locationName: match.spot.name,
+            locationDescription: match.spot.description?.trim() || '', isSpot: true,
+            isScenarioLevel: false,
+            isLegacy: match.definition.id.startsWith('legacy:'),
+          }
+        : {
+            definition: match.definition, place: match.place, spot: null,
+            locationId: match.place.id, locationName: match.place.name,
+            locationDescription: match.place.description?.trim() || '', isSpot: false,
+            isScenarioLevel: false,
+            isLegacy: match.definition.id.startsWith('legacy:'),
+          };
     }
 
     const lines = [
-      target.id === current?.id
-        ? `📍 **Ubicación actual:** "${target.name}"`
-        : `📍 **Ubicación:** "${target.name}" (no activa)`,
+      target.locationId === active.locationId
+        ? `📍 **Ubicación actual:** ${describeTarget(target)}`
+        : `📍 **Ubicación:** ${describeTarget(target)} (no activa)`,
     ];
-    if (target.description?.trim()) lines.push(`   ${target.description.trim()}`);
-    if (info.defaultId === target.id) lines.push('   (ubicación predeterminada)');
+    const desc = target.spot?.description?.trim() || target.place.description?.trim() || '';
+    if (desc) lines.push(`   ${desc}`);
+    if (target.spot && target.place.spots.length > 1) {
+      const siblings = target.place.spots.map(s => s.name).join(', ');
+      lines.push(`   Puntos de interés de "${target.place.name}": ${siblings}`);
+    }
 
     return {
       success: true,
       toolName: 'manage_escenario',
       result: {
-        location: target,
-        isActive: target.id === current?.id,
-        isDefault: info.defaultId === target.id,
+        location: target.spot ?? target.place,
+        collection: target.definition.name,
+        isActive: target.locationId === active.locationId,
       },
       displayMessage: lines.join('\n'),
-      scenarioActivation: {
-        characterId: context.characterId,
-        action: 'get_info',
-        locationId: current?.id ?? null,
-        locationName: current?.name || '',
-        locationDescription: current?.description || '',
-        previousLocationId: current?.id ?? null,
-        changed: false,
-        reason: reason || undefined,
-      },
+      scenarioActivation: buildActivation(context, 'get_info', active, { target, reason }),
     };
   }
 
   // Fallback (shouldn't happen — action is enum-validated)
-  const active = resolveActiveLocation(character, context.sessionStats, group);
   return {
     success: false,
     toolName: 'manage_escenario',
     result: null,
-    displayMessage: `Acción no reconocida: "${action}". Usa "list", "go" o "get_info".${active ? ` Ubicación actual: "${active.name}".` : ''}`,
+    displayMessage: `Acción no reconocida: "${action}". Usa "list", "go" o "get_info". Ubicación actual: "${active.locationName}".`,
     error: 'Unknown action',
   };
 }
+
+function groupFallbackMessage(characterName: string, groupName?: string): string {
+  return groupName
+    ? `Ni el grupo "${groupName}" ni ${characterName} tienen un escenario configurado. Se necesita la Biblioteca de Escenarios (Ajustes → Escenarios) con al menos 1 lugar, o un scenarioConfig habilitado con ubicaciones.`
+    : `${characterName} no tiene un escenario configurado. Selecciona escenarios en su editor (pestaña Escenario) o crea colecciones en Ajustes → Escenarios.`;
+}
+
+// Re-export for typed consumers
+export type { SpritePose };

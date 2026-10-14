@@ -160,7 +160,7 @@
 /*
 <div className="space-y-3 p-3 bg-muted/50 rounded-lg border">
   <div className="flex items-center gap-2">
-    <Zap className="w-4 h-4 text-amber-500" />
+    <Zap className="w-4 h-4 text-fuchsia-500" />
     <Label className="text-xs font-medium">Detección automática</Label>
     <Tooltip>...</Tooltip>
   </div>

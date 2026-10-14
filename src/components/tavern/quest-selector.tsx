@@ -30,8 +30,8 @@ interface QuestSelectorProps {
 
 // Priority colors for badges
 const priorityColors: Record<QuestPriority, string> = {
-  main: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30',
-  side: 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/30',
+  main: 'bg-fuchsia-500/20 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30',
+  side: 'bg-violet-500/20 text-violet-600 dark:text-violet-400 border-violet-500/30',
   hidden: 'bg-slate-500/20 text-slate-600 dark:text-slate-400 border-slate-500/30',
 };
 
@@ -140,7 +140,7 @@ export function QuestSelector({ value = [], onChange, placeholder = 'Sin misione
               {/* Main Quests */}
               {groupedTemplates.main.length > 0 && (
                 <div className="px-2 py-1">
-                  <div className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 mb-1">
+                  <div className="flex items-center gap-1 text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 mb-1">
                     <Star className="w-3 h-3" />
                     Misiones Principales
                   </div>
@@ -158,7 +158,7 @@ export function QuestSelector({ value = [], onChange, placeholder = 'Sin misione
               {/* Side Quests */}
               {groupedTemplates.side.length > 0 && (
                 <div className="px-2 py-1">
-                  <div className="flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">
+                  <div className="flex items-center gap-1 text-xs font-medium text-violet-600 dark:text-violet-400 mb-1">
                     <Target className="w-3 h-3" />
                     Misiones Secundarias
                   </div>

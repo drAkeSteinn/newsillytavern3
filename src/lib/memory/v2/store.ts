@@ -461,6 +461,7 @@ export interface V2Store {
   getByLegacyId(legacyId: string, charId?: string): Promise<MemoryV2Record | null>;
   supersede(id: string, supersededBy: string): Promise<boolean>;
   hardDelete(id: string): Promise<boolean>;
+  hardDeleteMany(ids: string[]): Promise<number>;
   update(record: MemoryV2Record, opts?: { reembed?: boolean }): Promise<void>;
   list(opts: FilterOpts & { limit?: number; orderBy?: 'smart' | 'recent' | 'importance' }): Promise<MemoryV2Record[]>;
   searchVector(opts: FilterOpts & { vector: number[]; query?: string; limit?: number; threshold?: number }): Promise<{ record: MemoryV2Record; cosine: number }[]>;
@@ -566,6 +567,29 @@ const store: V2Store = {
     fb.records = fb.records.filter(r => r.id !== id);
     saveFallback(fb.records);
     return fb.records.length < before;
+  },
+
+  /** Permanent bulk delete. Returns the number of ids processed (LanceDB
+   *  doesn't report actual row counts, so callers re-list to confirm). */
+  async hardDeleteMany(ids) {
+    await ensureReady();
+    const unique = [...new Set((ids || []).filter(Boolean).map(String))];
+    if (!unique.length) return 0;
+    if (state.backend === 'lancedb' && state.table) {
+      // Chunk the IN() predicate: very long id lists can exceed predicate limits.
+      const CHUNK = 100;
+      for (let i = 0; i < unique.length; i += CHUNK) {
+        const chunk = unique.slice(i, i + CHUNK).map(id => `'${esc(id)}'`).join(', ');
+        await state.table.delete(`id IN (${chunk})`);
+      }
+      return unique.length;
+    }
+    const fb = loadFallback();
+    const idSet = new Set(unique);
+    const before = fb.records.length;
+    fb.records = fb.records.filter(r => !idSet.has(r.id));
+    saveFallback(fb.records);
+    return before - fb.records.length;
   },
 
   async update(record, opts) {

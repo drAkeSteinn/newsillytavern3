@@ -269,7 +269,7 @@ export function StateCollectionEditor({
           {/* Principal Sprite */}
           {principalEntry && (
             <div className="space-y-1">
-              <div className="flex items-center gap-1 text-xs text-amber-600">
+              <div className="flex items-center gap-1 text-xs text-fuchsia-600">
                 <Crown className="w-3 h-3" />
                 <span className="font-medium">Principal</span>
               </div>
@@ -391,7 +391,7 @@ export function StateCollectionEditor({
                         {/* Type indicator */}
                         {isVideoUrl(sprite.url) && (
                           <div className="absolute top-1 right-1">
-                            <Badge variant="secondary" className="text-[9px] h-4 px-1 bg-blue-500/80 text-white">
+                            <Badge variant="secondary" className="text-[9px] h-4 px-1 bg-violet-500/80 text-white">
                               <Video className="w-2.5 h-2.5 mr-0.5" />
                               WEBM
                             </Badge>
@@ -500,7 +500,7 @@ function SpriteEntryCard({
   return (
     <div className={cn(
       "flex items-center gap-2 p-2 border rounded bg-background",
-      isPrincipal && "border-amber-500/50 bg-amber-500/5"
+      isPrincipal && "border-fuchsia-500/50 bg-fuchsia-500/5"
     )}>
       {/* Sprite Preview */}
       <div className="w-10 h-10 rounded border overflow-hidden flex-shrink-0 relative bg-muted/50">
@@ -513,7 +513,7 @@ function SpriteEntryCard({
         {/* Type indicator */}
         {isVideoUrl(entry.spriteUrl) && (
           <div className="absolute -top-0.5 -right-0.5">
-            <Video className="w-3 h-3 text-blue-500 drop-shadow-sm" />
+            <Video className="w-3 h-3 text-violet-500 drop-shadow-sm" />
           </div>
         )}
         {isAnimatedImage(entry.spriteUrl) && (
@@ -528,7 +528,7 @@ function SpriteEntryCard({
         <div className="text-xs font-medium truncate">{entry.spriteLabel}</div>
         <div className="flex items-center gap-1 mt-0.5">
           {isPrincipal ? (
-            <Badge variant="default" className="text-[10px] h-4 px-1 bg-amber-500">
+            <Badge variant="default" className="text-[10px] h-4 px-1 bg-fuchsia-500">
               <Crown className="w-2.5 h-2.5 mr-0.5" />
               Principal
             </Badge>
@@ -551,7 +551,7 @@ function SpriteEntryCard({
             onClick={() => onChangeRole('principal')}
             title="Hacer principal"
           >
-            <Crown className="w-3 h-3 text-amber-500" />
+            <Crown className="w-3 h-3 text-fuchsia-500" />
           </Button>
         )}
         <Button

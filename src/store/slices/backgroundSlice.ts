@@ -63,6 +63,14 @@ export interface BackgroundSlice {
   updateBackgroundTriggerItem: (packId: string, itemId: string, updates: Partial<import('@/types').BackgroundTriggerItem>) => void;
   deleteBackgroundTriggerItem: (packId: string, itemId: string) => void;
   reorderBackgroundTriggerItems: (packId: string, itemIds: string[]) => void;
+
+  /**
+   * ESCENARIO V3.2 — Set (pose) or clear (null) ONE character's sprite pose on
+   * the collection entry that owns `entryUrl`. Reactive source for the sprite
+   * auto-repositioning: CharacterSprite subscribes to backgroundCollections.
+   * The server-side collection.json write is done by the caller (save-pose).
+   */
+  setEntrySpritePose: (entryUrl: string, characterId: string, pose: import('@/types').SpritePose | null) => void;
 }
 
 export const createBackgroundSlice = (set: any, get: any): BackgroundSlice => ({
@@ -261,5 +269,31 @@ export const createBackgroundSlice = (set: any, get: any): BackgroundSlice => ({
         updatedAt: new Date().toISOString()
       };
     })
+  })),
+
+  // ============================================
+  // ESCENARIO V3.2 — Sprite pose ON THE FONDO (per character)
+  // ============================================
+  setEntrySpritePose: (entryUrl, characterId, pose) => set((state: any) => ({
+    backgroundCollections: state.backgroundCollections.map((col: BackgroundCollection) => {
+      const entryIndex = col.entries?.findIndex((e) => e.url === entryUrl);
+      if (entryIndex === undefined || entryIndex < 0) return col;
+      const entry = col.entries[entryIndex];
+      const poses = { ...(entry.spritePoses || {}) };
+      if (pose) {
+        poses[characterId] = pose;
+      } else {
+        delete poses[characterId];
+      }
+      const nextEntries = [...col.entries];
+      if (Object.keys(poses).length > 0) {
+        nextEntries[entryIndex] = { ...entry, spritePoses: poses };
+      } else {
+        const { spritePoses: _dropped, ...rest } = entry;
+        void _dropped;
+        nextEntries[entryIndex] = rest;
+      }
+      return { ...col, entries: nextEntries };
+    }),
   })),
 });

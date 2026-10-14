@@ -63,7 +63,7 @@ export function TTSPlaybackControls({ className, compact = false }: TTSPlaybackC
       <div className={cn(
         'flex items-center gap-1 px-2 py-1 rounded-full text-xs',
         autoplayBlocked
-          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+          ? 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400'
           : 'bg-primary/10 text-primary',
         className
       )}>
@@ -131,13 +131,13 @@ export function TTSPlaybackControls({ className, compact = false }: TTSPlaybackC
   return (
     <div className={cn(
       'flex items-center gap-3 px-4 py-2 rounded-lg border shadow-sm',
-      autoplayBlocked ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800' : 'bg-card',
+      autoplayBlocked ? 'bg-fuchsia-50 dark:bg-fuchsia-950/30 border-fuchsia-200 dark:border-fuchsia-800' : 'bg-card',
       className
     )}>
       {/* Status indicator */}
       <div className="flex items-center gap-2">
         {autoplayBlocked ? (
-          <VolumeX className="w-5 h-5 text-amber-500" />
+          <VolumeX className="w-5 h-5 text-fuchsia-500" />
         ) : currentItem?.status === 'generating' ? (
           <Loader2 className="w-5 h-5 animate-spin text-primary" />
         ) : isPlaying ? (
@@ -160,7 +160,7 @@ export function TTSPlaybackControls({ className, compact = false }: TTSPlaybackC
                   : 'TTS Listo'}
           </span>
           {autoplayBlocked ? (
-            <span className="text-xs text-amber-600 dark:text-amber-400">
+            <span className="text-xs text-fuchsia-600 dark:text-fuchsia-400">
               Haz clic en Reproducir para activar el audio
             </span>
           ) : currentItem ? (
@@ -280,16 +280,16 @@ export function TTSFloatingIndicator({ className }: TTSFloatingIndicatorProps) {
       'fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-2 rounded-lg',
       'bg-background/95 backdrop-blur border shadow-lg',
       'animate-in slide-in-from-bottom-2 fade-in-0 duration-200',
-      autoplayBlocked && 'border-amber-300 dark:border-amber-700',
+      autoplayBlocked && 'border-fuchsia-300 dark:border-fuchsia-700',
       className
     )}>
       {/* Status icon */}
       <div className={cn(
         'flex items-center justify-center w-8 h-8 rounded-full',
-        autoplayBlocked ? 'bg-amber-500/10' : 'bg-primary/10'
+        autoplayBlocked ? 'bg-fuchsia-500/10' : 'bg-primary/10'
       )}>
         {autoplayBlocked ? (
-          <VolumeX className="w-4 h-4 text-amber-500" />
+          <VolumeX className="w-4 h-4 text-fuchsia-500" />
         ) : currentItem?.status === 'generating' ? (
           <Loader2 className="w-4 h-4 animate-spin text-primary" />
         ) : (
@@ -312,7 +312,7 @@ export function TTSFloatingIndicator({ className }: TTSFloatingIndicatorProps) {
                 : 'Reproduciendo'}
         </span>
         {autoplayBlocked ? (
-          <span className="text-xs text-amber-500">Clic para activar</span>
+          <span className="text-xs text-fuchsia-500">Clic para activar</span>
         ) : queuedCount > 0 ? (
           <span className="text-xs text-muted-foreground">
             {queuedCount} más en cola

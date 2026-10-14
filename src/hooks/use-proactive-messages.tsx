@@ -5,6 +5,7 @@ import { useTavernStore } from '@/store/tavern-store';
 import { toast } from 'sonner';
 import { Sparkles } from 'lucide-react';
 import type { ProactiveMessagesConfig, ProactiveMessageInfo } from '@/types';
+import { applyStatActivationToStore } from '@/lib/stats/apply-stat-activation';
 
 interface ProactiveMessageMetadata {
   proactiveInfo: ProactiveMessageInfo;
@@ -323,6 +324,7 @@ export function useProactiveMessages({
             customNamespaces: activeCharacter?.embeddingNamespaces,
           },
           toolsSettings: settings.tools,
+          scenarios: useTavernStore.getState().scenarios,  // ESCENARIO V3: App scenario library
           summary,
           contextConfig: settings.context,
           sessionId: useTavernStore.getState().activeSessionId,
@@ -502,18 +504,15 @@ export function useProactiveMessages({
                   break;
 
                 case 'stat_activation':
-                  console.log('[Proactive] Stat activation:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue);
+                  console.log('[Proactive] Stat activation:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue, `(op: ${parsed.operator ?? 'absolute'})`);
                   {
+                    // Delta-aware: '+'/'-' replays on the CLIENT's current value
+                    // so skill costs and tool changes ACCUMULATE (never cancel).
                     const store = useTavernStore.getState();
                     const sid = useTavernStore.getState().activeSessionId;
-                    store.updateCharacterStat?.(
-                      sid,
-                      parsed.characterId,
-                      parsed.attributeKey,
-                      parsed.newValue,
-                      'llm_detection'
-                    );
-                    toast.success(`📊 ${parsed.attributeName || parsed.attributeKey}: ${parsed.oldValue} → ${parsed.newValue}`);
+                    const applied = applyStatActivationToStore(store, sid, parsed);
+                    const reasonSuffix = parsed.reason ? ` · ${parsed.reason}` : '';
+                    toast.success(`📊 ${parsed.attributeName || parsed.attributeKey}: ${applied.clientOldValue ?? parsed.oldValue} → ${applied.appliedValue}${reasonSuffix}`);
                   }
                   break;
 
@@ -621,7 +620,7 @@ export function useProactiveMessages({
 
                       toast(`${activeCharacter.name} te envió un mensaje`, {
                         description: cleanedMessage.slice(0, 80) + (cleanedMessage.length > 80 ? '...' : ''),
-                        icon: <Sparkles className="h-4 w-4 text-amber-400" />,
+                        icon: <Sparkles className="h-4 w-4 text-fuchsia-400" />,
                         duration: 4000,
                       });
 

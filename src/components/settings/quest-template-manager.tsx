@@ -209,8 +209,8 @@ export function QuestTemplateManager() {
 
   // Priority colors
   const priorityColors: Record<QuestPriority, string> = {
-    main: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30',
-    side: 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/30',
+    main: 'bg-fuchsia-500/20 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30',
+    side: 'bg-violet-500/20 text-violet-600 dark:text-violet-400 border-violet-500/30',
     hidden: 'bg-slate-500/20 text-slate-600 dark:text-slate-400 border-slate-500/30',
   };
 
@@ -240,8 +240,8 @@ export function QuestTemplateManager() {
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <h2 className="text-2xl font-bold flex items-center gap-2.5">
-                  <div className="p-2 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
-                    <ScrollText className="w-5 h-5 text-amber-500" />
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-violet-500/20 border border-fuchsia-500/30">
+                    <ScrollText className="w-5 h-5 text-fuchsia-500" />
                   </div>
                   Quest Templates
                 </h2>
@@ -251,7 +251,7 @@ export function QuestTemplateManager() {
               </div>
               <Button 
                 onClick={handleCreate}
-                className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25 transition-all duration-200 hover:shadow-amber-500/40"
+                className="bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700 text-white shadow-lg shadow-fuchsia-500/25 transition-all duration-200 hover:shadow-fuchsia-500/40"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Crear Template
@@ -262,7 +262,7 @@ export function QuestTemplateManager() {
             {isLoading && (
               <Card className="border-dashed border-2 bg-gradient-to-br from-muted/50 to-muted/30">
                 <CardContent className="flex flex-col items-center justify-center py-16">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-fuchsia-500"></div>
                   <p className="text-muted-foreground text-sm mt-4">Cargando templates...</p>
                 </CardContent>
               </Card>
@@ -272,8 +272,8 @@ export function QuestTemplateManager() {
             {!isLoading && questTemplates.length === 0 ? (
               <Card className="border-dashed border-2 bg-gradient-to-br from-muted/50 to-muted/30">
                 <CardContent className="flex flex-col items-center justify-center py-16">
-                  <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 mb-4">
-                    <ScrollText className="w-12 h-12 text-amber-400" />
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-fuchsia-500/10 to-violet-500/10 mb-4">
+                    <ScrollText className="w-12 h-12 text-fuchsia-400" />
                   </div>
                   <p className="text-muted-foreground text-center mb-2 font-medium">
                     No hay templates de quest creados
@@ -294,11 +294,11 @@ export function QuestTemplateManager() {
                     key={template.id} 
                     className={cn(
                       "group relative overflow-hidden transition-all duration-300",
-                      "hover:shadow-xl hover:shadow-amber-500/10 hover:-translate-y-1",
-                      "border border-border/60 bg-gradient-to-br from-card to-muted/30 hover:border-amber-500/30"
+                      "hover:shadow-xl hover:shadow-fuchsia-500/10 hover:-translate-y-1",
+                      "border border-border/60 bg-gradient-to-br from-card to-muted/30 hover:border-fuchsia-500/30"
                     )}
                   >
-                    <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-gradient-to-br from-amber-500/5 to-orange-500/5 group-hover:scale-150 transition-transform duration-500" />
+                    <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-gradient-to-br from-fuchsia-500/5 to-violet-500/5 group-hover:scale-150 transition-transform duration-500" />
                     <CardHeader className="pb-3 relative">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
@@ -389,7 +389,7 @@ export function QuestTemplateManager() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="flex-1 hover:bg-amber-500/10 hover:text-amber-600 hover:border-amber-500/30 transition-colors"
+                          className="flex-1 hover:bg-fuchsia-500/10 hover:text-fuchsia-600 hover:border-fuchsia-500/30 transition-colors"
                           onClick={() => handleEdit(template)}
                         >
                           <Pencil className="w-3.5 h-3.5 mr-1.5" />
@@ -587,7 +587,7 @@ function SortableObjectiveItem({
               {typeLabels[objective.type]}
             </Badge>
             {objective.isOptional && (
-              <Badge variant="secondary" className="text-[10px] h-5 bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Badge variant="secondary" className="text-[10px] h-5 bg-violet-500/10 text-violet-600 dark:text-violet-400">
                 Opcional
               </Badge>
             )}
@@ -604,7 +604,7 @@ function SortableObjectiveItem({
               </Badge>
             )}
             {objective.visibilityType === 'by_attribute' && (
-              <Badge variant="secondary" className="text-[10px] h-5 gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <Badge variant="secondary" className="text-[10px] h-5 gap-1 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400">
                 <Filter className="w-3 h-3" />
                 Cond. Atributo
               </Badge>
@@ -731,23 +731,23 @@ function SortableObjectiveItem({
 
           {/* Conditional Visibility Editors */}
           {objective.visibilityType === 'by_attribute' && objective.visibilityConditions && (
-            <div className="space-y-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+            <div className="space-y-3 p-3 rounded-lg bg-fuchsia-500/5 border border-fuchsia-500/20">
               <div className="flex items-center justify-between">
                 <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                  <Filter className="w-3 h-3 text-amber-500" />
+                  <Filter className="w-3 h-3 text-fuchsia-500" />
                   Condiciones de Atributo
                 </Label>
                 {/* Logic toggle */}
                 <div className="flex items-center gap-2">
-                  <span className={cn("text-[10px] font-medium", objective.visibilityConditions.logic === 'and' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>AND</span>
+                  <span className={cn("text-[10px] font-medium", objective.visibilityConditions.logic === 'and' ? 'text-fuchsia-600 dark:text-fuchsia-400' : 'text-muted-foreground')}>AND</span>
                   <Switch
                     checked={objective.visibilityConditions.logic === 'or'}
                     onCheckedChange={(v) => onUpdate({
                       visibilityConditions: { ...objective.visibilityConditions!, logic: v ? 'or' : 'and' }
                     })}
-                    className="data-[state=checked]:bg-amber-500"
+                    className="data-[state=checked]:bg-fuchsia-500"
                   />
-                  <span className={cn("text-[10px] font-medium", objective.visibilityConditions.logic === 'or' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>OR</span>
+                  <span className={cn("text-[10px] font-medium", objective.visibilityConditions.logic === 'or' ? 'text-fuchsia-600 dark:text-fuchsia-400' : 'text-muted-foreground')}>OR</span>
                 </div>
               </div>
 
@@ -848,7 +848,7 @@ function SortableObjectiveItem({
                           <Label className="text-[9px] text-muted-foreground">
                             Operador
                             {currentAttrType && (
-                              <span className="ml-1 text-amber-500">
+                              <span className="ml-1 text-fuchsia-500">
                                 ({currentAttrType === 'number' ? 'Numérico' : currentAttrType === 'keyword' ? 'Estado' : 'Texto'})
                               </span>
                             )}
@@ -926,7 +926,7 @@ function SortableObjectiveItem({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+                className="h-7 text-xs text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-500/10"
                 onClick={() => {
                   const current = objective.visibilityConditions!.attributeConditions || [];
                   onUpdate({
@@ -1134,8 +1134,8 @@ function SortableObjectiveItem({
               />
               {objectivePrefix && objectivePrefix.trim() !== '' && objective.completion.key && (
                 <div className="text-[9px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                  <Zap className="w-2.5 h-2.5 text-amber-500" />
-                  <span className="text-amber-600 dark:text-amber-400 font-mono">
+                  <Zap className="w-2.5 h-2.5 text-fuchsia-500" />
+                  <span className="text-fuchsia-600 dark:text-fuchsia-400 font-mono">
                     {getExampleKey(objectivePrefix, objective.completion.key)}
                   </span>
                 </div>
@@ -1999,7 +1999,7 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
 
   const sectionColors: Record<string, { bg: string; text: string; border: string; activeBg: string }> = {
     slate: { bg: 'bg-slate-500/10', text: 'text-slate-600 dark:text-slate-400', border: 'border-slate-500/30', activeBg: 'bg-slate-500/20' },
-    amber: { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/30', activeBg: 'bg-amber-500/20' },
+    amber: { bg: 'bg-fuchsia-500/10', text: 'text-fuchsia-600 dark:text-fuchsia-400', border: 'border-fuchsia-500/30', activeBg: 'bg-fuchsia-500/20' },
     purple: { bg: 'bg-purple-500/10', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/30', activeBg: 'bg-purple-500/20' },
     green: { bg: 'bg-green-500/10', text: 'text-green-600 dark:text-green-400', border: 'border-green-500/30', activeBg: 'bg-green-500/20' },
     pink: { bg: 'bg-pink-500/10', text: 'text-pink-600 dark:text-pink-400', border: 'border-pink-500/30', activeBg: 'bg-pink-500/20' },
@@ -2018,8 +2018,8 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 shrink-0">
-            {isNew ? <Plus className="w-5 h-5 text-amber-500" /> : <Pencil className="w-5 h-5 text-amber-500" />}
+          <div className="p-2 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-violet-500/20 border border-fuchsia-500/30 shrink-0">
+            {isNew ? <Plus className="w-5 h-5 text-fuchsia-500" /> : <Pencil className="w-5 h-5 text-fuchsia-500" />}
           </div>
           <div className="min-w-0">
             <h2 className="text-lg font-semibold truncate">{isNew ? 'Crear Nuevo Template' : 'Editar Template'}</h2>
@@ -2157,8 +2157,8 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
               {/* Propiedades */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-amber-500/10">
-                    <Star className="w-4 h-4 text-amber-500" />
+                  <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                    <Star className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   Propiedades
                 </div>
@@ -2172,13 +2172,13 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                       <SelectContent>
                         <SelectItem value="main">
                           <div className="flex items-center gap-2">
-                            <Star className="w-3.5 h-3.5 text-amber-500" />
+                            <Star className="w-3.5 h-3.5 text-fuchsia-500" />
                             Principal
                           </div>
                         </SelectItem>
                         <SelectItem value="side">
                           <div className="flex items-center gap-2">
-                            <Target className="w-3.5 h-3.5 text-blue-500" />
+                            <Target className="w-3.5 h-3.5 text-violet-500" />
                             Secundaria
                           </div>
                         </SelectItem>
@@ -2230,8 +2230,8 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
               {/* Prerrequisitos */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-cyan-500/10">
-                    <Link2 className="w-4 h-4 text-cyan-500" />
+                  <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                    <Link2 className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   Prerrequisitos
                 </div>
@@ -2244,12 +2244,12 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                           <Badge
                             key={prereqId}
                             variant="outline"
-                            className="bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 gap-1 pr-1"
+                            className="bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20 gap-1 pr-1"
                           >
                             {prereqTemplate?.name || prereqId}
                             <button
                               type="button"
-                              className="ml-0.5 rounded-full hover:bg-cyan-500/20 p-0.5"
+                              className="ml-0.5 rounded-full hover:bg-fuchsia-500/20 p-0.5"
                               onClick={() => setPrerequisites(prerequisites.filter(p => p !== prereqId))}
                             >
                               <X className="w-3 h-3" />
@@ -2297,13 +2297,13 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
           {activeSection === 'activation' && (
             <div className="space-y-6">
               {/* Banner */}
-              <div className="rounded-xl bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 border border-amber-500/20 p-4">
+              <div className="rounded-xl bg-gradient-to-r from-fuchsia-500/10 via-violet-500/5 to-fuchsia-500/10 border border-fuchsia-500/20 p-4">
                 <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-amber-500/20">
-                    <Zap className="w-4 h-4 text-amber-500" />
+                  <div className="p-2 rounded-lg bg-fuchsia-500/20">
+                    <Zap className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+                    <p className="text-sm font-medium text-fuchsia-600 dark:text-fuchsia-400">
                       Activación de la Misión
                     </p>
                     <p className="text-xs text-muted-foreground">
@@ -2316,8 +2316,8 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
               {/* Keys de Activación */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-amber-500/10">
-                    <Zap className="w-4 h-4 text-amber-500" />
+                  <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                    <Zap className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   Keys de Activación
                   <HelpCircle className="w-3.5 h-3.5 text-muted-foreground ml-1" title="El LLM puede generar estas keys en su respuesta" />
@@ -2353,8 +2353,8 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
               {/* Método de Activación */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-orange-500/10">
-                    <ToggleRight className="w-4 h-4 text-orange-500" />
+                  <div className="p-1.5 rounded-md bg-violet-500/10">
+                    <ToggleRight className="w-4 h-4 text-violet-500" />
                   </div>
                   Método de Activación
                 </div>
@@ -2366,7 +2366,7 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                     <SelectContent>
                       <SelectItem value="keyword">
                         <div className="flex items-center gap-2">
-                          <Zap className="w-4 h-4 text-amber-500" />
+                          <Zap className="w-4 h-4 text-fuchsia-500" />
                           <div>
                             <span className="font-medium">Por Keyword</span>
                             <span className="text-xs text-muted-foreground ml-2">Detecta la key en el chat</span>
@@ -2375,7 +2375,7 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                       </SelectItem>
                       <SelectItem value="turn">
                         <div className="flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-blue-500" />
+                          <Clock className="w-4 h-4 text-violet-500" />
                           <div>
                             <span className="font-medium">Por Turnos</span>
                             <span className="text-xs text-muted-foreground ml-2">Se activa cada N turnos</span>
@@ -2413,10 +2413,10 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                   </Select>
 
                   {activationMethod === 'turn' && (
-                    <div className="p-4 rounded-lg border border-blue-500/20 bg-blue-500/5">
+                    <div className="p-4 rounded-lg border border-violet-500/20 bg-violet-500/5">
                       <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-blue-500/20">
-                          <Clock className="w-4 h-4 text-blue-500" />
+                        <div className="p-2 rounded-lg bg-violet-500/20">
+                          <Clock className="w-4 h-4 text-violet-500" />
                         </div>
                         <div className="flex-1 space-y-1">
                           <Label htmlFor="turn-interval" className="text-xs text-muted-foreground">Cada cuántos turnos</Label>
@@ -2510,13 +2510,13 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
               {/* Opciones Adicionales */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-cyan-500/10">
-                    <Settings2 className="w-4 h-4 text-cyan-500" />
+                  <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                    <Settings2 className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   Opciones Adicionales
                 </div>
                 <div className="pl-8">
-                  <label className="flex items-center gap-3 p-3 rounded-lg border border-border/60 bg-gradient-to-r from-background to-muted/30 cursor-pointer hover:border-cyan-500/30 transition-colors">
+                  <label className="flex items-center gap-3 p-3 rounded-lg border border-border/60 bg-gradient-to-r from-background to-muted/30 cursor-pointer hover:border-fuchsia-500/30 transition-colors">
                     <Switch
                       checked={activationCaseSensitive}
                       onCheckedChange={setActivationCaseSensitive}
@@ -3227,7 +3227,7 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                       </SelectItem>
                       <SelectItem value="random">
                         <div className="flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-amber-500" />
+                          <Sparkles className="w-4 h-4 text-fuchsia-500" />
                           <span>Pool aleatorio</span>
                         </div>
                       </SelectItem>
@@ -3262,7 +3262,7 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                   )}
 
                   {chainType === 'random' && (
-                    <div className="p-4 rounded-lg border border-amber-500/20 bg-amber-500/5 space-y-3">
+                    <div className="p-4 rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 space-y-3">
                       <Label className="text-xs text-muted-foreground mb-2 block">Pool de Misiones</Label>
                       {/* Available missions to add */}
                       <Select
@@ -3298,11 +3298,11 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                               <Badge
                                 key={poolId}
                                 variant="secondary"
-                                className="gap-1 pr-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                className="gap-1 pr-1 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20"
                               >
                                 {poolTemplate?.icon || '📜'} {poolTemplate?.name || poolId}
                                 <button
-                                  className="ml-1 hover:bg-amber-500/20 rounded p-0.5"
+                                  className="ml-1 hover:bg-fuchsia-500/20 rounded p-0.5"
                                   onClick={() => setChainRandomPool(chainRandomPool.filter(id => id !== poolId))}
                                 >
                                   <X className="w-3 h-3" />
@@ -3399,13 +3399,13 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                             <SelectContent>
                               <SelectItem value="attribute">
                                 <div className="flex items-center gap-2">
-                                  <Hash className="w-3.5 h-3.5 text-blue-500" />
+                                  <Hash className="w-3.5 h-3.5 text-violet-500" />
                                   Atributo
                                 </div>
                               </SelectItem>
                               <SelectItem value="trigger">
                                 <div className="flex items-center gap-2">
-                                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                                  <Zap className="w-3.5 h-3.5 text-fuchsia-500" />
                                   Trigger
                                 </div>
                               </SelectItem>
@@ -3546,7 +3546,7 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                                   </div>
                                 </div>
                                 {/* Key, Value, Action row */}
-                                <div className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                                <div className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-violet-500/5 border border-violet-500/20">
                                   <div className="space-y-1">
                                     <Label className="text-[10px] text-muted-foreground">Key del Atributo</Label>
                                     <Input
@@ -3623,7 +3623,7 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
 
                         {isTrig && normalized.trigger && (
                           <div className="space-y-3">
-                            <div className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                            <div className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-fuchsia-500/5 border border-fuchsia-500/20">
                               <div className="space-y-1">
                                 <Label className="text-[10px] text-muted-foreground">Categoría</Label>
                                 <Select 
@@ -3720,7 +3720,7 @@ function QuestTemplateEditorDialog({ template, isNew, onSave, onClose, existingI
                             )}
 
                             {normalized.trigger.category === 'background' && (
-                              <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-cyan-500/5 border border-cyan-500/20">
+                              <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-fuchsia-500/5 border border-fuchsia-500/20">
                                 <div className="space-y-1">
                                   <Label className="text-[10px] text-muted-foreground">Transición (ms)</Label>
                                   <Input

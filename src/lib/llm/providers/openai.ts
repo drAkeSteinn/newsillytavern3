@@ -133,6 +133,9 @@ export async function* streamOpenAIWithTools(
     top_p: config.parameters.topP,
     stream: true,
     tools: openAITools,
+    // Explicit 'auto' — some OpenAI-compatible backends default to 'none' when
+    // omitted, which silently disables tool calling.
+    tool_choice: 'auto',
   };
 
   // FIX: apply stop strings and penalties to ALL OpenAI-compatible providers.

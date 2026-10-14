@@ -991,11 +991,11 @@ export function EmbeddingsSettingsPanel() {
 
       {/* Ollama Warning Banner - shown when Ollama is not available */}
       {ollamaStatus === 'error' && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+        <div className="bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-lg p-3">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-fuchsia-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <h4 className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              <h4 className="text-sm font-medium text-fuchsia-600 dark:text-fuchsia-400">
                 Ollama no disponible
               </h4>
               <p className="text-xs text-muted-foreground mt-1">
@@ -1172,7 +1172,7 @@ export function EmbeddingsSettingsPanel() {
 
                   {/* Not supported warning */}
                   {lanceDBPlatformInfo && !lanceDBPlatformInfo.isSupported && (
-                    <p className="text-[10px] text-amber-500 mt-2">
+                    <p className="text-[10px] text-fuchsia-500 mt-2">
                       ⚠️ Plataforma no soportada por LanceDB. Revisa la documentación.
                     </p>
                   )}
@@ -1315,11 +1315,11 @@ export function EmbeddingsSettingsPanel() {
 
               {/* Dimension Mismatch Warning */}
               {config.tableDimension != null && config.tableDimension !== config.dimension && (
-                <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+                <div className="p-3 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <AlertCircle className="w-4 h-4 text-fuchsia-500 shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                      <p className="text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400">
                         Incompatibilidad de dimensiones detectada
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-1">
@@ -1602,7 +1602,7 @@ export function EmbeddingsSettingsPanel() {
 
                   {/* File Info */}
                   <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-                    <File className="w-5 h-5 text-blue-500 shrink-0" />
+                    <File className="w-5 h-5 text-violet-500 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{uploadedFile.fileName}</p>
                       <p className="text-[10px] text-muted-foreground">
@@ -1778,7 +1778,7 @@ export function EmbeddingsSettingsPanel() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                              <FileText className="w-3.5 h-3.5 text-violet-500 shrink-0" />
                               <span className="text-sm font-medium truncate">{doc.source_id}</span>
                               <Badge variant="secondary" className="text-[10px]">
                                 {doc.count} fragmentos
@@ -1963,12 +1963,12 @@ export function EmbeddingsSettingsPanel() {
                   
                   const typeColor = {
                     memory: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
-                    character: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+                    character: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
                     world: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-                    lorebook: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+                    lorebook: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
                     session: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
                     file: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
-                    custom: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+                    custom: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
                   }[emb.source_type || 'custom'];
                   
                   return (

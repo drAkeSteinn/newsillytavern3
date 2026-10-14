@@ -461,7 +461,7 @@ export function TriggerCollectionEditor({
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-sm font-medium flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-500" />
+            <Zap className="w-4 h-4 text-fuchsia-500" />
             Trigger Collections
           </h4>
           <p className="text-xs text-muted-foreground">
@@ -480,8 +480,8 @@ export function TriggerCollectionEditor({
       </div>
 
       {/* Info Banner */}
-      <div className="text-xs bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-2">
-        <div className="flex items-center gap-2 font-medium text-amber-600">
+      <div className="text-xs bg-fuchsia-500/10 border border-fuchsia-500/20 rounded-lg p-3 space-y-2">
+        <div className="flex items-center gap-2 font-medium text-fuchsia-600">
           <Zap className="w-4 h-4" />
           Sistema de Trigger Collections
         </div>
@@ -492,7 +492,7 @@ export function TriggerCollectionEditor({
         </p>
         <div className="grid grid-cols-2 gap-2 mt-2">
           <div className="p-2 bg-background/50 rounded border">
-            <div className="flex items-center gap-1 text-xs font-medium text-amber-600">
+            <div className="flex items-center gap-1 text-xs font-medium text-fuchsia-600">
               <Crown className="w-3 h-3" />
               Prioridad
             </div>
@@ -501,7 +501,7 @@ export function TriggerCollectionEditor({
             </p>
           </div>
           <div className="p-2 bg-background/50 rounded border">
-            <div className="flex items-center gap-1 text-xs font-medium text-blue-600">
+            <div className="flex items-center gap-1 text-xs font-medium text-violet-600">
               <Play className="w-3 h-3" />
               Cadenas
             </div>
@@ -514,7 +514,7 @@ export function TriggerCollectionEditor({
 
       {/* No packs warning */}
       {spritePacksV2.length === 0 && (
-        <div className="text-center py-4 text-amber-600 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+        <div className="text-center py-4 text-fuchsia-600 bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg">
           <Package className="w-6 h-6 mx-auto mb-2" />
           <p className="text-sm font-medium">No hay Sprite Packs creados</p>
           <p className="text-xs mt-1">
@@ -542,11 +542,11 @@ export function TriggerCollectionEditor({
                     <div className="flex items-center gap-3 w-full">
                       <div className={cn(
                         "p-1.5 rounded",
-                        collection.active ? "bg-amber-500/10" : "bg-muted"
+                        collection.active ? "bg-fuchsia-500/10" : "bg-muted"
                       )}>
                         <Zap className={cn(
                           "w-4 h-4",
-                          collection.active ? "text-amber-500" : "text-muted-foreground"
+                          collection.active ? "text-fuchsia-500" : "text-muted-foreground"
                         )} />
                       </div>
                       <div className="flex-1 text-left">
@@ -575,7 +575,7 @@ export function TriggerCollectionEditor({
                         <Badge variant="secondary" className="text-xs">Inactivo</Badge>
                       )}
                       {collection.conditionalMode && (
-                        <Badge variant="secondary" className="text-xs bg-teal-500/10 text-teal-600">
+                        <Badge variant="secondary" className="text-xs bg-emerald-500/10 text-emerald-600">
                           <GitBranch className="w-3 h-3 mr-1" />
                           Condicional
                         </Badge>
@@ -628,7 +628,7 @@ export function TriggerCollectionEditor({
                             </Badge>
                           )}
                           {collection.conditionalMode && (
-                            <Badge variant="secondary" className="text-xs bg-teal-500/10 text-teal-600">
+                            <Badge variant="secondary" className="text-xs bg-emerald-500/10 text-emerald-600">
                               <GitBranch className="w-3 h-3 mr-1" />
                               Condicional ({collection.conditionalEntries?.length || 0})
                             </Badge>
@@ -924,17 +924,17 @@ function ConditionalSimulator({
                       [key]: parseFloat(e.target.value),
                     }));
                   }}
-                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-teal-500"
+                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-emerald-500"
                 />
               </div>
             );
           })}
 
           {/* Result */}
-          <div className="p-3 bg-background rounded-lg border border-teal-500/20">
+          <div className="p-3 bg-background rounded-lg border border-emerald-500/20">
             {winner ? (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-teal-600">
+                <div className="flex items-center gap-2 text-sm font-medium text-emerald-600">
                   <CheckCircle className="w-4 h-4" />
                   <span>Entrada activa: &quot;{winner.name}&quot; (P{winner.priority})</span>
                 </div>
@@ -1137,8 +1137,8 @@ function TriggerCollectionEditorForm({
       </div>
 
       {/* Collection Keys */}
-      <div className="space-y-3 p-4 border rounded-lg bg-cyan-500/5 border-cyan-500/20">
-        <h4 className="text-sm font-medium flex items-center gap-2 text-cyan-600">
+      <div className="space-y-3 p-4 border rounded-lg bg-fuchsia-500/5 border-fuchsia-500/20">
+        <h4 className="text-sm font-medium flex items-center gap-2 text-fuchsia-600">
           <Zap className="w-4 h-4" />
           Keys de Colección (General)
         </h4>
@@ -1213,7 +1213,7 @@ function TriggerCollectionEditorForm({
       {/* Behavior */}
       <div className="space-y-3">
         <h4 className="text-sm font-medium flex items-center gap-2">
-          <Crown className="w-4 h-4 text-amber-500" />
+          <Crown className="w-4 h-4 text-fuchsia-500" />
           Comportamiento
         </h4>
         <p className="text-xs text-muted-foreground">
@@ -1245,7 +1245,7 @@ function TriggerCollectionEditorForm({
         {collection.collectionBehavior === 'principal' && packSprites.length > 0 && (
           <div className="space-y-2">
             <Label className="text-xs flex items-center gap-1">
-              <Crown className="w-3 h-3 text-amber-500" />
+              <Crown className="w-3 h-3 text-fuchsia-500" />
               Sprite Principal
             </Label>
             <Select
@@ -1281,8 +1281,8 @@ function TriggerCollectionEditorForm({
       </div>
 
       {/* Fallback */}
-      <div className="space-y-3 p-4 border rounded-lg bg-blue-500/5 border-blue-500/20">
-        <h4 className="text-sm font-medium flex items-center gap-2 text-blue-600">
+      <div className="space-y-3 p-4 border rounded-lg bg-violet-500/5 border-violet-500/20">
+        <h4 className="text-sm font-medium flex items-center gap-2 text-violet-600">
           <Timer className="w-4 h-4" />
           Fallback
         </h4>
@@ -1549,10 +1549,10 @@ function TriggerCollectionEditorForm({
       </div>
 
       {/* FASE 7: Sprite Transition */}
-      <div className="space-y-3 p-4 border rounded-lg bg-orange-500/5 border-orange-500/20">
+      <div className="space-y-3 p-4 border rounded-lg bg-violet-500/5 border-violet-500/20">
         <div className="flex items-center justify-between">
           <div>
-            <h4 className="text-sm font-medium flex items-center gap-2 text-orange-600">
+            <h4 className="text-sm font-medium flex items-center gap-2 text-violet-600">
               <Sparkles className="w-4 h-4" />
               Transición de Sprite
             </h4>
@@ -1680,10 +1680,10 @@ function TriggerCollectionEditorForm({
       </div>
 
       {/* Conditional Mode */}
-      <div className="space-y-3 p-4 border rounded-lg bg-teal-500/5 border-teal-500/20">
+      <div className="space-y-3 p-4 border rounded-lg bg-emerald-500/5 border-emerald-500/20">
         <div className="flex items-center justify-between">
           <div>
-            <h4 className="text-sm font-medium flex items-center gap-2 text-teal-600">
+            <h4 className="text-sm font-medium flex items-center gap-2 text-emerald-600">
               <GitBranch className="w-4 h-4" />
               Modo Condicional
             </h4>
@@ -1702,13 +1702,13 @@ function TriggerCollectionEditorForm({
             {/* Conditional Entries */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium text-teal-700">
+                <Label className="text-xs font-medium text-emerald-700">
                   Entradas Condicionales
                 </Label>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 text-xs border-teal-500/30 hover:bg-teal-500/10 hover:text-teal-600"
+                  className="h-7 text-xs border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-600"
                   onClick={() => {
                     const entries = collection.conditionalEntries || [];
                     const newEntry: ConditionalSpriteEntry = {
@@ -1743,10 +1743,10 @@ function TriggerCollectionEditorForm({
                     return (
                       <div
                         key={entry.id}
-                        className="border rounded-lg overflow-hidden bg-background border-teal-500/20"
+                        className="border rounded-lg overflow-hidden bg-background border-emerald-500/20"
                       >
                         {/* Entry Header */}
-                        <div className="flex items-center gap-2 p-3 bg-teal-500/5">
+                        <div className="flex items-center gap-2 p-3 bg-emerald-500/5">
                           <div className="w-8 h-8 rounded overflow-hidden bg-muted/50 flex-shrink-0">
                             {entrySprite ? (
                               <SpritePreview
@@ -1891,11 +1891,11 @@ function TriggerCollectionEditorForm({
                           {/* Conditions */}
                           <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                              <Label className="text-[10px] font-medium text-teal-700">Condiciones</Label>
+                              <Label className="text-[10px] font-medium text-emerald-700">Condiciones</Label>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-5 text-[10px] text-teal-600 hover:text-teal-700"
+                                className="h-5 text-[10px] text-emerald-600 hover:text-emerald-700"
                                 onClick={() => {
                                   const entries = collection.conditionalEntries || [];
                                   const newCondition: StatRequirement = {
@@ -2086,7 +2086,7 @@ function TriggerCollectionEditorForm({
                                   className={cn(
                                     "h-5 px-1.5 text-[9px] transition-colors",
                                     (!entry.conditionOperator || entry.conditionOperator === 'AND')
-                                      ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                                      ? "bg-violet-500/20 text-violet-400 border-violet-500/30"
                                       : "bg-muted/30 text-muted-foreground border-transparent"
                                   )}
                                   onClick={() => {
@@ -2134,7 +2134,7 @@ function TriggerCollectionEditorForm({
 
             {/* Default Sprite */}
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-teal-700">
+              <Label className="text-xs font-medium text-emerald-700">
                 Sprite por Defecto (cuando ninguna condición coincide)
               </Label>
               <Select
@@ -2358,9 +2358,9 @@ function TriggerCollectionEditorForm({
                             </div>
 
                             {/* Individual Fallback Configuration */}
-                            <div className="space-y-2 p-3 border rounded-lg bg-blue-500/5 border-blue-500/20">
+                            <div className="space-y-2 p-3 border rounded-lg bg-violet-500/5 border-violet-500/20">
                               <div className="flex items-center justify-between">
-                                <Label className="text-xs font-medium text-blue-600 flex items-center gap-1">
+                                <Label className="text-xs font-medium text-violet-600 flex items-center gap-1">
                                   <Timer className="w-3 h-3" />
                                   Fallback Individual
                                 </Label>
@@ -2576,7 +2576,7 @@ function SpriteTransitionPreview({ transition }: SpriteTransitionPreviewProps) {
     <div
       className="absolute inset-0 rounded flex items-center justify-center text-white font-bold text-xs"
       style={{
-        background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+        background: 'linear-gradient(135deg, #ff3ed8, #c21fb0)',
         ...(showA ? {} : (() => {
           switch (type) {
             case 'fade':

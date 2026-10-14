@@ -6,7 +6,8 @@
  * suppression rule); automatic records are ranked alongside them.
  *
  * Blocks (each with an "as of" timestamp and usage instructions):
- *   [HECHOS SOBRE {user}]   → hecho, preferencia, nota
+ *   [HECHOS SOBRE {user}]   → hecho, nota, preferencia (subject ≠ personaje)
+ *   [GUSTOS DE {char}]      → preferencia (subject = personaje): char likes/aversions
  *   [EVENTOS ANTERIORES]    → evento, resumen_escena (with absolute dates)
  *   [ESTADO DE LA RELACIÓN] → relacion
  */
@@ -131,12 +132,13 @@ export async function buildV2MemoryContext(params: V2InjectionParams): Promise<V
     stats.considered = all.length;
     const curatedIds = new Set(curated.map(c => c.id));
 
-    // Budget: maxTokenBudget tokens → chars; blocks split 35/45/20.
+    // Budget: maxTokenBudget tokens → chars; blocks split 30/15/40/15.
     const budgetChars = Math.max(600, Math.floor(maxTokenBudget * CHARS_PER_TOKEN));
     const budgets = {
-      hechos: Math.floor(budgetChars * 0.35),
-      eventos: Math.floor(budgetChars * 0.45),
-      relacion: Math.floor(budgetChars * 0.20),
+      hechos: Math.floor(budgetChars * 0.30),
+      gustos: Math.floor(budgetChars * 0.15),
+      eventos: Math.floor(budgetChars * 0.40),
+      relacion: Math.floor(budgetChars * 0.15),
     };
 
     const scoreOf = (r: MemoryV2Record): number => {
@@ -147,8 +149,11 @@ export async function buildV2MemoryContext(params: V2InjectionParams): Promise<V
     const sections: string[] = [];
     const today = todayLabel();
 
-    // ---- Block 1: HECHOS ----
-    const hechos = all.filter(r => ['hecho', 'preferencia', 'nota'].includes(r.type));
+    // ---- Block 1: HECHOS (user/world facts + user preferences + notes) ----
+    const hechos = all.filter(r =>
+      ['hecho', 'preferencia', 'nota'].includes(r.type) &&
+      !(r.type === 'preferencia' && r.subject === 'personaje')
+    );
     if (hechos.length) {
       const lines = hechos
         .sort((a, b) => scoreOf(b) - scoreOf(a))
@@ -164,7 +169,24 @@ export async function buildV2MemoryContext(params: V2InjectionParams): Promise<V
       }
     }
 
-    // ---- Block 2: EVENTOS ----
+    // ---- Block 2: GUSTOS DEL PERSONAJE (char's own likes/aversions) ----
+    const gustosChar = all.filter(r => r.type === 'preferencia' && r.subject === 'personaje');
+    if (gustosChar.length) {
+      const lines = gustosChar
+        .sort((a, b) => scoreOf(b) - scoreOf(a))
+        .slice(0, maxPerBlock)
+        .map(r => ({ text: `- ${r.content}`, score: scoreOf(r) }));
+      const { kept } = trimLinesToBudget(lines, budgets.gustos);
+      if (kept.length) {
+        sections.push(
+          `[GUSTOS DE ${charName}]\n(actualizado: ${today})\n${kept.join('\n')}\n` +
+          `Instrucciones: estos son los gustos, aversiones y deseos del PROPIO ${charName} (no confundir con los de ${userName}). Actúa en coherencia: busca y disfruta lo que le gusta, rechaza o incomoda lo que le disgusta, y hazlo evolucionar gradualmente.`
+        );
+        stats.injected += kept.length;
+      }
+    }
+
+    // ---- Block 3: EVENTOS ----
     const eventos = all.filter(r => ['evento', 'resumen_escena'].includes(r.type));
     if (eventos.length) {
       const lines = eventos
@@ -184,7 +206,7 @@ export async function buildV2MemoryContext(params: V2InjectionParams): Promise<V
       }
     }
 
-    // ---- Block 3: RELACIÓN ----
+    // ---- Block 4: RELACIÓN ----
     const relacion = all.filter(r => r.type === 'relacion');
     if (relacion.length) {
       const lines = relacion

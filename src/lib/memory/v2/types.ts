@@ -19,7 +19,7 @@
 export type MemoryV2Type =
   | 'evento'          // something that HAPPENED in the story (first-class for RP)
   | 'hecho'           // stable fact about the user or the world
-  | 'preferencia'     // user likes/limits regarding the roleplay
+  | 'preferencia'     // likes/limits/desires — of the user (subject=usuario) OR of the character (subject=personaje)
   | 'relacion'        // how the character feels about the user / dynamic shifts
   | 'nota'            // free note (curated, from the Memorias tab)
   | 'resumen_escena'; // consolidated scene summary (episodic compression)
@@ -79,6 +79,8 @@ export interface ExtractedItem {
   type: MemoryV2Type;
   op: MemoryV2Op;
   text: string;
+  /** Who the information is about: usuario (player), personaje (the char), pareja, mundo */
+  subject?: MemoryV2Subject;
   /** Absolute date (YYYY-MM-DD or ISO) of the event; empty → today */
   date?: string;
   /** 0..1 */

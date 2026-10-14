@@ -62,12 +62,12 @@ const COLOR_PRESETS = [
   { value: 'text-foreground', label: 'Por defecto', color: 'bg-foreground' },
   { value: 'text-muted-foreground', label: 'Gris', color: 'bg-muted-foreground' },
   { value: 'text-purple-600 dark:text-purple-400', label: 'Púrpura', color: 'bg-purple-500' },
-  { value: 'text-blue-600 dark:text-blue-400', label: 'Azul', color: 'bg-blue-500' },
+  { value: 'text-violet-600 dark:text-violet-400', label: 'Azul', color: 'bg-violet-500' },
   { value: 'text-green-600 dark:text-green-400', label: 'Verde', color: 'bg-green-500' },
-  { value: 'text-amber-600 dark:text-amber-400', label: 'Ámbar', color: 'bg-amber-500' },
+  { value: 'text-fuchsia-600 dark:text-fuchsia-400', label: 'Ámbar', color: 'bg-fuchsia-500' },
   { value: 'text-red-600 dark:text-red-400', label: 'Rojo', color: 'bg-red-500' },
   { value: 'text-pink-600 dark:text-pink-400', label: 'Rosa', color: 'bg-pink-500' },
-  { value: 'text-cyan-600 dark:text-cyan-400', label: 'Cian', color: 'bg-cyan-500' },
+  { value: 'text-fuchsia-600 dark:text-fuchsia-400', label: 'Cian', color: 'bg-fuchsia-500' },
 ];
 
 // Font family options
@@ -166,7 +166,7 @@ export function DialogueSettingsPanel() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-sm">
-                <Type className="w-4 h-4 text-blue-500" />
+                <Type className="w-4 h-4 text-violet-500" />
                 Familia de Fuente
               </CardTitle>
             </CardHeader>
@@ -479,7 +479,7 @@ export function DialogueSettingsPanel() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                <span className="w-3 h-3 rounded-full bg-violet-500"></span>
                 Pensamiento <code className="text-xs text-muted-foreground">(texto)</code>
               </CardTitle>
             </CardHeader>
@@ -733,7 +733,7 @@ export function DialogueSettingsPanel() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-sm">
-                <Type className="w-4 h-4 text-blue-500" />
+                <Type className="w-4 h-4 text-violet-500" />
                 Efecto Typewriter
               </CardTitle>
               <CardDescription className="text-xs">
@@ -812,7 +812,7 @@ export function DialogueSettingsPanel() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-sm">
-                <Sparkles className="w-4 h-4 text-amber-500" />
+                <Sparkles className="w-4 h-4 text-fuchsia-500" />
                 Detección de Formato
               </CardTitle>
               <CardDescription className="text-xs">

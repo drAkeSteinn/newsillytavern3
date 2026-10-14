@@ -105,7 +105,7 @@ export function SpriteTypeBadge({ url, className }: SpriteTypeBadgeProps) {
   if (isVideoUrl(url)) {
     return (
       <span className={cn(
-        'px-1.5 py-0.5 text-[10px] bg-blue-500/80 text-white rounded font-medium',
+        'px-1.5 py-0.5 text-[10px] bg-violet-500/80 text-white rounded font-medium',
         className
       )}>
         VIDEO

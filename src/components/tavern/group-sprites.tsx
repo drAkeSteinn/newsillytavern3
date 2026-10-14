@@ -545,7 +545,7 @@ export function GroupSprites({
                   className={cn(
                     "w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300",
                     isActive
-                      ? "bg-gradient-to-br from-amber-400 to-orange-600 shadow-lg"
+                      ? "bg-gradient-to-br from-fuchsia-400 to-violet-600 shadow-lg"
                       : "bg-gradient-to-br from-gray-400 to-gray-600"
                   )}
                 >
@@ -561,7 +561,7 @@ export function GroupSprites({
               <div className="sprite-controls absolute top-2 left-1/2 -translate-x-1/2 z-50">
                 <Badge 
                   variant="secondary" 
-                  className="bg-blue-500/90 text-white border-blue-400 gap-1.5 px-3 py-1 shadow-lg"
+                  className="bg-violet-500/90 text-white border-violet-400 gap-1.5 px-3 py-1 shadow-lg"
                 >
                   <Timer className="h-3 w-3" />
                   <span className="text-xs font-medium">→ Idle: {formatTime(countdown)}</span>
@@ -612,7 +612,7 @@ export function GroupSprites({
                 className={cn(
                   "absolute bottom-4 left-1/2 transform -translate-x-1/2 px-3 py-1 rounded-full text-sm font-medium transition-all duration-300",
                   isStreaming && isActive
-                    ? "bg-amber-500/90 text-white shadow-lg"
+                    ? "bg-fuchsia-500/90 text-white shadow-lg"
                     : "bg-background/80 text-foreground"
                 )}
               >

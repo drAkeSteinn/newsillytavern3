@@ -4294,3 +4294,490 @@ Stage Summary:
 - {{last_events}}: por defecto 2 eventos, configurable por personaje (1-10) en Editor → Memoria; {{eventos}} sigue resolviendo como alias.
 - Sistema viejo eliminado: scalars ultima_* fuera del tipo y de toda escritura/lectura; "Descripción de completado" (skills y solicitudes) fuera de UI, tipos y runtime — la memoria es ahora la única capa de recuerdo persistente.
 - Escenas/director/tiradas/relación siguen en el buffer (visibles en {{last_events}} y popover) pero NO escriben memoria (ruido narrativo de baja importancia), salvo relationship que sí la escribe vía recordSceneEvent en futuras iteraciones si se desea.
+---
+Task ID: 2
+Agent: Z.ai Code (agente principal)
+Task: Corregir título naranja de TavernFlow en el novel chat, generar icono estilo anime ahegao con saliva, y mover la app al proyecto principal (/home/z/my-project).
+
+Work Log:
+- Título naranja localizado en src/app/page.tsx (gradiente from-amber-500 to-orange-600). Reemplazado por gradiente from-fuchsia-500 via-pink-500 to-violet-500 con glow rosa; el cuadro naranja con Sparkles fue sustituido por el icono real de la app (/icons/icon-192.png).
+- Regenerado el icono con estilo ahegao: cara anime con pupilas de corazón, lengua fuera, gota de saliva, rubor intenso, fondo negro y neón rosa/morado (el filtro de contenido bloqueó términos explícitos; se describió visualmente). Regenerados todos los tamaños (16/32/48/180/192/256/512 + src/app/icon.png).
+- Convertida toda la familia ámbar/naranja de tailwind a fucsia/violeta en src (sed global). Sustituidos hex naranjas por defecto (#f59e0b/#d97706/#f97316) por #ff3ed8/#c21fb0 en atmosphere engine, theme-effects, trigger-collection-editor, appearance-settings-panel y vr-viewer.
+- textColors por defecto en src/types/index.ts alineados a la paleta (userMessage #ff3ed8, characterMessage #c084fc, linkColor #f472b6).
+- CAUSA RAÍZ del texto naranja en el novel chat: los colores persistidos en data/settings.json (chatboxAppearance: theme midnight, characterMessage #f59e0b, burbujas azules) y data/dialogue.json (contentStyles.dialogue.color = text-amber-600 dark:text-amber-400, narration cyan, userBubble azul). Ambos archivos actualizados a la paleta (theme=default rosa/negro, diálogo fuchsia, narración violet, burbuja usuario bg-fuchsia-500/20).
+- App movida de /home/z/newsillytavern3 a /home/z/my-project (el upload/ del proyecto principal es punto de montaje del sandbox; se preservó y el contenido original de upload/ del repo quedó en upload-repo-backup/). Git history intacta (b317dea). Scaffold anterior eliminado.
+- Dev server arrancado desde /home/z/my-project con NODE_OPTIONS --max-old-space-size=1536 (doble-fork + setsid por el límite de memoria del sandbox).
+- Verificado en navegador: título fucsia + icono nuevo visibles en header, diálogo rosa en el novel chat, favicon servido con la imagen nueva, lint limpio.
+
+Stage Summary:
+- TavernFlow completamente en paleta rosa encendido/morado/negro (código + datos persistidos).
+- Icono ahegao (pupilas corazón, lengua, gota de saliva) aplicado en favicon multi-tamaño y header.
+- App vive en /home/z/my-project lista para descarga; worklog preservado.
+---
+Task ID: 3
+Agent: Z.ai Code (agente principal)
+Task: (1) Arreglar tooltips ilegibles (fondo rosa + texto blanco), (2) estados de vínculo editables por personaje en la sección Stats, (3) eliminar sección "Estado emocional" hardcodeada del prompt y usar key {{estado}}.
+
+Work Log:
+- TOOLTIP: la causa era bg-primary/text-primary-foreground en ui/tooltip.tsx (en tema claro = magenta + blanco, ilegible). Cambiado a bg-popover text-popover-foreground + border-primary/40 + shadow. Verificado en navegador hover real sobre "Director": fondo oklch(0.15 0.03 322) morado-negro, texto oklch(0.96) claro, borde rosa 40% — legible.
+- ETAPAS DEL VÍNCULO: nuevo tipo RelationshipStageLabels y relationshipStageLabel() en lib/relationships.ts; computeRelationshipStage/getRelationship aceptan labels custom. CharacterCard.relationshipStageLabels añadido en types. Propagado a: key-resolver ({{relacion_etapa}}), statsSlice (espejo relacion_etapa en updateRelationship/removeRelationship), manage_relationship tool (get_info), relationship-panel (edges, BondCard editable, leyenda, create form). Nuevo componente BondStagesEditor en stats-editor.tsx (5 inputs con rangos fijos 0-15/16-35/36-60/61-85/86-100, botón restaurar, badge "N personalizadas") + props en StatsEditor y character-editor. Verificado en navegador: sección visible en editor→Stats, edición en vivo funciona (badge "1 personalizadas", botón restore aparece).
+- {{estado}}: eliminadas las dos secciones automáticas "Estado Emocional" de prompt-builder.ts (1:1 y grupo). Implementada la key {{estado}} (y alias legacy {estado}) en resolveEventKeys del key-resolver: se resuelve con sessionStats.characterStats[characterId].emotionalState en cualquier sección de card, lorebook o system prompt; vacío si no hay estado. UI del stats-editor: reemplazado toggle "Incluir en el Prompt" + "Formato de Inyección" por sección "Inyección en el Prompt" que documenta {{estado}}; popover actualizado ({{emocion}} no existía → ahora documenta {{estado}}). types/index.ts: campos includeInPrompt/promptInjectionFormat marcados deprecated. Migración de datos: {estado} → {{estado}} en data/characters.json (6) y data/sessions.json (32).
+- VERIFICACIÓN: scripts/verify-estado-relaciones.ts (9/9) y scripts/verify-keyresolver.ts (5/5 contra el resolver real resolveAllKeys). Lint limpio en los 10 archivos tocados. tsc: solo errores pre-existentes (verificados por línea). Browser: tooltip Director ✓, sección Etapas del Vínculo ✓ (edición en vivo ✓). Limitación: el sandbox tiene cgroup de 4GB y el dev server + Chrome + compilaciones webpack disparan OOM kills frecuentes (dmesg: anon-rss 2.6-2.9GB); el server se reinicia con NODE_OPTIONS=--max-old-space-size=1536.
+
+Stage Summary:
+- Tooltips legibles en ambos temas (popover oscuro + borde rosa).
+- Nombres de etapas del vínculo personalizables por personaje desde editor → Stats → "Etapas del Vínculo"; afecta panel, espejo relacion_etapa, {{relacion_etapa}} y manage_relationship.
+- Prompt ya no inyecta la sección automática "Estado Emocional"; el usuario controla la inyección con {{estado}} en card/lorebooks; datos migrados.
+---
+Task ID: 4
+Agent: Z.ai Code (agente principal)
+Task: Diagnosticar y arreglar por qué el tool-calling de atributos (modify_stat) no actualiza valores de Aitana conforme avanza la escena; soportar cambios multi-atributo en una llamada.
+
+Work Log:
+- DIAGNÓSTICO (card "Autana" = typo de Aitana, sesión e121f50b, provider Grok grok-4-1-fast-non-reasoning):
+  (1) En 23 mensajes, cero llamadas a modify_stat (changeLog solo registra costos de la acción "sacar verga" y triggers). El modelo SÍ llama manage_action (instrucciones fuertes "DEBE/SIEMPRE") y manage_escenario (falló: ubicación inexistente "Zona trasera del after" — solo hay 1 ubicación definida).
+  (2) Reproducción en vivo contra xAI con el prompt exacto de promptData: el modelo llama manage_action pero NUNCA modify_stat — las reglas {{attributes_rulz}} eran débiles/genéricas (ejemplos RPG "ganar experiencia, perder vida") y el modelo cree que los "Costos" de las acciones ya cubren los cambios de atributos.
+  (3) maxTokens 512 del config Grok agravaba (probado 1024 sin cambiar el comportamiento: la causa real era el prompt).
+  (4) La personalidad de Aitana es 100% dinámica por bandas de atributos (lorebook entryType=attribute con dynamicConditions sobre adicción/lujuria/estupidez/energía/orgasmo) → atributos congelados = personaje plano.
+- FIX 1 (modify-stat.ts): nuevo parámetro "changes" (array JSON, acepta string-encoded que es como lo mandan los LLMs, u objeto suelto) para modificar VARIOS atributos en una llamada. Refactor a applyOneChange() contra sessionStats LIVE (los cambios apilan). Devuelve statActivations[] + statActivation (primero, retrocompat). Descripción RP-oriented. Executor verificado con unit test (3 cambios OK + stat inexistente falla con lista de stats disponibles).
+- FIX 2 (types.ts): StatActivation exportable + ToolExecutionResult.statActivations[].
+- FIX 3 (stream/group-stream/proactive routes): un SSE stat_activation POR cambio (el cliente ya aplicaba cada evento individualmente). sessionStats mutado por cambio para que rondas siguientes lean valores frescos.
+- FIX 4 (native-parser.ts): POST_TOOL_REMINDER inyectado en buildToolMessagesForOpenAI justo tras los resultados de tools (posición de máxima recencia) — la pieza que hace que el modelo aplique cambios en ronda 1 si no lo hizo en la 0.
+- FIX 5 (attributes-prompt.ts): {{attributes_rulz}} reescrito como "[EVOLUCIÓN DE ATRIBUTOS — OBLIGATORIO]" con protocolo por turno, ejemplos changes[] y pointer a manage_relationship/[rel:] para relación.
+- FIX 6 (persistencia multi-ronda): stream/proactive hacían accumulatedContent='' en cada continue → el texto RP de rondas 0/1 se PERDÍA del mensaje guardado (encogía al recargar). Ahora se preserva con salto de línea. group-stream (fullContent) igual: 11 resets eliminados + asignaciones cleaned* convertidas a append.
+- FIX 7 (data/llm-configs.json): maxTokens Grok 512→1024.
+- VERIFICACIÓN: (a) unit test del executor: changes string-encoded → 3 activaciones OK, sessionStats apila (lujuria 15→30, energia 100→90, orgasmo 0→20). (b) Simulación completa del bucle Grok 2 rondas contra xAI: ronda 0 → manage_action + modify_stat(batch 3) + manage_time en paralelo; ronda 1 → texto final. (c) E2E REAL vía POST /api/chat/stream del server: 2 tool_call_start (manage_action + modify_stat), 3 SSE stat_activation (lujuria 15→40, estupidez 0→15, energia 100→90), 692 tokens de RP. ✓
+- Lint limpio en los 8 archivos tocados; tsc: 0 errores nuevos (18 pre-existentes en proactive/route antes y después). OOM del sandbox mata el dev server si Chrome está abierto (patrón conocido): server reiniciado con doble-fork + max-old-space-size=1536.
+
+Stage Summary:
+- modify_stat ahora es "evolución de atributos": batch multi-atributo, operadores +N/-N/=N, keywords, reasons narrativas, tolerante a string-encoded JSON.
+- El recordatorio post-tool + reglas obligatorias hacen que Grok aplique cambios de atributos cada turno (ronda 0 en paralelo con manage_action, o ronda 1 tras el recordatorio).
+- El mensaje guardado ya no pierde el texto RP de rondas previas de tools (bug pre-existente corregido en stream/proactive/group-stream).
+- maxTokens de Grok subido a 1024 (512 truncaba respuestas largas).
+- PENDIENTE para el usuario: manage_escenario falló porque "Zona trasera del after" no existe en su escenarioConfig (solo hay "Aniversario de porros"); agregar la ubicación en el editor de Escenario si quiere que Aitana se mueva.
+
+---
+Task ID: MEM-RESET-1
+Agent: Z.ai Code (agente principal)
+Task: Sección de memoria de personajes: reset total + selección múltiple con checkboxes (eliminar seleccionados, seleccionar todos).
+
+Work Log:
+- Identificado el componente real de la sección Memoria: MemoryV2Manager (usado en Editor → pestaña Memoria y en el chatbox modo compacto). CharacterMemoryEditor (V1) está huérfano (0 imports) — no se tocó.
+- BACKEND store.ts: añadido hardDeleteMany(ids) a la interfaz V2Store e implementado en ambos backends: LanceDB (table.delete con predicado id IN (...), chunked en lotes de 100) y JSON fallback (filter por Set de ids). Devuelve nº de ids procesados.
+- API /api/memory/v2 (POST): nueva acción hard-delete-bulk con dos modos: { ids: [...] } → borra esos registros; { all: true, charId|groupId } → RESET del ámbito: bucle list(500, activeOnly:false → incluye archivados)+delete hasta vacío (máx 20 pasadas, guarda anti-loop si delete parcial). Docblock actualizado.
+- FRONTEND memory-v2-manager.tsx: estado selectedIds (Set) + confirmBulkDelete/confirmReset/bulkBusy; poda de la selección tras cada load (solo ids vivos). Checkbox (ui/checkbox) al inicio de cada recuerdo + resaltado rojo del row seleccionado (ring-red-500/50 bg-red-500/10). Toolbar: botón "Todos/Ninguno" (ListChecks, toggle sobre los records visibles respetando filtros) y botón Reset (RotateCcw rojo) — ambos solo si hay records. Barra de selección condicional: "N seleccionados · Deseleccionar · Eliminar seleccionados (destructive)". Dos AlertDialogs nuevos: borrado masivo ("¿Eliminar N recuerdos seleccionados?") y reset total ("¿Resetear TODA la memoria?" con conteo del almacén, alcance activos+archivados, fijados+automáticos). Toasts de resultado con conteo. Funciona en modo personaje (charId) y grupo (groupId).
+- VERIFICACIÓN API (curl, charId=test-reset-xyz): add×3 → hard-delete-bulk ids[2] → deleted:2, restan 1; supersede (archivado) → reset all:true → deleted:1 (incluyó el ARCHIVADO), total 0. Errores: all sin scope → 400, ids vacío → 400.
+- VERIFICACIÓN UI (agent-browser, chatbox Aitana, 8 records: 5 reales + 3 UI-TEST temporales): checkboxes visibles (8), click en 1 → barra "1 seleccionado"; "Todos" → "8 seleccionados" y el botón pasa a "Ninguno"; "Deseleccionar" → barra fuera; selección de los 3 UI-TEST → "Eliminar seleccionados" → AlertDialog "¿Eliminar 3 recuerdos seleccionados?" → confirmar → badge 8→5, lista refrescada, selección limpiada, server-side 0 UI-TEST restantes. Botón Reset → AlertDialog correcto ("...5 en el almacén... no se puede deshacer") → Cancelar (datos reales intactos: 5 records). Limpieza: los 3 UI-TEST quedaron eliminados; memoria real de Aitana intacta.
+- NOTA DE ENTORNO: el sandbox OOM-mata el dev server (cgroup 4GB) al compilar rutas con Chrome abierto (RSS 2.3-2.9GB); server relanzado con NODE_OPTIONS=--max-old-space-size=1536 doble-fork y warmup previo de rutas (memory/v2 PRIMERO en heap fresco) antes de abrir el browser. Patrón documentado para futuras sesiones.
+- Lint limpio en los 3 archivos (memory-v2-manager.tsx, store.ts, route.ts).
+
+Stage Summary:
+- La memoria de personajes ahora soporta: borrado individual (existente), borrado masivo por selección con checkboxes, "seleccionar todos/ninguno" (respeta filtros de tipo/origen), y RESET total del personaje o grupo (incluye archivados) — todo con confirmaciones AlertDialog y toasts de resultado.
+- Nueva acción API reutilizable: POST /api/memory/v2 action=hard-delete-bulk ({ids[]} o {all:true, charId|groupId}).
+- hardDeleteMany disponible en el store V2 para ambos backends (LanceDB chunked, JSON fallback).
+
+---
+Task ID: 9
+Agent: Z.ai Code (principal)
+Task: Memoria V2 — preferencias del personaje y del jugador (user question + implementation)
+
+Work Log:
+- Audited memoria V2: types (evento/hecho/preferencia/relacion/nota/resumen_escena), subjects (usuario/personaje/pareja/mundo), extraction prompt, injection blocks, manage_memory tool
+- Found: `preferencia` type existed but was USER-ONLY ("gustos del usuario"); extraction.ts hardcoded subject (preferencia→usuario, hecho→usuario, relacion→pareja); record model HAD subject field but auto-extraction never assigned 'personaje'; no [GUSTOS DE char] injection block
+- types.ts: added `subject?: MemoryV2Subject` to ExtractedItem; updated preferencia comment
+- prompts.ts: reworked extraction prompt — preferencia now covers BOTH user ("A {userName} le gustan los roles lentos") and character ("A {charName} le encanta que le acaricien el pelo") with mandatory `subject` output field; added rule 6 + example output JSON with subject
+- extraction.ts: coerceItem parses/validates raw.subject; ADD path uses item.subject ?? fallbackSubject(type); UPDATE path uses item.subject ?? old.subject
+- injection.ts: NEW block 2 `[GUSTOS DE {charName}]` for preferencia(subject=personaje) with instructions not to confuse with user's tastes; Block 1 [HECHOS SOBRE user] excludes subject=personaje preferencias; budgets rebalanced 35/45/20 → 30/15/40/15
+- memory-v2-manager.tsx: preferencia help text updated; per-record subject badge (personaje=violet, usuario=muted); new "De quién es" Select in record form dialog (usuario/personaje/pareja/mundo) with auto-default to 'usuario' when type=preferencia; help accordion now lists [GUSTOS DE {char}] block
+- Verified E2E via API: added test preferencia(subject=personaje) → GET context showed [GUSTOS DE Aitana] block with correct instructions; user prefs stayed in [HECHOS SOBRE Marcos]; deleted test record after
+- ESLint clean; tsc --noEmit: 6 errors all pre-existing (verified identical via git stash baseline); page renders 200
+
+Stage Summary:
+- Memoria V2 now tracks BOTH player preferences (subject=usuario → [HECHOS SOBRE {user}]) AND character preferences (subject=personaje → [GUSTOS DE {charName}])
+- manage_memory tool already supported memory_subject usuario/personaje/otro — unchanged, now consistent with extraction
+- UI: subject selector in manual record form + subject badges in list + updated help text
+- Files: src/lib/memory/v2/{types,prompts,extraction,injection}.ts, src/components/memory/memory-v2-manager.tsx
+
+---
+Task ID: 10
+Agent: Z.ai Code (principal)
+Task: Auditoría proveedor Grok (xAI) + parámetros LLM + diagnóstico bucle de repetición con tools
+
+Work Log:
+- Audited src/lib/llm/providers/grok.ts: only sent temperature/top_p/max_tokens — frequency_penalty, presence_penalty, stopStrings were exposed in settings UI + saved in config but NEVER sent (openai.ts got that fix, grok.ts didn't)
+- Diagnosed repetition loop with tools (4 causes):
+  (1) penalties dropped → no anti-repetition pressure at API level
+  (2) POST_TOOL_REMINDER ("llama AHORA a modify_stat") accumulates in EVERY tool round context — N reminders by round N actively driving more tool calls
+  (3) No duplicate tool-call guard: same modify_stat + same args re-executed each round → stats inflated repeatedly (sessionStats mutated in-place per call)
+  (4) maxToolCallsPerTurn default 4 → up to 4 loop rounds per turn
+- Fixed grok.ts: all 3 request bodies (stream / streamWithTools / call) now send frequency_penalty, presence_penalty, stop (mirrors openai.ts fix)
+- Fixed native-parser.ts: buildToolMessagesForOpenAI(toolCalls, results, opts?{round}) — round 0 keeps POST_TOOL_REMINDER; round ≥1 uses new ANTI_TOOL_LOOP_REMINDER (forbids repeats, demands final narrative)
+- Fixed stream/route.ts: per-turn duplicate guard in executeToolCallsAndContinue via WeakMap keyed by SSE controller — signature=toolName+sorted-args JSON; duplicates skipped w/ corrective "no repitas" tool result (prevents stat double-application); + { round: toolRound } at all 12 call sites
+- Fixed proactive/route.ts: + { round: toolRound } at 4 call sites; group-stream single-round (default OK)
+- Updated data/llm-configs.json ACTIVE Grok config: temp 0.9, topP 0.95, freqPenalty 0.45, presPenalty 0.25 (anti-loop recommended values)
+- Updated settings-panel.tsx handleAddConfig defaults for new configs: temp 0.9, topP 0.95, maxTokens 1024, freq 0.45, pres 0.25
+- Type hygiene bonus: controller param typed (string|Uint8Array) in 3 route helpers + toolsUsed local/return types widened → 86→49 pre-existing TS errors in the 3 chat routes, ZERO new
+- Verified: eslint clean, POST /api/chat/stream compiles+responds 400 (validation), GET / 200
+
+Stage Summary:
+- Grok params now flow end-to-end: UI → LLMConfig.parameters → xAI API (penalties + stop)
+- Tool-loop defense in depth: penalties (API) + round-aware reminder (prompt) + duplicate-call guard (execution) + maxToolCallsPerTurn bound (config)
+- User's active Grok config already tuned; recommended: temp 0.85-0.95, topP 0.95, freq 0.4-0.5, pres 0.2-0.3, repetitionPenalty slider ignored by Grok (local-LLM-only param)
+- Files: grok.ts, native-parser.ts, stream/route.ts, group-stream/route.ts, proactive/route.ts, settings-panel.tsx, data/llm-configs.json
+
+---
+Task ID: 11
+Agent: Z.ai Code (main)
+Task: Corregir error de Grok (400 "Model grok-4-1-fast-non-reasoning does not support parameter presencePenalty") — revisar qué parámetros se envían a xAI y si son correctos.
+
+Work Log:
+- Localizado el proveedor en src/lib/llm/providers/grok.ts (streamGrok, streamGrokWithTools, callGrok cubren TODAS las rutas: chat stream, group, regenerate, interrupt, proactive, generate, director).
+- Causa raíz: el proveedor enviaba frequency_penalty/presence_penalty/stop siempre que fuesen finitos (incluso 0). La config activa "Grok" (data/llm-configs.json) tenía frequencyPenalty 0.45 + presencePenalty 0.25 → 400 invalid-argument.
+- Auditoría EMPÍRICA contra api.x.ai con la API key del usuario (curl):
+  * grok-4-1-fast-non-reasoning es un alias legacy que ahora rutea a grok-4.3 (response.model = "grok-4.3").
+  * frequency_penalty → RECHAZADO (400) en grok-4.3, grok-4.5, grok-4.20-non-reasoning.
+  * presence_penalty → RECHAZADO (400) en los mismos modelos.
+  * stop → RECHAZADO (400) en grok-4.3.
+  * temperature 0.9 + top_p 0.95 juntos → OK; max_tokens → OK; tools + stream → OK (verificado con tool modify_stat).
+  * /v1/models de esta cuenta lista: grok-4.20-*, grok-4.3, grok-4.5, grok-4.6, grok-4.7, grok-build-0.1, grok-imagine-*.
+- Fix en grok.ts (reescritura con helpers compartidos):
+  * buildGrokRequestBody(): para endpoints oficiales *.x.ai NO envía penalties ni stop (los valores no-cero se registran en console.info); para endpoints terceros OpenAI-compat se reenvían como antes. Añadido modelo por defecto GROK_DEFAULT_MODEL = 'grok-4.3' (antes 'grok-4-1-fast-non-reasoning', alias legacy).
+  * grokFetchWithParamAdaptation(): retry adaptativo — si la API responde 400 "does not support parameter X" (cualquier modelo/param futuro), parsea X (camelCase→snake_case), lo elimina del body y reintenta (hasta 5 adaptaciones). Verificado con 400 simulado: la llamada falla → se elimina el parámetro → reintento → éxito.
+  * parseGrokErrorMessage(): ahora maneja el formato xAI {"code":"invalid-argument","error":"<string>"} (antes mostraba el JSON crudo) además del formato OpenAI.
+  * Penalties = 0 ya no se envían (no-op), para cualquier endpoint.
+- UI (settings-panel.tsx): hint bajo los inputs de penalizaciones cuando provider==='grok' explicando que xAI no las soporta y se omiten automáticamente; comentario de defaults corregido.
+- Verificación E2E del proveedor corregido con la config EXACTA del usuario (penalties 0.45/0.25 + stop): streamGrok y callGrok responden OK (antes 400); log "[Grok] La API de xAI no soporta ... omitidos automáticamente". ESLint limpio; GET / 200; dev.log sin errores.
+
+Stage Summary:
+- Los 400 de xAI por presencePenalty/frequencyPenalty/stop están eliminados: el proveedor construye peticiones válidas para los modelos actuales (grok-4.3/4.5/4.20+) y el retry adaptativo blinda ante rechazos futuros de cualquier parámetro.
+- Anti-bucle en Grok (penalties no disponibles en xAI): se apoya en la guardia anti-bucle de tool calls duplicadas (ya existente en stream route) + temperatura moderada; el hint de UI lo documenta.
+- Archivos: src/lib/llm/providers/grok.ts, src/components/tavern/settings-panel.tsx.
+
+---
+Task ID: 12
+Agent: Z.ai Code (main)
+Task: Texto crudo de tool calls ([modifystat:statname:lujuria new_value:+18 reason:...]) aparecía en el chat de Aitana (grok-4.3). Investigar por qué y corregir.
+
+Work Log:
+- Diagnóstico: revisado sessions.json — el texto crudo NO se guardó y los stats NO cambiaron (lujuria:15, adiccion:5, energia:100): las llamadas del modelo nunca se ejecutaron, solo se filtraron como texto visible.
+- Causa raíz: grok-4.3 (razonante, effort=low) escribe a veces las tool calls como taquigrafía de corchetes [toolname:param:value ...] en vez de usar function calling nativo. El parser de texto (prompt-parser.ts) solo entendía formatos JSON (```tool_call, TOOL_CALL:, {"name":...}), así que mightContainToolCall=false → el texto crudo se enviaba tal cual al chat y la intención del modelo se perdía.
+- Fix 1 — parser (src/lib/tools/parsers/prompt-parser.ts):
+  * Nuevo patrón 4: corchetes [toolname:param:value param2:value2] con WHITELIST de nombres de tool (normalizados sin _/case) → nunca matchea [DATOS], [12:30], [nota:...], [Lujuria: (15/100)] (verificado con tests rápidos, 7/7 OK).
+  * parseBracketParams: parsea key:value con valores multi-palabra (reason:arrodillada y chupando en público).
+  * coerceBracketArguments: mapea {statname,new_value,reason} → schema nativo de modify_stat {changes:[{stat_name,new_value,reason}]}.
+  * mightContainToolCall + stripToolCallFromText + early-exit de parseAll actualizados para el nuevo formato.
+  * registerKnownToolNamesForParsing(): registerTool() sincroniza la whitelist con tools custom (sin imports circulares).
+- Fix 2 — recordatorio anti-texto: buildNativeToolsReminder() en tool-registry.ts; se anexa al system prompt cuando shouldUseTools (stream route): "NUNCA escribas llamadas como texto... EMITE LA LLAMADA NATIVA".
+- Fix 3 — blindaje en rutas (strip antes de encolar tokens):
+  * stream/route.ts caso grok: round-0 nativo, follow-up nativo, "no tool calls" y NUEVO fallback de texto en follow-up (antes no existía: brackets en follow-up se perdían).
+  * group-stream/route.ts caso grok: nativo, follow-up tras tool calls, y "no calls" → stripToolCallFromText.
+  * proactive/route.ts caso grok: nativo y "no calls" → stripToolCallFromText.
+- Verificación: parser reproduce el caso EXACTO del usuario (3 llamadas detectadas y coercionadas, narrativa conservada, 0 falsos positivos); ESLint limpio en 6 archivos; GET / 200; dev.log sin errores de compilación.
+
+Stage Summary:
+- El formato [modifystat:...] ya NO se filtra al chat: si aparece, se PARSEA + EJECUTA (los stats ahora sí aplican) y se elimina del texto visible.
+- Se previene la causa (recordatorio de function calling nativo en el prompt) y se blinda el display en stream/group/proactive.
+- Archivos: prompt-parser.ts, tool-registry.ts, index.ts, stream/route.ts, group-stream/route.ts, proactive/route.ts.
+
+---
+Task ID: 13
+Agent: Z.ai Code (main)
+Task: Revisar que las tools funcionen, que varias puedan ejecutarse a la vez para modificar atributos (incluidos los que usan las acciones), y que skill + tool call ACUMULEN efectos sobre el mismo stat (sumas/restas) en vez de cancelarse.
+
+Work Log:
+- Auditoría del sistema de tools: 17 tools registradas en tool-registry.ts (modify_stat, manage_action, check_stat, manage_scene, etc.); el loop de ejecución de stream/group-stream/proactive YA ejecuta TODAS las tool calls de cada ronda y modify_stat ya soporta batch "changes" (varios atributos en 1 llamada) y múltiples llamadas por turno; la guardia anti-bucle solo bloquea firma idéntica (toolName+args), no cambios distintos al mismo stat → ejecución múltiple paralela OK.
+- BUG CONFIRMADO (cancelación): stat_activation SSE solo llevaba valores absolutos (newValue calculado en servidor desde el snapshot de inicio de request). El cliente lo aplicaba como SET absoluto (updateCharacterStat(key, parsed.newValue)) mientras los costos de acciones (activateSkillByTool) se aplican como DELTA en cliente. Según el orden SSE, el set absoluto BORRABA el costo de la skill (ej: skill energia -10 + tool -5 → quedaba 95 en vez de 85) — exactamente lo que reportó el usuario.
+- Fix tipos (src/lib/tools/types.ts): StatActivation += operator?: '+'|'-'|'='|'set' y delta?: number.
+- Fix servidor (modify-stat.ts): applyOneChange registra operator/delta en cada activación ('+' suma, '-' resta, '=' set absoluto numérico, 'set' keyword/texto); descripción de la tool ampliada: efectos SE ACUMULAN, usar +N/-N tras manage_action, nunca cancelar con =valor, se puede llamar varias veces por turno.
+- Fix SSE (stream, group-stream, proactive routes): stat_activation ahora incluye operator + delta.
+- Fix cliente: NUEVO helper src/lib/stats/apply-stat-activation.ts (applyStatActivationToStore): si operator '+'/'-' con delta finito → lee valor ACTUAL del cliente (fallback: oldValue del servidor → defaultValue del atributo), aplica base±delta y escribe (updateCharacterStat clampea min/max); '='/'set'/eventos legacy → set absoluto. Store aceptado como object opaco (cast interno) para compatibilidad con TavernState.
+- Consumidores actualizados a delta-aware (4 sitios): chat-panel.tsx x2 (toast muestra "(acumulado)" en modo delta), use-proactive-messages.tsx, use-director.ts (toolResults del director).
+- Verificación: simulación E2E 16/16 OK (skill -10 + tool -5 = 85 acumulado; batch 2 cambios apilan en servidor; delta replay cliente; '=' absoluto; keyword 'set'; fallback legacy; clamping min/max servidor y cliente); ESLint limpio en 9 archivos; tsc 899 errores vs 900 baseline (0 nuevos; 2 intermedios StoreLike corregidos); dev server reiniciado (había caído por memoria tras tsc): Ready, GET / 200, logs limpios.
+
+Stage Summary:
+- Herramientas: múltiples tool calls por turno + batch changes + acumulación servidor (sessionStats vivo) verificados y funcionando; cualquier atributo usado por acciones (activationCosts.attributeKey) es modificable por modify_stat (mismo catálogo statsConfig.attributes).
+- Acumulación garantizada end-to-end: skill (delta cliente) + tool (delta replay cliente desde snapshot servidor) = suma/resta correcta en CUALQUIER orden SSE; '=' solo cuando el modelo pide valor absoluto explícito; eventos legacy sin metadata siguen funcionando (set absoluto).
+- Anti-bucle intacto: solo bloquea args idénticos; cambios distintos al mismo stat se aplican y apilan.
+- Archivos: types.ts, modify-stat.ts, apply-stat-activation.ts (nuevo), stream/group-stream/proactive route.ts, chat-panel.tsx, use-proactive-messages.tsx, use-director.ts.
+
+---
+Task ID: 14
+Agent: Z.ai Code (main)
+Task: (a) Explicar el flujo de tool calling (¿una o varias peticiones al LLM?), (b) investigar la percepción de que "el formato del mensaje cambia cuando se usa toolcalling", (c) revisar la sección Datos → Exportar Todo / Importar Todo para verificar que cubre los datos nuevos (opciones nuevas de personajes, memoria, etc.).
+
+Work Log:
+- (a) Trazado el flujo en stream/route.ts (mismo patrón en group-stream y proactive): 1 mensaje del usuario = 1 conexión SSE, pero VARIAS peticiones LLM. Ronda 0: petición con tools nativas (system prompt + [USO CORRECTO DE HERRAMIENTAS]). Si el modelo emite tool calls → el servidor ejecuta TODAS las de esa ronda → los resultados se adjuntan como mensajes tool → petición de seguimiento (ronda 1). El bucle while (toolRound <= maxToolRounds) repite mientras el modelo siga llamando tools; maxToolRounds = maxToolCallsPerTurn (default 4). Típicamente 2 peticiones por turno (inicial + 1 seguimiento); la ronda final va sin tools.
+- (b) Causas identificadas de la percepción de "cambio de formato" (comportamiento esperado, no bug): (1) STREAMING vs BUFFERING — sin tools los tokens llegan en vivo; con tools la ronda 0 se BUFFEREA completa (hay que ver la respuesta entera para detectar tool calls) y se vuelca de golpe con splitIntoChunks (chunks de 3 chars sin delay) → el mensaje "aparece de golpe" en vez de teclearse; ídem las rondas de seguimiento (route.ts líneas 1162-1180 y 2324-2343). (2) El system prompt lleva recordatorios extra cuando tools activo → el estilo de escritura puede variar ligeramente. (3) cleanModelArtifacts se aplica solo en modo tools. (4) La UI añade badges de tools (toolsUsed) bajo el mensaje. (5) El mensaje guardado = texto previo al tool call + texto del seguimiento concatenados (sin separador), lo que puede leerse distinto. NO se envuelve el mensaje en ningún formato especial; el markdown se guarda igual.
+- (c) Auditoría de Exportar Todo (handleExportAll) vs claves persistidas: CUBRE todas las claves del store persistido (characters con statsConfig/skills/preferencias/emocional/wardrobe, sessions con sessionStats, groups, settings con settings.tools, llm/tts/promptTemplates, personas, lorebooks, sonidos, backgrounds, spritesV2, HUD, atmósfera, summaries/memoria legacy, quests, diálogo, inventario, timeline, estados activos) + questTemplates (re-persistidas por API al importar) + embeddingsConfig (restaurada por API). HUECO ENCONTRADO: la Memoria V2 (tienda server-side LanceDB/JSON: eventos, hechos, preferencias del jugador, relaciones, notas, resúmenes de escena — data/memory-v2-fallback.json) NO se exportaba ni importaba, pese a que la API ya tenía actions para ello (GET action=export-all, POST action=import-records, con comentario "Used by the Datos → Exportar Todo flow" — estaba planificado y nunca se conectó).
+- FIX (settings-panel.tsx): handleExportAll ahora hace fetch de /api/memory/v2?action=export-all e incluye memoryV2 (+memoryV2Backend informativo) en el backup (version 2.1); toast informa cuántos registros de memoria se exportaron. handleImportAll restaura data.memoryV2 vía POST /api/memory/v2 {action:'import-records', records} con semántica merge-by-id idempotente (ids existentes se saltan — gana la copia local; ids nuevos se añaden con TODOS los campos originales y re-embed automático); toast informa registros añadidos. Backward-compatible: backups antiguos (v2.0 sin memoryV2) se importan igual (guard Array.isArray + length>0).
+- Verificación E2E con curl: export-all → 200, 5 registros (backend json); reimportar los mismos 5 → {added:0, skipped:5, invalid:0} y el total sigue siendo 5 (sin duplicados, idempotente). ESLint limpio en settings-panel.tsx. tsc: los 4 errores del archivo son EXACTAMENTE los preexistentes (verificado con git stash: líneas 826/956/957/1053/1686 → desplazadas a 826/971/972/1073/1733), 0 nuevos. Dev server murió por memoria tras 2 tsc (lo esperado en este sandbox) → reiniciado con setsid + --max-old-space-size=1536 → GET / 200, dev.log limpio.
+
+Stage Summary:
+- Flujo tool calling documentado: varias peticiones LLM por turno (inicial + 1 seguimiento por ronda de tools, hasta maxToolCallsPerTurn), todas dentro de la MISMA conexión SSE; los efectos de tools se aplican en servidor y se notifican por SSE (stat_activation con operator/delta desde Task 13).
+- El "cambio de formato" con tools activas es real pero esperado: buffering de rondas con tools (mensaje aparece de golpe), recordatorios extra en el prompt, limpieza de artefactos y badges de tools en UI. No hay wrapper ni cambio estructural del mensaje guardado. Mejora UX posible a futuro: streaming en vivo cuando no hay tool calls (requiere streaming-through con detección tardía — no implementado en esta tarea).
+- Datos → Exportar Todo / Importar Todo ahora cubre la Memoria V2 completa (eventos, hechos, preferencias, relaciones, notas, resúmenes de escena) además de todo lo existente; import idempotente verificado con datos reales.
+- Archivos: src/components/tavern/settings-panel.tsx (handleExportAll + handleImportAll). Sin cambios de API (las actions export-all/import-records ya existían).
+
+
+---
+Task ID: 15-ui
+Agent: frontend-styling-expert
+Task: ESCENARIO V3 — UI: ScenarioLibraryPanel (Ajustes → Escenarios), ScenarioSwitcher (overlay de escena), botón MapPin en header, pestaña Escenarios en Ajustes, multi-select de escenarios de la App en el editor de personaje.
+
+Work Log:
+- Leído worklog (Tasks 12-14) + contexto V3: tipos en @/types (SpritePose/ScenarioSpot/ScenarioPlace/ScenarioDefinition, CharacterCard.scenarioIds, SessionStats.activeScenarioCollectionId/activeScenarioId), slice scenarioLibrarySlice (scenarios/add/update/remove/setScenarios), lib @/lib/scenario/library (getEffectiveScenarioDefinitions, resolveActiveScenarioLocation), API /api/backgrounds/collections y BackgroundGallery existente. NO se re-implementó nada de store/lib/API.
+- NUEVO src/components/tavern/scenario-library-panel.tsx: panel de gestión a altura completa "Escenarios" (acentos esmeralda, texto en español). Header con "Nuevo Escenario" (Plus); lista en ScrollArea; cada tarjeta: nombre, Switch de activo (con stopPropagation), Badge de nº de lugares, preview de descripción, chevron expand/collapse. Editor expandido: Nombre (Input), Descripción (Textarea), Switch activo, Fondo predeterminado, lista de lugares con Nombre/Descripción/fondo/estrella "predeterminado" (toggle) /delete (confirm), puntos de interés anidados (Input nombre + Input descripción corta + BackgroundPicker opcional + Trash2), botones "Agregar lugar" / "Agregar punto de interés", y "Eliminar escenario" (destructive + window.confirm). Todo vía updateScenario (addScenario para crear); ids con crypto.randomUUID() + fallback Date.now()-random. Empty state con texto de ayuda. Componente interno reutilizable BackgroundPicker (props value/onChange): fetch LAZARO de /api/backgrounds/collections solo al abrir el Popover (useEffect on open), grid de miniaturas agrupadas por colección en ScrollArea (video con badge), refresco manual, miniatura h-10 w-16 del valor + X para limpiar. Export named + default.
+- NUEVO src/components/tavern/scenario-switcher.tsx: overlay fullscreen (framer-motion AnimatePresence, estilo background-gallery simplificado) "Escenarios de la escena" con X. Computa character (por session.characterId → activeCharacterId), group (session.groupId → activeGroupId), definitions = getEffectiveScenarioDefinitions(character, scenarios, group) y ubicación actual = resolveActiveScenarioLocation(definitions, session.sessionStats) → Badge "Actual: {lugar}". Cada escenario como tarjeta: nombre, descripción, nº lugares, Badge "Escenario actual" si contiene la ubicación activa; clic mueve la escena al lugar predeterminado; chips de lugares dentro de la tarjeta (chip activo resaltado en esmeralda) que mueven a ESE lugar. moveScene usa store.getState(): setActiveScenarioCollection(sessionId, def.id) + setActiveScenario(sessionId, place.id), aplica place.backgroundUrl || defaultBackgroundUrl con setActiveBackground, y place.spritePose via queueSpritePoseForCharacter (solo si character conocido); toast.success "📍 Escenario: X → Y"; cierra el overlay; toast.error si no hay sesión activa. Empty state con el texto pedido (editor del personaje / Ajustes → Escenarios).
+- EDIT src/app/page.tsx: botón de header de Background Gallery reemplazado por botón "Escenarios de la escena" (icono MapPin, onClick abre ScenarioSwitcher); import de ImageIcon sustituido por MapPin; nuevo estado scenarioSwitcherOpen + montaje {hydrated && <ScenarioSwitcher .../>} junto al BackgroundGallery; backgroundGalleryOpen + montaje de BackgroundGallery CONSERVADOS (la galería sigue disponible desde Ajustes → Fondos); menú móvil intacto.
+- EDIT src/components/tavern/settings-panel.tsx: import MapPin; tabs añade { value: 'escenarios', label: 'Escenarios', icon: MapPin } justo tras 'backgrounds'; nuevo TabsContent "escenarios" (h-full overflow-y-auto) montando <ScenarioLibraryPanel />; estado local galleryOpen en SettingsPanel; en el TabsContent "backgrounds" se añade arriba un banner esmeralda con texto "La galería de fondos ahora vive aquí, en Ajustes." + botón "Abrir Galería de Fondos" (ImageIcon) que monta <BackgroundGallery open onOpenChange={setGalleryOpen} />, con BackgroundTriggersSettings debajo (wrapper overflow-y-auto).
+- EDIT src/components/tavern/character-editor.tsx: renderScenarioTab ahora muestra arriba la sección "Escenarios de la App (Biblioteca)": chips toggle (Button outline rounded-full, borde esmeralda + Check cuando seleccionado, nombre + nº lugares + "(deshabilitado)" si aplica) que añaden/quitan ids en character.scenarioIds vía setCharacter(prev => ({...prev, scenarioIds})); texto de ayuda sobre manage_escenario y fallback al escenario local; ScenarioEditor existente conservado debajo con encabezado "Escenario local (legado)" y nota "Solo se usa si no hay escenarios de la App seleccionados arriba."; selector store scenarios + icono Check añadidos.
+- ESLint (bunx eslint) en los 5 archivos: limpio (única iteración de fix: setLoading(true) movido del cuerpo del efecto a los handlers open/reload del BackgroundPicker por la regla react-hooks/set-state-in-effect).
+- Verificación: dev server (Turbopack) compila los 5 archivos sin errores y GET / → 200. Nota: el server había caído por memoria del sandbox antes de empezar; reiniciado con setsid + --max-old-space-size=1536 (mismo patrón de Tasks 13/14). El error antiguo "createScenarioLibrarySlice is not defined" en dev.log era de una sesión previa; el slice está correctamente importado en store/index.ts (verificado).
+
+Stage Summary:
+- La librería de escenarios V3 tiene UI completa: gestión global en Ajustes → Escenarios (jerarquía Escenario → Lugar → Punto de interés con fondos por nivel y lugar predeterminado), switcher de escena en el header (MapPin) que mueve el chat actual entre escenarios/lugares aplicando fondo + pose, y asignación personaje→escenarios por chips en la pestaña Escenario del editor.
+- La Galería de Fondos dejó el header y ahora se abre desde Ajustes → Fondos (banner + botón); BackgroundGallery sigue montada en page.tsx para ese flujo.
+- Sin cambios en src/lib/scenario/*, src/store/slices/*, tools, chat-panel, character-sprite ni API routes. Archivos: scenario-library-panel.tsx (nuevo), scenario-switcher.tsx (nuevo), page.tsx, settings-panel.tsx, character-editor.tsx.
+
+---
+Task ID: 15
+Agent: Z.ai Code (main) + frontend-styling-expert (subagente 15-ui)
+Task: Reestructurar el sistema de Escenarios/Fondos (ESCENARIO V3): biblioteca App-level jerárquica (Escenario → Lugar → Punto de interés), herramienta manage_escenario v2, cambio de fondo automático, pose de sprite por ubicación, switcher en header, dropdown en editor de personaje, {{escenario}} dinámico sin bloque hardcodeado.
+
+Work Log:
+- Exploración: scenario V2 (ScenarioConfig flat en character/grupo, activeScenarioId en sessionStats, manage_escenario con validación "no inventar" ya existente), fondos (colecciones por carpeta /api/backgrounds/collections, activeBackground URL, BackgroundGallery fullscreen desde header), sprites (CharacterSprite con settings {x,y,width,height,opacity} en localStorage por personaje), prompt-builder con bloque [ESCENARIO] hardcodeado (2 copias) + key-resolver Phase 5.95.
+- Modelo V3 (types/index.ts): SpritePose, ScenarioSpot, ScenarioPlace, ScenarioDefinition (biblioteca App-level); CharacterCard.scenarioIds + CharacterGroup.scenarioIds; SessionStats.activeScenarioCollectionId; ScenarioLocation.spritePose (legado); ScenarioActivation += collectionId/collectionName/backgroundUrl/spritePose; ToolContext.scenarios.
+- NÚCLEO lib/scenario/library.ts: normalización (normalizeScenarioDefinition/Library/SpritePose con clamps), síntesis LEGACY (scenarioConfig → colección sintética `legacy:${id}`, cada ubicación vieja = lugar), getEffectiveScenarioDefinitions (prioridad grupo.scenarioIds → character.scenarioIds → legacy grupo → legacy character), resolveActiveScenarioLocation (collectionId+locationId → búsqueda cross-colección para greeting pinning → default), resolveLocationBackground (spot→place→scenario), resolveLocationPose, findInScenarioHierarchy (spot→place→colección actual, luego resto; nunca inventa), buildScenarioPromptBlock (árbol jerárquico: escenario activo completo con lugares; lugares distintos al actual sin spots; otros escenarios solo nombre; instrucciones manage_escenario + UBICACIÓN ACTUAL con descripción completa), registro per-request (setActiveScenarioLibrary/getActiveScenarioLibrary).
+- Store: NUEVO scenarioLibrarySlice (scenarios + add/update/remove/setScenarios) integrado en TavernState + partialize; persistencia completa (DATA_FILES.scenarios=data/scenarios.json, VALID_DATA_TYPES, readAllPersistentData, DEFAULT_DATA, PUT /api/persistence, use-persistence-sync PERSIST_KEYS+load+save).
+- Tool manage_escenario v2: list (árbol del escenario actual + otros escenarios por nombre), go (spot → lugar → otro escenario por nombre; NUNCA inventa: devuelve disponibles y orden explícito de no inventar; activación con collectionId+backgroundUrl+spritePose), get_info jerárquico. Usa context.scenarios ?? registro per-request.
+- Rutas: stream/group-stream/proactive registran setActiveScenarioLibrary(body.scenarios) y emiten scenario_activation con collectionId/collectionName/backgroundUrl/spritePose; disponibilidad de la tool via isScenarioLibraryAvailable; keyContext.scenarios explícito en stream.
+- {{escenario}}: resolveScenarioKey ahora inyecta el bloque jerárquico V3 (con blockHeader legado para sintéticos); resolveScenarioKeyInText pasa library del context (fallback registro). REMOVIDOS los 2 bloques hardcodeados [ESCENARIO] de prompt-builder (1:1 y grupo) — el bloque SOLO aparece con la key {{escenario}} (petición explícita del usuario).
+- Cliente: statsSlice.setActiveScenarioCollection (session-level); spriteSlice CharacterSpriteState.pendingPose + queueSpritePoseForCharacter; character-sprite aplica pendingPose (watch por timestamp) + BOTÓN "Guardar pose en ubicación actual" en el popover de settings (escribe spritePose en spot/lugar de la biblioteca o location.legacy de scenarioConfig via updateCharacter); chat-panel handlers scenario_activation x2 (collection+location+background+pose+toast); cuerpos de petición envían store.scenarios (chat-panel x2, use-proactive-messages).
+- UI (subagente 15-ui): NUEVO scenario-library-panel.tsx (tab Ajustes→Escenarios con editor jerárquico + BackgroundPicker lazy de /api/backgrounds/collections), NUEVO scenario-switcher.tsx (overlay del header: escenarios efectivos del chat, mueve escena con collection+place+background+pose, badge Actual), page.tsx (botón header ahora MapPin "Escenarios de la escena"; galería ya no desde header), settings-panel (tab 'escenarios' + botón "Abrir Galería de Fondos" en tab Fondos), character-editor (chips multi-select de la biblioteca → character.scenarioIds + ScenarioEditor legado como fallback).
+- Datos: Exportar/Importar Todo += scenarios (store key), verificado persistencia round-trip por API (PUT/GET type=scenarios OK).
+- Verificación: 8/8 tests funcionales de la lib (resolución default/spot/pinning cross-colección, matching jerárquico + no-inventar, síntesis legado + header, bloque prompt EXACTO al ejemplo del usuario); 5 escenarios de la tool por bun (list/go spot/go otro escenario/intento de inventar rechazado/get_info); ESLint limpio en 22 archivos núcleo + 5 UI; tsc: único error propio detectado (import normalizeScenarioLibrary) corregido → 0 errores en archivos del cambio (comparado contra baseline git stash); navegador: switcher abre y resuelve el escenario legado de Aitana (screenshot), tab Escenarios renderiza y "Crear el primer escenario" funciona (editor jerárquico completo visible + toast), scenarios.json inicializado + round-trip OK; dev server 200 Ready. LIMITACIÓN: el sandbox OOM-mató 3 veces el dev server durante la verificación interactiva (chrome 440MB + recompiles; pico de memoria, no crash de código) — la creación de lugares/spots con teclado no se completó in-browser, pero la UI renderizó y el flujo de datos está verificado por API + tests.
+
+Stage Summary:
+- ESCENARIO V3 completo: biblioteca App-level jerárquica (Escenario→Lugar→Punto de interés) con fondo por nivel (spot→lugar→escenario) y pose de sprite por ubicación; personajes eligen colecciones por dropdown; el LLM mueve la escena con manage_escenario (go acepta punto de interés, lugar u otro escenario; NUNCA inventa — validado); al mover, el cliente sincroniza sesión (activeScenarioCollectionId+activeScenarioId), fondo (setActiveBackground) y pose del sprite (queueSpritePoseForCharacter → CharacterSprite aplica posición+escala guardadas).
+- Botón header ahora es el switcher de escenarios (cambio manual o dejar que el LLM lo haga); la galería de fondos vive en Ajustes→Fondos.
+- {{escenario}} inyecta el bloque jerárquico completo (árbol + instrucciones + ubicación actual); bloque hardcodeado de prompt-builder eliminado — sin key, sin bloque (petición explícita cumplida).
+- Retrocompatibilidad total: scenarioConfig legado (personajes y grupos) se sintetiza como colección V3 (funciona prompt, tool, poses y fondo), bloqueHeader legado respetado, saludos con location id legado resueltos.
+- Archivos: types/index.ts, lib/scenario/library.ts (NUEVO), lib/scenario/index.ts, lib/tools/types.ts, lib/tools/tools/manage-scenario.ts, lib/key-resolver.ts, lib/llm/prompt-builder.ts, lib/persistence.ts, api/persistence/route.ts, api/chat/{stream,group-stream,proactive}/route.ts, store/slices/scenarioLibrarySlice.ts (NUEVO), store/slices/{statsSlice,spriteSlice,index(+slices/index)}, hooks/use-persistence-sync.ts, components/tavern/{scenario-library-panel,scenario-switcher} (NUEVOS), {settings-panel,character-editor,character-sprite,chat-panel}, app/page.tsx, hooks/use-proactive-messages.tsx, worklog.
+
+---
+Task ID: 16-c
+Agent: frontend-styling-expert
+Task: Rediseño completo de la UI de Fondos (Ajustes → Fondos) como panel integrado con 4 pestañas internas (Galería / Subir / Colecciones / Activación), aprovechando las APIs restauradas de subida y gestión de colecciones.
+
+Work Log:
+- Estudio: worklog (Tasks 15/15-ui), background-gallery.tsx (patrón BackgroundCard + fitModes + fetchCollections), background-collection-manager.tsx (handleCreate/Save/Upload/Delete + accordion por archivo + syncEntriesWithFiles), background-triggers-settings.tsx (se monta tal cual), settings-panel.tsx (TabsContent "backgrounds", estado galleryOpen, imports), rutas API (GET/POST/PUT/DELETE /api/backgrounds/collections + POST/DELETE /api/upload) para tipar respuestas y respetar contratos SIN tocarlas. ui/ disponible verificado (Tabs, Select, Accordion, AlertDialog, Collapsible, ScrollArea…).
+- Hallazgo clave: la ruta PUT /api/backgrounds/collections lee `newName` (no `name`) — el panel envía AMBOS campos para compatibilidad (sin cambiar la API).
+- NUEVO src/components/tavern/backgrounds-panel.tsx (1783 líneas, 'use client', español, acentos esmeralda/neutral, sonner toast, sin dependencias nuevas):
+  * Raíz: Tabs h-full con 4 pestañas (Galería/Subir/Colecciones/Activación) + botón recargar; fetch único compartido (GET /api/backgrounds/collections) con carga inicial sin setState síncrono en el efecto (react-hooks/set-state-in-effect v7) y refresh() para handlers; estado de Colecciones ELEVADO a la raíz (mgmtFolder/mgmtDraft/mgmtDirty + refs espejo) para que los cambios sin guardar sobrevivan al cambio de pestaña; auto-sync del borrador limpio tras cada refresh; withSyncedEntries garantiza una entry por archivo (patrón syncEntriesWithFiles).
+  * Galería: chips horizontales scrollables de colecciones con "Todos (N)" y conteo por colección; búsqueda por nombre de archivo o colección; grid responsivo 2→8 cols aspect-video con GalleryCard adaptada (badge activo esmeralda con Check si activeBackground===url, badge video + hover play, estados loading/error, clic aplica fondo + toast.success('Fondo aplicado'), botón hover "Vista previa" → overlay fullscreen img/video autoplay-muted-loop con X, framer-motion); selector de encaje Cover/Ajustar/Estirar con tooltips (updateSettings({backgroundFit})); conteos y empty states ("Crea una colección y sube fondos en la pestaña «Subir»"); estado de error de carga con mensaje.
+  * Subir: Select de colección destino (nombre visible + nº archivos; value = CARPETA de path) con opción "＋ Nueva colección…" que abre formulario inline (nombre+descripción → POST create → auto-selección; también se muestra solo si no hay colecciones); dropzone grande dashed con drag&drop + clic (input oculto accept="image/*,video/*" multiple, resalte esmeralda en drag-over, hint "PNG, JPG, WEBP, GIF, MP4, WEBM… máx 50MB"); cola de subida con filas (nombre, tamaño, estado: pendiente/spinner "Subiendo…"/check verde con URL resultante/error rojo con mensaje), concurrencia ≤3 (runPool propio), tras cada éxito refresca colecciones; SIEMPRE valida response.ok Y data.success → muestra data.error o `Error HTTP N` (nunca silencioso, nunca alert()); toast resumen final ("N fondos subidos a X" / warning parcial con primer error / error total); botones "Reintentar fallidos (n)" y "Limpiar" (deshabilitados durante subida).
+  * Colecciones: master-detail (lista izq. con nombre, descripción, nº archivos, carpeta y resalte esmeralda + botón "Nueva Colección" con Dialog nombre/descripción; detalle der.): nombre visible + descripción editables (staged, badge "Sin guardar", "Guardar cambios" → PUT {folderName, name, newName, description, entries, transitionDuration} → toast + refresh + reset draft), Collapsible "Avanzado" para renombrar carpeta (PUT newFolderName con advertencia de que las URLs se actualizan solas; re-selecciona la nueva carpeta), botón destructivo "Eliminar colección" con AlertDialog de advertencia permanente (DELETE ?folderName), lista de archivos en acordeón con miniatura (video preload metadata con badge), nombre editable inline, claves de activación/contexto/etiquetas como badges (añadir con Enter en input pequeño, quitar con clic en el badge) — patrón del collection-manager pero inline — y borrado por archivo con AlertDialog (DELETE ?folderName&filename, respeta cambios staged usando patch sin marcar sucio); empty state al no seleccionar colección; TODOS los handlers validan response.ok+data.success con toast.error.
+  * Activación: nota explicativa (claves por fondo viven en Colecciones) + <BackgroundTriggersSettings /> tal cual.
+- EDIT src/components/tavern/settings-panel.tsx (mínimo, sin reformatear): import de BackgroundsPanel sustituye a BackgroundTriggersSettings+BackgroundGallery; eliminado estado galleryOpen; TabsContent value="backgrounds" ahora es solo <BackgroundsPanel /> con className="h-full overflow-hidden p-4 md:p-6 m-0 data-[state=inactive]:hidden" (patrón appearance); entrada del tab { value: 'backgrounds', label: 'Fondos', icon: ImageIcon } intacta (ImageIcon sigue usándose ahí).
+- Verificación (sin tsc/build/navegador): `bunx eslint backgrounds-panel.tsx settings-panel.tsx` → CLEAN (1 fix: import ChevronDown faltante); dev server hot-reload sin errores en dev.log y GET / → 200; curl round-trip completo: create TestX → upload /tmp/test-bg.png (type=background collection=TestX) → GET lo lista con entry auto → PUT name/newName/description/entries persistidos → DELETE /api/upload?url=… limpia archivo+entry → DELETE colección OK (sandbox limpio, colecciones restantes: Overlays/Rick/Room).
+- Desviaciones menores: toasts vía sonner (toast.success/error/warning; el layout ya monta SonnerToaster y los paneles recientes lo usan; useToast se queda para el resto de settings-panel); Galería usa chips horizontales (opción permitida) en vez de sidebar; la cola de Subir es estado local de la pestaña (si sales a mitad de subida, los uploads terminan, el toast resumen sale y las colecciones se refrescan igualmente).
+
+Stage Summary:
+- Ajustes → Fondos es ahora un panel cohesivo de 4 pestañas: Galería (aplicar/previsualizar fondos por colección con búsqueda y modo de encaje), Subir (crear colección inline + dropzone con cola, progreso, errores explícitos, reintento y resumen), Colecciones (CRUD completo: metadatos staged con guardado, renombrado de carpeta en Avanzado, borrado con confirmación, y claves de activación/contexto/etiquetas por archivo) y Activación (packs runtime + nota de dónde van las claves por fondo).
+- La subida rota queda utilizable desde la UI: valida response.ok+data.success, muestra el error español de la API en la fila y en toasts, refresca los datos tras cada éxito y la Galería lo refleja al instante.
+- Sin cambios en APIs, background-gallery.tsx, background-collection-manager.tsx, background-triggers-settings.tsx ni page.tsx. Archivos: backgrounds-panel.tsx (NUEVO), settings-panel.tsx (EDIT mínimo). ESLint limpio; compilación Turbopack OK; APIs verificadas por round-trip curl.
+
+---
+Task ID: 16
+Agent: Z.ai Code (main) + frontend-styling-expert (subagente 16-c)
+Task: Arreglar la sección Fondos: (a) los fondos NO se subían a las colecciones, (b) rediseñar la UI con pestañas/secciones (galería, colecciones, subir fondos) y que todo guarde correctamente.
+
+Work Log:
+- CAUSA RAÍZ del bug de subida (arqueología git + exploración): la ruta /api/upload fue ELIMINADA (commit 23dea4c). La UI (background-collection-manager) hacía POST /api/upload → 404 → response.json() lanzaba sobre el HTML 404 → el catch solo logueaba → fallo SILENCIOSO, nada se subía. Afectaba también avatares (character-editor, avatar-library-picker, character-card), grupos (group-editor) y sprites (sprite-general-panel, sprite-timeline-editor). Además la última versión viva de la ruta guardaba en public/uploads/background/ (carpeta que el scanner de colecciones nunca lee) y el GET de colecciones OCULTABA colecciones vacías (una colección recién creada desaparecía y no se podía subir nada a ella).
+- FIX BACKEND (16-a): NUEVA src/app/api/upload/route.ts (restaurada, versión fusionada 8a505aa+f308b9b): POST FormData {file, type, collection} → type=background+collection guarda en public/backgrounds/{colección}/ (URL /backgrounds/{col}/{file}) y AÑADE entry a collection.json (creándolo si falta, preservando triggerKeys/contextKeys si la URL ya existe); type=sprite+collection → public/sprites/{col}/ + metadata.json; resto → public/uploads/{type}/. Validación: tipos permitidos (avatar/group-avatar/sprite/background/overlay), 50MB máx, MIME warn-only, sanitizeFolderName anti path-traversal, filename único legible (base-ts-rand.ext). Respuesta {success, url, filename, originalName, size, type, isAnimation, isVideo}. DELETE ?url= borra el archivo bajo public/ (guard anti-traversal) y si es fondo de colección limpia su entry de collection.json.
+- FIX SCAN (16-a): api/backgrounds/collections/route.ts GET ahora INCLUYE colecciones vacías (se quitó el gate mediaFiles.length>0) — una colección nueva aparece al instante y se le puede subir.
+- UI (16-c, subagente frontend-styling-expert): NUEVO src/components/tavern/backgrounds-panel.tsx (~1780 líneas) — panel integrado en Ajustes → Fondos con 4 pestañas internas: (1) GALERÍA: chips de colecciones con conteos + "Todos", búsqueda, grid responsive (2→8 cols) de tarjetas (badge activo, badge video con hover-play, estados loading/error, click aplica setActiveBackground + toast, hover "Vista previa" → overlay img/video), selector de ajuste de encaje (Cover/Ajustar/Estirar); (2) SUBIR: Select de colección destino (value = CARPETA de path) + opción inline "Nueva colección", dropzone drag&drop + click (accept image/*,video/* multiple, hint formatos/50MB), cola de subida con estado por archivo (pendiente/spinner/✓+URL/✗+mensaje), pool ≤3 concurrentes (runPool), refresh tras cada éxito, toast resumen, reintentar fallidos/limpiar; (3) COLECCIONES: master-detail (lista con nombre/conteo/descripción/carpeta + Dialog nueva colección; detalle con nombre+descripción editables y "Guardar cambios" (PUT), Collapsible "Avanzado" con renombrado de carpeta (PUT newFolderName, aviso de URLs), borrado destructivo con AlertDialog, editor por archivo (acordeón: nombre, triggerKeys/contextKeys/tags como badges añadir/quitar, borrar archivo con confirmación); estado borrador elevado al root para sobrevivir cambios de pestaña; (4) ACTIVACIÓN: monta BackgroundTriggersSettings tal cual + nota de que las claves por fondo viven en Colecciones. TODOS los handlers mutantes validan response.ok && data.success y reportan toast.error con el mensaje de la API (cero alert(), cero catches silenciosos).
+- INTEGRACIÓN: settings-panel.tsx — TabsContent "backgrounds" ahora monta <BackgroundsPanel /> (h-full overflow-hidden); eliminados banner "Abrir Galería", estado galleryOpen e imports BackgroundGallery/BackgroundTriggersSettings (ImageIcon se queda: lo usa la entrada de la tab). background-gallery.tsx / background-collection-manager.tsx / page.tsx / background-triggers-settings.tsx SIN tocar.
+- Verificación curl E2E: crear TestColeccion → GET scan la lista VACÍA ✓ → POST /api/upload (type=background, collection=TestColeccion) → archivo en public/backgrounds/TestColeccion/ + entry en collection.json ✓ → URL servida 200 ✓ → DELETE /api/upload?url=… → archivo fuera + entries:[] ✓ → DELETE colección → carpeta fuera ✓; avatar → public/uploads/avatar/ + 200 + cleanup ✓. ESLint limpio (backgrounds-panel + settings-panel). dev.log sin errores de compilación de los archivos nuevos.
+- Verificación navegador (agent-browser, múltiples sesiones — ver LIMITACIÓN): app carga sin excepciones; Ajustes → Fondos muestra el panel con las 4 pestañas; GALERÍA carga datos reales ("9 fondos · 3 colecciónes", chips Overlays 1/Rick 1/Room 7, tarjetas con Vista previa); SUBIR renderiza selector+dropzone+hints; COLECCIONES renderiza lista master (Overlays 1 /Overlays, Rick 1 /Rick, Room 7 + descripción /Room) + placeholder de detalle; ACTIVACIÓN monta triggers. LIMITACIÓN: el sandbox OOM-mata next-server (dmesg: anon-rss 2.6-2.7GB) en cuanto chrome abre y compila en paralelo → sesiones cortas; no se pudo verificar in-browser el click que abre el editor de detalle (lógica 100% cliente, revisada en código) ni la subida por dropzone (la API está verificada por curl y el wiring por código+ESLint).
+- Reinicio final del dev server con el patrón probado (setsid + NODE_OPTIONS=1536): GET / 200, collections OK [(Overlays,1),(Rick,1),(Room,7)].
+
+Stage Summary:
+- La subida de fondos a colecciones VOLVIÓ A FUNCIONAR: /api/upload restaurada guarda en public/backgrounds/{colección}/ + sincroniza collection.json; las colecciones vacías ya no desaparecen del listado; avatares/grupos/sprites (6 call sites más) también quedaron arreglados de paso. Borrado con limpieza de metadata.
+- Ajustes → Fondos rediseñado como panel unificado de 4 pestañas (Galería/Subir/Colecciones/Activación) con errores SIEMPRE visibles (toast + fila roja con mensaje de la API), conteos, estados vacíos útiles y guardado confirmado por PUT/POST/DELETE verificados.
+- Sin cambios en: galería/manager legacy, page.tsx, APIs de colecciones (salvo incluir colecciones vacías en el GET), triggers, store.
+- Archivos: NUEVOS src/app/api/upload/route.ts, src/components/tavern/backgrounds-panel.tsx; EDITADOS src/app/api/backgrounds/collections/route.ts (scan incluye vacías), src/components/tavern/settings-panel.tsx (tab Fondos → BackgroundsPanel).
+
+---
+Task ID: 17
+Agent: Z.ai Code (main)
+Task: Refinar ESCENARIO V3 tras feedback: (1) árbol jerárquico seleccionable en el ScenarioSwitcher del novel chat (lugares + puntos de interés), (2) {{escenario}} con divulgación progresiva (marcador de ubicación actual, spots del lugar actual, otros escenarios sin desglosar) — decidir mejor estrategia experta, (3) botón visible para guardar posición/escala del sprite en la sección Escenarios, (4) verificar export/import de Datos (personajes, escenarios, etc.).
+
+Work Log:
+- Arqueología: leído worklog (Tasks 15/16 ya implementaban ESCENARIO V3 + Fondos). Estado real: data/scenarios.json=[] (biblioteca App aún sin usar); el "Departamento" del usuario es scenarioConfig LEGADO de Ximena (Billar/Jardinera/Departamento → síntesis V3 como colección con nombre del personaje); el switcher solo mostraba chips de lugares (sin spots, sin árbol); buildScenarioPromptBlock ya era jerárquico pero con marcador de lugar en línea aparte rara y sin marcar el escenario actual; el botón de guardar pose estaba escondido en el popover del sprite (character-sprite).
+- ESTRATEGIA {{escenario}} (decisión experta documentada en library.ts): divulgación progresiva en vez de árbol completo de todos los escenarios — (a) economía de tokens (se inyecta CADA turno), (b) discovery narrativo "fog of war" tal como pidió el usuario, (c) anti-alucinación (solo nombres de otros escenarios + regla explícita de no inventar; manage_escenario list/get_info dan el árbol completo bajo demanda). IMPLEMENTADO: breadcrumb "Ruta actual: Escenario > Lugar > (Punto)", marcador "← ESCENARIO ACTUAL" en el escenario activo, "← UBICACIÓN ACTUAL" inline en lugar/spot actual, "(lugar actual)" cuando se está en un spot, spots del lugar ACTUAL siempre listados (contexto completo para tool calling), otros lugares sin spots, otros escenarios solo nombre+descripción corta, 2 instrucciones nuevas (spots se revelan al moverte; no inventes lugares de otros escenarios).
+- NUEVO src/lib/scenario/save-pose.ts: saveSpritePoseToActiveLocation(characterId, pose) — helper compartido que normaliza/clampea la pose (normalizeSpritePose), resuelve ubicación activa (group.scenarioIds → character.scenarioIds → legacy) y escribe en spot→lugar de la biblioteca (updateScenario) o en location.legacy (updateCharacter); devuelve {ok, where, error:'no-location'|'no-collection'|'no-character'|'no-config'}.
+- REWRITE scenario-switcher.tsx: árbol seleccionable Escenario → Lugares → Puntos de interés (chevron expand/collapse, TODOS los lugares con spots expandidos por defecto, colapsables); CADA nivel clicable (header→lugar predeterminado, lugar→lugar, spot→spot con setActiveScenario(spot.id)); resaltes esmeralda para escenario/lugar/spot actual ("← Actual", "dentro: X"); conteos "N lugares · N puntos de interés"; botón header "Guardar posición del sprite aquí" (lee pose en vivo de localStorage sprite-{id}, llama al helper compartido, toasts ES); barra de ayuda con el flujo completo; botón corto "Guardar pose" en móvil.
+- REFACTOR character-sprite.tsx: handleSavePoseToLocation ahora delega en saveSpritePoseToActiveLocation (misma UX, errores precisos por tipo); botón del popover conservado.
+- manage-scenario.ts (action list): conteo de puntos por lugar, otros escenarios con descripción + nota "(muévete a ellos con go y sus lugares se revelarán; NUNCA inventes lugares)".
+- scenario-library-panel.tsx: badges "Pose guardada"/"Pose" (Crosshair) en lugares/spots con spritePose + botón para quitar la pose + nota de ayuda en la sección Lugares explicando cómo fijarla desde el switcher.
+- Datos verificado: export (settings-panel) ya incluye characters (con scenarioIds/scenarioConfig), groups, scenarios, backgroundCollections; import restaura todos (allDataKeys incluye 'scenarios'); round-trip API verificado por curl: POST {type:scenarios,data} → GET devuelve árbol+spritePose anidados íntegros; PUT full-sync {scenarios} → GET OK; restaurado a []. LIMITACIÓN documentada: los ARCHIVOS multimedia (fondos/sprites) no viajan en el JSON de backup (solo referencias/URLs) — las imágenes hay que copiarlas junto al backup.
+- Verificación: ESLint limpio (6 archivos); tsc 911 errores = 911 baseline (git stash对照, 0 nuevos; character-sprite mantiene sus 4 preexistentes sin cambios); test funcional bun del bloque prompt: 11/11 aserciones (breadcrumb, marcadores inline, spots solo del lugar actual, otros escenarios colapsados, formato exacto del usuario); sin ciclos de import runtime (save-pose→store→scenarioLibrarySlice→library es acíclico, imports de tipos borrados); round-trips persistence OK; dev server reiniciado tras tsc (patrón setsid+1536), GET / 200, dev.log sin errores de compilación (solo warning LanceDB preexistente). Verificación in-browser NO repetida: el sandbox OOM-mata next-server al abrir chrome (lección Tasks 15/16, dmesg) — validación por curl+tests funcionales según protocolo establecido.
+
+Stage Summary:
+- {{escenario}} ahora usa DIVULGACIÓN PROGRESIVA (estrategia elegida frente a árbol completo: tokens + discovery narrativo + anti-alucinación; list/get_info dan el árbol bajo demanda): breadcrumb + escenario marcado + lugar/spot actual marcados + spots del lugar actual siempre visibles + otros escenarios como nombres.
+- El switcher del novel chat muestra el ÁRBOL completo seleccionable (Escenario → Lugares → Puntos de interés) con la ubicación actual resaltada en cada nivel.
+- Guardar pose del sprite ahora es una acción de PRIMER NIVEL en "Escenarios de la escena" (header del switcher, con leyenda y estados de error claros), compartiendo lógica con el popover del sprite; la biblioteca (Ajustes → Escenarios) muestra dónde hay poses guardadas y permite quitarlas.
+- Datos: export/import incluye personajes+escenarios+biblioteca+colecciones y persiste verificado por API round-trip; los binarios de fondos/sprites quedan fuera del JSON por diseño.
+- Archivos: lib/scenario/library.ts (prompt block), lib/scenario/save-pose.ts (NUEVO), lib/tools/tools/manage-scenario.ts, components/tavern/{scenario-switcher (REWRITE), character-sprite, scenario-library-panel}.
+
+---
+Task ID: 18
+Agent: Z.ai Code (principal)
+Task: La pose del sprite debe quedar LIGADA AL FONDO (no al nivel del escenario): guardar la posición/escala actual vinculada al fondo activo y mover el sprite automáticamente cada vez que ese fondo se muestre, venga el cambio de donde venga (manual, escena, tool calling o key de activación).
+
+Work Log:
+- Diagnóstico del estado V3: la pose se guardaba en el NODO (spot/place/legacy location) y solo se aplicaba vía queueSpritePoseForCharacter en el handler scenario_activation (chat-panel ×2) y en moveScene del switcher → cambiar el fondo manualmente (Galería) o por claves de activación NUNCA movía el sprite (exactamente lo que reportó el usuario).
+- NUEVO MODELO V3.1 (decisión: binding por fondo, no por nodo): settings.spriteBackgroundPoses[characterId][backgroundUrl] = SpritePose. Cada fondo guarda su propia pose POR PERSONAJE y SOLO cuando el usuario pulsa el botón; dos niveles que comparten fondo comparten pose (independiente del nivel, como pidió el usuario). Almacenado en AppSettings → persiste gratis por toda la cadena existente (localStorage → data/settings.json → Datos export/import) sin tocar plumbing de persistencia.
+- REWRITE lib/scenario/save-pose.ts: saveSpritePoseToCurrentBackground (normaliza/clampea y escribe el registro), getSpritePoseForBackground, clearSpritePoseForBackground (poda map vacío), clearSpritePoseForAllCharacters (badge X del panel), countCharactersWithPoseForBackground, resolveBackgroundDisplayName (nombre de la entry de la colección → filename) y resolveLegacyLocationPoseForBackground (COMPAT: pose del nodo activo si su fondo efectivo coincide — las poses guardadas en Task 17 siguen funcionando sin migración).
+- character-sprite.tsx: NUEVO efecto que observa activeBackground (fondo efectivo real) → aplica la pose del registro para (characterId, fondo); si no hay, aplica el fallback legacy del nodo activo; si nada, el sprite se queda donde está. Cubre TODAS las fuentes de cambio de fondo porque todas convergen en activeBackground (Galería backgrounds-panel, galería legacy, use-trigger-system/keys, scenario_activation tool, switcher). Popover reescrito: "Pose del fondo" con nombre del fondo actual, badge "Guardada", botón guardar y botón "Quitar pose de este fondo".
+- chat-panel.tsx (×2): eliminado el queue de pose de nodo; ahora solo setea colección/ubicación/fondo (el fondo solo ya dispara la pose). scenario-switcher.tsx: moveScene sin queue de pose; botón → «Guardar pose en el fondo actual» (saveSpritePoseToCurrentBackground); hint bar reescrito; badges ✛ (FondoPoseMark) en escenario/lugar/punto cuyo fondo tiene pose guardada del personaje activo.
+- spriteSlice.ts: eliminado pendingPose + queueSpritePoseForCharacter (código muerto tras el cambio; una sola fuente de verdad: el fondo).
+- scenario-library-panel.tsx: badges de nodo "Pose guardada" (nodo) reemplazados por "Pose en fondo (N personajes)" con botón para quitar la pose del fondo para todos; PlaceEditor recibe scenarioDefaultBg para resolver el fondo efectivo; texto de ayuda actualizado.
+- VERIFICACIÓN: ESLint limpio (7 archivos); tsc 911 = 911 baseline (0 nuevos; character-sprite conserva sus 4 preexistentes en líneas no tocadas; save-pose/switcher/library-panel/spriteSlice/types sin errores); test funcional con bun contra el store REAL: 20/20 ✓ (save/clamp/display-name, aislamiento por personaje, fallback legacy por coincidencia de fondo, overwrite, errores no-background/invalid-pose, resolución de nombre, clear single/all + poda); round-trip persistencia del registro vía PUT/GET /api/persistence verificado con curl y restaurado limpio; dev server OK tras tsc (patrón setsid+1536), GET / 200, dev.log sin errores de compilación. Verificación in-browser no repetida (OOM del sandbox con chrome — protocolo establecido).
+
+Stage Summary:
+- La pose del sprite ahora vive LIGADA AL FONDO: «Guardar pose en la posición actual» (popover del sprite o switcher de escena) la guarda para el fondo activo por personaje, y el sprite vuelve sola a esa posición cada vez que ese fondo se muestre — sin importar si el fondo cambió manualmente (Galería), moviendo la escena (switcher), por tool calling (manage_escenario → scenario_activation) o por clave de activación.
+- Cada fondo conserva su propia posición independientemente del nivel (escenario/lugar/punto de interés); dos nodos con el mismo fondo comparten pose; fondo sin pose guardada = el sprite no se mueve.
+- Compatible con las poses por nodo de la Task 17 (fallback automático cuando el fondo coincide); badge ✛ en el árbol de escena y en la biblioteca muestra dónde hay poses guardadas; se pueden quitar desde el popover (un personaje) o desde la biblioteca (todos).
+- Persistencia: settings.spriteBackgroundPoses viaja en settings (localStorage, data/settings.json y Exportar/Importar Datos) — verificado por round-trip.
+- Archivos: lib/scenario/save-pose.ts (REWRITE), components/tavern/{character-sprite, scenario-switcher, scenario-library-panel, chat-panel}, store/slices/spriteSlice.ts, types/index.ts (AppSettings.spriteBackgroundPoses).
+---
+Task ID: 19
+Agent: Z.ai Code (principal)
+Task: Feedback V3.2 — (1) el switcher "Escenarios de la escena" debe permitir elegir los 3 NIVELES (Escenario / Lugar / Punto de interés), cada uno mostrando su PROPIO fondo (tool calling, manual o cualquier método); (2) la pose del sprite debe guardarse por NIVEL+FONDO y POR PERSONAJE en el JSON de la colección (public/backgrounds/{col}/collection.json), y el sprite debe moverse al cambiar de fondo desde cualquier fuente.
+
+Work Log:
+- Diagnóstico: (a) activeScenarioId solo admitía place/spot → el clic en el escenario saltaba al lugar por defecto y el fondo del nivel Escenario jamás se mostraba; (b) la pose vivía solo en settings.spriteBackgroundPoses (data/settings.json demostró que NINGUNA pose llegó a guardarse en las pruebas del usuario) y el lookup no miraba las colecciones; (c) manage_escenario "go <escenario>" también bajaba al lugar por defecto.
+- Tipos: BackgroundCollectionEntry.spritePoses?: Record<characterId, SpritePose>; ActiveScenarioLocation.isScenarioLevel (library.ts).
+- library.ts: resolveActiveScenarioLocation resuelve locId === def.id como NIVEL ESCENARIO (place= default para jerarquía, isScenarioLevel=true); resolveLocationBackground a nivel escenario usa def.defaultBackgroundUrl primero; buildScenarioPromptBlock a nivel escenario: breadcrumb "Departamento" (escenario), escenario marcado ← UBICACIÓN ACTUAL, lugares con "(lugar predeterminado)" en el default, sin spots listados, descripción del escenario como UBICACIÓN ACTUAL.
+- API /api/backgrounds/collections: PUT gana rama pose {folderName, entryUrl, poseAction: 'set'|'clear'|'clear-all', characterId, pose} → busca/crea la entry por URL y escribe entry.spritePoses en collection.json DE LA CARPETA (el JSON que el usuario espera); GET mergeWithMetadata ahora preserva spritePoses en cada scan.
+- backgroundSlice: NUEVA acción setEntrySpritePose(entryUrl, characterId, pose|null) — actualización inmutable de backgroundCollections (podar spritePoses vacío) = fuente reactiva para el sprite y los badges; persiste sola vía PERSIST_KEYS (data/background-collections.json).
+- save-pose.ts REWRITE V3.2: lookupSpritePoseForBackground(state, charId, bg) PURA (entry de colección primero → fallback settings para fondos huérfanos y poses V3.1); saveSpritePoseToCurrentBackground ASYNC (actualización optimista del store + PUT pose branch; si el fondo no está en el store refresca GET una vez; si es huérfano → settings); clearSpritePoseForBackground/clearSpritePoseForAllCharacters limpian AMBOS almacenamientos; countCharactersWithPoseForBackground suma ambas fuentes.
+- character-sprite.tsx: selector reactivo lookupSpritePoseForBackground(s, characterId, s.activeBackground) → el efecto re-aplica la pose en CUALQUIER cambio de activeBackground (manual, switcher 3 niveles, scenario_activation tool calling, claves de activación); botones guardar/quitar async con mensajes precisos (incluye error save-failed).
+- scenario-switcher.tsx: clic en el header del escenario = moveSceneToScenario (setActiveScenario(sessionId, def.id) + fondo propio; sin fondo propio → mantiene el actual con toast); badge "← Actual (escenario)"; NUEVO FondoNameChip (🖼 nombre del fondo efectivo) en los 3 niveles; badges de pose vía poseExists reactivo; hint bar reescrito (3 niveles + pose por fondo por personaje en el JSON de la colección).
+- manage-scenario.ts: "go <escenario>" → target a NIVEL ESCENARIO (locationId=def.id, isScenarioLevel=true, fondo=defaultBackgroundUrl en la activación); describeTarget ""Departamento" (escenario)"; get_info place/spot con isScenarioLevel:false.
+- scenario-library-panel.tsx: conteo/quitado de poses vía los helpers V3.2 (colección + settings) y suscripciones reactivas.
+- Verificación: ESLint limpio (9 archivos); tsc 911 = 911 baseline (git stash contra route.ts para confirmar pre-existente; único error nuevo 337 corregido; corrida final con server detenido); curl round-trip API: set → collection.json en disco ✓, GET scan preserva ✓, clear ✓, auto-entry para fondo sin metadata ✓, multi-personaje + clear-all ✓; tests bun 17/17 (resolución 3 niveles + fondos + prompt block con regresión lugar/punto) y 7/7 (lookup colección→settings, aislamiento por personaje); setActiveScenario acepta def.id; Datos export/import ya incluía backgroundCollections (poses viajan solas); dev server reiniciado tras tsc (setsid+1536), GET / 200, dev.log limpio. Verificación in-browser omitida (OOM del sandbox con chrome — protocolo establecido).
+
+Stage Summary:
+- Los 3 niveles (Escenario / Lugar / Punto de interés) son seleccionables en "Escenarios de la escena" y CADA uno muestra y aplica su PROPIO fondo: el nivel Escenario ahora es un estado real de la sesión (activeScenarioId = id del escenario) también alcanzable por tool calling ("go Departamento").
+- La pose del sprite se guarda LIGADA AL FONDO y POR PERSONAJE en el JSON de la colección (public/backgrounds/{col}/collection.json → entry.spritePoses[characterId]), exactamente como pidió el usuario; cada fondo (de cualquier nivel) conserva su posición independientemente, y el sprite vuelve a ella cada vez que ese fondo se activa venga de donde venga (manual, switcher, tool calling, claves).
+- Fallback robusto: fondos fuera de colecciones y poses V3.1 viejas siguen funcionando vía settings; los botones guardar/quitar limpian ambos almacenamientos; si el store está desactualizado se refresca del servidor antes de guardar.
+- Datos: las poses viajan en Exportar/Importar dentro de backgroundCollections (sin cambios extra necesarios).
+- Archivos: types/index.ts, lib/scenario/library.ts, lib/scenario/save-pose.ts (REWRITE), lib/tools/tools/manage-scenario.ts, store/slices/backgroundSlice.ts (+setEntrySpritePose), app/api/backgrounds/collections/route.ts (rama pose), components/tavern/{character-sprite, scenario-switcher, scenario-library-panel}.
+
+---
+Task ID: 18
+Agent: Z.ai Code (principal)
+Task: Recompensa "ubicación" en stats + Respuestas rápidas migradas al Escenario V3 (cambia ubicación → fondo → pose del sprite) y cobertura en acciones/persona
+
+Work Log:
+- Types (types/index.ts): QuestRewardType += 'ubicacion'; nueva interfaz QuestRewardUbicacion {collectionId?, locationId, locationLabel?}; campo ubicacion en QuestReward; QuickReplyScenarioAction += collectionId (V3, con fallback legacy V2 documentado).
+- library.ts: findInScenarioHierarchy ahora también matchea colecciones por id exacto (además de nombre); nuevos helpers resolveScenarioMoveTarget (locationId + backgroundUrl spot→lugar→escenario + label) y describeScenarioLocationId; getEffectiveScenarioDefinitions relajado a ScenarioCharacterSource (acepta drafts del editor y null) — arregla 2 errores de tipos en character-editor/novel-chat-box.
+- quest-reward-utils.ts: factory createUbicacionReward; branches de validateReward (exige locationId o collectionId), normalizeReward (reparación legacy vía key/value) y describeReward ("📍 Ubicación: <label>").
+- quest-reward-executor.ts: RewardExecutionContext.scenarios; RewardStoreActions.moveSceneToLocation(sessionId, collectionId, locationId, backgroundUrl); executeUbicacionReward (resolución: colección explícita → jerarquía completa con prioridad a la colección activa) + case 'ubicacion' en executeReward.
+- Wiring en los 4 sitios de ejecución de rewards: reward-store-actions.buildRewardStoreActions, statsSlice.executeThresholdRewardsInternal (umbral de atributos — también persona __user__), use-trigger-system (activación de acciones por keys de texto) y sessionSlice ×2 (recompensas de objetivos/misiones + activateSkillByTool que llega por tool calling manage_action). Todos pasan scenarios + moveSceneToLocation.
+- UI: nuevo componente compartido components/quests/ubicacion-reward-editor.tsx (2 selects en cascada: Escenario → Ubicación con los 3 niveles ⭐Escenario/📍Lugar/↳Punto de interés, lee la biblioteca del store); botón "📍 Ubicación" en stats-editor (Recompensas por Activación de acciones + diálogo de umbrales) y en quests/reward-editor (compact + full + dropdown de tipo).
+- Respuestas rápidas: quick-replies-panel migrado de scenarioConfig (V2) a scenarioDefinitions (V3 efectivas: group.scenarioIds → character.scenarioIds → síntesis legacy); sección "Cambiar Escenario" con cascada Escenario→Ubicación (3 niveles); badge resuelve etiqueta con describeScenarioLocationId; call sites actualizados (character-editor pasa getEffectiveScenarioDefinitions(character, appScenarios); group-editor pasa group.scenarioIds + scenarioConfig local).
+- novel-chat-box: applyQuickReplyScenario reescrito al patrón del scenario-switcher (setActiveScenarioCollection + setActiveScenario + setActiveBackground → la pose guardada por fondo×personaje se re-aplica sola); los quick replies antiguos V2 siguen funcionando vía síntesis legacy (ids preservados).
+- Verificación: ESLint limpio; tsc stash-compare 0 errores nuevos; 13 pruebas de lógica pura OK (match por id de colección, fondos por nivel, fallbacks, validación/normalización/descripción, retrocompatibilidad V2); GET / 200; dev server reiniciado tras tsc (OOM conocido).
+
+Stage Summary:
+- Nueva recompensa "ubicación" activable desde acciones (keys de texto Y tool calling manage_action), umbrales de atributos y misiones: mueve la escena a cualquier nivel (Escenario/Lugar/Punto de interés), cambia el fondo y el sprite se recoloca con su pose guardada por fondo×personaje.
+- Respuestas rápidas "Cambiar Escenario" ahora leen la biblioteca global V3 asignada al personaje/grupo (ya no solo scenarioConfig legacy); elegir destino en 3 niveles; retrocompatibilidad total con respuestas rápidas antiguas.
+- Persona: usa el mismo StatsEditor → puede configurar ubicación en acciones/umbrales; sus umbrales (__user__) ejecutan rewards en statsSlice con la biblioteca disponible. Peticiones/intenciones/solicitudes no tienen motor de rewards en la app (verificado) — la función de ubicación cubre todos los sistemas que sí ejecutan rewards.
+- Datos v2.1: los rewards/quickReplies viven dentro de characters/groups/questTemplates ya exportados — sin cambios necesarios.
+- Archivos: types/index.ts, lib/scenario/library.ts, lib/quest/{quest-reward-utils,quest-reward-executor,reward-store-actions}.ts, store/slices/{statsSlice,sessionSlice}.ts, lib/triggers/use-trigger-system.ts, components/quests/{ubicacion-reward-editor(NUEVO),reward-editor}.tsx, components/tavern/{stats-editor,quick-replies-panel,character-editor,group-editor,novel-chat-box}.tsx, worklog.
+
+---
+Task ID: 19
+Agent: Z.ai Code (principal)
+Task: Configuración del sprite — opciones que no funcionaban (dropdown de transición, botones de posición, etc.)
+
+Work Log:
+- Diagnóstico UI (character-sprite.tsx): el panel "Sprite Settings" (popover ~750px) se renderiza en PORTAL bajo <body> mientras el sprite mide ~365px. Dos bugs compuestos:
+  (1) El popover vivía dentro de {showControls && ...} y el onMouseLeave del sprite hacía setShowControls(false) en cuanto el puntero salía de la caja del sprite → el panel se cerraba solo antes de alcanzar las opciones inferiores (dropdown de transición al fondo, botones de posición, slider de duración).
+  (2) handleDragStart usaba SOLO closest('.sprite-controls') (check DOM) para ignorar clics; los eventos de contenido portaled burbujean por el ÁRBOL DE REACT hasta el onMouseDown del sprite y el check DOM falla (el portal no es descendiente DOM) → cualquier pointerdown dentro del panel (botones Left/Center/Right, sliders, dropdown, Select options) iniciaba un arrastre fantasma → setIsDragging(true) desmontaba la columna de controles y cerraba el panel a mitad de clic. Por eso "no funcionaba nada" del panel.
+  (3) El dropdown de transición escribía en characterSpriteStates (runtime, NO persistido) → la elección se perdía al recargar; y "Sin Transición" escribía null → caía al character.defaultTransition anterior (rebote visual del valor).
+- Fixes (src/components/tavern/character-sprite.tsx):
+  - Estado settingsOpen + <Popover open onOpenChange>; controles y handle de resize montados mientras (showControls || settingsOpen) && !isDragging; onMouseLeave no oculta si settingsOpen.
+  - handleDragStart: guard añadido closest('[data-radix-popper-content-wrapper]') + stopPropagation de pointerdown/mousedown/touchstart en el PopoverContent (doble blindaje contra el burbujeo de portal).
+  - Transición persistida en la FICHA del personaje vía store.updateCharacter(characterId, { defaultTransition }) (survive recargas; viaja en characters ya exportado en Datos v2.1); 'none' escribe config explícita {type:'none', duration, easing, direction} en vez de null; slider de Duración también persiste en la ficha; UI usa effectiveDefaultTransition/effectiveDefaultType.
+- Verificación E2E con agent-browser (Aitana, 7c7fbc0b): panel abre ✓; mouseout del sprite NO cierra el panel ✓; botón Left movió el sprite 50%→20% y persiste en localStorage sprite-{id} ✓; panel sigue abierto tras pulsar Left ✓; dropdown "Sin Transición"→"Fade" ✓; persistido en ficha (localStorage tavernflow-storage) ✓; PUT automático (3s debounce) escribió data/characters.json ✓; tras RECARGA COMPLETA el dropdown mantiene "Fade" (antes se perdía) ✓; restaurado a "Sin Transición" sin rebote ✓. ESLint limpio; sin errores de compilación en dev.log; artefactos de prueba eliminados de data/characters.json (defaultTransition borrado).
+- Nota ambiental: el sandbox entra en OOM intermitente (Chromium + webpack recompilando por los PUT /api/persistence que reescriben data/*.json); los reinicios del dev server durante la verificación son ambientales, no del código.
+
+Stage Summary:
+- Todas las opciones del panel del sprite funcionan ya: botones de posición (Left/Center/Right), sliders (tamaño/opacidad/X/Y), y el dropdown de transición con duración — el panel ya no se cierra solo y los controles ya no disparan arrastres fantasma.
+- La transición elegida es persistente (ficha del personaje → localStorage + servidor → Datos v2.1) y "Sin Transición" se puede restaurar sin que rebote al valor anterior.
+- Archivo modificado: src/components/tavern/character-sprite.tsx (único). group-sprites.tsx no requiere fix (su popover es hermano, no hijo reactivo de los sprites arrastrables).
+
+---
+Task ID: 20 (análisis, sin cambios de código)
+Agent: main
+Task: Analizar {{attributes_rulz}}, keys de atributos y tools asociadas (hardcode de reglas semánticas)
+
+Work Log:
+- Leído src/lib/stats/attributes-prompt.ts: buildAttributesRulesBlock tiene 4 reglas semánticas hardcodeadas (deseo/energía/adicción/estado emocional) + ejemplos JSON con keys fijas (lujuria, energia, adiccion).
+- Leído src/lib/tools/tools/modify-stat.ts: description de la tool también menciona atributos concretos; matching robusto por key/name/keys/detectionTags; error devuelve lista de stats disponibles.
+- Leído src/lib/tools/tool-registry.ts:203: few-shot con "experiencia"/"energia" hardcodeadas.
+- Verificado src/app/api/chat/director/route.ts:67: otro hardcode ("lujuria").
+- Verificado tipo AttributeDefinition (src/types/index.ts:4627): NO existe campo description/esencia; sí existen keys (aliases), detectionTags, outputFormat.
+- Verificado datos reales (data/characters.json): Jess sin "adiccion", Almita sin "lujuria"/"energia", nadie tiene estado emocional como atributo → las reglas fijas apuntan a atributos inexistentes en varios personajes.
+- Estado emocional confirmado como sistema aparte ({{estado}}/{{emocion}} + emotion-evaluator); modify_stat solo escribe statsConfig.attributes.
+
+Stage Summary:
+- Diagnóstico: el bloque mezcla mecánica genérica (válida) con semántica hardcodeada (rota para personajes sin esos atributos).
+- Propuesta entregada al usuario: bloque 100% dinámico + campo "esencia" por atributo en cards + presets + regla anti-invención + limpieza de hardcodes en tool description/few-shot/director.
+- Sin cambios de código (petición explícita del usuario).
+
+---
+Task ID: 21
+Agent: main
+Task: Sistema de atributos dinámico — {{attributes_rulz}} sin hardcode + campo "Esencia para el LLM" + limpieza de tools
+
+Work Log:
+- src/types/index.ts: añadido campo opcional llmEssence?: string a AttributeDefinition (semántica del atributo para el LLM).
+- src/lib/stats/attributes-prompt.ts: buildAttributesRulesBlock reescrito 100% dinámico: sección "SEMÁNTICA DE TUS ATRIBUTOS" (llmEssence por atributo, fallback tipo/rango), ejemplos JSON generados con keys REALES del personaje (batch 2 keys numéricas; single prefiere atributo principal 👑), regla anti-invención ("SOLO existen los atributos listados arriba"), línea de estado emocional SOLO si existe atributo keyword de emoción, operadores keyword condicionales (o aviso "todos numéricos"), sanitizeEssence (collapse whitespace, cap 600 chars).
+- src/lib/tools/tools/modify-stat.ts: description sin nombres concretos de atributos; ejemplo del parámetro changes genérico (atributo_a/atributo_b) + "usa las keys EXACTAS de la lista".
+- src/lib/tools/tool-registry.ts: few-shot modify_stat con atributo_a/atributo_b genéricos.
+- src/app/api/chat/director/route.ts: hint de modify_stat genérico (sin "lujuria") + "usa SOLO atributos que existan".
+- src/components/tavern/stats-editor.tsx: nueva sección "Esencia para el LLM" en el editor de atributos (Sparkles, tooltip, 4 presets editables: Deseo/Adicción/Energía/Estado emocional con {nombre} interpolado, Textarea, contador x/600 con aviso >500, preview de la línea inyectada); textos de ayuda de {{attributes_rulz}} actualizados en 3 sitios.
+- Toasts con reason: chat-panel.tsx (2 handlers stat_activation) y use-proactive-messages.tsx → "📊 Attr: old → new · razón".
+- Demo: data/characters.json → llmEssence escritos para Ney Walker (hambre/lujuria/energia/estupidez/orgasmo; relacion sin esencia para demo del fallback).
+- Verificación: ESLint ✓; tsc stash-compare (git stash push -- src/ → baseline → pop): diff muestra SOLO desplazamientos de línea, 0 errores nuevos; GET / → 200 (server reiniciado tras tsc); render real del bloque con bun para Ney Walker verificado (ejemplo corto usa hambre 👑 tras ajuste de prioridad).
+
+Stage Summary:
+- El bloque {{attributes_rulz}} ya no puede ordenar al LLM tocar atributos inexistentes: semántica + ejemplos provienen de los atributos reales del personaje activo.
+- La esencia de cada atributo se define por card (campo "Esencia para el LLM" + presets) y viaja en Datos v2.1 al ser parte de characters.json.
+- modify_stat (description + few-shot + director) sin nombres hardcodeados; el único punto de semántica es {{attributes_rulz}}.
+- La reason del LLM ahora visible en toasts; sigue sin persistirse en event log (posible mejora futura).
+
+---
+Task ID: 22
+Agent: main
+Task: Fix — tool calls de modify_stat embebidos como texto no se ejecutaban + aliases de campos + fuzzy matching de keys + revisión de proveedores LLM
+
+Work Log:
+- Diagnóstico confirmado con las 2 strings EXACTAS del usuario (Ney Walker, otra PC): `[modifystat with changes is [{...}]]` NO lo detectaba ninguna de las 4 estrategias del parser → mightContain=false, parsed=[] → nunca se ejecutaba ni hambre (válida) ni samgredesucubo (inventada). Además Grok usó aliases `statname`/`newvalue` (sin underscore) que el executor no toleraba, e inventó la key "samgredesucubo" (garble de "sangre de súcubo"; no existe en Ney Walker: lujuria/energia/relacion/hambre/estupidez/orgasmo).
+- src/lib/tools/parsers/prompt-parser.ts: NUEVO Pattern 5 "bracketed tool name + prose + embedded JSON" → findMatchingBracket (balanceo string-aware), findBracketedToolJsonBlocks ([+nombre conocido → bloque completo]), extractFirstJsonArrayOfObjects, normalizeStatChangeItem (aliases stat_name/statName/statname/stat/attribute/attr/key + new_value/newValue/newvalue/value + reason), parseBracketedJsonBlockArgs (array→changes para modify_stat; objeto→args; envelopes genéricos name+parameters se delegan a Pattern 3; array sin campos de stat para modify_stat → null, no se trata como call), parseBracketedJsonToolCalls integrado como Pattern 5; mightContainToolCall + regex heurística `\[\s*tool\s+[^\[\]]{0,300}?\[\s*\{`; early-exit de parseAllToolCallsFromText ahora usa mightContainToolCall; stripToolCallFromText elimina los nuevos bloques SOLO cuando producen args válidos.
+- src/lib/tools/tools/modify-stat.ts: matching en 3 pasadas (exacto → normalizado sin separadores normalizeAttrKey → fuzzy Levenshtein con fuzzyMaxDistance: <4 chars=0, ≤7=1, resto=2; pre-filtro por diferencia de longitud; elige mejor distancia) + nota display `ℹ️ "X" interpretado como "Y"`; aliases aceptados en changes batch y single mode (statname/stat/attribute/attr + newvalue/value); key inventada sigue fallando PERO con lista de stats disponibles (feedback para autocorrección del LLM en la siguiente ronda).
+- Ejecución múltiple verificada (sin cambios necesarios): executeToolCallsAndContinue itera TODOS los calls de la ronda (stream route líneas ~122-231) con guardia anti-duplicados por firma; las 6 ramas de proveedor del stream route parsean texto y mapean todos los textToolCalls.
+- Proveedores LLM revisados (petición previa): los 6 (grok/anthropic/openai/ollama/zai/text-generation-webui) envían tools en payload; grok.ts → tools + tool_choice:'auto' con grokFetchWithParamAdaptation (strips+retry si el modelo rechaza params), model vacío → fallback GROK_DEFAULT_MODEL grok-4.3, endpoint default https://api.x.ai/v1; configs en data/llm-configs.json estructuralmente sanos (Grok activo con key; lm-studio→openai-compatible, test-mock→mock en routing). Sin cambios de código necesarios aquí.
+- Verificación: script bun con las strings exactas del usuario + regresiones → t1/t2 (usuario) parsean 1 call modify_stat con changes normalizados y strip limpio; t3 narrativa preservada; t4 shorthand colon OK; t5 [susurra]/[12:30] NO falsos positivos; t6 fenced OK. Executor: [A] statname/newvalue→hambre 30→35 ✓; [B] "niveldecrack"→nivel_de_crack ✓; [C] fuzzy "hambnre"→hambre ✓; [D] "samgredesucubo" falla con lista ✓; [E] batch mixto → 1 activación (inválida falla, lujuria 50→60) ✓; [F] sessionStats acumula ✓. ESLint limpio; dev server 200 (reiniciado tras morir por presión de memoria).
+
+Stage Summary:
+- Causa raíz del "no se modifican los stats": Grok a veces escribe el tool call como FRASE entre corchetes con JSON anidado en vez de usar tool_calls nativo; el parser solo entendía [tool:param:value] y formatos JSON con "name". Ahora Pattern 5 rescata ese formato, normaliza aliases y el executor tolera typos/keys sin separadores.
+-samgredesucubo NUNCA aplicará (key inventada): falla con lista de stats reales para que el LLM se corrija la siguiente ronda; hambre/lujuria SÍ aplican aunque vengan en el mismo bloque malformado.
+- El flujo multi-tool por ronda ya era correcto (loop completo + anti-duplicados).
+- Proveedores: todos envían tools; Grok con adaptación automática de parámetros. No se requirió código nuevo ahí.

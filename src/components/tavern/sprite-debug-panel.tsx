@@ -187,7 +187,7 @@ export function SpriteDebugPanel({ isOpen = true, onClose }: DebugPanelProps) {
                 className={cn(
                   "flex items-center gap-2 px-2 py-1 rounded text-xs",
                   token.type === 'pipe' && "bg-purple-500/10 text-purple-600",
-                  token.type === 'word' && "bg-blue-500/10 text-blue-600",
+                  token.type === 'word' && "bg-violet-500/10 text-violet-600",
                   token.type === 'hud' && "bg-green-500/10 text-green-600"
                 )}
               >

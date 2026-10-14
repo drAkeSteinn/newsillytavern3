@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -62,11 +63,13 @@ import {
   ChevronRight,
   DatabaseZap,
   HelpCircle,
+  ListChecks,
   Loader2,
   Pencil,
   Pin,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Trash2,
   Archive,
@@ -121,9 +124,9 @@ const TYPE_META: Record<V2Type, { label: string; plural: string; dot: string; bl
     help: 'Dato estable sobre el usuario o el mundo (trabajo, nombre, familia, límites duros). El LLM lo da por sabido.',
   },
   preferencia: {
-    label: 'Preferencia', plural: 'Preferencias', dot: 'bg-amber-500',
-    block: '[HECHOS SOBRE {user}]',
-    help: 'Gustos, límites o deseos del usuario respecto al rol (ej: "prefiere roles lentos con tensión").',
+    label: 'Preferencia', plural: 'Preferencias', dot: 'bg-fuchsia-500',
+    block: '[HECHOS SOBRE {user}] / [GUSTOS DE {char}]',
+    help: 'Gustos, aversiones o deseos. De quién es lo decide "De quién": usuario (ej: "prefiere roles lentos") o personaje (ej: "le encanta que le acaricien el pelo").',
   },
   relacion: {
     label: 'Relación', plural: 'Relación', dot: 'bg-rose-500',
@@ -136,7 +139,7 @@ const TYPE_META: Record<V2Type, { label: string; plural: string; dot: string; bl
     help: 'Nota libre curada. Úsala para fijar cualquier detalle que quieras que el personaje siempre sepa.',
   },
   resumen_escena: {
-    label: 'Resumen de escena', plural: 'Resúmenes de escena', dot: 'bg-cyan-500',
+    label: 'Resumen de escena', plural: 'Resúmenes de escena', dot: 'bg-fuchsia-500',
     block: '[EVENTOS ANTERIORES]',
     help: 'Compresión episódica de una escena completa (lo genera la consolidación). Se inyecta como evento con fecha.',
   },
@@ -218,6 +221,12 @@ export function MemoryV2Manager({
   const [saving, setSaving] = useState(false);
   const [pendingHardDelete, setPendingHardDelete] = useState<V2Record | null>(null);
 
+  // Selección múltiple + reset
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
   // Búsqueda debug
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[] | null>(null);
@@ -244,6 +253,13 @@ export function MemoryV2Manager({
         setRecords(recData.records || []);
         onCountChange?.(recData.total ?? recData.records?.length ?? 0);
         setLoadError(null);
+        // Prune the selection to records that still exist (post-delete, etc.)
+        setSelectedIds(prev => {
+          if (prev.size === 0) return prev;
+          const live = new Set((recData.records || []).map((r: V2Record) => r.id));
+          const next = new Set([...prev].filter(id => live.has(id)));
+          return next.size === prev.size ? prev : next;
+        });
       } else {
         // Distinguish a failed fetch from a genuinely empty store — showing
         // the "sin recuerdos" hint on an error looks like data loss.
@@ -380,6 +396,88 @@ export function MemoryV2Manager({
     }
   };
 
+  // ============ Selección múltiple + reset ============
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const allVisibleSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.id));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        filtered.forEach(r => next.delete(r.id));
+      } else {
+        filtered.forEach(r => next.add(r.id));
+      }
+      return next;
+    });
+  }, [allVisibleSelected, filtered]);
+
+  const bulkHardDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch('/api/memory/v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'hard-delete-bulk', ids: [...selectedIds] }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Error');
+      toast({
+        title: `${data.deleted ?? selectedIds.size} recuerdo${(data.deleted ?? selectedIds.size) !== 1 ? 's' : ''} eliminado${(data.deleted ?? selectedIds.size) !== 1 ? 's' : ''}`,
+        description: 'Eliminados definitivamente del almacén.',
+      });
+      setSelectedIds(new Set());
+      setConfirmBulkDelete(false);
+      load();
+    } catch (err: any) {
+      toast({ title: 'Error al eliminar la selección', description: err?.message || String(err), variant: 'destructive' });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const resetAllMemories = async () => {
+    if (!charId && !groupId) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch('/api/memory/v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'hard-delete-bulk',
+          all: true,
+          charId: charId || undefined,
+          groupId: groupId || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Error');
+      toast({
+        title: 'Memoria reseteada',
+        description: data.deleted
+          ? `${data.deleted} recuerdo${data.deleted !== 1 ? 's' : ''} eliminado${data.deleted !== 1 ? 's' : ''}. La memoria empieza de cero.`
+          : 'La memoria ya estaba vacía.',
+      });
+      setSelectedIds(new Set());
+      setConfirmReset(false);
+      load();
+    } catch (err: any) {
+      toast({ title: 'Error al resetear la memoria', description: err?.message || String(err), variant: 'destructive' });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const runSearch = async () => {
     if (!searchQuery.trim() || (!charId && !groupId)) return;
     setSearching(true);
@@ -407,7 +505,7 @@ export function MemoryV2Manager({
       return <Badge variant="outline" className="text-[9px] font-normal">LanceDB · {health.dimension}d</Badge>;
     }
     return (
-      <Badge variant="outline" className="text-[9px] font-normal text-amber-600 dark:text-amber-400">
+      <Badge variant="outline" className="text-[9px] font-normal text-fuchsia-600 dark:text-fuchsia-400">
         JSON fallback{health.ollama?.reachable === false ? ' · sin Ollama' : ''}
       </Badge>
     );
@@ -415,9 +513,23 @@ export function MemoryV2Manager({
 
   const renderRecord = (r: V2Record) => {
     const meta = TYPE_META[r.type];
+    const selected = selectedIds.has(r.id);
     return (
-      <div key={r.id} className={cn('group rounded-md bg-white/5 p-2', r.supersededBy && 'opacity-50')}>
+      <div
+        key={r.id}
+        className={cn(
+          'group rounded-md bg-white/5 p-2',
+          r.supersededBy && 'opacity-50',
+          selected && 'ring-1 ring-red-500/50 bg-red-500/10',
+        )}
+      >
         <div className="flex items-center gap-1.5 mb-0.5">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={() => toggleSelect(r.id)}
+            aria-label={`Seleccionar recuerdo: ${r.content.slice(0, 60)}`}
+            className="w-3.5 h-3.5 shrink-0"
+          />
           {r.source === 'curada' ? (
             <Badge variant="secondary" className="text-[9px] px-1 py-0 gap-0.5">
               <Pin className="w-2 h-2" /> fijado
@@ -428,6 +540,16 @@ export function MemoryV2Manager({
           {r.supersededBy && (
             <Badge variant="outline" className="text-[9px] px-1 py-0 font-normal">
               {r.supersededBy === '__deleted__' ? 'eliminado' : 'reemplazado'}
+            </Badge>
+          )}
+          {r.subject === 'personaje' && (
+            <Badge variant="outline" className="text-[9px] px-1 py-0 font-normal text-violet-400 border-violet-500/40" title="De quién es este recuerdo">
+              personaje
+            </Badge>
+          )}
+          {r.subject === 'usuario' && (
+            <Badge variant="outline" className="text-[9px] px-1 py-0 font-normal text-muted-foreground" title="De quién es este recuerdo">
+              usuario
             </Badge>
           )}
           <span className="text-[9px] text-muted-foreground inline-flex items-center gap-0.5">
@@ -560,10 +682,11 @@ export function MemoryV2Manager({
             <p className="font-medium text-foreground">Qué es</p>
             <p>
               Una única memoria a largo plazo por personaje. Cada recuerdo es un registro con tipo, fecha absoluta,
-              importancia y origen. Al chatear, el sistema inyecta al LLM tres bloques organizados:
+              importancia, origen y sujeto (de quién es). Al chatear, el sistema inyecta al LLM bloques organizados:
             </p>
             <ul className="list-disc ml-4 mt-1 space-y-0.5">
-              <li><span className="font-mono text-[10px] text-foreground">[HECHOS SOBRE {userName}]</span> — hechos, preferencias y notas.</li>
+              <li><span className="font-mono text-[10px] text-foreground">[HECHOS SOBRE {userName}]</span> — hechos, notas y preferencias del usuario.</li>
+              <li><span className="font-mono text-[10px] text-foreground">[GUSTOS DE {charName}]</span> — gustos y aversiones del propio personaje.</li>
               <li><span className="font-mono text-[10px] text-foreground">[EVENTOS ANTERIORES]</span> — eventos y resúmenes de escena, con su fecha.</li>
               <li><span className="font-mono text-[10px] text-foreground">[ESTADO DE LA RELACIÓN]</span> — el vínculo emocional actual.</li>
             </ul>
@@ -605,8 +728,8 @@ export function MemoryV2Manager({
             </p>
           </div>
           {health?.error && (
-            <div className="rounded bg-amber-500/10 border border-amber-500/30 p-2">
-              <p className="text-amber-600 dark:text-amber-400 text-[11px]">
+            <div className="rounded bg-fuchsia-500/10 border border-fuchsia-500/30 p-2">
+              <p className="text-fuchsia-600 dark:text-fuchsia-400 text-[11px]">
                 Estado: {health.error}. Los recuerdos se guardan en JSON y la búsqueda usa coincidencia léxica;
                 al conectar Ollama se migran a vectores automáticamente.
               </p>
@@ -649,6 +772,30 @@ export function MemoryV2Manager({
           </div>
         )}
         <div className="ml-auto flex items-center gap-1">
+          {records.length > 0 && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-xs"
+                title="Seleccionar todos los recuerdos visibles (respeta los filtros)"
+                onClick={toggleSelectAll}
+              >
+                <ListChecks className="w-3.5 h-3.5" />
+                {allVisibleSelected ? 'Ninguno' : 'Todos'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                title="Reset: eliminar TODAS las memorias de este ámbito (activas y archivadas)"
+                onClick={() => setConfirmReset(true)}
+                disabled={bulkBusy}
+              >
+                <RotateCcw className={cn('w-3.5 h-3.5', bulkBusy && 'animate-spin')} />
+              </Button>
+            </>
+          )}
           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Recargar" onClick={load} disabled={loading}>
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
           </Button>
@@ -657,6 +804,30 @@ export function MemoryV2Manager({
           </Button>
         </div>
       </div>
+
+      {/* Barra de selección múltiple */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 flex-wrap rounded-md border border-red-500/30 bg-red-500/5 px-2 py-1.5">
+          <span className="text-xs font-medium">
+            {selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}
+          </span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => setSelectedIds(new Set())}>
+              Deseleccionar
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-6 gap-1 px-2 text-[11px]"
+              onClick={() => setConfirmBulkDelete(true)}
+              disabled={bulkBusy}
+            >
+              {bulkBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+              Eliminar seleccionados
+            </Button>
+          </div>
+        </div>
+      )}
 
       {recordsList}
       {searchPanel}
@@ -700,7 +871,12 @@ export function MemoryV2Manager({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Tipo</Label>
-                <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v as V2Type }))}>
+                <Select value={form.type} onValueChange={v => setForm(f => {
+                  const type = v as V2Type;
+                  // Al crear una preferencia sin sujeto claro, asume usuario (lo más común).
+                  const subject = type === 'preferencia' && (f.subject === 'pareja' || f.subject === 'mundo') ? 'usuario' : f.subject;
+                  return { ...f, type, subject };
+                })}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {ALL_TYPES.map(t => <SelectItem key={t} value={t}>{TYPE_META[t].label}</SelectItem>)}
@@ -715,6 +891,21 @@ export function MemoryV2Manager({
                   onChange={e => setForm(f => ({ ...f, eventDate: e.target.value }))}
                   className="h-8 text-xs"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">De quién es</Label>
+                <Select value={form.subject} onValueChange={v => setForm(f => ({ ...f, subject: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="usuario">Usuario (el jugador)</SelectItem>
+                    <SelectItem value="personaje">Personaje ({charName})</SelectItem>
+                    <SelectItem value="pareja">Ambos (pareja)</SelectItem>
+                    <SelectItem value="mundo">Mundo / otros</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[9px] text-muted-foreground leading-tight">
+                  En Preferencias decide si el gusto es del jugador o del personaje.
+                </p>
               </div>
             </div>
             <div className="space-y-1.5">
@@ -778,6 +969,58 @@ export function MemoryV2Manager({
               onClick={() => pendingHardDelete && hardDelete(pendingHardDelete)}
             >
               Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmación de borrado masivo (selección) */}
+      <AlertDialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base">
+              ¿Eliminar {selectedIds.size} recuerdo{selectedIds.size !== 1 ? 's' : ''} seleccionado{selectedIds.size !== 1 ? 's' : ''}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs">
+              Los recuerdos seleccionados se borrarán del almacén sin dejar historial y el personaje los
+              olvidará por completo. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="text-xs" onClick={() => setConfirmBulkDelete(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white text-xs"
+              onClick={bulkHardDelete}
+              disabled={bulkBusy}
+            >
+              {bulkBusy && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+              Eliminar {selectedIds.size}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmación de reset total */}
+      <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base">¿Resetear TODA la memoria?</AlertDialogTitle>
+            <AlertDialogDescription className="text-xs">
+              Se eliminarán todos los recuerdos de {isGroupScope ? 'este grupo' : charName}: activos y archivados,
+              fijados y automáticos ({records.length} en el almacén). {isGroupScope ? 'El grupo' : `${charName} `}empezará de cero
+              y no habrá forma de recuperarlos. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="text-xs" onClick={() => setConfirmReset(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white text-xs"
+              onClick={resetAllMemories}
+              disabled={bulkBusy}
+            >
+              {bulkBusy && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+              <RotateCcw className="w-3 h-3 mr-1" />
+              Resetear todo
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

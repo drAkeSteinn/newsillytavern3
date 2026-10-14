@@ -18,12 +18,21 @@ import type {
   ExtractedItem,
   ExtractionOutput,
   MemoryV2Record,
+  MemoryV2Subject,
   MemoryV2Type,
   V2ExtractionResult,
 } from './types';
 import { MEMORY_V2_EXTRACTION_SYSTEM, fillV2ExtractionTemplate } from './prompts';
 
 const VALID_TYPES: MemoryV2Type[] = ['evento', 'hecho', 'preferencia', 'relacion', 'nota', 'resumen_escena'];
+const VALID_SUBJECTS: MemoryV2Subject[] = ['usuario', 'personaje', 'pareja', 'mundo'];
+
+/** Type-based fallback when the extractor omits `subject` (legacy behavior) */
+function fallbackSubject(type: MemoryV2Type): MemoryV2Subject {
+  if (type === 'relacion') return 'pareja';
+  if (type === 'hecho' || type === 'preferencia') return 'usuario';
+  return 'pareja';
+}
 const DEDUP_COSINE = 0.92;
 const DEFAULT_MAX_ITEMS = 8;
 
@@ -62,13 +71,14 @@ function coerceItem(raw: any): ExtractedItem | null {
   const date = normalizeEventDate(raw.date);
   const targetId = String(raw.targetId || '').trim();
   const links = Array.isArray(raw.links) ? raw.links.map((l: any) => String(l)).filter(Boolean) : [];
+  const subject: MemoryV2Subject | undefined = VALID_SUBJECTS.includes(raw.subject) ? raw.subject : undefined;
   if (op === 'DELETE') {
     if (!targetId) return null;
-    return { type, op: 'DELETE', text: '', importance, date, targetId, links: [] };
+    return { type, op: 'DELETE', text: '', subject, importance, date, targetId, links: [] };
   }
   if (op === 'UPDATE' && !targetId) return null;
   if (!text) return null;
-  return { type, op: op as 'ADD' | 'UPDATE', text, importance, date, targetId, links };
+  return { type, op: op as 'ADD' | 'UPDATE', text, subject, importance, date, targetId, links };
 }
 
 function formatCandidates(candidates: MemoryV2Record[]): string {
@@ -175,7 +185,7 @@ export async function extractAndSaveV2(params: V2ExtractionParams): Promise<V2Ex
             id: '',
             type: item.type,
             content: item.text,
-            subject: old.subject,
+            subject: item.subject ?? old.subject,
             charId: old.charId,
             groupId: old.groupId,
             sessionId: old.sessionId,
@@ -235,7 +245,7 @@ export async function extractAndSaveV2(params: V2ExtractionParams): Promise<V2Ex
           id: `v2_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
           type: item.type,
           content: item.text,
-          subject: item.type === 'relacion' ? 'pareja' : item.type === 'preferencia' ? 'usuario' : item.type === 'hecho' ? 'usuario' : 'pareja',
+          subject: item.subject ?? fallbackSubject(item.type),
           charId,
           groupId: groupId || '',
           sessionId: '',

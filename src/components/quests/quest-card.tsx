@@ -81,8 +81,8 @@ const STATUS_CONFIG: Record<QuestStatus, {
   },
   completed: { 
     icon: <CheckCircle2 className="w-4 h-4" />, 
-    color: 'text-blue-500',
-    bg: 'bg-blue-500/10',
+    color: 'text-violet-500',
+    bg: 'bg-violet-500/10',
     label: 'Completada'
   },
   failed: { 
@@ -106,12 +106,12 @@ const PRIORITY_CONFIG: Record<QuestPriority, {
 }> = {
   main: { 
     icon: <Star className="w-3.5 h-3.5" />, 
-    color: 'text-amber-500',
+    color: 'text-fuchsia-500',
     label: 'Principal'
   },
   side: { 
     icon: <Target className="w-3.5 h-3.5" />, 
-    color: 'text-blue-400',
+    color: 'text-violet-400',
     label: 'Secundaria'
   },
   hidden: { 
@@ -312,7 +312,7 @@ export function QuestCard({
                 <div className="flex flex-wrap gap-1">
                   {quest.rewards.map((reward, idx) => (
                     <Badge key={idx} variant="secondary" className="text-xs">
-                      <Trophy className="w-3 h-3 mr-1 text-amber-500" />
+                      <Trophy className="w-3 h-3 mr-1 text-fuchsia-500" />
                       {reward.name}
                       {reward.quantity && ` x${reward.quantity}`}
                     </Badge>

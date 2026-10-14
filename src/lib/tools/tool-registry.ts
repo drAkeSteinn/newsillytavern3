@@ -15,6 +15,7 @@ import type {
 } from './types';
 import type { KeyResolutionContext } from '@/lib/key-resolver';
 import { resolveAllKeys } from '@/lib/key-resolver';
+import { registerKnownToolNamesForParsing } from './parsers/prompt-parser';
 
 // Executor function signature
 export type ToolExecutorFn = (
@@ -37,6 +38,8 @@ const toolRegistry = new Map<string, RegisteredTool>();
 /** Register a tool in the registry */
 export function registerTool(definition: ToolDefinition, executor: ToolExecutorFn): void {
   toolRegistry.set(definition.id, { definition, executor });
+  // Keep the text-based tool call parser whitelist in sync (custom tools too)
+  registerKnownToolNamesForParsing([definition.name]);
 }
 
 /** Get a registered tool by ID */
@@ -197,7 +200,7 @@ export function buildPromptBasedToolsSection(
     '{"name": "roll_dice", "parameters": {"dice": "1d20", "label": "Ataque"}}',
     '```',
     '```tool_call',
-    '{"name": "modify_stat", "parameters": {"stat_name": "experiencia", "new_value": 150, "reason": "Derroté al dragón"}}',
+    '{"name": "modify_stat", "parameters": {"changes": [{"stat_name": "atributo_a", "new_value": "+150", "reason": "Derroté al dragón"}, {"stat_name": "atributo_b", "new_value": "-20", "reason": "La pelea me agotó"}]}}',
     '```',
     '```tool_call',
     '{"name": "manage_quest", "parameters": {"action": "report_progress", "quest_name": "rescate", "objective_name": "encontrar_prisionero", "narrative_description": "Encontré al prisionero en la celda"}}',
@@ -240,6 +243,25 @@ export function buildPromptBasedToolsSection(
   lines.push('- otro: No encaja en las categorías anteriores');
 
   return lines.join('\n');
+}
+
+/**
+ * Short system-prompt reminder for providers with NATIVE function calling
+ * (OpenAI, Grok, Anthropic...). Prevents the model from writing tool calls
+ * as visible text (e.g. `[modifystat:statname:... ]` bracket shorthand seen
+ * on grok-4.x) instead of emitting a native tool call.
+ */
+export function buildNativeToolsReminder(): string {
+  return [
+    '[USO CORRECTO DE HERRAMIENTAS — IMPORTANTE]',
+    'Tienes herramientas disponibles mediante function calling nativo (mecanismo tools de la API) y ESTÁN ACTIVAS en este turno.',
+    '- Las herramientas son la ÚNICA forma de afectar el mundo: la narrativa NUNCA reemplaza a la herramienta. Si narras un cambio sin invocar la herramienta, el cambio SE PIERDE.',
+    '- CADA TURNO, al terminar tu respuesta, repasa la escena: si algo justificó cambiar un atributo (deseo, energía, estados, hambre, relación...), invoca "modify_stat" con el parámetro "changes" EN LA MISMA RESPUESTA. Si nada lo justifica, no la llames ese turno.',
+    '- Usa las demás herramientas ACTIVAMENTE cuando la escena lo justifique (manage_action para acciones, manage_wardrobe para ropa, manage_time para saltos temporales, manage_memory para eventos importantes...). No esperes a que el usuario lo pida.',
+    '- NUNCA escribas una llamada de herramienta como texto visible (por ejemplo: [modifystat:...], ```tool_call```, {"name": ...}).',
+    '- Cuando quieras usar una herramienta, EMITE LA LLAMADA NATIVA junto a tu narrativa; tu texto visible debe ser solo narrativa y diálogo en personaje.',
+    '- Si ya emitiste una llamada nativa, NO la repitas ni la describas en el texto de tu respuesta.',
+  ].join('\n');
 }
 
 /** Execute a tool by name */

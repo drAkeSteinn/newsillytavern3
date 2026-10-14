@@ -27,6 +27,12 @@
 // location's description, wrapped in the block header (default: [ESCENARIO]).
 
 import type { ScenarioConfig, ScenarioLocation, SessionStats, CharacterCard } from '@/types';
+import {
+  getEffectiveScenarioDefinitions,
+  resolveActiveScenarioLocation,
+  buildScenarioPromptBlock,
+  getActiveScenarioLibrary,
+} from './library';
 
 /**
  * Any entity that can own a scenario config (CharacterCard or CharacterGroup).
@@ -184,26 +190,33 @@ export function resolveActiveLocation(
 }
 
 /**
- * Resolve the {{escenario}} key to the active location's description.
- * Returns the content string, or empty string if the scenario is not configured.
+ * Resolve the {{escenario}} key to the full hierarchical scenario block
+ * (ESCENARIO V3). Uses the App-level Scenario Library when the character/group
+ * references collections by id; otherwise synthesizes a single collection from
+ * the legacy scenarioConfig (flat locations) so the old cards keep working.
  *
- * The content is wrapped in the block header (default: [ESCENARIO]) if non-empty.
- * In group chats the group's scenario (when configured) replaces the character's.
+ * The block contains: the location tree (current scenario full, others by
+ * name), the manage_escenario instructions and the current location description.
+ * Returns empty string when no scenario is configured.
  */
 export function resolveScenarioKey(
   character: CharacterCard | undefined,
   sessionStats: SessionStats | null | undefined,
-  group?: ScenarioSource
+  group?: ScenarioSource,
+  library?: import('@/types').ScenarioDefinition[],
+  userName?: string
 ): string {
-  const location = resolveActiveLocation(character, sessionStats, group);
-  if (!location) return '';
+  const definitions = getEffectiveScenarioDefinitions(character, library ?? getActiveScenarioLibrary() ?? undefined, group);
+  if (definitions.length === 0) return '';
 
-  const config = getEffectiveScenarioConfig(character, group);
-  const header = config?.blockHeader || '[ESCENARIO]';
-  const content = location.description?.trim();
-  if (!content) return '';
+  const active = resolveActiveScenarioLocation(definitions, sessionStats);
+  if (!active) return '';
 
-  return `${header}\n${content}`;
+  // Header: legacy blockHeader is honored for synthesized configs; App-level
+  // collections use the default [ESCENARIO].
+  const header = active.isLegacy ? (getEffectiveScenarioConfig(character, group)?.blockHeader || '[ESCENARIO]') : '[ESCENARIO]';
+
+  return buildScenarioPromptBlock(definitions, active, { userName, header });
 }
 
 /**

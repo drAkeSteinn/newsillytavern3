@@ -159,10 +159,10 @@ export function ProactiveMessagesPanel({
     <TooltipProvider>
       <div className="space-y-4">
         {/* Main Toggle */}
-        <div className="flex items-center justify-between p-4 rounded-lg border bg-gradient-to-r from-amber-500/5 to-orange-500/5 border-amber-500/20">
+        <div className="flex items-center justify-between p-4 rounded-lg border bg-gradient-to-r from-fuchsia-500/5 to-violet-500/5 border-fuchsia-500/20">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10">
-              <Sparkles className="w-4 h-4 text-amber-500" />
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-fuchsia-500/10">
+              <Sparkles className="w-4 h-4 text-fuchsia-500" />
             </div>
             <div>
               <span className="text-sm font-medium">Mensajes Proactivos</span>
@@ -180,13 +180,13 @@ export function ProactiveMessagesPanel({
             {/* ─── How It Works ─── */}
             <div className="p-4 rounded-lg border bg-card space-y-3">
               <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-amber-500" />
+                <Zap className="w-4 h-4 text-fuchsia-500" />
                 <h3 className="text-sm font-semibold">Cómo funciona</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="flex gap-2.5 p-2.5 rounded-md bg-muted/40">
-                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/10 shrink-0 mt-0.5">
-                    <span className="text-xs font-bold text-blue-500">1</span>
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-violet-500/10 shrink-0 mt-0.5">
+                    <span className="text-xs font-bold text-violet-500">1</span>
                   </div>
                   <div>
                     <p className="text-xs font-medium">Temporizador</p>
@@ -194,8 +194,8 @@ export function ProactiveMessagesPanel({
                   </div>
                 </div>
                 <div className="flex gap-2.5 p-2.5 rounded-md bg-muted/40">
-                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/10 shrink-0 mt-0.5">
-                    <span className="text-xs font-bold text-amber-500">2</span>
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-fuchsia-500/10 shrink-0 mt-0.5">
+                    <span className="text-xs font-bold text-fuchsia-500">2</span>
                   </div>
                   <div>
                     <p className="text-xs font-medium">Atributo</p>
@@ -236,7 +236,7 @@ export function ProactiveMessagesPanel({
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-amber-500" />
+                  <Clock className="w-4 h-4 text-fuchsia-500" />
                   Intervalo de Inactividad
                 </CardTitle>
                 <CardDescription>
@@ -263,7 +263,7 @@ export function ProactiveMessagesPanel({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs">Intervalo personalizado</Label>
-                    <span className="text-xs font-mono font-medium text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">
+                    <span className="text-xs font-mono font-medium text-fuchsia-500 bg-fuchsia-500/10 px-2 py-0.5 rounded">
                       {formatInterval(settings.intervalSeconds)}
                     </span>
                   </div>
@@ -288,7 +288,7 @@ export function ProactiveMessagesPanel({
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-blue-500" />
+                  <Shield className="w-4 h-4 text-violet-500" />
                   Condiciones de Activación
                 </CardTitle>
                 <CardDescription>
@@ -300,7 +300,7 @@ export function ProactiveMessagesPanel({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <MessageCircle className="w-3.5 h-3.5 text-blue-400" />
+                      <MessageCircle className="w-3.5 h-3.5 text-violet-400" />
                       <Label className="text-xs font-medium">Mensajes mínimos antes de activar</Label>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -311,7 +311,7 @@ export function ProactiveMessagesPanel({
                         </TooltipContent>
                       </Tooltip>
                     </div>
-                    <span className="text-xs font-mono font-medium text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+                    <span className="text-xs font-mono font-medium text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded">
                       {settings.minMessagesBeforeStart === 0 ? 'Inmediato' : settings.minMessagesBeforeStart}
                     </span>
                   </div>
@@ -370,7 +370,7 @@ export function ProactiveMessagesPanel({
                   <div className="space-y-2">
                     <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/30">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-fuchsia-400" />
                         <div>
                           <span className="text-xs font-medium">Inactividad del usuario</span>
                           <p className="text-[10px] text-muted-foreground">El chat está abierto pero no hay mensajes nuevos</p>
@@ -389,7 +389,7 @@ export function ProactiveMessagesPanel({
                     </div>
                     <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-border/30">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-violet-400" />
                         <div>
                           <span className="text-xs font-medium">Usuario fuera de la pestaña</span>
                           <p className="text-[10px] text-muted-foreground">El usuario cambió a otra pestaña o ventana del navegador</p>
@@ -479,12 +479,12 @@ export function ProactiveMessagesPanel({
             </Card>
 
             {/* ─── Attribute-driven conditional proactive (FASE 11) ─── */}
-            <Card className="border-amber-500/30">
+            <Card className="border-fuchsia-500/30">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-sm flex items-center gap-2">
-                      <Layers className="w-4 h-4 text-amber-500" />
+                      <Layers className="w-4 h-4 text-fuchsia-500" />
                       Proactivo Condicional por Atributo
                     </CardTitle>
                     <CardDescription className="mt-1">
@@ -504,9 +504,9 @@ export function ProactiveMessagesPanel({
               {ensureProactiveAttribute().enabled ? (
                 <CardContent className="space-y-4">
                   {/* Explainer */}
-                  <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 space-y-2">
+                  <div className="p-3 rounded-lg bg-fuchsia-500/5 border border-fuchsia-500/20 space-y-2">
                     <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-                      <Zap className="w-3 h-3 text-amber-500 mt-0.5 shrink-0" />
+                      <Zap className="w-3 h-3 text-fuchsia-500 mt-0.5 shrink-0" />
                       <span>
                         <strong>Flujo:</strong> 1) Lee el atributo configurado del personaje →
                         2) Evalúa las condiciones en orden de prioridad (mayor primero) →
@@ -708,9 +708,9 @@ export function ProactiveMessagesPanel({
                             </div>
 
                             {/* Cases list */}
-                            <div className="space-y-2 pl-2 border-l-2 border-amber-500/20">
+                            <div className="space-y-2 pl-2 border-l-2 border-fuchsia-500/20">
                               <div className="flex items-center justify-between">
-                                <Label className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                                <Label className="text-[11px] font-medium text-fuchsia-600 dark:text-fuchsia-400">
                                   Casos ({cond.cases.length})
                                 </Label>
                                 <Button
@@ -933,7 +933,7 @@ export function ProactiveMessagesPanel({
                         </SelectItem>
                         <SelectItem value="mentioned_only">
                           <div className="flex items-center gap-2">
-                            <Brain className="w-3 h-3 text-amber-400" />
+                            <Brain className="w-3 h-3 text-fuchsia-400" />
                             <span>Solo si es mencionado</span>
                           </div>
                         </SelectItem>
@@ -1122,7 +1122,7 @@ export function ProactiveMessagesPanel({
                   { var: '{{outlet::*}}', desc: 'Secciones del Lorebook' },
                 ].map(item => (
                   <div key={item.var} className="flex items-start gap-1.5 p-1.5 rounded bg-muted/30">
-                    <code className="text-[10px] font-mono text-amber-500 bg-amber-500/10 px-1 py-0.5 rounded shrink-0">{item.var}</code>
+                    <code className="text-[10px] font-mono text-fuchsia-500 bg-fuchsia-500/10 px-1 py-0.5 rounded shrink-0">{item.var}</code>
                     <span className="text-[10px] text-muted-foreground leading-tight">{item.desc}</span>
                   </div>
                 ))}
@@ -1137,12 +1137,12 @@ export function ProactiveMessagesPanel({
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <Clock className="w-4 h-4 mx-auto text-amber-500 mb-1" />
+                  <Clock className="w-4 h-4 mx-auto text-fuchsia-500 mb-1" />
                   <p className="text-lg font-bold">{formatInterval(settings.intervalSeconds)}</p>
                   <p className="text-[10px] text-muted-foreground">Intervalo</p>
                 </div>
                 <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <MessageCircle className="w-4 h-4 mx-auto text-blue-500 mb-1" />
+                  <MessageCircle className="w-4 h-4 mx-auto text-violet-500 mb-1" />
                   <p className="text-lg font-bold">{settings.minMessagesBeforeStart === 0 ? '0' : settings.minMessagesBeforeStart}</p>
                   <p className="text-[10px] text-muted-foreground">Mensajes mín.</p>
                 </div>
@@ -1163,7 +1163,7 @@ export function ProactiveMessagesPanel({
               {/* Proactive Attribute summary row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
                 <div className="p-2.5 rounded-md bg-muted/30 text-center">
-                  <Layers className="w-4 h-4 mx-auto text-amber-500 mb-1" />
+                  <Layers className="w-4 h-4 mx-auto text-fuchsia-500 mb-1" />
                   <p className="text-lg font-bold">{ensureProactiveAttribute().enabled ? 'Sí' : 'No'}</p>
                   <p className="text-[10px] text-muted-foreground">Por Atributo</p>
                 </div>
@@ -1186,12 +1186,12 @@ export function ProactiveMessagesPanel({
             </div>
 
             {/* ─── Important Notes ─── */}
-            <div className="p-3 bg-amber-500/10 rounded-lg border border-amber-500/20 text-xs space-y-1.5">
-              <p className="font-medium text-amber-300 flex items-center gap-1.5">
+            <div className="p-3 bg-fuchsia-500/10 rounded-lg border border-fuchsia-500/20 text-xs space-y-1.5">
+              <p className="font-medium text-fuchsia-300 flex items-center gap-1.5">
                 <Sparkles className="w-3 h-3" />
                 Notas importantes
               </p>
-              <ul className="space-y-1 ml-4 list-disc text-amber-200/60">
+              <ul className="space-y-1 ml-4 list-disc text-fuchsia-200/60">
                 <li>El temporizador se reinicia con <strong>cualquier mensaje nuevo</strong> (usuario o personaje)</li>
                 <li>Los mensajes proactivos <strong>no se envían</strong> durante la generación de una respuesta</li>
                 {settings.groupChatEnabled ? (

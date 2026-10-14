@@ -145,9 +145,9 @@ export function LegacyMigrationPanel({ character, onChange }: LegacyMigrationPan
   return (
     <div className="space-y-4">
       {/* Header alert */}
-      <Alert className="border-amber-500/30 bg-amber-500/5">
-        <AlertTriangle className="h-4 w-4 text-amber-500" />
-        <AlertTitle className="text-amber-700 dark:text-amber-400">
+      <Alert className="border-fuchsia-500/30 bg-fuchsia-500/5">
+        <AlertTriangle className="h-4 w-4 text-fuchsia-500" />
+        <AlertTitle className="text-fuchsia-700 dark:text-fuchsia-400">
           Datos Legacy Detectados
         </AlertTitle>
         <AlertDescription className="text-sm">
@@ -197,7 +197,7 @@ export function LegacyMigrationPanel({ character, onChange }: LegacyMigrationPan
         <AccordionItem value="items">
           <AccordionTrigger className="text-sm py-2">
             <div className="flex items-center gap-2">
-              <Database className="w-4 h-4 text-amber-500" />
+              <Database className="w-4 h-4 text-fuchsia-500" />
               <span>Elementos Pendientes ({status.migrationItems.length})</span>
             </div>
           </AccordionTrigger>
@@ -235,7 +235,7 @@ export function LegacyMigrationPanel({ character, onChange }: LegacyMigrationPan
         <AccordionItem value="preview">
           <AccordionTrigger className="text-sm py-2">
             <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 text-blue-500" />
+              <Info className="w-4 h-4 text-violet-500" />
               <span>Vista Previa de Migración</span>
             </div>
           </AccordionTrigger>
@@ -272,11 +272,11 @@ export function LegacyMigrationPanel({ character, onChange }: LegacyMigrationPan
                   </div>
                   {previewResult.warnings.length > 0 && (
                     <div className="mt-2">
-                      <div className="font-medium text-amber-600">Advertencias:</div>
+                      <div className="font-medium text-fuchsia-600">Advertencias:</div>
                       <ScrollArea className="max-h-24">
                         <ul className="list-disc pl-4 space-y-0.5">
                           {previewResult.warnings.map((w, i) => (
-                            <li key={i} className="text-amber-600">{w}</li>
+                            <li key={i} className="text-fuchsia-600">{w}</li>
                           ))}
                         </ul>
                       </ScrollArea>
@@ -336,7 +336,7 @@ export function LegacyMigrationPanel({ character, onChange }: LegacyMigrationPan
                 <ScrollArea className="max-h-24">
                   <ul className="text-xs space-y-0.5">
                     {migrationResult.warnings.map((w, i) => (
-                      <li key={i} className="text-amber-600">⚠️ {w}</li>
+                      <li key={i} className="text-fuchsia-600">⚠️ {w}</li>
                     ))}
                   </ul>
                 </ScrollArea>
@@ -415,7 +415,7 @@ function StatusCard({
 }) {
   const colorMap = {
     success: 'text-emerald-600 dark:text-emerald-400',
-    warning: 'text-amber-600 dark:text-amber-400',
+    warning: 'text-fuchsia-600 dark:text-fuchsia-400',
     neutral: 'text-muted-foreground',
   };
 
@@ -431,15 +431,15 @@ function StatusCard({
 function MigrationItemIcon({ type }: { type: string }) {
   switch (type) {
     case 'sprites':
-      return <Database className="w-4 h-4 text-amber-500" />;
+      return <Database className="w-4 h-4 text-fuchsia-500" />;
     case 'triggers':
-      return <Zap className="w-4 h-4 text-amber-500" />;
+      return <Zap className="w-4 h-4 text-fuchsia-500" />;
     case 'stateCollections':
-      return <Layers className="w-4 h-4 text-amber-500" />;
+      return <Layers className="w-4 h-4 text-fuchsia-500" />;
     case 'configUrls':
-      return <Database className="w-4 h-4 text-amber-500" />;
+      return <Database className="w-4 h-4 text-fuchsia-500" />;
     case 'legacyPacks':
-      return <Package className="w-4 h-4 text-orange-500" />;
+      return <Package className="w-4 h-4 text-violet-500" />;
     default:
       return <Info className="w-4 h-4 text-muted-foreground" />;
   }

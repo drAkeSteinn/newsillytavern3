@@ -99,10 +99,15 @@ export interface KeyResolutionContext {
     inventorySettings: InventoryV2Settings;
   };
 
-  // Group chat context (ESCENARIO V2): when the group has its own scenarioConfig,
-  // the {{escenario}} key resolves against the GROUP's locations instead of the
-  // character's ones (group scenario replaces member scenarios).
-  group?: { scenarioConfig?: import('@/types').ScenarioConfig } | null;
+  // Group chat context (ESCENARIO V2/V3): when the group has its own scenarioConfig
+  // or scenarioIds, the {{escenario}} key resolves against the GROUP's locations
+  // instead of the character's ones (group scenario replaces member scenarios).
+  group?: { scenarioConfig?: import('@/types').ScenarioConfig; scenarioIds?: string[]; id?: string; name?: string } | null;
+
+  // ESCENARIO V3: App-level Scenario Library (collections referenced by
+  // character.scenarioIds / group.scenarioIds). Set by the chat routes from the
+  // request body. When empty the legacy scenarioConfig fallback is used.
+  scenarios?: import('@/types').ScenarioDefinition[];
 }
 
 // ============================================
@@ -301,16 +306,29 @@ export function resolveEventKeys(
   }
 
   // {{relacion}} / {{relacion_etapa}} — bond between the current character and the user
+  // Custom per-character bond stage labels (relationshipStageLabels) override the defaults.
+  const charStageLabels = context.character?.relationshipStageLabels;
   const bondSource = sessionStats?.relationships
-    ? getRelationship(sessionStats.relationships, characterId || '__char__', '__user__')
+    ? getRelationship(sessionStats.relationships, characterId || '__char__', '__user__', charStageLabels)
     : null;
   const bondPoints = bondSource?.points
     ?? (typeof (sessionStats?.characterStats?.[characterId || '']?.attributeValues as Record<string, unknown> | undefined)?.['relacion'] === 'number'
       ? (sessionStats.characterStats[characterId || ''].attributeValues['relacion'] as number)
       : DEFAULT_RELATIONSHIP_POINTS);
-  const bondStage = bondSource?.stage ?? computeRelationshipStage(bondPoints);
+  const bondStage = bondSource?.stage ?? computeRelationshipStage(bondPoints, charStageLabels);
   result = result.replace(/\{\{relacion\}\}/gi, String(bondPoints));
   result = result.replace(/\{\{relacion_etapa\}\}/gi, bondStage.label);
+
+  // {{estado}} — current emotional state of the character (FASE 5).
+  // Injects the evaluated emotional state wherever the user places the key
+  // (card sections, lorebook entries, system prompt templates...).
+  // Resolves to empty string when the emotional system is off or no state exists.
+  {
+    const emotionalState = sessionStats?.characterStats?.[characterId || '']?.emotionalState;
+    result = result.replace(/\{\{estado\}\}/gi, emotionalState || '');
+    // Legacy single-brace alias ({estado}) — kept for pre-existing cards/lorebooks.
+    result = result.replace(/\{estado\}/g, emotionalState || '');
+  }
 
   // {{hora}} / {{momento}} / {{dia}} / {{estacion}} / {{tiempo_mundo}} — world clock
   const worldClock = sessionStats?.worldClock;
@@ -857,7 +875,9 @@ export function resolveScenarioKeyInText(
   const scenarioContent = resolveScenarioKey(
     context.character,
     context.sessionStats,
-    context.group
+    context.group,
+    context.scenarios,
+    context.user
   );
 
   return text.replace(/\{\{escenario\}\}/gi, scenarioContent);

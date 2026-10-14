@@ -114,7 +114,7 @@ export function WardrobeEditor({ config, onChange }: WardrobeEditorProps) {
       {/* Header with enable switch */}
       <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
         <div className="flex items-center gap-2">
-          <Shirt className="w-4 h-4 text-amber-500" />
+          <Shirt className="w-4 h-4 text-fuchsia-500" />
           <span className="font-medium text-sm">Guardarropa</span>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -139,10 +139,10 @@ export function WardrobeEditor({ config, onChange }: WardrobeEditorProps) {
 
       {/* Warnings */}
       {wardrobeConfig.enabled && !hasOutfits && (
-        <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-xs">
-          <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 text-xs">
+          <AlertCircle className="w-4 h-4 text-fuchsia-500 shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-amber-500">El guardarropa está vacío</p>
+            <p className="font-medium text-fuchsia-500">El guardarropa está vacío</p>
             <p className="text-muted-foreground mt-0.5">
               Agrega al menos un vestuario (outfit) para que el personaje pueda usarlo.
             </p>
@@ -150,10 +150,10 @@ export function WardrobeEditor({ config, onChange }: WardrobeEditorProps) {
         </div>
       )}
       {wardrobeConfig.enabled && hasOutfits && !hasDefault && (
-        <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-xs">
-          <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 text-xs">
+          <AlertCircle className="w-4 h-4 text-fuchsia-500 shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-amber-500">Sin outfit predeterminado</p>
+            <p className="font-medium text-fuchsia-500">Sin outfit predeterminado</p>
             <p className="text-muted-foreground mt-0.5">
               Marca un outfit con la estrella ⭐: será el que el personaje lleve puesto al iniciar la sesión
               y al quitarse la ropa. (Si no hay, se usa el primero de la lista).
@@ -259,7 +259,7 @@ function WardrobeOutfitEditor({
   return (
     <div className={cn(
       'border rounded-lg bg-muted/30',
-      outfit.isDefault && 'border-amber-500/40 bg-amber-500/5'
+      outfit.isDefault && 'border-fuchsia-500/40 bg-fuchsia-500/5'
     )}>
       {/* Header */}
       <div
@@ -268,7 +268,7 @@ function WardrobeOutfitEditor({
       >
         <div className="flex items-center gap-2 min-w-0">
           {outfit.isDefault ? (
-            <Star className="w-4 h-4 text-amber-500 fill-amber-500 shrink-0" />
+            <Star className="w-4 h-4 text-fuchsia-500 fill-fuchsia-500 shrink-0" />
           ) : (
             <Shirt className="w-4 h-4 text-muted-foreground shrink-0" />
           )}
@@ -276,7 +276,7 @@ function WardrobeOutfitEditor({
             {outfit.name || namePlaceholder}
           </span>
           {outfit.isDefault && (
-            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-500 shrink-0">
+            <Badge variant="outline" className="text-[10px] border-fuchsia-500/40 text-fuchsia-500 shrink-0">
               Predeterminado
             </Badge>
           )}
@@ -292,11 +292,11 @@ function WardrobeOutfitEditor({
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn('h-7 w-7', outfit.isDefault && 'text-amber-500')}
+                className={cn('h-7 w-7', outfit.isDefault && 'text-fuchsia-500')}
                 onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
                 disabled={outfit.isDefault}
               >
-                <Star className={cn('w-3.5 h-3.5', outfit.isDefault && 'fill-amber-500')} />
+                <Star className={cn('w-3.5 h-3.5', outfit.isDefault && 'fill-fuchsia-500')} />
               </Button>
             </TooltipTrigger>
             <TooltipContent className="text-xs">

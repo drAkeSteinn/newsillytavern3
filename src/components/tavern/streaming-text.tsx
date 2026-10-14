@@ -143,7 +143,7 @@ function parseAndFormat(text: string, isUser: boolean): React.ReactNode[] {
             "font-medium",
             isUser 
               ? "text-yellow-200" 
-              : "text-amber-600 dark:text-amber-400"
+              : "text-fuchsia-600 dark:text-fuchsia-400"
           )}>
             "{dialogueContent}"
           </span>
@@ -168,7 +168,7 @@ function parseAndFormat(text: string, isUser: boolean): React.ReactNode[] {
             "font-medium",
             isUser 
               ? "text-yellow-200" 
-              : "text-amber-600 dark:text-amber-400"
+              : "text-fuchsia-600 dark:text-fuchsia-400"
           )}>
             «{dialogueContent}»
           </span>
@@ -225,7 +225,7 @@ function parseAndFormat(text: string, isUser: boolean): React.ReactNode[] {
 const StreamingCursor = memo(function StreamingCursor() {
   return (
     <span 
-      className="inline-block w-2 h-5 bg-amber-500 dark:bg-amber-400 ml-0.5 align-middle animate-cursor-blink"
+      className="inline-block w-2 h-5 bg-fuchsia-500 dark:bg-fuchsia-400 ml-0.5 align-middle animate-cursor-blink"
     />
   );
 });

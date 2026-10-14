@@ -1,0 +1,39 @@
+[
+  {
+    "id": "9c1e5332-6f47-40ba-b0db-96b3bdfa20e8",
+    "name": "Departamento",
+    "enabled": true,
+    "places": [
+      {
+        "id": "c92da61c-2cd1-4288-ae06-f8e3339b956c",
+        "name": "Cuarto",
+        "spots": [
+          {
+            "id": "59f6f4a7-2533-4668-99e1-345244413b78",
+            "name": "Cama",
+            "backgroundUrl": "/backgrounds/Room/Room (4).png",
+            "description": "Cama con sabana negra y cobija rojas"
+          },
+          {
+            "id": "61e98340-cb77-46b2-b204-1ae09d362d2b",
+            "name": "Escritorio",
+            "description": "Ecritorio gamer",
+            "backgroundUrl": "/backgrounds/Room/Room (5).png"
+          },
+          {
+            "id": "927377f9-5a08-411a-89cf-fdc36c0df2cf",
+            "name": "Sofa",
+            "description": "Sofa grande de piel",
+            "backgroundUrl": "/backgrounds/Room/Room (1).png"
+          }
+        ],
+        "backgroundUrl": "/backgrounds/Room/Room (3).png"
+      }
+    ],
+    "createdAt": "2026-10-13T09:07:50.741Z",
+    "updatedAt": "2026-10-13T09:10:07.081Z",
+    "defaultBackgroundUrl": "/backgrounds/Room/00105abc-65a8-4cfd-98bb-a71e3a-1791882415130-hvmdqw.png",
+    "defaultPlaceId": "c92da61c-2cd1-4288-ae06-f8e3339b956c",
+    "description": "Departamento gotico"
+  }
+]

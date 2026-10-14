@@ -1,0 +1,735 @@
+     1→'use client';
+     2→
+     3→import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+     4→import { cn } from '@/lib/utils';
+     5→import { Settings, RotateCcw, Timer } from 'lucide-react';
+     6→import { Button } from '@/components/ui/button';
+     7→import { Slider } from '@/components/ui/slider';
+     8→import { Badge } from '@/components/ui/badge';
+     9→import {
+    10→  Popover,
+    11→  PopoverContent,
+    12→  PopoverTrigger,
+    13→} from '@/components/ui/popover';
+    14→import type { CharacterCard, SpriteState, SpritePackV2, StateCollectionV2, SpriteTransitionConfig } from '@/types';
+    15→import { SpritePreview } from './sprite-preview';
+    16→import { SpriteTransitionWrapper } from './sprite-transition-wrapper';
+    17→import { useTavernStore } from '@/store';
+    18→
+    19→// ============================================
+    20→// Sprite List Rotation Tracker (shared with character-sprite.tsx)
+    21→// Tracks rotation indices per character per state
+    22→// ============================================
+    23→const _spriteRotationIndex = new Map<string, Map<SpriteState, number>>();
+    24→
+    25→function getRotationIndex(characterId: string, state: SpriteState): number {
+    26→  let charMap = _spriteRotationIndex.get(characterId);
+    27→  if (!charMap) {
+    28→    charMap = new Map<SpriteState, number>();
+    29→    _spriteRotationIndex.set(characterId, charMap);
+    30→  }
+    31→  return charMap.get(state) ?? 0;
+    32→}
+    33→
+    34→function advanceRotationIndex(characterId: string, state: SpriteState): number {
+    35→  let charMap = _spriteRotationIndex.get(characterId);
+    36→  if (!charMap) {
+    37→    charMap = new Map<SpriteState, number>();
+    38→    _spriteRotationIndex.set(characterId, charMap);
+    39→  }
+    40→  const current = charMap.get(state) ?? 0;
+    41→  const next = current + 1;
+    42→  charMap.set(state, next);
+    43→  return next;
+    44→}
+    45→
+    46→// Get sprite from State Collection V2 (uses sprite packs)
+    47→function getSpriteFromStateCollectionV2(
+    48→  state: SpriteState,
+    49→  stateCollectionsV2: StateCollectionV2[],
+    50→  spritePacksV2: SpritePackV2[],
+    51→  characterId: string
+    52→): { url: string | null; label: string | null } {
+    53→  const stateCollection = stateCollectionsV2.find(c => c.state === state);
+    54→  if (!stateCollection) return { url: null, label: null };
+    55→  
+    56→  const pack = spritePacksV2.find(p => p.id === stateCollection.packId);
+    57→  if (!pack || pack.sprites.length === 0) return { url: null, label: null };
+    58→  
+    59→  switch (stateCollection.behavior) {
+    60→    case 'principal':
+    61→      if (stateCollection.principalSpriteId) {
+    62→        const principal = pack.sprites.find(s => s.id === stateCollection.principalSpriteId);
+    63→        if (principal) return { url: principal.url, label: principal.label };
+    64→      }
+    65→      return { url: pack.sprites[0].url, label: pack.sprites[0].label };
+    66→    
+    67→    case 'random': {
+    68→      const randomIndex = Math.floor(Math.random() * pack.sprites.length);
+    69→      const randomSprite = pack.sprites[randomIndex];
+    70→      return { url: randomSprite.url, label: randomSprite.label };
+    71→    }
+    72→    
+    73→    case 'list': {
+    74→      const index = getRotationIndex(characterId, state);
+    75→      const safeIndex = index % pack.sprites.length;
+    76→      const listSprite = pack.sprites[safeIndex];
+    77→      return { url: listSprite.url, label: listSprite.label };
+    78→    }
+    79→    
+    80→    default:
+    81→      return { url: pack.sprites[0].url, label: pack.sprites[0].label };
+    82→  }
+    83→}
+    84→
+    85→// Format milliseconds to readable time
+    86→function formatTime(ms: number): string {
+    87→  if (ms <= 0) return '0s';
+    88→  const seconds = Math.floor(ms / 1000);
+    89→  if (seconds < 60) return `${seconds}s`;
+    90→  const minutes = Math.floor(seconds / 60);
+    91→  const remainingSeconds = seconds % 60;
+    92→  return `${minutes}m ${remainingSeconds}s`;
+    93→}
+    94→
+    95→interface GroupSpritesProps {
+    96→  characters: CharacterCard[];
+    97→  activeCharacterId: string | null;
+    98→  isStreaming: boolean;
+    99→  isTTSPlaying?: boolean;
+   100→  maxVisible?: number;
+   101→  activeGroup?: {
+   102→    members?: Array<{
+   103→      characterId: string;
+   104→      isNarrator?: boolean;
+   105→    }>;
+   106→    narratorSettings?: {
+   107→      showSprite?: boolean;
+   108→    };
+   109→  } | null;
+   110→}
+   111→
+   112→interface SpritePosition {
+   113→  x: number;
+   114→  y: number;
+   115→  width: number;
+   116→  height: number;
+   117→}
+   118→
+   119→interface GroupSpriteSettings {
+   120→  activeOpacity: number;
+   121→  inactiveOpacity: number;
+   122→  showAllEqually: boolean;
+   123→  globalOpacity: number;
+   124→  grayscaleInactive: boolean;
+   125→}
+   126→
+   127→interface SavedPositions {
+   128→  [characterId: string]: SpritePosition;
+   129→}
+   130→
+   131→const DEFAULT_SPRITE: SpritePosition = {
+   132→  x: 50,
+   133→  y: 0,
+   134→  width: 30,
+   135→  height: 60,
+   136→};
+   137→
+   138→const DEFAULT_SETTINGS: GroupSpriteSettings = {
+   139→  activeOpacity: 1,
+   140→  inactiveOpacity: 0.4,
+   141→  showAllEqually: true,
+   142→  globalOpacity: 0.9,
+   143→  grayscaleInactive: true,
+   144→};
+   145→
+   146→const STORAGE_KEY = 'group-sprite-settings';
+   147→const POSITIONS_KEY = 'group-sprite-positions';
+   148→
+   149→// Get the appropriate sprite URL based on state and config
+   150→// Priority: V2 State Collections > Avatar (legacy system removed)
+   151→function getSpriteUrl(
+   152→  state: SpriteState,
+   153→  character?: CharacterCard,
+   154→  characterId?: string
+   155→): { url: string; label: string | null } {
+   156→  const charId = characterId || character?.id || '';
+   157→  // Check for non-empty arrays (empty arrays should not be considered as "configured")
+   158→  const hasV2Collections = character?.stateCollectionsV2 && character.stateCollectionsV2.length > 0;
+   159→  const hasV2Packs = character?.spritePacksV2 && character.spritePacksV2.length > 0;
+   160→  
+   161→  // Try V2 state collections (new system)
+   162→  if (hasV2Collections && hasV2Packs) {
+   163→    const v2Result = getSpriteFromStateCollectionV2(
+   164→      state,
+   165→      character.stateCollectionsV2,
+   166→      character.spritePacksV2,
+   167→      charId
+   168→    );
+   169→    if (v2Result.url) {
+   170→      return v2Result;
+   171→    }
+   172→  }
+   173→
+   174→  // Additional fallbacks for talk and thinking states - try V2 idle collection
+   175→  if (state === 'talk' || state === 'thinking') {
+   176→    if (hasV2Collections && hasV2Packs) {
+   177→      const v2IdleResult = getSpriteFromStateCollectionV2(
+   178→        'idle',
+   179→        character!.stateCollectionsV2,
+   180→        character!.spritePacksV2,
+   181→        charId
+   182→      );
+   183→      if (v2IdleResult.url) {
+   184→        return v2IdleResult;
+   185→      }
+   186→    }
+   187→  }
+   188→
+   189→  // Final fallback to avatar
+   190→  if (character?.avatar) {
+   191→    return { url: character.avatar, label: 'avatar' };
+   192→  }
+   193→
+   194→  return { url: '', label: null };
+   195→}
+   196→
+   197→export function GroupSprites({
+   198→  characters,
+   199→  activeCharacterId,
+   200→  isStreaming,
+   201→  isTTSPlaying = false,
+   202→  maxVisible = 3,
+   203→  activeGroup,
+   204→}: GroupSpritesProps) {
+   205→  const [settings, setSettings] = useState<GroupSpriteSettings>(() => {
+   206→    if (typeof window !== 'undefined') {
+   207→      const saved = localStorage.getItem(STORAGE_KEY);
+   208→      if (saved) {
+   209→        try {
+   210→          return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+   211→        } catch {
+   212→          return DEFAULT_SETTINGS;
+   213→        }
+   214→      }
+   215→    }
+   216→    return DEFAULT_SETTINGS;
+   217→  });
+   218→
+   219→  const [positions, setPositions] = useState<SavedPositions>(() => {
+   220→    if (typeof window !== 'undefined') {
+   221→      const saved = localStorage.getItem(POSITIONS_KEY);
+   222→      if (saved) {
+   223→        try {
+   224→          return JSON.parse(saved);
+   225→        } catch {
+   226→          return {};
+   227→        }
+   228→      }
+   229→    }
+   230→    return {};
+   231→  });
+   232→
+   233→  // Track which sprite is being interacted with
+   234→  const [draggingId, setDraggingId] = useState<string | null>(null);
+   235→  const [resizingId, setResizingId] = useState<string | null>(null);
+   236→  const [hoveredId, setHoveredId] = useState<string | null>(null);
+   237→  
+   238→  // Countdowns per character (read from store periodically)
+   239→  const [countdowns, setCountdowns] = useState<Map<string, number>>(new Map());
+   240→
+   241→  const containerRef = useRef<HTMLDivElement>(null);
+   242→  const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
+   243→  const resizeStartRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
+   244→
+   245→  // ============================================
+   246→  // UNIFIED SYSTEM: Use store for per-character sprite state
+   247→  // ============================================
+   248→  const store = useTavernStore();
+   249→
+   250→  // Save to localStorage
+   251→  useEffect(() => {
+   252→    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+   253→  }, [settings]);
+   254→
+   255→  useEffect(() => {
+   256→    localStorage.setItem(POSITIONS_KEY, JSON.stringify(positions));
+   257→  }, [positions]);
+   258→
+   259→  // Update countdowns every 1000ms for all characters
+   260→  // PERF FIX: Changed from 100ms to 1000ms — countdowns are in seconds, so 1Hz is
+   261→  // sufficient and avoids 10 state updates per second per group character.
+   262→  useEffect(() => {
+   263→    const interval = setInterval(() => {
+   264→      const newCountdowns = new Map<string, number>();
+   265→
+   266→      characters.forEach(character => {
+   267→        const remaining = store.getReturnToIdleCountdownForCharacter(character.id);
+   268→        if (remaining > 0) {
+   269→          newCountdowns.set(character.id, remaining);
+   270→        }
+   271→      });
+   272→
+   273→      setCountdowns(newCountdowns);
+   274→    }, 1000);
+   275→
+   276→    return () => clearInterval(interval);
+   277→  }, [characters, store]);
+   278→
+   279→  // Get position for a character
+   280→  const getCharacterPosition = useCallback((character: CharacterCard, index: number, total: number): SpritePosition => {
+   281→    if (positions[character.id]) {
+   282→      return positions[character.id];
+   283→    }
+   284→    if (total === 1) {
+   285→      return { ...DEFAULT_SPRITE, x: 50 };
+   286→    } else if (total === 2) {
+   287→      return { ...DEFAULT_SPRITE, x: index === 0 ? 25 : 75 };
+   288→    } else {
+   289→      const spacing = 70 / (total - 1);
+   290→      return { ...DEFAULT_SPRITE, x: 15 + (spacing * index) };
+   291→    }
+   292→  }, [positions]);
+   293→
+   294→  // Update position
+   295→  const updatePosition = useCallback((characterId: string, updates: Partial<SpritePosition>) => {
+   296→    setPositions(prev => {
+   297→      const current = prev[characterId] || DEFAULT_SPRITE;
+   298→      return {
+   299→        ...prev,
+   300→        [characterId]: { ...current, ...updates }
+   301→      };
+   302→    });
+   303→  }, []);
+   304→
+   305→  // Drag handlers
+   306→  const handleDragStart = (e: React.MouseEvent, characterId: string) => {
+   307→    if (resizingId) return;
+   308→    const target = e.target as HTMLElement;
+   309→    if (target.closest('.sprite-controls')) return;
+   310→    
+   311→    e.preventDefault();
+   312→    e.stopPropagation();
+   313→    const pos = positions[characterId] || DEFAULT_SPRITE;
+   314→    setDraggingId(characterId);
+   315→    dragStartRef.current = {
+   316→      x: e.clientX,
+   317→      y: e.clientY,
+   318→      posX: pos.x,
+   319→      posY: pos.y
+   320→    };
+   321→  };
+   322→
+   323→  useEffect(() => {
+   324→    if (!draggingId) return;
+   325→
+   326→    const handleMouseMove = (e: MouseEvent) => {
+   327→      const container = containerRef.current;
+   328→      if (!container) return;
+   329→
+   330→      const rect = container.getBoundingClientRect();
+   331→      const deltaX = ((e.clientX - dragStartRef.current.x) / rect.width) * 100;
+   332→      const deltaY = ((e.clientY - dragStartRef.current.y) / rect.height) * 100;
+   333→
+   334→      const currentPos = positions[draggingId] || DEFAULT_SPRITE;
+   335→      let newX = dragStartRef.current.posX + deltaX;
+   336→      let newY = dragStartRef.current.posY - deltaY;
+   337→
+   338→      const halfWidth = currentPos.width / 2;
+   339→      newX = Math.max(halfWidth, Math.min(100 - halfWidth, newX));
+   340→      newY = Math.max(0, Math.min(100 - currentPos.height, newY));
+   341→
+   342→      updatePosition(draggingId, { x: newX, y: newY });
+   343→    };
+   344→
+   345→    const handleMouseUp = () => {
+   346→      setDraggingId(null);
+   347→    };
+   348→
+   349→    document.addEventListener('mousemove', handleMouseMove);
+   350→    document.addEventListener('mouseup', handleMouseUp);
+   351→
+   352→    return () => {
+   353→      document.removeEventListener('mousemove', handleMouseMove);
+   354→      document.removeEventListener('mouseup', handleMouseUp);
+   355→    };
+   356→  }, [draggingId, positions, updatePosition]);
+   357→
+   358→  // Resize handlers
+   359→  const handleResizeStart = (e: React.MouseEvent, characterId: string) => {
+   360→    e.preventDefault();
+   361→    e.stopPropagation();
+   362→    const pos = positions[characterId] || DEFAULT_SPRITE;
+   363→    setResizingId(characterId);
+   364→    resizeStartRef.current = {
+   365→      x: e.clientX,
+   366→      y: e.clientY,
+   367→      width: pos.width,
+   368→      height: pos.height
+   369→    };
+   370→  };
+   371→
+   372→  useEffect(() => {
+   373→    if (!resizingId) return;
+   374→
+   375→    const handleMouseMove = (e: MouseEvent) => {
+   376→      const container = containerRef.current;
+   377→      if (!container) return;
+   378→
+   379→      const rect = container.getBoundingClientRect();
+   380→      const deltaX = ((e.clientX - resizeStartRef.current.x) / rect.width) * 100;
+   381→      const deltaY = ((e.clientY - resizeStartRef.current.y) / rect.height) * 100;
+   382→
+   383→      let newWidth = Math.max(15, Math.min(50, resizeStartRef.current.width - deltaX * 2));
+   384→      let newHeight = Math.max(20, Math.min(80, resizeStartRef.current.height - deltaY * 2));
+   385→
+   386→      updatePosition(resizingId, { width: newWidth, height: newHeight });
+   387→    };
+   388→
+   389→    const handleMouseUp = () => {
+   390→      setResizingId(null);
+   391→    };
+   392→
+   393→    document.addEventListener('mousemove', handleMouseMove);
+   394→    document.addEventListener('mouseup', handleMouseUp);
+   395→
+   396→    return () => {
+   397→      document.removeEventListener('mousemove', handleMouseMove);
+   398→      document.removeEventListener('mouseup', handleMouseUp);
+   399→    };
+   400→  }, [resizingId, updatePosition]);
+   401→
+   402→  const resetPositions = () => setPositions({});
+   403→  const resetSettings = () => setSettings(DEFAULT_SETTINGS);
+   404→
+   405→  // Filter out narrator characters if showSprite is false
+   406→  const filteredCharacters = useMemo(() => {
+   407→    if (!activeGroup?.narratorSettings?.showSprite) {
+   408→      // Find narrator character IDs
+   409→      const narratorIds = new Set(
+   410→        (activeGroup?.members || [])
+   411→          .filter(m => m.isNarrator)
+   412→          .map(m => m.characterId)
+   413→      );
+   414→      // Filter out narrators
+   415→      return characters.filter(c => !narratorIds.has(c.id));
+   416→    }
+   417→    return characters;
+   418→  }, [characters, activeGroup]);
+   419→
+   420→  // Determine display mode
+   421→  const displayMode = filteredCharacters.length <= maxVisible ? 'multi' : 'single';
+   422→  const visibleCharacters = displayMode === 'multi'
+   423→    ? filteredCharacters
+   424→    : (filteredCharacters.find(c => c.id === activeCharacterId) ? [filteredCharacters.find(c => c.id === activeCharacterId)!] : filteredCharacters.slice(0, 1));
+   425→
+   426→  // ============================================
+   427→  // LIST MODE ROTATION: Track state transitions per character
+   428→  // ============================================
+   429→  const prevStreamingActiveRef = useRef<string | null>(null);
+   430→  useEffect(() => {
+   431→    const prevActive = prevStreamingActiveRef.current;
+   432→    const currentActive = isStreaming ? activeCharacterId : null;
+   433→    prevStreamingActiveRef.current = currentActive;
+   434→
+   435→    // When a character STARTS streaming (talk), advance its rotation index if using list mode
+   436→    if (currentActive && currentActive !== prevActive) {
+   437→      const character = characters.find(c => c.id === currentActive);
+   438→      if (character) {
+   439→        const collection = character.stateCollectionsV2?.find(c => c.state === 'talk');
+   440→        if (collection?.behavior === 'list') {
+   441→          advanceRotationIndex(currentActive, 'talk');
+   442→        }
+   443→      }
+   444→    }
+   445→  }, [isStreaming, activeCharacterId, characters]);
+   446→
+   447→  return (
+   448→    <div ref={containerRef} className="absolute inset-0 z-5">
+   449→      {/* Sprites */}
+   450→      {visibleCharacters.map((character, index) => {
+   451→        const position = getCharacterPosition(character, index, visibleCharacters.length);
+   452→        const isActive = character.id === activeCharacterId;
+   453→        const isHovered = hoveredId === character.id;
+   454→        const isBeingDragged = draggingId === character.id;
+   455→        const isBeingResized = resizingId === character.id;
+   456→        const showControls = isHovered && !isBeingDragged;
+   457→
+   458→        // Calculate opacity
+   459→        let opacity = settings.globalOpacity;
+   460→        if (displayMode === 'single') {
+   461→          opacity *= settings.activeOpacity;
+   462→        } else {
+   463→          if (isStreaming) {
+   464→            opacity *= isActive ? settings.activeOpacity : settings.inactiveOpacity;
+   465→          } else if (settings.showAllEqually) {
+   466→            opacity *= settings.activeOpacity;
+   467→          } else {
+   468→            opacity *= settings.inactiveOpacity;
+   469→          }
+   470→        }
+   471→
+   472→        // ============================================
+   473→        // UNIFIED SYSTEM: Get sprite state from store
+   474→        // ============================================
+   475→        const charSpriteState = store.getCharacterSpriteState(character.id);
+   476→        
+   477→        // Determine sprite state:
+   478→        // Priority: Trigger > TTS Talk > Streaming Thinking > Idle
+   479→        const hasTriggerSprite = charSpriteState.triggerSpriteUrl;
+   480→        let spriteState: SpriteState;
+   481→        
+   482→        if (hasTriggerSprite) {
+   483→          spriteState = 'idle'; // Trigger active, use trigger sprite
+   484→        } else if (isTTSPlaying) {
+   485→          spriteState = 'talk'; // TTS playing → character is speaking
+   486→        } else if (isStreaming && isActive) {
+   487→          spriteState = 'thinking'; // Generating → thinking
+   488→        } else {
+   489→          spriteState = charSpriteState.spriteState || 'idle';
+   490→        }
+   491→        const countdown = countdowns.get(character.id) || 0;
+   492→        
+   493→        let spriteUrl: string;
+   494→        let spriteLabel: string | null = null;
+   495→        
+   496→        if (hasTriggerSprite) {
+   497→          // Use trigger sprite (highest priority)
+   498→          spriteUrl = charSpriteState.triggerSpriteUrl!;
+   499→          spriteLabel = charSpriteState.triggerSpriteLabel;
+   500→        } else {
+   501→          // Use state collection or fallback - pass full character for V2 support
+   502→          const spriteResult = getSpriteUrl(spriteState, character, character.id);
+   503→          spriteUrl = spriteResult.url;
+   504→          spriteLabel = spriteResult.label;
+   505→        }
+   506→
+   507→        // FASE 7: Determine active transition for this character
+   508→        const activeTransition: SpriteTransitionConfig | undefined = hasTriggerSprite
+   509→          ? (charSpriteState.triggerTransition ?? undefined)
+   510→          : (charSpriteState.defaultTransition ?? character.defaultTransition ?? undefined);
+   511→
+   512→        return (
+   513→          <div
+   514→            key={character.id}
+   515→            data-character-id={character.id}
+   516→            className={cn(
+   517→              "absolute select-none",
+   518→              isBeingDragged ? "cursor-grabbing" : "cursor-grab"
+   519→            )}
+   520→            style={{
+   521→              left: `${position.x}%`,
+   522→              bottom: `${position.y}%`,
+   523→              transform: 'translate(-50%, 0)',
+   524→              width: `${position.width}%`,
+   525→              height: `${position.height}%`,
+   526→              opacity,
+   527→              zIndex: isActive && isStreaming ? 10 : 5,
+   528→              filter: (isActive || !isStreaming || !settings.grayscaleInactive) ? 'none' : 'grayscale(20%)',
+   529→            }}
+   530→            onMouseDown={(e) => handleDragStart(e, character.id)}
+   531→            onMouseEnter={() => setHoveredId(character.id)}
+   532→            onMouseLeave={() => !isBeingDragged && setHoveredId(null)}
+   533→          >
+   534→            {/* The actual sprite image/video */}
+   535→            {spriteUrl ? (
+   536→              <SpriteTransitionWrapper
+   537→                src={spriteUrl}
+   538→                alt={character.name}
+   539→                transition={activeTransition}
+   540→                className="w-full h-full drop-shadow-2xl select-none pointer-events-none"
+   541→              />
+   542→            ) : (
+   543→              <div className="w-full h-full flex items-end justify-center">
+   544→                <div
+   545→                  className={cn(
+   546→                    "w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300",
+   547→                    isActive
+   548→                      ? "bg-gradient-to-br from-fuchsia-400 to-violet-600 shadow-lg"
+   549→                      : "bg-gradient-to-br from-gray-400 to-gray-600"
+   550→                  )}
+   551→                >
+   552→                  <span className="text-white font-bold text-2xl">
+   553→                    {character.name?.[0]?.toUpperCase() || '?'}
+   554→                  </span>
+   555→                </div>
+   556→              </div>
+   557→            )}
+   558→
+   559→            {/* Trigger countdown badge - per character */}
+   560→            {hasTriggerSprite && countdown > 0 && (
+   561→              <div className="sprite-controls absolute top-2 left-1/2 -translate-x-1/2 z-50">
+   562→                <Badge 
+   563→                  variant="secondary" 
+   564→                  className="bg-violet-500/90 text-white border-violet-400 gap-1.5 px-3 py-1 shadow-lg"
+   565→                >
+   566→                  <Timer className="h-3 w-3" />
+   567→                  <span className="text-xs font-medium">→ Idle: {formatTime(countdown)}</span>
+   568→                </Badge>
+   569→              </div>
+   570→            )}
+   571→
+   572→            {/* Glow effect for active character */}
+   573→            {isActive && isStreaming && (
+   574→              <div
+   575→                className="absolute inset-0 rounded-lg animate-pulse pointer-events-none"
+   576→                style={{
+   577→                  background: 'radial-gradient(ellipse at center bottom, rgba(251, 191, 36, 0.15) 0%, transparent 70%)',
+   578→                  animationDuration: '2s',
+   579→                }}
+   580→              />
+   581→            )}
+   582→
+   583→            {/* Border highlight for active character */}
+   584→            {isActive && isStreaming && (
+   585→              <div
+   586→                className="absolute inset-0 rounded-lg pointer-events-none"
+   587→                style={{
+   588→                  boxShadow: '0 0 25px 3px rgba(251, 191, 36, 0.4)',
+   589→                }}
+   590→              />
+   591→            )}
+   592→
+   593→            {/* Resize handle - top left corner */}
+   594→            {showControls && (
+   595→              <div
+   596→                className="sprite-controls absolute top-2 left-2 w-6 h-6 cursor-nwse-resize bg-background/80 backdrop-blur-sm rounded flex items-center justify-center hover:bg-background/90"
+   597→                onMouseDown={(e) => handleResizeStart(e, character.id)}
+   598→                onMouseEnter={(e) => e.stopPropagation()}
+   599→              >
+   600→                <div className="w-3 h-3 border-l-2 border-t-2 border-muted-foreground" />
+   601→              </div>
+   602→            )}
+   603→
+   604→            {/* Drag indicator border when hovering */}
+   605→            {showControls && (
+   606→              <div className="absolute inset-0 border-2 border-dashed border-primary/30 rounded-lg pointer-events-none" />
+   607→            )}
+   608→
+   609→            {/* Character name indicator - only in single mode */}
+   610→            {displayMode === 'single' && (
+   611→              <div
+   612→                className={cn(
+   613→                  "absolute bottom-4 left-1/2 transform -translate-x-1/2 px-3 py-1 rounded-full text-sm font-medium transition-all duration-300",
+   614→                  isStreaming && isActive
+   615→                    ? "bg-fuchsia-500/90 text-white shadow-lg"
+   616→                    : "bg-background/80 text-foreground"
+   617→                )}
+   618→              >
+   619→                {character.name}
+   620→              </div>
+   621→            )}
+   622→          </div>
+   623→        );
+   624→      })}
+   625→
+   626→      {/* Settings button - discrete floating button top right */}
+   627→      <Popover>
+   628→        <PopoverTrigger asChild>
+   629→          <Button
+   630→            variant="ghost"
+   631→            size="icon"
+   632→            className="absolute top-4 right-4 h-8 w-8 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/80 opacity-60 hover:opacity-100 transition-opacity z-20"
+   633→          >
+   634→            <Settings className="h-4 w-4" />
+   635→          </Button>
+   636→        </PopoverTrigger>
+   637→        <PopoverContent className="w-72" align="end">
+   638→          <div className="space-y-4">
+   639→            <div className="flex items-center justify-between">
+   640→              <h4 className="font-medium text-sm">Group Sprites</h4>
+   641→              <Button
+   642→                variant="ghost"
+   643→                size="sm"
+   644→                className="h-7 px-2"
+   645→                onClick={() => {
+   646→                  resetSettings();
+   647→                  resetPositions();
+   648→                }}
+   649→              >
+   650→                <RotateCcw className="h-3 w-3 mr-1" />
+   651→                Reset
+   652→              </Button>
+   653→            </div>
+   654→
+   655→            {/* Opacity settings */}
+   656→            <div className="space-y-3">
+   657→              <div className="space-y-1.5">
+   658→                <div className="flex justify-between text-xs">
+   659→                  <span>Active Opacity</span>
+   660→                  <span className="text-muted-foreground">{Math.round(settings.activeOpacity * 100)}%</span>
+   661→                </div>
+   662→                <Slider
+   663→                  value={[settings.activeOpacity * 100]}
+   664→                  min={20}
+   665→                  max={100}
+   666→                  step={5}
+   667→                  onValueChange={([v]) => setSettings(prev => ({ ...prev, activeOpacity: v / 100 }))}
+   668→                />
+   669→              </div>
+   670→
+   671→              <div className="space-y-1.5">
+   672→                <div className="flex justify-between text-xs">
+   673→                  <span>Inactive Opacity</span>
+   674→                  <span className="text-muted-foreground">{Math.round(settings.inactiveOpacity * 100)}%</span>
+   675→                </div>
+   676→                <Slider
+   677→                  value={[settings.inactiveOpacity * 100]}
+   678→                  min={10}
+   679→                  max={100}
+   680→                  step={5}
+   681→                  onValueChange={([v]) => setSettings(prev => ({ ...prev, inactiveOpacity: v / 100 }))}
+   682→                />
+   683→              </div>
+   684→
+   685→              <div className="space-y-1.5">
+   686→                <div className="flex justify-between text-xs">
+   687→                  <span>Global Opacity</span>
+   688→                  <span className="text-muted-foreground">{Math.round(settings.globalOpacity * 100)}%</span>
+   689→                </div>
+   690→                <Slider
+   691→                  value={[settings.globalOpacity * 100]}
+   692→                  min={20}
+   693→                  max={100}
+   694→                  step={5}
+   695→                  onValueChange={([v]) => setSettings(prev => ({ ...prev, globalOpacity: v / 100 }))}
+   696→                />
+   697→              </div>
+   698→            </div>
+   699→
+   700→            {/* Toggle for grayscale effect */}
+   701→            <div className="flex items-center justify-between pt-2 border-t">
+   702→              <span className="text-xs">Grayscale inactive sprites</span>
+   703→              <Button
+   704→                variant={settings.grayscaleInactive ? "default" : "outline"}
+   705→                size="sm"
+   706→                className="h-6 px-2 text-xs"
+   707→                onClick={() => setSettings(prev => ({ ...prev, grayscaleInactive: !prev.grayscaleInactive }))}
+   708→              >
+   709→                {settings.grayscaleInactive ? 'On' : 'Off'}
+   710→              </Button>
+   711→            </div>
+   712→
+   713→            {/* Toggle for showing all equally when not streaming */}
+   714→            <div className="flex items-center justify-between">
+   715→              <span className="text-xs">Show all equally when idle</span>
+   716→              <Button
+   717→                variant={settings.showAllEqually ? "default" : "outline"}
+   718→                size="sm"
+   719→                className="h-6 px-2 text-xs"
+   720→                onClick={() => setSettings(prev => ({ ...prev, showAllEqually: !prev.showAllEqually }))}
+   721→              >
+   722→                {settings.showAllEqually ? 'On' : 'Off'}
+   723→              </Button>
+   724→            </div>
+   725→
+   726→            <p className="text-xs text-muted-foreground pt-2">
+   727→              💡 Click and drag any sprite to move it. Use corner handle to resize.
+   728→            </p>
+   729→          </div>
+   730→        </PopoverContent>
+   731→      </Popover>
+   732→    </div>
+   733→  );
+   734→}
+   735→

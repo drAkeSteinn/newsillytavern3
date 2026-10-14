@@ -58,19 +58,19 @@ export function AtmospherePresets({ className }: AtmospherePresetsProps) {
 function getIconForPreset(presetId: string) {
   switch (presetId) {
     case 'clear':
-      return <Sun className="w-6 h-6 text-amber-500" />;
+      return <Sun className="w-6 h-6 text-fuchsia-500" />;
     case 'rainy-day':
-      return <CloudRain className="w-6 h-6 text-blue-400" />;
+      return <CloudRain className="w-6 h-6 text-violet-400" />;
     case 'stormy-night':
       return <CloudLightning className="w-6 h-6 text-purple-500" />;
     case 'snowy-wonderland':
-      return <CloudSnow className="w-6 h-6 text-cyan-300" />;
+      return <CloudSnow className="w-6 h-6 text-fuchsia-300" />;
     case 'summer-night':
       return <Moon className="w-6 h-6 text-yellow-400" />;
     case 'autumn-day':
-      return <Leaf className="w-6 h-6 text-orange-500" />;
+      return <Leaf className="w-6 h-6 text-violet-500" />;
     case 'cozy-fire':
-      return <Flame className="w-6 h-6 text-orange-600" />;
+      return <Flame className="w-6 h-6 text-violet-600" />;
     default:
       return <Cloud className="w-6 h-6 text-gray-400" />;
   }

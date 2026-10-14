@@ -45,36 +45,36 @@ const positionClasses: Record<HUDPosition, string> = {
 const colorClasses: Record<string, string> = {
   red: 'text-red-400',
   green: 'text-green-400',
-  blue: 'text-blue-400',
+  blue: 'text-violet-400',
   yellow: 'text-yellow-400',
   purple: 'text-purple-400',
-  orange: 'text-orange-400',
+  orange: 'text-violet-400',
   pink: 'text-pink-400',
-  cyan: 'text-cyan-400',
+  cyan: 'text-fuchsia-400',
   default: 'text-white/80',
 };
 
 const bgColorClasses: Record<string, string> = {
   red: 'bg-red-500/20 border-red-500/30',
   green: 'bg-green-500/20 border-green-500/30',
-  blue: 'bg-blue-500/20 border-blue-500/30',
+  blue: 'bg-violet-500/20 border-violet-500/30',
   yellow: 'bg-yellow-500/20 border-yellow-500/30',
   purple: 'bg-purple-500/20 border-purple-500/30',
-  orange: 'bg-orange-500/20 border-orange-500/30',
+  orange: 'bg-violet-500/20 border-violet-500/30',
   pink: 'bg-pink-500/20 border-pink-500/30',
-  cyan: 'bg-cyan-500/20 border-cyan-500/30',
+  cyan: 'bg-fuchsia-500/20 border-fuchsia-500/30',
   default: 'bg-white/10 border-white/20',
 };
 
 const progressColorClasses: Record<string, string> = {
   red: 'bg-red-500',
   green: 'bg-green-500',
-  blue: 'bg-blue-500',
+  blue: 'bg-violet-500',
   yellow: 'bg-yellow-500',
   purple: 'bg-purple-500',
-  orange: 'bg-orange-500',
+  orange: 'bg-violet-500',
   pink: 'bg-pink-500',
-  cyan: 'bg-cyan-500',
+  cyan: 'bg-fuchsia-500',
   default: 'bg-white/50',
 };
 
@@ -273,11 +273,11 @@ function MultiCharacterAttributesHUD({ charactersWithAttributes, compact, isGrou
       case 'glass':
         return 'backdrop-blur-xl bg-white/5 border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)]';
       case 'neon':
-        return 'backdrop-blur-md bg-slate-900/80 border-2 border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.3)]';
+        return 'backdrop-blur-md bg-slate-900/80 border-2 border-fuchsia-500/50 shadow-[0_0_20px_rgba(6,182,212,0.3)]';
       case 'holographic':
-        return 'backdrop-blur-lg bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 border-cyan-400/30';
+        return 'backdrop-blur-lg bg-gradient-to-r from-fuchsia-500/10 via-purple-500/10 to-pink-500/10 border-fuchsia-400/30';
       case 'fantasy':
-        return 'bg-gradient-to-br from-amber-950/80 via-stone-900/80 to-amber-950/80 border-2 border-amber-600/40';
+        return 'bg-gradient-to-br from-fuchsia-950/80 via-stone-900/80 to-fuchsia-950/80 border-2 border-fuchsia-600/40';
       case 'retro':
         return 'bg-black/90 border-4 border-green-500/70 font-mono shadow-[0_0_10px_rgba(34,197,94,0.5)]';
       case 'panel':
@@ -306,10 +306,10 @@ function MultiCharacterAttributesHUD({ charactersWithAttributes, compact, isGrou
             <div className={cn(
               'font-medium mb-2 pb-1 border-b border-white/10',
               compact ? 'text-[10px]' : 'text-xs',
-              style === 'neon' && 'text-cyan-400 uppercase tracking-wider',
-              style === 'fantasy' && 'text-amber-400',
+              style === 'neon' && 'text-fuchsia-400 uppercase tracking-wider',
+              style === 'fantasy' && 'text-fuchsia-400',
               style === 'retro' && 'text-green-400',
-              style === 'holographic' && 'text-cyan-300',
+              style === 'holographic' && 'text-fuchsia-300',
               (!['neon', 'fantasy', 'retro', 'holographic'].includes(style)) && 'text-white/80'
             )}>
               <span aria-hidden>🎭</span>
@@ -345,10 +345,10 @@ function MultiCharacterAttributesHUD({ charactersWithAttributes, compact, isGrou
           <div className={cn(
             'font-medium mb-2 pb-1 border-b border-white/10',
             compact ? 'text-[10px]' : 'text-xs',
-            style === 'neon' && 'text-cyan-400 uppercase tracking-wider',
-            style === 'fantasy' && 'text-amber-400',
+            style === 'neon' && 'text-fuchsia-400 uppercase tracking-wider',
+            style === 'fantasy' && 'text-fuchsia-400',
             style === 'retro' && 'text-green-400',
-            style === 'holographic' && 'text-cyan-300',
+            style === 'holographic' && 'text-fuchsia-300',
             (!['neon', 'fantasy', 'retro', 'holographic'].includes(style)) && 'text-white/80'
           )}>
             <span aria-hidden>👤</span>
@@ -642,7 +642,7 @@ function HUDContainer({ template, values }: HUDContainerProps) {
           baseClasses,
           'backdrop-blur-md rounded-xl',
           'bg-slate-900/80 p-4',
-          'border-2 border-cyan-500/50',
+          'border-2 border-fuchsia-500/50',
           'shadow-[0_0_20px_rgba(6,182,212,0.3),inset_0_0_20px_rgba(6,182,212,0.1)]',
           'animate-[neonPulse_2s_ease-in-out_infinite]',
           compact ? 'p-2' : 'p-4'
@@ -652,8 +652,8 @@ function HUDContainer({ template, values }: HUDContainerProps) {
         return cn(
           baseClasses,
           'backdrop-blur-lg rounded-xl border',
-          'bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10',
-          'border-cyan-400/30',
+          'bg-gradient-to-r from-fuchsia-500/10 via-purple-500/10 to-pink-500/10',
+          'border-fuchsia-400/30',
           'shadow-[0_0_30px_rgba(6,182,212,0.2)]',
           'relative overflow-hidden',
           'before:absolute before:inset-0 before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:animate-[holoScan_2s_linear_infinite] before:pointer-events-none',
@@ -664,10 +664,10 @@ function HUDContainer({ template, values }: HUDContainerProps) {
         return cn(
           baseClasses,
           'rounded-xl border-2',
-          'bg-gradient-to-br from-amber-950/80 via-stone-900/80 to-amber-950/80',
-          'border-amber-600/40',
+          'bg-gradient-to-br from-fuchsia-950/80 via-stone-900/80 to-fuchsia-950/80',
+          'border-fuchsia-600/40',
           'shadow-[inset_0_0_20px_rgba(217,119,6,0.1),0_0_15px_rgba(217,119,6,0.2)]',
-          'before:absolute before:inset-0 before:rounded-xl before:border before:border-amber-500/20 before:pointer-events-none',
+          'before:absolute before:inset-0 before:rounded-xl before:border before:border-fuchsia-500/20 before:pointer-events-none',
           compact ? 'p-2.5' : 'p-5'
         );
 
@@ -699,13 +699,13 @@ function HUDContainer({ template, values }: HUDContainerProps) {
         return 'text-xs font-medium text-white/60 mb-2 pb-1 border-b border-white/10';
 
       case 'neon':
-        return 'text-xs font-bold text-cyan-400 mb-3 pb-2 border-b border-cyan-500/50 uppercase tracking-wider [text-shadow:0_0_10px_rgba(6,182,212,0.8)]';
+        return 'text-xs font-bold text-fuchsia-400 mb-3 pb-2 border-b border-fuchsia-500/50 uppercase tracking-wider [text-shadow:0_0_10px_rgba(6,182,212,0.8)]';
 
       case 'holographic':
-        return 'text-xs font-medium text-cyan-300 mb-3 pb-2 border-b border-cyan-400/40 uppercase tracking-widest [text-shadow:0_0_8px_rgba(6,182,212,0.6)]';
+        return 'text-xs font-medium text-fuchsia-300 mb-3 pb-2 border-b border-fuchsia-400/40 uppercase tracking-widest [text-shadow:0_0_8px_rgba(6,182,212,0.6)]';
 
       case 'fantasy':
-        return 'text-sm font-bold text-amber-400 mb-3 pb-2 border-b border-amber-600/40 uppercase tracking-wide [text-shadow:0_0_8px_rgba(217,119,6,0.5)]';
+        return 'text-sm font-bold text-fuchsia-400 mb-3 pb-2 border-b border-fuchsia-600/40 uppercase tracking-wide [text-shadow:0_0_8px_rgba(217,119,6,0.5)]';
 
       case 'retro':
         return 'text-xs font-bold text-green-400 mb-3 pb-2 border-b-2 border-green-500 uppercase [text-shadow:2px_2px_0_rgba(0,0,0,0.8)]';
@@ -720,7 +720,7 @@ function HUDContainer({ template, values }: HUDContainerProps) {
       {/* Animated background particles for certain styles */}
       {style === 'holographic' && (
         <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none">
-          <div className="absolute w-full h-full bg-gradient-to-t from-cyan-500/5 via-transparent to-purple-500/5 animate-[holoShift_3s_ease-in-out_infinite]" />
+          <div className="absolute w-full h-full bg-gradient-to-t from-fuchsia-500/5 via-transparent to-purple-500/5 animate-[holoShift_3s_ease-in-out_infinite]" />
         </div>
       )}
 

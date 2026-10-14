@@ -135,7 +135,7 @@ function ChatBubble3D({
       <mesh position={[0, 0, -0.001]}>
         <planeGeometry args={[4.04, 0.54]} />
         <meshBasicMaterial
-          color={isUser ? '#6366f1' : '#f59e0b'}
+          color={isUser ? '#ff3ed8' : '#8e3fd0'}
           transparent
           opacity={0.5}
         />
@@ -212,7 +212,7 @@ function AmbientParticles({ count = 200 }: { count?: number }) {
       </bufferGeometry>
       <PointMaterial
         transparent
-        color="#f59e0b"
+        color="#8e3fd0"
         size={0.02}
         sizeAttenuation
         depthWrite={false}
@@ -230,8 +230,8 @@ function RoomLighting() {
     <>
       <ambientLight intensity={0.6} />
       <pointLight position={[0, 5, 0]} intensity={0.8} color="#fff5e6" />
-      <pointLight position={[-3, 3, -5]} intensity={0.3} color="#f59e0b" />
-      <pointLight position={[3, 3, -5]} intensity={0.3} color="#f59e0b" />
+      <pointLight position={[-3, 3, -5]} intensity={0.3} color="#8e3fd0" />
+      <pointLight position={[3, 3, -5]} intensity={0.3} color="#8e3fd0" />
     </>
   );
 }
@@ -671,7 +671,7 @@ function CardBoxEntryScreen({ onActivate, onExit }: { onActivate: () => void; on
 
       {/* Error message */}
       {errorMsg && (
-        <p className="text-xs text-amber-400 mt-4 text-center max-w-xs">{errorMsg}</p>
+        <p className="text-xs text-fuchsia-400 mt-4 text-center max-w-xs">{errorMsg}</p>
       )}
 
       {/* What happens section */}
@@ -922,7 +922,7 @@ export function VRViewer() {
         {/* Left: mode badge */}
         <div className="flex items-center gap-2">
           <div className={`px-3 py-1.5 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 ${
-            isCardbox ? 'bg-emerald-500/90' : 'bg-amber-500/90'
+            isCardbox ? 'bg-emerald-500/90' : 'bg-fuchsia-500/90'
           }`}>
             {isCardbox ? (
               <><Smartphone className="w-3.5 h-3.5" /> CardBox {gyroActive ? '• Giroscopio ✓' : ''}</>
@@ -990,7 +990,7 @@ export function VRViewer() {
         {!isCardbox && !isInVR ? (
           <button
             onClick={handleEnterVR}
-            className="px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-lg shadow-amber-500/30 transition-all hover:scale-105 active:scale-95"
+            className="px-6 py-3 bg-fuchsia-500 hover:bg-fuchsia-600 text-white font-bold rounded-xl shadow-lg shadow-fuchsia-500/30 transition-all hover:scale-105 active:scale-95"
             style={{ pointerEvents: 'auto' }}
           >
             🥽 Entrar a VR
@@ -1057,7 +1057,7 @@ function VRSettingsPanel() {
           onClick={() => update('vrType', 'webxr')}
           className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
             vrSettings.vrType === 'webxr'
-              ? 'bg-amber-500 text-white shadow-md'
+              ? 'bg-fuchsia-500 text-white shadow-md'
               : 'text-gray-400 hover:text-white'
           }`}
         >
@@ -1090,7 +1090,7 @@ function VRSettingsPanel() {
           step={0.1}
           value={vrSettings.backgroundScale}
           onChange={(e) => update('backgroundScale', parseFloat(e.target.value))}
-          className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-amber-500"
+          className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-fuchsia-500"
         />
       </div>
 
@@ -1107,7 +1107,7 @@ function VRSettingsPanel() {
           step={0.1}
           value={vrSettings.spriteScale}
           onChange={(e) => update('spriteScale', parseFloat(e.target.value))}
-          className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-amber-500"
+          className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-fuchsia-500"
         />
       </div>
 
@@ -1124,7 +1124,7 @@ function VRSettingsPanel() {
           step={0.05}
           value={vrSettings.messagesOpacity}
           onChange={(e) => update('messagesOpacity', parseFloat(e.target.value))}
-          className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-amber-500"
+          className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-fuchsia-500"
         />
       </div>
 
@@ -1133,7 +1133,7 @@ function VRSettingsPanel() {
         <span className="text-xs text-gray-300">Partículas Ambiente</span>
         <button
           onClick={() => update('enableParticles', !vrSettings.enableParticles)}
-          className={`w-8 h-4 rounded-full transition-colors ${vrSettings.enableParticles ? 'bg-amber-500' : 'bg-white/20'}`}
+          className={`w-8 h-4 rounded-full transition-colors ${vrSettings.enableParticles ? 'bg-fuchsia-500' : 'bg-white/20'}`}
         >
           <div
             className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${vrSettings.enableParticles ? 'translate-x-4' : 'translate-x-0.5'}`}

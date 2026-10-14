@@ -138,10 +138,10 @@ export function ScenarioEditor({ config, onChange }: ScenarioEditorProps) {
 
       {/* Warnings */}
       {scenarioConfig.enabled && !hasLocations && (
-        <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-xs">
-          <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 text-xs">
+          <AlertCircle className="w-4 h-4 text-fuchsia-500 shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-amber-500">El escenario está vacío</p>
+            <p className="font-medium text-fuchsia-500">El escenario está vacío</p>
             <p className="text-muted-foreground mt-0.5">
               Agrega al menos una ubicación para que el personaje pueda usarla.
             </p>
@@ -149,10 +149,10 @@ export function ScenarioEditor({ config, onChange }: ScenarioEditorProps) {
         </div>
       )}
       {scenarioConfig.enabled && hasLocations && !hasDefault && (
-        <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-xs">
-          <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 text-xs">
+          <AlertCircle className="w-4 h-4 text-fuchsia-500 shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-amber-500">Sin ubicación predeterminada</p>
+            <p className="font-medium text-fuchsia-500">Sin ubicación predeterminada</p>
             <p className="text-muted-foreground mt-0.5">
               Marca una ubicación con la estrella ⭐: será donde empiece la escena al iniciar
               la sesión (si el saludo no fija otra). (Si no hay, se usa la primera de la lista).

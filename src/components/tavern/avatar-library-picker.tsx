@@ -198,7 +198,7 @@ export function AvatarLibraryPicker({
                   )}
                   {/* Highlight current avatar */}
                   {currentAvatar === file.url && selected !== file.url && (
-                    <div className="absolute top-0.5 right-0.5 bg-blue-500 text-white rounded-full px-1 text-[8px] font-medium">
+                    <div className="absolute top-0.5 right-0.5 bg-violet-500 text-white rounded-full px-1 text-[8px] font-medium">
                       Actual
                     </div>
                   )}

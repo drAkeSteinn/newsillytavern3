@@ -46,6 +46,7 @@ import {
   type ContextConfig
 } from '@/lib/context-manager';
 import { retrieveEmbeddingsContext, formatEmbeddingsForSSE } from '@/lib/embeddings/chat-context';
+import { setActiveScenarioLibrary } from '@/lib/scenario/library';
 import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
 import { selectProactiveCase, type UsedCaseIndices } from '@/lib/proactive/case-selector';
 import {
@@ -102,7 +103,7 @@ async function executeToolCallsAndContinue(
   character: CharacterCard,
   sessionId: string,
   userName: string,
-  controller: { enqueue: (chunk: string) => void },
+  controller: { enqueue: (chunk: string | Uint8Array) => void },
   sessionQuests?: SessionQuestInstance[],
   questTemplates?: QuestTemplate[],
   statsConfig?: CharacterStatsConfig,
@@ -116,7 +117,7 @@ async function executeToolCallsAndContinue(
 
   const toolResults: Array<{ success: boolean; displayMessage: string }> = [];
   const questActivations: QuestActivation[] = [];
-  const toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+  const toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean; details?: string; displayMessage?: string }> = [];
   let allDisplayMessages = '';
 
   for (let i = 0; i < toolCalls.length; i++) {
@@ -255,11 +256,17 @@ async function executeToolCallsAndContinue(
       }));
     }
 
-    // Check for stat modification from modify_stat tool and send SSE event
-    if (toolResult.statActivation) {
-      const stat = toolResult.statActivation;
+    // Check for stat modification from modify_stat tool and send SSE events.
+    // Batch "changes" support: one SSE event per change (same rationale as stream/route.ts).
+    const statActivations = toolResult.statActivations?.length
+      ? toolResult.statActivations
+      : toolResult.statActivation
+        ? [toolResult.statActivation]
+        : [];
+
+    for (const stat of statActivations) {
       console.log(`[Tools] Stat activation from ${tc.name}:`, stat.attributeKey, stat.oldValue, '→', stat.newValue);
-      
+
       controller.enqueue(createSSEJSON({
         type: 'stat_activation',
         toolName: tc.name,
@@ -270,6 +277,10 @@ async function executeToolCallsAndContinue(
         oldValue: stat.oldValue,
         newValue: stat.newValue,
         reason: stat.reason,
+        // Delta replay metadata: lets the client ADD/SUBTRACT on ITS current
+        // value so skill costs (client-side) and tool changes ACCUMULATE.
+        operator: stat.operator,
+        delta: stat.delta,
       }));
     }
 
@@ -327,6 +338,11 @@ async function executeToolCallsAndContinue(
         previousLocationId: sa.previousLocationId,
         changed: sa.changed,
         reason: sa.reason,
+        // ESCENARIO V3: collection switch + background + sprite pose sync
+        collectionId: sa.collectionId,
+        collectionName: sa.collectionName,
+        backgroundUrl: sa.backgroundUrl,
+        spritePose: sa.spritePose,
       }));
     }
 
@@ -465,6 +481,9 @@ export async function POST(request: NextRequest) {
     const sessionId: string | undefined = body.sessionId;
     const characterId: string | undefined = body.characterId;
     const inventoryData: InventoryPromptData | undefined = body.inventoryData;
+
+    // ESCENARIO V3: register the App-level Scenario Library for this request
+    setActiveScenarioLibrary(Array.isArray(body.scenarios) ? body.scenarios : []);
 
     // Extract tools settings
     const toolsSettings: ToolsSettings = {
@@ -1004,7 +1023,7 @@ export async function POST(request: NextRequest) {
       type: 'user',
       label: '✨ Mensaje Proactivo (Caso Seleccionado)',
       content: proactiveUserMessage,
-      color: 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-200',
+      color: 'bg-fuchsia-50 text-fuchsia-600 dark:bg-fuchsia-900/20 dark:text-fuchsia-200',
     });
 
     // ─── allMessages: historial + caso seleccionado como mensaje final del usuario ───
@@ -1169,9 +1188,12 @@ export async function POST(request: NextRequest) {
                           }));
                       toolContextMessages = [
                         ...baseChatMessages,
-                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       continue;
                     }
@@ -1206,7 +1228,10 @@ export async function POST(request: NextRequest) {
                           ...baseChatMessages,
                           { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${toolResult.newContent}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
                         ] as any;
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
@@ -1310,9 +1335,12 @@ export async function POST(request: NextRequest) {
                           }));
                       toolContextMessages = [
                         ...baseChatMessages,
-                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       continue;
                     }
@@ -1347,7 +1375,10 @@ export async function POST(request: NextRequest) {
                           ...baseChatMessages,
                           { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${toolResult.newContent}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
                         ] as any;
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
@@ -1427,7 +1458,10 @@ export async function POST(request: NextRequest) {
                             success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
                           }));
                       const toolMessages = buildToolMessagesForAnthropic(toolCalls, toolResultPairs);
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolContextMessages = [
                         ...baseChatMessages,
                         ...toolMessages.flatMap(m => m),
@@ -1465,7 +1499,10 @@ export async function POST(request: NextRequest) {
                           ...baseChatMessages,
                           { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${toolResult.newContent}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
                         ] as any;
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
@@ -1574,7 +1611,10 @@ export async function POST(request: NextRequest) {
                           ...baseChatMessages,
                           { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${toolResult.newContent}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
                         ] as any;
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
@@ -1643,8 +1683,12 @@ export async function POST(request: NextRequest) {
 
                   if (hasToolCalls(accumulator)) {  // FIX: execute on accumulated deltas regardless of finish_reason
                     if (roundContent.trim()) {
-                      for (const chunk of splitIntoChunks(roundContent)) {
-                        controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                      // Strip text-format tool calls from visible narrative (native calls are authoritative)
+                      const proactiveNativeDisplay = stripToolCallFromText(roundContent);
+                      if (proactiveNativeDisplay.trim()) {
+                        for (const chunk of splitIntoChunks(proactiveNativeDisplay)) {
+                          controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                        }
                       }
                     }
                     const toolResult = await executeToolCallsAndContinue(
@@ -1664,9 +1708,12 @@ export async function POST(request: NextRequest) {
                           }));
                       toolContextMessages = [
                         ...baseChatMessages,
-                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       continue;
                     }
@@ -1700,20 +1747,24 @@ export async function POST(request: NextRequest) {
                           ...baseChatMessages,
                           { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${toolResult.newContent}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
                         ] as any;
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
                     }
                   }
 
-                  // No tool calls detected - stream buffered content (clean artifacts)
+                  // No tool calls detected - stream buffered content (clean artifacts
+                  // and any text-format tool-call shorthand that failed to parse)
                   console.log(`[Grok+Tools] No tool calls detected, streaming ${accumulatedContent.length} chars`);
-                  const cleanedGrokContent = cleanModelArtifacts(accumulatedContent);
+                  const cleanedGrokContent = stripToolCallFromText(accumulatedContent);
                   for (const chunk of splitIntoChunks(cleanedGrokContent)) {
                     controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
                   }
-                  accumulatedContent = cleanModelArtifacts(accumulatedContent);
+                  accumulatedContent = stripToolCallFromText(accumulatedContent);
                   toolRound = maxToolRounds + 1;
                   continue;
                 } else if (shouldUseTools && isToolRound) {
@@ -1774,9 +1825,12 @@ export async function POST(request: NextRequest) {
                       }));
                       const tgwToolContextMessages = [
                         ...chatMessages,
-                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       toolContextMessages = tgwToolContextMessages as any;
                       continue;
@@ -1848,7 +1902,7 @@ export async function POST(request: NextRequest) {
                   type: 'instructions' as const,
                   label: `[Tool Follow-up — Round ${toolRound}]`,
                   content: toolContextContent,
-                  color: 'text-amber-400',
+                  color: 'text-fuchsia-400',
                 },
               ];
               controller.enqueue(createSSEJSON({

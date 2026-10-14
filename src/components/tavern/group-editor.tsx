@@ -56,6 +56,7 @@ import {
 } from 'lucide-react';
 import { useState, useRef, useMemo, useEffect } from 'react';
 import type { GroupMember, GroupActivationStrategy, NarratorResponseMode, NarratorSettings, GroupQuickReply, ScenarioConfig } from '@/types';
+import { getEffectiveScenarioDefinitions } from '@/lib/scenario/library';
 import { HUDSelector } from './hud-selector';
 import { LorebookSelector } from './lorebook-selector';
 import { QuestSelector } from './quest-selector';
@@ -68,10 +69,10 @@ import { useToast } from '@/hooks/use-toast';
 const getStrategyColorClasses = (color: string) => {
   const colorMap: Record<string, { bg: string; border: string; text: string; bgLight: string; bgSelected: string }> = {
     emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', text: 'text-emerald-600', bgLight: 'bg-emerald-500/5', bgSelected: 'bg-emerald-500/20' },
-    blue: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', text: 'text-blue-600', bgLight: 'bg-blue-500/5', bgSelected: 'bg-blue-500/20' },
+    blue: { bg: 'bg-violet-500/10', border: 'border-violet-500/20', text: 'text-violet-600', bgLight: 'bg-violet-500/5', bgSelected: 'bg-violet-500/20' },
     purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/20', text: 'text-purple-600', bgLight: 'bg-purple-500/5', bgSelected: 'bg-purple-500/20' },
-    amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/20', text: 'text-amber-600', bgLight: 'bg-amber-500/5', bgSelected: 'bg-amber-500/20' },
-    cyan: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/20', text: 'text-cyan-600', bgLight: 'bg-cyan-500/5', bgSelected: 'bg-cyan-500/20' },
+    amber: { bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/20', text: 'text-fuchsia-600', bgLight: 'bg-fuchsia-500/5', bgSelected: 'bg-fuchsia-500/20' },
+    cyan: { bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/20', text: 'text-fuchsia-600', bgLight: 'bg-fuchsia-500/5', bgSelected: 'bg-fuchsia-500/20' },
   };
   return colorMap[color] || colorMap.emerald;
 };
@@ -188,6 +189,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
     updateGroupMember,
     getActivePersona,
     spritePacksV2,
+    scenarios: appScenarios,
   } = useTavernStore();
 
   const { toast } = useToast();
@@ -528,7 +530,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
         {character.avatar ? (
           <img src={character.avatar} alt={character.name} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-600">
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-fuchsia-400 to-violet-600">
             <span className="text-white font-bold">
               {character.name?.[0]?.toUpperCase() || '?'}
             </span>
@@ -662,7 +664,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
             {/* HUD Selector */}
             <div>
               <div className="flex items-center gap-2 mb-1.5">
-                <Layers className="w-3.5 h-3.5 text-cyan-500" />
+                <Layers className="w-3.5 h-3.5 text-fuchsia-500" />
                 <Label className="text-sm">Plantilla HUD</Label>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -683,7 +685,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
             {/* Lorebook Selector */}
             <div>
               <div className="flex items-center gap-2 mb-1.5">
-                <BookOpen className="w-3.5 h-3.5 text-amber-500" />
+                <BookOpen className="w-3.5 h-3.5 text-fuchsia-500" />
                 <Label className="text-sm">Lorebooks</Label>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -748,7 +750,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
 
       {/* ESCENARIO V2 (groups): shared scenario — replaces members' scenarios */}
       <div className="space-y-3 pt-2">
-        <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 rounded-lg">
+        <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-emerald-500/10 to-emerald-500/10 border border-emerald-500/20 rounded-lg">
           <MapPin className="w-4 h-4 text-emerald-500 shrink-0" />
           <p className="text-xs text-muted-foreground">
             Escenario <strong>compartido del grupo</strong>: cuando está habilitado con al menos una ubicación,
@@ -993,7 +995,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
                       variant={member.isPresent ? 'outline' : 'secondary'}
                       className={cn(
                         "text-[10px] cursor-pointer py-0 px-1.5",
-                        member.isPresent && "border-blue-500/30 text-blue-600"
+                        member.isPresent && "border-violet-500/30 text-violet-600"
                       )}
                       onClick={() => handleTogglePresent(member.characterId)}
                     >
@@ -1113,7 +1115,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
                 <SelectContent>
                   <SelectItem value="sequential">
                     <div className="flex items-center gap-2">
-                      <RefreshCw className="w-4 h-4 text-blue-500" />
+                      <RefreshCw className="w-4 h-4 text-violet-500" />
                       <div>
                         <span className="text-sm">Secuencial</span>
                         <p className="text-[10px] text-muted-foreground">Un personaje responde a la vez</p>
@@ -1262,7 +1264,7 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
         {/* Left: System Prompt */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Sparkles className="w-4 h-4 text-amber-500" />
+            <Sparkles className="w-4 h-4 text-fuchsia-500" />
             <span className="font-medium">Prompt de Sistema</span>
           </div>
 
@@ -1509,7 +1511,12 @@ export function GroupEditor({ groupId, open, onClose }: GroupEditorProps) {
               spritePacksV2={spritePacksV2}
               triggerCollections={allTriggerCollections.length > 0 ? allTriggerCollections : undefined}
               availableTargets={allTargets}
-              scenarioConfig={scenarioConfig}
+              scenarioDefinitions={getEffectiveScenarioDefinitions(undefined, appScenarios, {
+                id: existingGroup?.id,
+                name: name || existingGroup?.name,
+                scenarioIds: existingGroup?.scenarioIds,
+                scenarioConfig,
+              })}
               onChange={(replies) => setLocalQuickReplies(replies as GroupQuickReply[])}
             />
           </div>

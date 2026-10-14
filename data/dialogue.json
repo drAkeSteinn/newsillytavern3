@@ -42,7 +42,7 @@
     },
     "contentStyles": {
       "dialogue": {
-        "color": "text-amber-600 dark:text-amber-400",
+        "color": "text-fuchsia-600 dark:text-fuchsia-400",
         "fontWeight": "normal",
         "fontStyle": "normal",
         "textDecoration": "none"
@@ -71,14 +71,14 @@
         "highlightText": false
       },
       "narration": {
-        "color": "text-cyan-600 dark:text-cyan-400",
+        "color": "text-violet-600 dark:text-violet-400",
         "fontWeight": "normal",
         "fontStyle": "normal"
       }
     },
     "characterStyles": [],
-    "userBubbleColor": "bg-blue-500/20",
-    "assistantBubbleColor": "bg-purple-500/20",
+    "userBubbleColor": "bg-fuchsia-500/20",
+    "assistantBubbleColor": "bg-violet-500/20",
     "systemBubbleColor": "bg-muted",
     "messageSpacing": "compact",
     "bubbleMaxWidth": 55,

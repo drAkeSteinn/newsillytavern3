@@ -419,7 +419,7 @@ export function CharacterKnowledgeUploader({ characterId, characterName }: Chara
                         {chunkRecommendation && !chunkRecommendation.isSafe && (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <AlertTriangle className="w-3 h-3 text-amber-500" />
+                              <AlertTriangle className="w-3 h-3 text-fuchsia-500" />
                             </TooltipTrigger>
                             <TooltipContent className="max-w-xs">
                               <p className="text-[10px]">{chunkRecommendation.warning}</p>
@@ -476,9 +476,9 @@ export function CharacterKnowledgeUploader({ characterId, characterName }: Chara
 
                 {/* FASE 16: Warning when chunk size exceeds safe budget */}
                 {chunkRecommendation && !chunkRecommendation.isSafe && (
-                  <div className="flex items-start gap-1.5 p-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 text-[10px]">
-                    <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" />
-                    <p className="text-amber-500/90">{chunkRecommendation.warning}</p>
+                  <div className="flex items-start gap-1.5 p-1.5 rounded-md bg-fuchsia-500/5 border border-fuchsia-500/20 text-[10px]">
+                    <AlertTriangle className="w-3 h-3 text-fuchsia-500 shrink-0 mt-0.5" />
+                    <p className="text-fuchsia-500/90">{chunkRecommendation.warning}</p>
                   </div>
                 )}
               </div>
@@ -564,10 +564,10 @@ export function CharacterKnowledgeUploader({ characterId, characterName }: Chara
       )}
 
       {/* Help text */}
-      <div className="flex items-start gap-2 p-2 rounded-md bg-blue-500/5 border border-blue-500/20 text-xs">
-        <HelpCircle className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+      <div className="flex items-start gap-2 p-2 rounded-md bg-violet-500/5 border border-violet-500/20 text-xs">
+        <HelpCircle className="w-3.5 h-3.5 text-violet-500 shrink-0 mt-0.5" />
         <div className="text-muted-foreground">
-          <p className="font-medium text-blue-500">¿Cómo funciona?</p>
+          <p className="font-medium text-violet-500">¿Cómo funciona?</p>
           <ul className="mt-1 space-y-0.5 list-disc list-inside">
             <li>El archivo se divide en fragmentos y se vectoriza</li>
             <li>Se guarda en el namespace <code>character-{characterId.slice(0, 8)}...</code></li>

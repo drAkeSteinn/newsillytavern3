@@ -131,7 +131,7 @@ export function SessionActionBar({
               type="button"
               className={cn(
                 'flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium',
-                'bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 border border-teal-500/20 transition-colors',
+                'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 transition-colors',
                 clock?.enabled === false && 'opacity-50'
               )}
               aria-label="Tiempo del mundo"
@@ -150,12 +150,12 @@ export function SessionActionBar({
           <PopoverContent className="w-64" align="end">
             <div className="space-y-3">
               <h4 className="font-medium text-sm flex items-center gap-2">
-                <Clock className="w-4 h-4 text-teal-400" />
+                <Clock className="w-4 h-4 text-emerald-400" />
                 Tiempo del mundo
               </h4>
 
               {clock && (
-                <div className="text-center py-1.5 px-2 rounded-md bg-teal-500/10 border border-teal-500/20 text-xs text-teal-300 font-medium">
+                <div className="text-center py-1.5 px-2 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 font-medium">
                   {momentLabel}
                 </div>
               )}
@@ -228,7 +228,7 @@ export function SessionActionBar({
               {/* Auto atmosphere by day moment */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1" title="Cambia la atmósfera de la escena (lluvia, noche, niebla…) según el momento del día del reloj">
-                  <Sparkles className="w-3 h-3 text-sky-400" />
+                  <Sparkles className="w-3 h-3 text-violet-400" />
                   <Label className="text-xs">Atmósfera automática</Label>
                 </div>
                 <Switch

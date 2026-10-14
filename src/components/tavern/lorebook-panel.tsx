@@ -560,7 +560,7 @@ export function LorebookPanel() {
                                 </span>
                                 {entry.entryType === 'attribute' && entry.attributeConfig ? (
                                   <div className="flex items-center gap-1 mt-0.5">
-                                    <Sword className="w-2.5 h-2.5 text-orange-500" />
+                                    <Sword className="w-2.5 h-2.5 text-violet-500" />
                                     <span className="text-[10px] text-muted-foreground truncate">
                                       {entry.attributeConfig.injectionKey || 'sin key'} → {entry.attributeConfig.attributeKey || '?'} ({entry.attributeConfig.mode === 'static' ? 'estático' : 'dinámico'})
                                     </span>
@@ -576,7 +576,7 @@ export function LorebookPanel() {
                               </div>
                               <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
                                 {entry.entryType === 'attribute' ? (
-                                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-orange-500/10 text-orange-600 border-orange-500/20">
+                                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-violet-500/10 text-violet-600 border-violet-500/20">
                                     {entry.attributeConfig?.injectionKey ? `{{${entry.attributeConfig.injectionKey}}}` : 'Atributo'}
                                   </Badge>
                                 ) : (
@@ -933,7 +933,7 @@ function LorebookEntryEditor({
       {/* ============================================ */}
       {isAttribute && config && (
         <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
-          <div className="flex items-center gap-2 text-xs font-medium text-orange-600 dark:text-orange-400">
+          <div className="flex items-center gap-2 text-xs font-medium text-violet-600 dark:text-violet-400">
             <Sword className="w-4 h-4" />
             Configuración de Atributo
           </div>
@@ -941,7 +941,7 @@ function LorebookEntryEditor({
           {/* Injection Key */}
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5">
-              <Key className="w-3 h-3 text-orange-500" />
+              <Key className="w-3 h-3 text-violet-500" />
               <Label className="text-xs">Key de Inyección</Label>
             </div>
             <Input

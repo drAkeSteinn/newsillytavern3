@@ -21,7 +21,13 @@ import type {
   TriggerFallbackMode,
   QuestRewardActivateSpritePack,
   SpritePackV2,
+  ScenarioDefinition,
 } from '@/types';
+import {
+  findInScenarioHierarchy,
+  resolveScenarioMoveTarget,
+  type ScenarioMatch,
+} from '@/lib/scenario/library';
 import {
   normalizeReward,
   validateReward,
@@ -62,11 +68,14 @@ export interface RewardExecutionContext {
   // Settings
   soundSettings?: { enabled: boolean; globalVolume: number };
   backgroundSettings?: { transitionDuration: number; defaultTransitionType: string };
+
+  // ESCENARIO V3: biblioteca de escenarios (para rewards 'ubicacion')
+  scenarios?: ScenarioDefinition[];
 }
 
 export interface RewardExecutionResult {
   rewardId: string;
-  type: 'attribute' | 'trigger' | 'objective' | 'solicitud' | 'target_attribute' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack';
+  type: 'attribute' | 'trigger' | 'objective' | 'solicitud' | 'target_attribute' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack' | 'ubicacion';
   success: boolean;
   key: string;
   value?: string | number;
@@ -162,6 +171,16 @@ export interface RewardStoreActions {
   // Background
   setBackground?: (url: string) => void;
   setActiveOverlays?: (overlays: Array<{ url: string; position: string; opacity: number }>) => void;
+
+  // ESCENARIO V3: mueve la escena compartida de la sesión a una ubicación
+  // (colección + lugar/punto de interés/escenario) y aplica su fondo.
+  // El cambio de fondo reubica el sprite (pose guardada por fondo × personaje).
+  moveSceneToLocation?: (
+    sessionId: string,
+    collectionId: string,
+    locationId: string,
+    backgroundUrl: string | null
+  ) => void;
 }
 
 // ============================================
@@ -1262,6 +1281,107 @@ async function executeActivateSpritePackReward(
 // ============================================
 
 /**
+ * Execute a 'ubicacion' reward (ESCENARIO V3).
+ *
+ * Moves the shared session scene to a location of the scenario library
+ * (scenario collection, place or point of interest), applies the location's
+ * background (which in turn re-applies the saved per-background × per-character
+ * sprite pose) — the exact same effect as the manual scenario switcher or the
+ * manage_escenario tool.
+ */
+function executeUbicacionReward(
+  reward: QuestReward,
+  context: RewardExecutionContext,
+  storeActions: RewardStoreActions
+): RewardExecutionResult {
+  const cfg = reward.ubicacion;
+  if (!cfg || (!cfg.locationId && !cfg.collectionId)) {
+    return {
+      rewardId: reward.id,
+      type: 'ubicacion',
+      key: 'ubicacion',
+      success: false,
+      error: 'Invalid ubicacion reward structure - missing ubicacion config',
+    };
+  }
+
+  if (!storeActions.moveSceneToLocation) {
+    return {
+      rewardId: reward.id,
+      type: 'ubicacion',
+      key: 'ubicacion',
+      success: false,
+      error: 'moveSceneToLocation not available in this execution context',
+    };
+  }
+
+  const definitions = context.scenarios || [];
+  if (definitions.length === 0) {
+    return {
+      rewardId: reward.id,
+      type: 'ubicacion',
+      key: 'ubicacion',
+      success: false,
+      error: 'No hay escenarios disponibles (biblioteca V3 vacía en esta sesión)',
+    };
+  }
+
+  const currentCollectionId = context.sessionStats?.activeScenarioCollectionId || undefined;
+
+  // Resolution order:
+  //   1. Explicit collectionId → search INSIDE that scenario first
+  //      (locationId may be the scenario id itself → scenario level).
+  //   2. Fall back to the whole library (current collection first), which also
+  //      covers rewards saved without an explicit collection.
+  let match: ScenarioMatch | null = null;
+  if (cfg.collectionId) {
+    const scoped = definitions.find(d => d.id === cfg.collectionId);
+    if (scoped) {
+      match = findInScenarioHierarchy([scoped], cfg.locationId || scoped.id, scoped.id);
+    }
+  }
+  if (!match && cfg.locationId) {
+    match = findInScenarioHierarchy(definitions, cfg.locationId, currentCollectionId);
+  }
+  if (!match && cfg.collectionId) {
+    // Last resort: the collectionId as the destination itself
+    match = findInScenarioHierarchy(definitions, cfg.collectionId, currentCollectionId);
+  }
+
+  if (!match) {
+    return {
+      rewardId: reward.id,
+      type: 'ubicacion',
+      key: 'ubicacion',
+      success: false,
+      error: `Ubicación no encontrada: ${cfg.locationLabel || cfg.locationId || cfg.collectionId}`,
+    };
+  }
+
+  const target = resolveScenarioMoveTarget(match);
+  try {
+    storeActions.moveSceneToLocation(context.sessionId, match.definition.id, target.locationId, target.backgroundUrl);
+  } catch (err) {
+    return {
+      rewardId: reward.id,
+      type: 'ubicacion',
+      key: 'ubicacion',
+      success: false,
+      error: `Error moviendo la escena: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  return {
+    rewardId: reward.id,
+    type: 'ubicacion',
+    key: 'ubicacion',
+    value: target.locationId,
+    success: true,
+    message: `📍 Ubicación: ${target.label}`,
+  };
+}
+
+/**
  * Execute a single reward
  * 
  * Handles both new unified types (attribute, trigger) and legacy types
@@ -1386,6 +1506,9 @@ export function executeReward(
           : 'Mensaje diferido (sin texto configurado)',
       };
     }
+
+    case 'ubicacion':
+      return executeUbicacionReward(normalized, context, storeActions);
 
     default:
       return {

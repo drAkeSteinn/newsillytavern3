@@ -999,7 +999,7 @@ export function buildStatsPromptSections(
       type: 'skills',
       label: 'Habilidades',
       content: resolvedStats.skillsBlock,
-      color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+      color: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
     });
   }
   

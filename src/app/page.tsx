@@ -6,6 +6,7 @@ import { CharacterPanel } from '@/components/tavern/character-panel';
 import { SessionsSidebar } from '@/components/tavern/sessions-sidebar';
 import { SettingsPanel } from '@/components/tavern/settings-panel';
 import { BackgroundGallery } from '@/components/tavern/background-gallery';
+import { ScenarioSwitcher } from '@/components/tavern/scenario-switcher';
 import { InventoryPanel } from '@/components/inventory/inventory-panel';
 import { SettingsApplier } from '@/components/tavern/settings-applier';
 import { AtmosphereRenderer } from '@/components/atmosphere';
@@ -14,12 +15,11 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { 
   Menu, 
-  Sparkles, 
   PanelLeftClose,
   PanelLeft,
   Settings,
   Loader2,
-  Image as ImageIcon,
+  MapPin,
   BookOpen,
   Music,
   Cloud,
@@ -39,6 +39,7 @@ export default function TavernFlow() {
   const setSettingsOpen = useTavernStore((s) => s.setSettingsOpen);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [backgroundGalleryOpen, setBackgroundGalleryOpen] = useState(false);
+  const [scenarioSwitcherOpen, setScenarioSwitcherOpen] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('llm');
   const hydrated = useHydration();
@@ -77,10 +78,13 @@ export default function TavernFlow() {
           </Button>
           
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="text-xl font-bold bg-gradient-to-r from-amber-500 to-orange-600 bg-clip-text text-transparent">
+            {/* App icon — neon pink/purple ahegao-style mascot */}
+            <img
+              src="/icons/icon-192.png"
+              alt="TavernFlow"
+              className="w-8 h-8 rounded-lg ring-1 ring-primary/40 shadow-[0_0_10px_rgba(255,62,216,0.35)]"
+            />
+            <h1 className="text-xl font-bold bg-gradient-to-r from-fuchsia-500 via-pink-500 to-violet-500 bg-clip-text text-transparent drop-shadow-[0_0_8px_rgba(255,62,216,0.35)]">
               TavernFlow
             </h1>
           </div>
@@ -98,15 +102,15 @@ export default function TavernFlow() {
             <Cloud className="w-5 h-5" />
           </Button>
           
-          {/* Background Gallery Button */}
+          {/* Scenarios Button (moves the scene to another scenario/place) */}
           <Button
             variant="ghost"
             size="icon"
             className="hidden md:inline-flex"
-            onClick={() => setBackgroundGalleryOpen(true)}
-            title={t('nav.backgroundGallery')}
+            onClick={() => setScenarioSwitcherOpen(true)}
+            title="Escenarios de la escena"
           >
-            <ImageIcon className="w-5 h-5" />
+            <MapPin className="w-5 h-5" />
           </Button>
           
           {/* Lorebooks Button */}
@@ -198,8 +202,11 @@ export default function TavernFlow() {
       {/* Settings Panel */}
       {hydrated && <SettingsPanel open={settingsOpen} onOpenChange={setSettingsOpen} initialTab={settingsTab} />}
 
-      {/* Background Gallery */}
+      {/* Background Gallery — still reachable from Ajustes → Fondos */}
       {hydrated && <BackgroundGallery open={backgroundGalleryOpen} onOpenChange={setBackgroundGalleryOpen} />}
+
+      {/* Scenario Switcher */}
+      {hydrated && <ScenarioSwitcher open={scenarioSwitcherOpen} onOpenChange={setScenarioSwitcherOpen} />}
 
       {/* Inventory Panel (Slide-over Sheet) */}
       {hydrated && (

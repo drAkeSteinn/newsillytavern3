@@ -54,8 +54,8 @@
     "novelMode": true,
     "chatWidth": 60,
     "chatHeight": 70,
-    "chatX": 45.92844024662207,
-    "chatY": 35,
+    "chatX": 47.77777777777778,
+    "chatY": 55.201373759380296,
     "chatOpacity": 0.95,
     "blurBackground": false,
     "showCharacterSprite": true
@@ -69,7 +69,7 @@
     "summaryThreshold": 40
   },
   "chatboxAppearance": {
-    "theme": "midnight",
+    "theme": "default",
     "background": {
       "transparency": 0.85,
       "blur": 9,
@@ -90,11 +90,11 @@
       "codeBlockTheme": "dark"
     },
     "textColors": {
-      "userMessage": "#3b82f6",
-      "characterMessage": "#f59e0b",
+      "userMessage": "#ff3ed8",
+      "characterMessage": "#c084fc",
       "narratorMessage": "#8b5cf6",
-      "systemMessage": "#6b7280",
-      "linkColor": "#3b82f6",
+      "systemMessage": "#a1a1aa",
+      "linkColor": "#f472b6",
       "codeColor": "#10b981"
     },
     "bubbles": {
@@ -104,10 +104,10 @@
       "shadowEnabled": true,
       "shadowIntensity": "soft",
       "maxWidth": 100,
-      "userBubbleColor": "#3b82f6",
-      "userBubbleTextColor": "#ffffff",
-      "characterBubbleColor": "#27272a",
-      "characterBubbleTextColor": "#fafafa",
+      "userBubbleColor": "#ff3ed8",
+      "userBubbleTextColor": "#140511",
+      "characterBubbleColor": "#241031",
+      "characterBubbleTextColor": "#f8eaff",
       "narratorBubbleColor": "#7c3aed",
       "narratorBubbleTextColor": "#ffffff",
       "systemBubbleColor": "#3f3f46",
@@ -119,25 +119,25 @@
       "size": "md",
       "borderRadius": 8,
       "showBorder": true,
-      "borderColor": "#3b82f6",
+      "borderColor": "#ff3ed8",
       "borderWidth": 2
     },
     "streaming": {
       "animationStyle": "typing-cursor",
       "animationSpeed": 50,
-      "streamingTextColor": "#fbbf24",
+      "streamingTextColor": "#ff6fe0",
       "cursorStyle": "block",
-      "cursorColor": "#fbbf24",
+      "cursorColor": "#ff3ed8",
       "cursorBlinkRate": 530,
       "showCursor": true
     },
     "input": {
-      "backgroundColor": "#18181b",
+      "backgroundColor": "#150a1e",
       "textColor": "#fafafa",
       "placeholderColor": "#71717a",
       "borderColor": "#3f3f46",
       "borderRadius": 12,
-      "focusBorderColor": "#3b82f6",
+      "focusBorderColor": "#ff3ed8",
       "fontSize": "base"
     },
     "messageSpacing": "normal",

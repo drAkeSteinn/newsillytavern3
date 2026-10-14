@@ -151,7 +151,7 @@ function ResumenesTab() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <Clock className="w-4 h-4 text-blue-500" />
+            <Clock className="w-4 h-4 text-violet-500" />
             Intervalo de Resúmenes
           </CardTitle>
           <CardDescription>
@@ -318,7 +318,7 @@ function ResumenesTab() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <FileText className="w-4 h-4 text-orange-500" />
+            <FileText className="w-4 h-4 text-violet-500" />
             Prompt de Resumen
           </CardTitle>
           <CardDescription>
@@ -344,13 +344,13 @@ function ResumenesTab() {
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-4 space-y-4">
-              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm">
+              <div className="p-3 rounded-lg bg-violet-500/10 border border-violet-500/20 text-sm">
                 <div className="flex items-start gap-2">
-                  <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                  <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                  <Info className="w-4 h-4 text-violet-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-violet-600 dark:text-violet-400 space-y-1">
                     <p><strong>Variables disponibles:</strong></p>
                     <ul className="list-disc list-inside space-y-0.5">
-                      <li><code className="bg-blue-500/20 px-1 rounded">{'{{conversation}}'}</code> - Se reemplaza con la conversación a resumir</li>
+                      <li><code className="bg-violet-500/20 px-1 rounded">{'{{conversation}}'}</code> - Se reemplaza con la conversación a resumir</li>
                     </ul>
                   </div>
                 </div>
@@ -448,11 +448,11 @@ function ExtraccionTab() {
   return (
     <div className="space-y-6">
       {/* Note about needing Embeddings enabled */}
-      <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-4">
+      <div className="bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg p-4">
         <div className="flex items-start gap-2">
-          <Info className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+          <Info className="w-4 h-4 text-fuchsia-500 mt-0.5 shrink-0" />
           <div className="space-y-1">
-            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">Requiere Embeddings</p>
+            <p className="text-sm font-medium text-fuchsia-600 dark:text-fuchsia-400">Requiere Embeddings</p>
             <p className="text-xs text-muted-foreground">
               Estos ajustes requieren la infraestructura de embeddings (Ollama + LanceDB). Configúralo en <strong>Ajustes → Conocimiento</strong>.
             </p>
@@ -545,11 +545,11 @@ function ExtraccionTab() {
                 </p>
               </div>
 
-              <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+              <div className="bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg p-3">
                 <div className="flex items-start gap-2">
-                  <Brain className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                  <Brain className="w-4 h-4 text-fuchsia-500 mt-0.5 shrink-0" />
                   <div className="space-y-1">
-                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Memoria con Contexto</p>
+                    <p className="text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400">Memoria con Contexto</p>
                     <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
                       <li>Se incluyen los últimos N mensajes como contexto para que el LLM entienda referencias implícitas</li>
                       <li>En grupo, cada personaje ve las respuestas de los demás para capturar dinámicas de conversación</li>
@@ -569,7 +569,7 @@ function ExtraccionTab() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Settings className="w-4 h-4 text-teal-500" />
+              <Settings className="w-4 h-4 text-emerald-500" />
               Modelo de Extracción Separado
             </CardTitle>
             <CardDescription>
@@ -595,7 +595,7 @@ function ExtraccionTab() {
             </div>
 
             {embeddingsChat.extractionModelEnabled && (
-              <div className="space-y-3 pl-1 border-l-2 border-teal-300/30">
+              <div className="space-y-3 pl-1 border-l-2 border-emerald-300/30">
                 <div className="space-y-2">
                   <Label className="text-xs">Proveedor</Label>
                   <Select
@@ -683,11 +683,11 @@ function ExtraccionTab() {
                   </p>
                 </div>
 
-                <div className="bg-teal-500/5 border border-teal-500/20 rounded-lg p-3">
+                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
                   <div className="flex items-start gap-2">
-                    <Settings className="w-4 h-4 text-teal-500 mt-0.5 shrink-0" />
+                    <Settings className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
                     <div className="space-y-1">
-                      <p className="text-xs font-medium text-teal-600 dark:text-teal-400">Modelo Separado</p>
+                      <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Modelo Separado</p>
                       <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
                         <li>La extracción y consolidación de memoria usan este modelo en lugar del modelo de chat</li>
                         <li>Ideal para usar un modelo local (Ollama) o barato (gpt-4o-mini) para tareas de fondo</li>
@@ -707,7 +707,7 @@ function ExtraccionTab() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <MessageSquare className="w-4 h-4 text-cyan-500" />
+            <MessageSquare className="w-4 h-4 text-fuchsia-500" />
             Contexto de Búsqueda
           </CardTitle>
           <CardDescription>
@@ -1021,7 +1021,7 @@ function MemoryV2Tab() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                 <div>
                   <p className="text-muted-foreground text-xs">Backend activo</p>
-                  <p className={cn('font-medium', health.backend === 'lancedb' ? 'text-green-600' : 'text-amber-600')}>
+                  <p className={cn('font-medium', health.backend === 'lancedb' ? 'text-green-600' : 'text-fuchsia-600')}>
                     {health.backend === 'lancedb' ? 'LanceDB (vectores)' : 'JSON (fallback léxico)'}
                   </p>
                 </div>
@@ -1053,8 +1053,8 @@ function MemoryV2Tab() {
                 </div>
               </div>
               {health.meta?.needsReembed && (
-                <div className="flex items-start gap-2 p-2.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-xs">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                <div className="flex items-start gap-2 p-2.5 rounded-md bg-fuchsia-500/10 border border-fuchsia-500/30 text-xs">
+                  <AlertTriangle className="w-3.5 h-3.5 text-fuchsia-500 mt-0.5 shrink-0" />
                   <span>
                     Cambio de modelo pendiente de re-embed (Ollama no estaba disponible). Pulsa <b>Reinit</b> cuando Ollama
                     esté activo para regenerar los vectores.

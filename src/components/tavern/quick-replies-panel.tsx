@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, Fragment } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -80,8 +80,9 @@ import type {
   RequirementOperator,
   GroupQuickReply,
   WardrobeConfig,
-  ScenarioConfig,
+  ScenarioDefinition,
 } from '@/types';
+import { describeScenarioLocationId } from '@/lib/scenario/library';
 
 // ============================================
 // Numeric and Text operator options (same as stats-editor)
@@ -127,7 +128,7 @@ function RequirementOperatorToggle({ operator, onChange, requirementCount }: Req
           className={cn(
             'px-2 py-0.5 text-xs rounded border transition-colors',
             currentOperator === 'AND'
-              ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+              ? 'bg-violet-500/20 text-violet-400 border-violet-500/30'
               : 'bg-muted/30 text-muted-foreground border-transparent'
           )}
           onClick={() => onChange('AND')}
@@ -257,7 +258,7 @@ function RequirementEditor({ requirement, availableAttributes, availableTargets 
               {targetAttrs.map((attr, i) => (
                 <SelectItem key={attr.key || `attr-${i}`} value={attr.key}>
                   <span className="flex items-center gap-1">
-                    <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-blue-400' : 'text-green-400'}>
+                    <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-violet-400' : 'text-green-400'}>
                       {attr.type === 'text' ? '📝' : attr.type === 'keyword' ? '🏷️' : '🔢'}
                     </span>
                     {attr.name}
@@ -288,7 +289,7 @@ function RequirementEditor({ requirement, availableAttributes, availableTargets 
             {availableAttributes.map(attr => (
               <SelectItem key={attr.id} value={attr.key}>
                 <span className="flex items-center gap-1">
-                  <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-blue-400' : 'text-green-400'}>
+                  <span className={attr.type === 'text' || attr.type === 'keyword' ? 'text-violet-400' : 'text-green-400'}>
                     {attr.type === 'text' ? '📝' : attr.type === 'keyword' ? '🏷️' : '🔢'}
                   </span>
                   {attr.name}
@@ -388,8 +389,9 @@ interface QuickRepliesPanelProps {
   triggerCollections?: TriggerCollection[];
   /** Character's wardrobe (Guardarropa V2) for the wardrobe-change effect */
   wardrobeConfig?: WardrobeConfig;
-  /** Character's scenario (ESCENARIO V2) for the location-change effect */
-  scenarioConfig?: ScenarioConfig;
+  /** ESCENARIO V3: effective scenario definitions for this chat (character or
+   *  group — library collections first, legacy scenarioConfig synthesized). */
+  scenarioDefinitions?: ScenarioDefinition[];
   /** Available target characters for cross-character conditions (group mode) */
   availableTargets?: { id: string; name: string; attributes: AttributeDefinition[] }[];
   onChange: (quickReplies: CharacterQuickReply[]) => void;
@@ -414,7 +416,7 @@ export function QuickRepliesPanel({
   spritePacksV2,
   triggerCollections,
   wardrobeConfig,
-  scenarioConfig,
+  scenarioDefinitions,
   availableTargets,
   onChange,
 }: QuickRepliesPanelProps) {
@@ -474,8 +476,8 @@ export function QuickRepliesPanel({
   // Whether the wardrobe effect is available (wardrobe enabled with at least 1 outfit)
   const hasWardrobeOptions = !!(wardrobeConfig?.enabled && wardrobeConfig.outfits && wardrobeConfig.outfits.length > 0);
 
-  // Whether the scenario effect is available (scenario enabled with at least 1 location)
-  const hasScenarioOptions = !!(scenarioConfig?.enabled && scenarioConfig.locations && scenarioConfig.locations.length > 0);
+  // Whether the scenario effect is available (ESCENARIO V3: ≥1 effective scenario)
+  const hasScenarioOptions = !!(scenarioDefinitions && scenarioDefinitions.length > 0);
 
   const isAdding = newLabel.trim() && newResponse.trim();
 
@@ -487,8 +489,8 @@ export function QuickRepliesPanel({
     const validNewWardrobe = newWardrobeAction && (newWardrobeAction.action === 'remove' || newWardrobeAction.outfitId)
       ? newWardrobeAction
       : undefined;
-    // Only keep a scenario action that is fully configured (ESCENARIO V2)
-    const validNewScenario = newScenarioAction && newScenarioAction.locationId
+    // Only keep a scenario action that is fully configured (ESCENARIO V3)
+    const validNewScenario = newScenarioAction && (newScenarioAction.locationId || newScenarioAction.collectionId)
       ? newScenarioAction
       : undefined;
     const newReply: CharacterQuickReply = {
@@ -538,7 +540,7 @@ export function QuickRepliesPanel({
     const validEditWardrobe = editWardrobeAction && (editWardrobeAction.action === 'remove' || editWardrobeAction.outfitId)
       ? editWardrobeAction
       : undefined;
-    const validEditScenario = editScenarioAction && editScenarioAction.locationId
+    const validEditScenario = editScenarioAction && (editScenarioAction.locationId || editScenarioAction.collectionId)
       ? editScenarioAction
       : undefined;
     onChange(
@@ -909,10 +911,10 @@ export function QuickRepliesPanel({
             onClick={() => setExpandedConditions(isExpanded ? null : sectionKey)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Filter className="w-3.5 h-3.5 text-orange-400" />
+            <Filter className="w-3.5 h-3.5 text-violet-400" />
             <span>Condiciones de visibilidad</span>
             {hasRequirements && (
-              <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-orange-500/20 text-orange-400">
+              <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-violet-500/20 text-violet-400">
                 {requirements.length}
               </Badge>
             )}
@@ -924,7 +926,7 @@ export function QuickRepliesPanel({
           </button>
 
           {(isExpanded || hasRequirements) && (
-            <div className="ml-5 space-y-2 border-l-2 border-orange-500/20 pl-3">
+            <div className="ml-5 space-y-2 border-l-2 border-violet-500/20 pl-3">
               {/* Existing requirements */}
               {requirements.map((req, idx) => (
                 <RequirementEditor
@@ -955,7 +957,7 @@ export function QuickRepliesPanel({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-500/10"
+                className="h-7 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-500/10"
                 onClick={() => {
                   const newReq: StatRequirement = { attributeKey: '', operator: '>=', value: 0 };
                   setRequirements([...requirements, newReq]);
@@ -1001,10 +1003,10 @@ export function QuickRepliesPanel({
             onClick={() => setExpandedUmbral(isExpanded ? null : sectionKey)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <GitBranch className="w-3.5 h-3.5 text-cyan-400" />
+            <GitBranch className="w-3.5 h-3.5 text-fuchsia-400" />
             <span>Umbral (respuesta condicional)</span>
             {hasUmbrales && (
-              <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-cyan-500/20 text-cyan-400">
+              <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-fuchsia-500/20 text-fuchsia-400">
                 {umbrales.length}
               </Badge>
             )}
@@ -1020,7 +1022,7 @@ export function QuickRepliesPanel({
           </p>
 
           {(isExpanded || hasUmbrales) && (
-            <div className="ml-5 space-y-2 border-l-2 border-cyan-500/20 pl-3">
+            <div className="ml-5 space-y-2 border-l-2 border-fuchsia-500/20 pl-3">
               {umbrales.map((umbral, idx) => (
                 <div key={umbral.id} className="rounded-md border bg-muted/20 p-2 space-y-2">
                   {/* Header: name + enabled + reorder + delete */}
@@ -1038,7 +1040,7 @@ export function QuickRepliesPanel({
                       onClick={() => updateUmbral(umbral.id, { enabled: !umbral.enabled })}
                       className={cn(
                         'text-[10px] px-2 py-0.5 rounded-full transition-colors flex-shrink-0',
-                        umbral.enabled ? 'bg-cyan-500/20 text-cyan-400' : 'bg-muted text-muted-foreground'
+                        umbral.enabled ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'bg-muted text-muted-foreground'
                       )}
                     >
                       {umbral.enabled ? 'On' : 'Off'}
@@ -1076,7 +1078,7 @@ export function QuickRepliesPanel({
                   {/* Conditions */}
                   <div className="space-y-1.5">
                     <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                      <Filter className="w-3 h-3 text-orange-400" />
+                      <Filter className="w-3 h-3 text-violet-400" />
                       Condiciones (atributos del personaje):
                     </p>
                     {umbral.conditions.map((req, cIdx) => (
@@ -1103,7 +1105,7 @@ export function QuickRepliesPanel({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-500/10"
+                      className="h-6 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-500/10"
                       onClick={() => updateUmbral(umbral.id, { conditions: [...umbral.conditions, { attributeKey: '', operator: '>=', value: 0 }] })}
                     >
                       <Plus className="w-3 h-3 mr-1" />
@@ -1130,7 +1132,7 @@ export function QuickRepliesPanel({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs text-cyan-600 hover:text-cyan-700 hover:bg-cyan-500/10"
+                className="h-7 text-xs text-fuchsia-600 hover:text-fuchsia-700 hover:bg-fuchsia-500/10"
                 onClick={() =>
                   setUmbrales([
                     ...umbrales,
@@ -1265,17 +1267,31 @@ export function QuickRepliesPanel({
     );
   };
 
-  // Render scenario action section (ESCENARIO V2) for a quick reply (new or editing)
+  // Render scenario action section (ESCENARIO V3) for a quick reply (new or editing)
+  // Two cascading selects over the scenario library:
+  //   Escenario (colección) → Ubicación (escenario / lugar / punto de interés).
   const renderScenarioSection = (
     action: QuickReplyScenarioAction | undefined,
     setAction: (a: QuickReplyScenarioAction | undefined) => void,
     sectionKey: string,
   ) => {
     if (!hasScenarioOptions) return null;
+    const definitions = scenarioDefinitions!;
     const isExpanded = expandedScenario === sectionKey;
     const isActive = !!action;
-    const locations = scenarioConfig?.locations || [];
-    const selectedLocation = action?.locationId ? locations.find(l => l.id === action.locationId) : undefined;
+
+    const selectedDef = (() => {
+      if (action?.collectionId) return definitions.find(d => d.id === action.collectionId) || null;
+      // Legacy action (V2 locationId without collection): infer the scenario
+      if (action?.locationId) {
+        return definitions.find(d => {
+          if (d.id === action.locationId) return true;
+          return d.places.some(p => p.id === action.locationId || p.spots.some(s => s.id === action.locationId));
+        }) || null;
+      }
+      return null;
+    })();
+    const locationLabel = describeScenarioLocationId(definitions, action?.locationId);
 
     return (
       <div className="space-y-2">
@@ -1288,7 +1304,7 @@ export function QuickRepliesPanel({
           <span>Cambiar Escenario</span>
           {isActive && (
             <Badge variant="secondary" className="h-4 text-[10px] px-1 bg-emerald-500/20 text-emerald-400 max-w-[140px]">
-              <span className="truncate">→ {selectedLocation?.name || 'Ubicación...'}</span>
+              <span className="truncate">→ {locationLabel || selectedDef?.name || 'Ubicación...'}</span>
             </Badge>
           )}
           {isExpanded ? (
@@ -1309,7 +1325,8 @@ export function QuickRepliesPanel({
                   if (isActive) {
                     setAction(undefined);
                   } else {
-                    setAction({ action: 'go', locationId: locations[0]?.id });
+                    const def = definitions[0];
+                    setAction({ action: 'go', collectionId: def.id, locationId: def.id });
                   }
                 }}
                 className={cn(
@@ -1322,23 +1339,61 @@ export function QuickRepliesPanel({
             </div>
 
             {isActive && action && (
-              <div className="flex items-center gap-2">
-                <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Ubicación</Label>
-                <Select
-                  value={action.locationId || ''}
-                  onValueChange={(val) => setAction({ action: 'go', locationId: val })}
-                >
-                  <SelectTrigger className="h-7 text-xs flex-1">
-                    <SelectValue placeholder="Seleccionar ubicación..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {locations.map((l) => (
-                      <SelectItem key={l.id} value={l.id}>
-                        <span className="text-xs">{l.isDefault ? '⭐ ' : ''}{l.name}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-2">
+                {/* 1) Escenario (colección) */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Escenario</Label>
+                  <Select
+                    value={selectedDef?.id || ''}
+                    onValueChange={(val) => {
+                      const def = definitions.find(d => d.id === val);
+                      setAction({ action: 'go', collectionId: val, locationId: val });
+                    }}
+                  >
+                    <SelectTrigger className="h-7 text-xs flex-1">
+                      <SelectValue placeholder="Seleccionar escenario..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {definitions.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          <span className="text-xs">🏛️ {d.name}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* 2) Ubicación: escenario / lugar / punto de interés */}
+                {selectedDef && (
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[10px] text-muted-foreground w-16 flex-shrink-0">Ubicación</Label>
+                    <Select
+                      value={action.locationId || ''}
+                      onValueChange={(val) => setAction({ action: 'go', collectionId: selectedDef.id, locationId: val })}
+                    >
+                      <SelectTrigger className="h-7 text-xs flex-1">
+                        <SelectValue placeholder="Seleccionar ubicación..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={selectedDef.id}>
+                          <span className="text-xs">🏛️ {selectedDef.name} — Escenario completo</span>
+                        </SelectItem>
+                        {selectedDef.places.map((p) => (
+                          <Fragment key={p.id}>
+                            <SelectItem value={p.id}>
+                              <span className="text-xs">📍 {p.name}</span>
+                            </SelectItem>
+                            {p.spots.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                <span className="text-xs text-muted-foreground pl-4">↳ {s.name}</span>
+                              </SelectItem>
+                            ))}
+                          </Fragment>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1388,9 +1443,9 @@ export function QuickRepliesPanel({
             </p>
             {attributes.length > 0 && (
               <p className="text-xs text-muted-foreground mt-1">
-                Opcionalmente puedes agregar <Zap className="w-3 h-3 inline text-amber-400" /> modificadores de atributos que se aplican al usar la respuesta,{' '}
-                <Filter className="w-3 h-3 inline text-orange-400" /> condiciones de visibilidad para controlar cuándo se muestra,{' '}
-                <GitBranch className="w-3 h-3 inline text-cyan-400" /> umbrales con mensajes condicionales que reemplazan la Respuesta según los atributos,{' '}
+                Opcionalmente puedes agregar <Zap className="w-3 h-3 inline text-fuchsia-400" /> modificadores de atributos que se aplican al usar la respuesta,{' '}
+                <Filter className="w-3 h-3 inline text-violet-400" /> condiciones de visibilidad para controlar cuándo se muestra,{' '}
+                <GitBranch className="w-3 h-3 inline text-fuchsia-400" /> umbrales con mensajes condicionales que reemplazan la Respuesta según los atributos,{' '}
                 <Shirt className="w-3 h-3 inline text-rose-400" /> cambio de guardarropa,{' '}
                 <MapPin className="w-3 h-3 inline text-emerald-400" /> cambio de escenario, y{' '}
                 <ImageIcon className="w-3 h-3 inline text-emerald-400" /> activación de sprites al usar la respuesta.
@@ -1398,7 +1453,7 @@ export function QuickRepliesPanel({
             )}
             {attributes.length === 0 && (
               <p className="text-xs text-muted-foreground mt-1">
-                Puedes agregar <Filter className="w-3 h-3 inline text-orange-400" /> condiciones de visibilidad para controlar cuándo se muestra cada respuesta.
+                Puedes agregar <Filter className="w-3 h-3 inline text-violet-400" /> condiciones de visibilidad para controlar cuándo se muestra cada respuesta.
               </p>
             )}
             {hasSpriteOptions && (
@@ -1465,7 +1520,7 @@ export function QuickRepliesPanel({
                   spritePacksV2={spritePacksV2}
                   triggerCollections={triggerCollections}
                   wardrobeConfig={wardrobeConfig}
-                  scenarioConfig={scenarioConfig}
+                  scenarioDefinitions={scenarioDefinitions}
                   availableTargets={availableTargets}
                   onStartEdit={handleStartEdit}
                   onSaveEdit={handleSaveEdit}
@@ -1536,7 +1591,7 @@ export function QuickRepliesPanel({
                 }
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <Zap className="w-3.5 h-3.5 text-fuchsia-400" />
                 <span>Modificadores de atributos</span>
                 {newModifiers.length > 0 && (
                   <Badge variant="secondary" className="h-4 text-[10px] px-1">
@@ -1657,7 +1712,8 @@ interface SortableQuickReplyItemProps {
   spritePacksV2?: SpritePackV2[];
   triggerCollections?: TriggerCollection[];
   wardrobeConfig?: WardrobeConfig;
-  scenarioConfig?: ScenarioConfig;
+  /** ESCENARIO V3: effective scenario definitions for badge label lookup */
+  scenarioDefinitions?: ScenarioDefinition[];
   availableTargets?: { id: string; name: string; attributes: AttributeDefinition[] }[];
   onStartEdit: (reply: CharacterQuickReply) => void;
   onSaveEdit: () => void;
@@ -1744,7 +1800,7 @@ function SortableQuickReplyItem({
   spritePacksV2,
   triggerCollections,
   wardrobeConfig,
-  scenarioConfig,
+  scenarioDefinitions,
   availableTargets,
   onStartEdit,
   onSaveEdit,
@@ -1845,7 +1901,7 @@ function SortableQuickReplyItem({
                 }
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <Zap className="w-3.5 h-3.5 text-fuchsia-400" />
                 <span>Modificadores de atributos</span>
                 {editModifiers.length > 0 && (
                   <Badge variant="secondary" className="h-4 text-[10px] px-1">
@@ -1957,7 +2013,7 @@ function SortableQuickReplyItem({
               <span className="text-sm font-medium">{reply.label}</span>
               {reply.modifiers && reply.modifiers.length > 0 && (
                 <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5">
-                  <Zap className="w-2.5 h-2.5 text-amber-400" />
+                  <Zap className="w-2.5 h-2.5 text-fuchsia-400" />
                   {reply.modifiers.length}
                 </Badge>
               )}
@@ -1981,18 +2037,20 @@ function SortableQuickReplyItem({
                 <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-emerald-500/20 text-emerald-400 max-w-[130px]">
                   <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
                   <span className="truncate">
-                    {scenarioConfig?.locations?.find(l => l.id === reply.scenarioAction?.locationId)?.name || 'Ubicación'}
+                    {describeScenarioLocationId(scenarioDefinitions, reply.scenarioAction?.locationId)
+                      || reply.scenarioAction?.locationId
+                      || 'Ubicación'}
                   </span>
                 </Badge>
               )}
               {reply.umbrales && reply.umbrales.length > 0 && (
-                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-cyan-500/20 text-cyan-400">
+                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-fuchsia-500/20 text-fuchsia-400">
                   <GitBranch className="w-2.5 h-2.5" />
                   {reply.umbrales.length}
                 </Badge>
               )}
               {reply.requirements && reply.requirements.length > 0 && (
-                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-orange-500/20 text-orange-400">
+                <Badge variant="secondary" className="h-4 text-[10px] px-1.5 gap-0.5 bg-violet-500/20 text-violet-400">
                   <Filter className="w-2.5 h-2.5" />
                   {reply.requirements.length}
                 </Badge>
@@ -2011,7 +2069,7 @@ function SortableQuickReplyItem({
                   return (
                     <span
                       key={idx}
-                      className="text-[10px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded"
+                      className="text-[10px] bg-fuchsia-500/10 text-fuchsia-600 px-1.5 py-0.5 rounded"
                     >
                       {attr?.icon ? `${attr.icon} ` : ''}{attr?.name || mod.attributeKey} {op.symbol} {mod.value}
                     </span>
@@ -2031,7 +2089,7 @@ function SortableQuickReplyItem({
                   return (
                     <span
                       key={idx}
-                      className="text-[10px] bg-orange-500/10 text-orange-600 px-1.5 py-0.5 rounded"
+                      className="text-[10px] bg-violet-500/10 text-violet-600 px-1.5 py-0.5 rounded"
                     >
                       {isTarget ? '🎯 ' : ''}{attr?.icon ? `${attr.icon} ` : ''}{attr?.name || req.attributeKey} {operatorSymbol} {req.value}{req.operator === 'between' && req.valueMax != null ? `─${req.valueMax}` : ''}
                     </span>

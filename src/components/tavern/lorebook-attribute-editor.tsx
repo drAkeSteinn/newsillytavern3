@@ -187,9 +187,9 @@ export function AttributeEntryEditor({ entry, onUpdate }: AttributeEntryEditorPr
       </div>
 
       {config.isFallback && (
-        <div className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-          <span className="text-[11px] text-amber-700 dark:text-amber-400">
+        <div className="flex items-center gap-2 p-2 bg-fuchsia-50 dark:bg-fuchsia-900/20 rounded border border-fuchsia-200 dark:border-fuchsia-800">
+          <AlertTriangle className="w-3.5 h-3.5 text-fuchsia-600" />
+          <span className="text-[11px] text-fuchsia-700 dark:text-fuchsia-400">
             Modo fallback: esta entrada se activará siempre que ninguna otra entrada con la misma key cumpla sus requisitos.
           </span>
         </div>

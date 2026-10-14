@@ -497,7 +497,7 @@ export function ThemeEffects({
       primary: '#3b82f6',
       secondary: '#6366f1',
       background: '#18181b',
-      accent: '#f59e0b',
+      accent: '#ff3ed8',
     };
   }, [theme]);
   
@@ -554,7 +554,7 @@ export function useThemeCSSVariables(theme: ChatboxTheme, customColors?: Chatbox
     
     // Default theme colors
     const defaults: Record<string, { primary: string; secondary: string; background: string; accent: string }> = {
-      default: { primary: '#3b82f6', secondary: '#6366f1', background: '#18181b', accent: '#f59e0b' },
+      default: { primary: '#ff3ed8', secondary: '#8e3fd0', background: '#0d0512', accent: '#ff3ed8' },
       midnight: { primary: '#6366f1', secondary: '#8b5cf6', background: '#0f0f23', accent: '#a855f7' },
       forest: { primary: '#22c55e', secondary: '#16a34a', background: '#0a1f0a', accent: '#4ade80' },
       sunset: { primary: '#f97316', secondary: '#ef4444', background: '#1a0f0a', accent: '#fbbf24' },
@@ -597,9 +597,9 @@ export function getThemeClassNames(theme: ChatboxTheme): string {
 
 export function getThemeColors(theme: ChatboxTheme): ThemeColorPreset {
   return THEME_COLOR_PRESETS[theme] || {
-    primary: '#3b82f6',
-    secondary: '#6366f1',
-    background: '#18181b',
-    accent: '#f59e0b',
+    primary: '#ff3ed8',
+    secondary: '#8e3fd0',
+    background: '#0d0512',
+    accent: '#ff3ed8',
   };
 }

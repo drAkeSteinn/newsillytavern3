@@ -50,11 +50,11 @@ interface NotificationItemProps {
 // ============================================
 
 const notificationIcons: Record<QuestNotification['type'], React.ReactNode> = {
-  quest_activated: <Sparkles className="w-5 h-5 text-amber-400" />,
+  quest_activated: <Sparkles className="w-5 h-5 text-fuchsia-400" />,
   objective_complete: <Check className="w-5 h-5 text-green-400" />,
-  quest_complete: <Star className="w-5 h-5 text-amber-400" />,
+  quest_complete: <Star className="w-5 h-5 text-fuchsia-400" />,
   quest_failed: <AlertTriangle className="w-5 h-5 text-red-400" />,
-  quest_updated: <RefreshCw className="w-5 h-5 text-cyan-400" />,
+  quest_updated: <RefreshCw className="w-5 h-5 text-fuchsia-400" />,
   reward_claimed: <Gift className="w-5 h-5 text-purple-400" />,
 };
 
@@ -64,9 +64,9 @@ const notificationIcons: Record<QuestNotification['type'], React.ReactNode> = {
 
 const notificationColors: Record<QuestNotification['type'], { bg: string; border: string; text: string }> = {
   quest_activated: {
-    bg: 'bg-amber-500/20',
-    border: 'border-amber-500/40',
-    text: 'text-amber-400',
+    bg: 'bg-fuchsia-500/20',
+    border: 'border-fuchsia-500/40',
+    text: 'text-fuchsia-400',
   },
   objective_complete: {
     bg: 'bg-green-500/20',
@@ -74,9 +74,9 @@ const notificationColors: Record<QuestNotification['type'], { bg: string; border
     text: 'text-green-400',
   },
   quest_complete: {
-    bg: 'bg-amber-500/20',
-    border: 'border-amber-500/40',
-    text: 'text-amber-400',
+    bg: 'bg-fuchsia-500/20',
+    border: 'border-fuchsia-500/40',
+    text: 'text-fuchsia-400',
   },
   quest_failed: {
     bg: 'bg-red-500/20',
@@ -84,9 +84,9 @@ const notificationColors: Record<QuestNotification['type'], { bg: string; border
     text: 'text-red-400',
   },
   quest_updated: {
-    bg: 'bg-cyan-500/20',
-    border: 'border-cyan-500/40',
-    text: 'text-cyan-400',
+    bg: 'bg-fuchsia-500/20',
+    border: 'border-fuchsia-500/40',
+    text: 'text-fuchsia-400',
   },
   reward_claimed: {
     bg: 'bg-purple-500/20',
@@ -109,11 +109,11 @@ const badgeLabels: Record<QuestNotification['type'], string> = {
 };
 
 const badgeColors: Record<QuestNotification['type'], string> = {
-  quest_activated: 'bg-amber-500/30 text-amber-300',
+  quest_activated: 'bg-fuchsia-500/30 text-fuchsia-300',
   objective_complete: 'bg-green-500/30 text-green-300',
-  quest_complete: 'bg-amber-500/30 text-amber-300',
+  quest_complete: 'bg-fuchsia-500/30 text-fuchsia-300',
   quest_failed: 'bg-red-500/30 text-red-300',
-  quest_updated: 'bg-cyan-500/30 text-cyan-300',
+  quest_updated: 'bg-fuchsia-500/30 text-fuchsia-300',
   reward_claimed: 'bg-purple-500/30 text-purple-300',
 };
 
@@ -235,8 +235,8 @@ function NotificationItem({ notification, onDismiss, autoDismissMs }: Notificati
             'flex items-center justify-center',
             'min-w-[18px] h-[18px] px-1',
             'rounded-full text-[9px] font-bold',
-            'bg-orange-500 text-white',
-            'shadow-sm shadow-orange-500/50',
+            'bg-violet-500 text-white',
+            'shadow-sm shadow-violet-500/50',
             'animate-[bounce-in_0.3s_ease-out]'
           )}>
             {duplicateCount + 1}
@@ -266,8 +266,8 @@ function NotificationItem({ notification, onDismiss, autoDismissMs }: Notificati
         {/* Duplicate info line */}
         {duplicateCount > 0 && (
           <div className="flex items-center gap-1 mt-1">
-            <Layers className="w-3 h-3 text-orange-400/60" />
-            <span className="text-[10px] text-orange-400/60">
+            <Layers className="w-3 h-3 text-violet-400/60" />
+            <span className="text-[10px] text-violet-400/60">
               {duplicateCount + 1} notificaciones similares agrupadas
             </span>
           </div>

@@ -14,6 +14,7 @@ import type {
   QuestRewardTargetAttribute,
   QuestRewardConditionalSpriteCollection,
   QuestRewardActivateSpritePack,
+  QuestRewardUbicacion,
   QuestRewardCondition,
   QuestRewardMessage,
   AttributeAction,
@@ -278,6 +279,34 @@ export function createConditionalSpriteCollectionReward(
   };
 }
 
+/**
+ * Crea una recompensa de ubicación (ESCENARIO V3).
+ * Mueve la escena compartida a un escenario, lugar o punto de interés de la
+ * biblioteca global; aplica el fondo de la ubicación (y por tanto la pose del
+ * sprite guardada para ese fondo × personaje).
+ */
+export function createUbicacionReward(
+  collectionId: string,
+  locationId: string,
+  options?: {
+    id?: string;
+    locationLabel?: string;
+    condition?: QuestRewardCondition;
+  }
+): QuestReward {
+  const config: QuestRewardUbicacion = {
+    ...(collectionId ? { collectionId } : {}),
+    locationId,
+    ...(options?.locationLabel ? { locationLabel: options.locationLabel } : {}),
+  };
+  return {
+    id: options?.id || generateId(),
+    type: 'ubicacion',
+    ubicacion: config,
+    condition: options?.condition,
+  };
+}
+
 // ============================================
 // Legacy Migration - Convertir formato antiguo al nuevo
 // ============================================
@@ -514,6 +543,14 @@ export function validateReward(reward: QuestReward): { valid: boolean; errors: s
     }
   }
 
+  if (reward.type === 'ubicacion') {
+    if (!reward.ubicacion) {
+      errors.push('Ubicacion reward must have ubicacion config');
+    } else if (!reward.ubicacion.locationId && !reward.ubicacion.collectionId) {
+      errors.push('Ubicacion reward must have ubicacion.locationId (or collectionId)');
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
@@ -663,6 +700,12 @@ export function describeReward(reward: QuestReward): string {
     return `💬 Mensaje: "${truncated}"`;
   }
 
+  if (reward.type === 'ubicacion') {
+    const ubi = reward.ubicacion;
+    if (!ubi) return 'Ubicación inválida';
+    return `📍 Ubicación: ${ubi.locationLabel || ubi.locationId || ubi.collectionId || '?'}`;
+  }
+
   return 'Recompensa desconocida';
 }
 
@@ -708,6 +751,9 @@ export function normalizeReward(reward: QuestReward): QuestReward {
     return reward;
   }
   if (reward.type === 'message' && reward.message) {
+    return reward;
+  }
+  if (reward.type === 'ubicacion' && reward.ubicacion && (reward.ubicacion.locationId || reward.ubicacion.collectionId)) {
     return reward;
   }
 
@@ -808,6 +854,22 @@ export function normalizeReward(reward: QuestReward): QuestReward {
       ...reward,
       message: {
         text: reward.message?.text ?? (typeof reward.value === 'string' ? reward.value : ''),
+      },
+    };
+  }
+
+  // Handle ubicacion type (repair partial config; legacy repair via key/value)
+  if (reward.type === 'ubicacion') {
+    return {
+      ...reward,
+      ubicacion: {
+        collectionId: reward.ubicacion?.collectionId,
+        locationId: reward.ubicacion?.locationId
+          || reward.ubicacion?.collectionId
+          || reward.key
+          || '',
+        locationLabel: reward.ubicacion?.locationLabel
+          || (typeof reward.value === 'string' && reward.value ? reward.value : undefined),
       },
     };
   }

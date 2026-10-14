@@ -35,7 +35,16 @@
       "tags": [
         "interior",
         "matutino"
-      ]
+      ],
+      "spritePoses": {
+        "7c7fbc0b-0971-4316-ba04-fffc03bce0bc": {
+          "x": 69.29631525076765,
+          "y": 10.569852941176471,
+          "width": 35,
+          "height": 70,
+          "opacity": 0.9
+        }
+      }
     },
     {
       "id": "bg_1775203629530_jstjqg",
@@ -44,6 +53,37 @@
       "triggerKeys": [],
       "contextKeys": [],
       "tags": []
+    },
+    {
+      "id": "bg_1791891595993_gy9gnr",
+      "name": "6319d281-e56e-447b-8dc0-212115-1791891595968-4d6bjp",
+      "url": "/backgrounds/Room/6319d281-e56e-447b-8dc0-212115-1791891595968-4d6bjp.png",
+      "triggerKeys": [],
+      "contextKeys": [],
+      "tags": []
+    },
+    {
+      "id": "bg_1791893389921_3uwkdb",
+      "name": "Room (5)",
+      "url": "/backgrounds/Room/Room (5).png",
+      "triggerKeys": [],
+      "contextKeys": []
+    },
+    {
+      "id": "bg_1791924654994_u3kpil",
+      "name": "Room (4)",
+      "url": "/backgrounds/Room/Room (4).png",
+      "triggerKeys": [],
+      "contextKeys": [],
+      "spritePoses": {
+        "7c7fbc0b-0971-4316-ba04-fffc03bce0bc": {
+          "x": 17.5,
+          "y": 2.150735294117645,
+          "width": 35,
+          "height": 70,
+          "opacity": 0.9
+        }
+      }
     }
   ]
 }

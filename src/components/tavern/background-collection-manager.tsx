@@ -407,7 +407,7 @@ export function BackgroundCollectionManager({ open, onOpenChange }: CollectionMa
                 <FolderOpen className="w-5 h-5 text-muted-foreground" />
                 <h2 className="font-semibold text-sm">Gestionar Colecciones</h2>
                 {hasChanges && (
-                  <Badge variant="outline" className="text-orange-500 border-orange-500 text-xs ml-2">
+                  <Badge variant="outline" className="text-violet-500 border-violet-500 text-xs ml-2">
                     Sin guardar
                   </Badge>
                 )}

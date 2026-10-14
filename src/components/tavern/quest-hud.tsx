@@ -80,16 +80,16 @@ const positionClasses = {
 
 const priorityColors: Record<QuestPriority, { bg: string; text: string; border: string; progress: string }> = {
   main: {
-    bg: 'bg-amber-500/20',
-    text: 'text-amber-400',
-    border: 'border-amber-500/40',
-    progress: 'bg-amber-500',
+    bg: 'bg-fuchsia-500/20',
+    text: 'text-fuchsia-400',
+    border: 'border-fuchsia-500/40',
+    progress: 'bg-fuchsia-500',
   },
   side: {
-    bg: 'bg-blue-500/20',
-    text: 'text-blue-400',
-    border: 'border-blue-500/40',
-    progress: 'bg-blue-500',
+    bg: 'bg-violet-500/20',
+    text: 'text-violet-400',
+    border: 'border-violet-500/40',
+    progress: 'bg-violet-500',
   },
   hidden: {
     bg: 'bg-slate-500/20',
@@ -244,15 +244,15 @@ export function QuestHUD({
             'hover:bg-white/5 transition-colors'
           )}
         >
-          <ScrollText className="w-4 h-4 text-amber-400" />
+          <ScrollText className="w-4 h-4 text-fuchsia-400" />
           <span className="text-sm font-medium text-white/80 flex-1 text-left">
             Misiones
           </span>
-          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+          <Badge className="bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/30">
             {activeQuests.length}
           </Badge>
           {availableQuests.length > 0 && (
-            <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 ml-1">
+            <Badge className="bg-violet-500/20 text-violet-400 border-violet-500/30 ml-1">
               +{availableQuests.length}
             </Badge>
           )}
@@ -287,7 +287,7 @@ export function QuestHUD({
               <div className="pt-2 border-t border-white/10">
                 <button
                   onClick={() => setShowAvailable(!showAvailable)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-blue-400 hover:bg-white/5 rounded transition-colors"
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-violet-400 hover:bg-white/5 rounded transition-colors"
                 >
                   <Circle className="w-3 h-3" />
                   <span className="flex-1 text-left">Disponibles ({availableQuests.length})</span>
@@ -442,7 +442,7 @@ export function QuestHUD({
               </div>
             )}
             {availableQuests.length > 0 && (
-              <div className="text-xs text-blue-400/60 px-1">
+              <div className="text-xs text-violet-400/60 px-1">
                 +{availableQuests.length} disp.
               </div>
             )}
@@ -532,7 +532,7 @@ function QuestCard({
               {template.name}
             </span>
             {template.priority === 'main' && (
-              <Star className="w-3 h-3 text-amber-400 shrink-0" />
+              <Star className="w-3 h-3 text-fuchsia-400 shrink-0" />
             )}
           </div>
           
@@ -652,7 +652,7 @@ function AvailableQuestItem({ template, onActivate }: AvailableQuestItemProps) {
             {template.name}
           </span>
           {template.priority === 'main' && (
-            <Star className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+            <Star className="w-2.5 h-2.5 text-fuchsia-400 shrink-0" />
           )}
         </div>
         {template.description && (

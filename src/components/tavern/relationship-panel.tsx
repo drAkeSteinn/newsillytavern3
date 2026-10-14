@@ -39,6 +39,7 @@ import {
   RELATIONSHIP_STAGES,
   getRelationship,
   computeRelationshipStage,
+  relationshipStageLabel,
   DEFAULT_RELATIONSHIP_POINTS,
   type RelationshipStage,
 } from '@/lib/relationships';
@@ -51,7 +52,7 @@ interface RelationshipPanelProps {
 
 const STAGE_COLORS: Record<string, { stroke: string; text: string; badge: string }> = {
   extranos: { stroke: '#9ca3af', text: 'text-gray-400', badge: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
-  conocidos: { stroke: '#38bdf8', text: 'text-sky-400', badge: 'bg-sky-500/15 text-sky-400 border-sky-500/30' },
+  conocidos: { stroke: '#38bdf8', text: 'text-violet-400', badge: 'bg-violet-500/15 text-violet-400 border-violet-500/30' },
   amigos: { stroke: '#34d399', text: 'text-emerald-400', badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
   intimos: { stroke: '#e879f9', text: 'text-fuchsia-400', badge: 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30' },
   pareja: { stroke: '#fb7185', text: 'text-rose-400', badge: 'bg-rose-500/15 text-rose-400 border-rose-500/30' },
@@ -80,6 +81,7 @@ function BondCard({
   stage,
   reason,
   sessionId,
+  stageLabels,
 }: {
   aId: string;
   aName: string;
@@ -89,6 +91,7 @@ function BondCard({
   stage: RelationshipStage;
   reason?: string;
   sessionId: string;
+  stageLabels?: import('@/lib/relationships').RelationshipStageLabels;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(points);
@@ -170,7 +173,7 @@ function BondCard({
   }
 
   // ── Edit mode ──
-  const draftStage = computeRelationshipStage(draft);
+  const draftStage = computeRelationshipStage(draft, stageLabels);
   const draftColor = stageColor(draftStage.key);
 
   return (
@@ -283,6 +286,14 @@ export function RelationshipPanel({ open, onOpenChange, activeSession }: Relatio
   const [showCreate, setShowCreate] = useState(false);
   const [newA, setNewA] = useState<string>('');
   const [newB, setNewB] = useState<string>('');
+  // Custom bond stage labels for the new bond: prefer the non-user party's labels
+  const newStageLabels = (newA === '__user__' ? newB : newA)
+    ? characters.find(c => c.id === (newA === '__user__' ? newB : newA))?.relationshipStageLabels
+    : undefined;
+  // Session's primary character labels (for the legend)
+  const primaryCharLabels = activeSession?.characterId
+    ? characters.find(c => c.id === activeSession.characterId)?.relationshipStageLabels
+    : undefined;
   const [newPoints, setNewPoints] = useState<number>(DEFAULT_RELATIONSHIP_POINTS);
 
   const userName = personas.find(p => p.id === activePersonaId)?.name || 'Usuario';
@@ -322,12 +333,12 @@ export function RelationshipPanel({ open, onOpenChange, activeSession }: Relatio
     const rels = stats.relationships as Record<string, { points?: number; lastReason?: string }> | undefined;
 
     for (const char of nodes) {
-      const bond = getRelationship(rels, char.id, '__user__');
+      const bond = getRelationship(rels, char.id, '__user__', char.relationshipStageLabels);
       const mirror = stats.characterStats?.[char.id]?.attributeValues?.['relacion'];
       const mirrorNum = typeof mirror === 'number' ? mirror : parseFloat(String(mirror ?? '')) || null;
       const points = bond?.points ?? (Number.isFinite(mirrorNum) ? (mirrorNum as number) : null);
       if (points !== null) {
-        const stage = bond?.stage ?? RELATIONSHIP_STAGES.find(s => points >= s.min && points <= s.max)!;
+        const stage = bond?.stage ?? computeRelationshipStage(points, char.relationshipStageLabels);
         edges.push({
           key: `u-${char.id}`, aId: '__user__', aName: userName,
           bId: char.id, bName: char.name, points,
@@ -337,7 +348,7 @@ export function RelationshipPanel({ open, onOpenChange, activeSession }: Relatio
     }
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
-        const bond = getRelationship(rels, nodes[i].id, nodes[j].id);
+        const bond = getRelationship(rels, nodes[i].id, nodes[j].id, nodes[i].relationshipStageLabels);
         if (bond) {
           edges.push({
             key: `${nodes[i].id}-${nodes[j].id}`,
@@ -545,6 +556,7 @@ export function RelationshipPanel({ open, onOpenChange, activeSession }: Relatio
                     stage={edge.stage}
                     reason={edge.reason}
                     sessionId={sessionId}
+                    stageLabels={edge.bId === '__user__' ? characters.find(c => c.id === edge.aId)?.relationshipStageLabels : characters.find(c => c.id === edge.bId)?.relationshipStageLabels}
                   />
                 ))}
             </div>
@@ -607,8 +619,8 @@ export function RelationshipPanel({ open, onOpenChange, activeSession }: Relatio
                     <div className="space-y-1">
                       <div className="flex items-center justify-between">
                         <Label className="text-[10px] text-muted-foreground">Nivel inicial</Label>
-                        <span className="text-[10px] tabular-nums" style={{ color: stageColor(computeRelationshipStage(newPoints).key).stroke }}>
-                          {Math.round(newPoints)} — {computeRelationshipStage(newPoints).label}
+                        <span className="text-[10px] tabular-nums" style={{ color: stageColor(computeRelationshipStage(newPoints, newStageLabels).key).stroke }}>
+                          {Math.round(newPoints)} — {computeRelationshipStage(newPoints, newStageLabels).label}
                         </span>
                       </div>
                       <Slider
@@ -620,7 +632,7 @@ export function RelationshipPanel({ open, onOpenChange, activeSession }: Relatio
                         aria-label="Nivel inicial del vínculo"
                       />
                       <p className="text-[9px] text-muted-foreground">
-                        Por defecto {DEFAULT_RELATIONSHIP_POINTS}/100 (Conocidos).
+                        Por defecto {DEFAULT_RELATIONSHIP_POINTS}/100 ({computeRelationshipStage(DEFAULT_RELATIONSHIP_POINTS, newStageLabels).label}).
                       </p>
                     </div>
 
@@ -639,13 +651,14 @@ export function RelationshipPanel({ open, onOpenChange, activeSession }: Relatio
 
             <Separator className="mt-3" />
 
-            {/* Legend */}
+            {/* Legend — uses the session's primary character custom labels when available */}
             <div className="flex flex-wrap gap-1.5 pt-1 pb-1">
               {RELATIONSHIP_STAGES.map(stage => {
                 const color = stageColor(stage.key);
+                const legendLabel = relationshipStageLabel(stage, primaryCharLabels);
                 return (
                   <Badge key={stage.key} variant="outline" className={`text-[9px] ${color.badge}`}>
-                    {stage.min}-{stage.max} {stage.label}
+                    {stage.min}-{stage.max} {legendLabel}
                   </Badge>
                 );
               })}

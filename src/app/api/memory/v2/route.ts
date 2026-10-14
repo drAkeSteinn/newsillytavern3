@@ -10,15 +10,20 @@ export const maxDuration = 120;
  * GET  ?action=records&charId=...           → active records for a character (grouped by type)
  *                                      [&includeArchived=1]  → also return superseded records
  * GET  ?action=search&charId=...&query=...  → debug search with reranking
+ * GET  ?action=export-all                   → ALL records (active + archived) for backup
  *
  * POST { action }:
  *   add        { charId, type, content, importance?, eventDate?, groupId? } → manual (curada) record
  *   edit       { id, content, type?, importance?, eventDate?, subject? }    → in-place user edit (re-embeds)
  *   supersede  { id }               → archive a record (history kept)
  *   hard-delete { id }              → permanently remove a record (no history)
+ *   hard-delete-bulk { ids }        → permanently remove several records
+ *                    { all: true, charId|groupId } → RESET: wipe ALL records in scope
  *   extract    { transcript, charId, charName, userName?, llmConfig, ... } → manual extraction pass
  *   migrate    { charId? }          → legacy → V2 migration (idempotent)
  *   reinit                          → reset store state (after model change / recovery)
+ *   import-records { records }      → bulk restore from backup (merge by id: existing
+ *                                    ids are SKIPPED, missing ones re-embedded and added)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -56,6 +61,21 @@ export async function GET(request: NextRequest) {
         (grouped[r.type] ||= []).push(r);
       }
       return NextResponse.json({ success: true, backend: store.backend, total: records.length, records, grouped });
+    }
+
+    if (action === 'export-all') {
+      // Full backup dump: every record (active + superseded/archived) across all
+      // characters, groups and sessions. Used by the Datos → Exportar Todo flow.
+      const { getV2 } = await import('@/lib/memory/v2');
+      const store = await getV2();
+      const records = await store.list({ activeOnly: false, limit: 100000, orderBy: 'recent' });
+      return NextResponse.json({
+        success: true,
+        backend: store.backend,
+        model: store.model,
+        total: records.length,
+        records,
+      });
     }
 
     if (action === 'search') {
@@ -186,6 +206,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: ok });
     }
 
+    if (action === 'hard-delete-bulk') {
+      // Two modes:
+      //   { ids: [...] }                          → delete exactly those records
+      //   { all: true, charId?|groupId?, ... }    → RESET: wipe everything for the
+      //     scope (active + archived), looping in batches for stores > 500 records.
+      const { ids, all, charId, groupId } = body;
+      const { getV2 } = await import('@/lib/memory/v2');
+      const store = await getV2();
+
+      if (all) {
+        if (!charId && !groupId) {
+          return NextResponse.json({ error: 'charId or groupId required' }, { status: 400 });
+        }
+        let totalDeleted = 0;
+        for (let pass = 0; pass < 20; pass++) {
+          const records = await store.list({
+            charId: charId || undefined,
+            groupId: groupId || undefined,
+            crossSession: true,
+            activeOnly: false, // include archived → a true reset
+            limit: 500,
+            orderBy: 'recent',
+          });
+          if (!records.length) break;
+          const n = await store.hardDeleteMany(records.map(r => r.id));
+          totalDeleted += n;
+          if (n < records.length) break; // partial delete → avoid an infinite loop
+        }
+        return NextResponse.json({ success: true, deleted: totalDeleted, scope: 'all' });
+      }
+
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return NextResponse.json({ error: 'ids (non-empty array) or all=true required' }, { status: 400 });
+      }
+      const deleted = await store.hardDeleteMany(ids.map(String));
+      return NextResponse.json({ success: true, deleted });
+    }
+
     if (action === 'extract') {
       const { transcript, charId, charName, userName, sessionId, groupId, llmConfig, minImportance, extractionModelConfig } = body;
       if (!transcript || !charId || !charName) {
@@ -217,6 +275,66 @@ export async function POST(request: NextRequest) {
       resetV2();
       const health = await v2Health(true);
       return NextResponse.json({ success: true, health });
+    }
+
+    if (action === 'import-records') {
+      // Bulk restore from a backup. Merge-by-id semantics (idempotent):
+      //   - record id already exists  → SKIPPED (local copy wins, never duplicated)
+      //   - record id missing         → added with ALL original fields preserved
+      //                                 (createdAt, importance, heat, eventDate,
+      //                                  supersededBy/archived status, charId/groupId...)
+      // The store re-embeds content automatically on add.
+      const { records } = body;
+      if (!Array.isArray(records) || records.length === 0) {
+        return NextResponse.json({ error: 'records (non-empty array) required' }, { status: 400 });
+      }
+      const { getV2 } = await import('@/lib/memory/v2');
+      const store = await getV2();
+      const VALID_TYPES = ['evento', 'hecho', 'preferencia', 'relacion', 'nota', 'resumen_escena'];
+      const VALID_SUBJECTS = ['usuario', 'personaje', 'pareja', 'mundo'];
+      let added = 0;
+      let skipped = 0;
+      let invalid = 0;
+      for (const raw of records) {
+        if (!raw || typeof raw !== 'object' || !String(raw.content ?? '').trim()) {
+          invalid++;
+          continue;
+        }
+        const id = String(raw.id ?? '').trim();
+        if (id && (await store.get(id))) {
+          skipped++;
+          continue;
+        }
+        const t = new Date().toISOString();
+        try {
+          await store.add({
+            id: id || '', // store.add generates one when empty
+            type: VALID_TYPES.includes(raw.type) ? raw.type : 'nota',
+            content: String(raw.content),
+            subject: VALID_SUBJECTS.includes(raw.subject) ? raw.subject : 'mundo',
+            charId: String(raw.charId ?? ''),
+            groupId: String(raw.groupId ?? ''),
+            sessionId: String(raw.sessionId ?? ''),
+            source: raw.source === 'curada' ? 'curada' : 'auto',
+            importance: Math.min(1, Math.max(0, Number(raw.importance ?? 0.5)) || 0),
+            heat: Math.max(0, Number(raw.heat ?? 1) || 1),
+            eventDate: raw.eventDate || t,
+            createdAt: raw.createdAt || t,
+            updatedAt: t,
+            lastAccessedAt: raw.lastAccessedAt || t,
+            accessCount: Math.max(0, Number(raw.accessCount ?? 0) || 0),
+            linkedIds: Array.isArray(raw.linkedIds) ? raw.linkedIds.map(String) : [],
+            supersededBy: String(raw.supersededBy ?? ''), // preserve archived status
+            ...(raw.legacyId ? { legacyId: String(raw.legacyId) } : {}),
+            ...(raw.sourceMessageId ? { sourceMessageId: String(raw.sourceMessageId) } : {}),
+          });
+          added++;
+        } catch (addErr) {
+          console.error('[MemoryV2 API] import-records: failed to add one record:', addErr);
+          invalid++;
+        }
+      }
+      return NextResponse.json({ success: true, added, skipped, invalid, total: records.length });
     }
 
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

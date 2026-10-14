@@ -17,6 +17,7 @@ export {
   executeTool,
   summarizeToolResult,
   buildPromptBasedToolsSection,
+  buildNativeToolsReminder,
 } from './tool-registry';
 export {
   getSessionReminders,

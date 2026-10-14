@@ -278,8 +278,8 @@ export function QuestLogPanel({
 
   // Priority colors
   const priorityColors: Record<QuestPriority, string> = {
-    main: 'text-amber-500',
-    side: 'text-blue-500',
+    main: 'text-fuchsia-500',
+    side: 'text-violet-500',
     hidden: 'text-slate-500',
   };
 
@@ -301,7 +301,7 @@ export function QuestLogPanel({
             <Button
               size="sm"
               onClick={() => setActivationDialogOpen(true)}
-              className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
+              className="bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700"
             >
               <Sparkles className="w-4 h-4 mr-1.5" />
               Activar Misión
@@ -320,7 +320,7 @@ export function QuestLogPanel({
           </Badge>
           <Badge
             variant="outline"
-            className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+            className="bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20"
           >
             <CheckCircle2 className="w-3 h-3 mr-1" />
             {stats.completed} Completadas
@@ -558,7 +558,7 @@ function QuestInstanceCard({
   const statusColors: Record<QuestStatus, string> = {
     active: 'border-green-500/30 bg-green-500/5',
     available: 'border-slate-500/30 bg-slate-500/5',
-    completed: 'border-blue-500/30 bg-blue-500/5',
+    completed: 'border-violet-500/30 bg-violet-500/5',
     failed: 'border-red-500/30 bg-red-500/5',
     locked: 'border-slate-500/30 bg-slate-500/5 opacity-50',
     paused: 'border-yellow-500/30 bg-yellow-500/5',
@@ -567,7 +567,7 @@ function QuestInstanceCard({
   const statusBadgeColors: Record<QuestStatus, string> = {
     active: 'bg-green-500/20 text-green-600',
     available: 'bg-slate-500/20 text-slate-600',
-    completed: 'bg-blue-500/20 text-blue-600',
+    completed: 'bg-violet-500/20 text-violet-600',
     failed: 'bg-red-500/20 text-red-600',
     locked: 'bg-slate-500/20 text-slate-600',
     paused: 'bg-yellow-500/20 text-yellow-600',
@@ -583,8 +583,8 @@ function QuestInstanceCard({
   };
   
   const priorityIcon: Record<QuestPriority, React.ReactNode> = {
-    main: <Star className="w-3 h-3 text-amber-500" />,
-    side: <Target className="w-3 h-3 text-blue-500" />,
+    main: <Star className="w-3 h-3 text-fuchsia-500" />,
+    side: <Target className="w-3 h-3 text-violet-500" />,
     hidden: <ScrollText className="w-3 h-3 text-slate-500" />,
   };
 
@@ -630,7 +630,7 @@ function QuestInstanceCard({
                 <div
                   className={cn(
                     'h-full rounded-full transition-all',
-                    quest.status === 'completed' ? 'bg-blue-500' : 'bg-amber-500'
+                    quest.status === 'completed' ? 'bg-violet-500' : 'bg-fuchsia-500'
                   )}
                   style={{ width: `${quest.progress || 0}%` }}
                 />
@@ -723,7 +723,7 @@ function QuestInstanceCard({
                       size="sm"
                       className={cn(
                         "h-5 px-1.5 text-[9px]",
-                        obj.isCompleted && "text-orange-600 hover:text-orange-700"
+                        obj.isCompleted && "text-violet-600 hover:text-violet-700"
                       )}
                       onClick={(e) => {
                         e.stopPropagation();

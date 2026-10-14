@@ -501,7 +501,7 @@ export class AtmosphereEngine {
     const { ctx } = this;
     const o = this.options;
     const core = o.colorSecondary || '#fdba74';
-    const glow = o.color || '#f97316';
+    const glow = o.color || '#ff3ed8';
 
     const prevComposite = ctx.globalCompositeOperation;
     ctx.globalCompositeOperation = 'lighter';
@@ -529,8 +529,8 @@ export class AtmosphereEngine {
   private drawLeaves(baseAlpha: number) {
     const { ctx } = this;
     const o = this.options;
-    const color = o.color || '#d97706';
-    const color2 = o.colorSecondary || '#b45309';
+    const color = o.color || '#ff3ed8';
+    const color2 = o.colorSecondary || '#c21fb0';
 
     for (const p of this.particles) {
       const alpha = (0.35 + p.z * 0.55) * baseAlpha;

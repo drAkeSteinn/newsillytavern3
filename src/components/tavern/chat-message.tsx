@@ -403,13 +403,13 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const avatarBorder = isNarrator
     ? safeAppearance.avatars.borderColor || 'border-violet-400/50'
     : isUser
-      ? safeAppearance.avatars.borderColor || 'border-blue-500'
-      : safeAppearance.avatars.borderColor || 'border-amber-500';
+      ? safeAppearance.avatars.borderColor || 'border-violet-500'
+      : safeAppearance.avatars.borderColor || 'border-fuchsia-500';
   const avatarGradient = isNarrator
     ? 'from-violet-300 to-violet-500'
     : isUser
-      ? 'from-blue-400 to-blue-600'
-      : 'from-amber-400 to-orange-600';
+      ? 'from-violet-400 to-violet-600'
+      : 'from-fuchsia-400 to-violet-600';
 
   // Message spacing
   const spacingClasses = {
@@ -456,7 +456,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             {message.metadata?.proactiveInfo?.isProactive && (
               <Badge 
                 variant="outline"
-                className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-amber-500/30 text-amber-400/70 bg-amber-500/5"
+                className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-fuchsia-500/30 text-fuchsia-400/70 bg-fuchsia-500/5"
               >
                 <Sparkles className="w-2.5 h-2.5" />
                 Proactivo
@@ -466,7 +466,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             {message.metadata?.isPartial && message.metadata?.interruptInfo && !message.metadata.interruptInfo.reactionGenerated && (
               <Badge 
                 variant="outline"
-                className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-orange-500/30 text-orange-400/70 bg-orange-500/5"
+                className="text-[10px] py-0 h-4 px-1.5 gap-0.5 border-violet-500/30 text-violet-400/70 bg-violet-500/5"
               >
                 <Pause className="w-2.5 h-2.5" />
                 Interrumpido

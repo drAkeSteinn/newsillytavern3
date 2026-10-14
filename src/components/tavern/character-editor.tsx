@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { getEffectiveScenarioDefinitions } from '@/lib/scenario/library';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AnimatePresence, motion } from 'framer-motion';
 import { 
@@ -40,6 +41,7 @@ import {
   FolderOpen,
   BookOpen,
   BrainCircuit,
+  Check,
   History
 } from 'lucide-react';
 import type { CharacterCard, CharacterVoiceSettings } from '@/types';
@@ -125,6 +127,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
   const personas = useTavernStore((s) => s.personas);
   const activePersonaId = useTavernStore((s) => s.activePersonaId);
   const questTemplates = useTavernStore((s) => s.questTemplates);
+  // ESCENARIO V3: App-level scenario library (multi-select in the Escenario tab)
+  const appScenarios = useTavernStore((s) => s.scenarios);
 
   // Active tab state
   const [activeTab, setActiveTab] = useState('info');
@@ -349,8 +353,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
   const renderInfoTab = () => (
     <div className="space-y-6">
       {/* Banner */}
-      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-500/20 rounded-lg">
-        <Palette className="w-4 h-4 text-blue-500 shrink-0" />
+      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-violet-500/10 to-violet-500/10 border border-violet-500/20 rounded-lg">
+        <Palette className="w-4 h-4 text-violet-500 shrink-0" />
         <p className="text-xs text-muted-foreground">
           Configura <strong>avatar</strong>, <strong>información básica</strong> y <strong>asignaciones</strong> del personaje.
         </p>
@@ -359,8 +363,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       {/* ═══ Section: Identidad ═══ */}
       <div className="rounded-lg border bg-card p-5">
         <div className="flex items-center gap-2 mb-4">
-          <div className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-500/10">
-            <Palette className="w-3.5 h-3.5 text-blue-500" />
+          <div className="flex items-center justify-center w-6 h-6 rounded-md bg-violet-500/10">
+            <Palette className="w-3.5 h-3.5 text-violet-500" />
           </div>
           <h3 className="text-sm font-semibold">Identidad</h3>
         </div>
@@ -523,8 +527,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       {/* ═══ Section: Asignaciones ═══ */}
       <div className="rounded-lg border bg-card p-5">
         <div className="flex items-center gap-2 mb-4">
-          <div className="flex items-center justify-center w-6 h-6 rounded-md bg-amber-500/10">
-            <Package className="w-3.5 h-3.5 text-amber-500" />
+          <div className="flex items-center justify-center w-6 h-6 rounded-md bg-fuchsia-500/10">
+            <Package className="w-3.5 h-3.5 text-fuchsia-500" />
           </div>
           <h3 className="text-sm font-semibold">Asignaciones</h3>
           <span className="text-xs text-muted-foreground ml-1">— Recursos vinculados a este personaje</span>
@@ -534,7 +538,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
           {/* HUD Selector */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-blue-500" />
+              <Layers className="w-4 h-4 text-violet-500" />
               <Label className="text-sm font-medium">HUD</Label>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -585,7 +589,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
           {/* Lorebook Selector */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-amber-500" />
+              <BookOpen className="w-4 h-4 text-fuchsia-500" />
               <Label className="text-sm font-medium">Lorebooks</Label>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -652,7 +656,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
   const renderDescriptionTab = () => (
     <div className="space-y-4">
       {/* Banner compact */}
-      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 rounded-lg">
+      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-emerald-500/10 to-emerald-500/10 border border-emerald-500/20 rounded-lg">
         <FileText className="w-4 h-4 text-emerald-500 shrink-0" />
         <p className="text-xs text-muted-foreground">
           Define la <strong>historia</strong>, <strong>personalidad</strong> y <strong>escenario</strong> del personaje.
@@ -711,7 +715,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
           {/* Escenario */}
           <div className="flex-1 flex flex-col">
             <div className="flex items-center gap-2 mb-2">
-              <Layers className="w-4 h-4 text-cyan-500" />
+              <Layers className="w-4 h-4 text-fuchsia-500" />
               <span className="text-xs font-medium">Escenario</span>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -746,8 +750,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
   const renderDialogueTab = () => (
     <div className="space-y-4">
       {/* Banner compact */}
-      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-500/20 rounded-lg">
-        <MessageSquare className="w-4 h-4 text-blue-500 shrink-0" />
+      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-violet-500/10 to-violet-500/10 border border-violet-500/20 rounded-lg">
+        <MessageSquare className="w-4 h-4 text-violet-500 shrink-0" />
         <p className="text-xs text-muted-foreground">
           Define el <strong>primer mensaje</strong> y <strong>ejemplos de diálogo</strong> para guiar a la IA.
           {scenarioLocations.length > 0 && ' Puedes fijar la ubicación del escenario con la que empieza cada saludo.'}
@@ -759,7 +763,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
         <div className="space-y-3">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <MessageSquare className="w-4 h-4 text-blue-500" />
+              <MessageSquare className="w-4 h-4 text-violet-500" />
               <span className="text-xs font-medium">Primer Mensaje</span>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -805,7 +809,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
           {/* Saludos Alternativos */}
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <MessageSquare className="w-4 h-4 text-indigo-500" />
+              <MessageSquare className="w-4 h-4 text-violet-500" />
               <span className="text-xs font-medium">Saludos Alternativos</span>
               {character.alternateGreetings.length > 0 && (
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
@@ -939,8 +943,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
   const renderPromptTab = () => (
     <div className="space-y-4">
       {/* Banner compact */}
-      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-lg">
-        <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+      <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-fuchsia-500/10 to-violet-500/10 border border-fuchsia-500/20 rounded-lg">
+        <Sparkles className="w-4 h-4 text-fuchsia-500 shrink-0" />
         <p className="text-xs text-muted-foreground">
           Personaliza los <strong>prompts de sistema</strong> y <strong>notas</strong> que guían el comportamiento de la IA.
         </p>
@@ -951,7 +955,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
           {/* Prompt de Sistema */}
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-amber-500" />
+              <Sparkles className="w-4 h-4 text-fuchsia-500" />
               <span className="text-xs font-medium">Prompt de Sistema</span>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -974,7 +978,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
           {/* Instrucciones Post-Historia */}
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <FileText className="w-4 h-4 text-cyan-500" />
+              <FileText className="w-4 h-4 text-fuchsia-500" />
               <span className="text-xs font-medium">Instrucciones Post-Historia</span>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1088,6 +1092,8 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       spritePacksV2={character.spritePacksV2}
       emotionalConfig={character.emotionalConfig}
       onEmotionalConfigChange={(emotionalConfig) => setCharacter(prev => ({ ...prev, emotionalConfig }))}
+      relationshipStageLabels={character.relationshipStageLabels}
+      onRelationshipStageLabelsChange={(relationshipStageLabels) => setCharacter(prev => ({ ...prev, relationshipStageLabels }))}
     />
   );
 
@@ -1148,7 +1154,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
         spritePacksV2={character.spritePacksV2}
         triggerCollections={character.triggerCollections}
         wardrobeConfig={character.wardrobeConfig}
-        scenarioConfig={character.scenarioConfig}
+        scenarioDefinitions={getEffectiveScenarioDefinitions(character, appScenarios)}
         availableTargets={availableTargets}
         onChange={(quickReplies) => setCharacter(prev => ({ ...prev, quickReplies }))}
       />
@@ -1165,11 +1171,87 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
   };
 
   const renderScenarioTab = () => {
+    // ESCENARIO V3: multi-select of the App-level scenario library. The ids
+    // land on character.scenarioIds; getEffectiveScenarioDefinitions() gives
+    // them priority over the legacy local scenarioConfig below.
+    const selectedScenarioIds = character.scenarioIds ?? [];
+
+    const toggleAppScenario = (scenarioId: string) => {
+      const next = selectedScenarioIds.includes(scenarioId)
+        ? selectedScenarioIds.filter((id) => id !== scenarioId)
+        : [...selectedScenarioIds, scenarioId];
+      setCharacter((prev) => ({ ...prev, scenarioIds: next }));
+    };
+
     return (
-      <ScenarioEditor
-        config={character.scenarioConfig}
-        onChange={(scenarioConfig) => setCharacter(prev => ({ ...prev, scenarioConfig }))}
-      />
+      <div className="space-y-6">
+        {/* App-level scenario library */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-emerald-500" />
+            <span className="font-medium text-sm">Escenarios de la App (Biblioteca)</span>
+          </div>
+
+          {appScenarios.length === 0 ? (
+            <div className="text-xs text-muted-foreground border border-dashed rounded-lg p-3">
+              La biblioteca de escenarios está vacía. Crea colecciones en{' '}
+              <strong>Ajustes → Escenarios</strong> y aparecerán aquí para asignarlas a este personaje.
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {appScenarios.map((scenario) => {
+                const selected = selectedScenarioIds.includes(scenario.id);
+                return (
+                  <Button
+                    key={scenario.id}
+                    variant="outline"
+                    size="sm"
+                    title={
+                      selected
+                        ? 'Quitar de este personaje'
+                        : 'Asignar a este personaje'
+                    }
+                    className={cn(
+                      'h-8 text-xs rounded-full',
+                      selected &&
+                        'border-emerald-500/60 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    )}
+                    onClick={() => toggleAppScenario(scenario.id)}
+                  >
+                    {selected && <Check className="w-3 h-3 mr-1" />}
+                    {scenario.name || 'Sin nombre'}
+                    <span className="text-muted-foreground ml-1">
+                      · {scenario.places.length} lugar{scenario.places.length !== 1 ? 'es' : ''}
+                    </span>
+                    {!scenario.enabled && (
+                      <span className="text-muted-foreground/60 ml-1">(deshabilitado)</span>
+                    )}
+                  </Button>
+                );
+              })}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Los escenarios seleccionados estarán disponibles para este personaje. El LLM podrá mover la
+            escena entre sus lugares con la herramienta{' '}
+            <code className="bg-muted px-1 rounded">manage_escenario</code>. Si no seleccionas ninguno,
+            se usa el escenario local de abajo.
+          </p>
+        </div>
+
+        {/* Legacy local scenario */}
+        <div className="space-y-2">
+          <span className="font-medium text-sm">Escenario local (legado)</span>
+          <p className="text-xs text-muted-foreground">
+            Solo se usa si no hay escenarios de la App seleccionados arriba.
+          </p>
+          <ScenarioEditor
+            config={character.scenarioConfig}
+            onChange={(scenarioConfig) => setCharacter((prev) => ({ ...prev, scenarioConfig }))}
+          />
+        </div>
+      </div>
     );
   };
 
@@ -1214,7 +1296,7 @@ export function CharacterEditor({ characterId, open, onClose }: CharacterEditorP
       {/* Scene events config — feeds {{last_events}} */}
       <div className="p-4 border rounded-lg space-y-3">
         <div className="flex items-center gap-2">
-          <History className="w-4 h-4 text-amber-500" />
+          <History className="w-4 h-4 text-fuchsia-500" />
           <span className="font-medium text-sm">Eventos de escena</span>
           <Badge variant="secondary" className="ml-auto font-mono text-[10px]">{'{{last_events}}'}</Badge>
         </div>

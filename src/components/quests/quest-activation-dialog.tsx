@@ -62,12 +62,12 @@ interface QuestActivationDialogProps {
 const priorityConfig: Record<QuestPriority, { label: string; color: string; icon: React.ReactNode }> = {
   main: {
     label: 'Principal',
-    color: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30',
+    color: 'bg-fuchsia-500/20 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30',
     icon: <Star className="w-3.5 h-3.5" />,
   },
   side: {
     label: 'Secundaria',
-    color: 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/30',
+    color: 'bg-violet-500/20 text-violet-600 dark:text-violet-400 border-violet-500/30',
     icon: <Target className="w-3.5 h-3.5" />,
   },
   hidden: {
@@ -231,8 +231,8 @@ export function QuestActivationDialog({
       <DialogContent className="max-w-3xl w-[90vw] max-h-[85vh] p-0 gap-0 flex flex-col overflow-hidden">
         <DialogHeader className="p-4 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
-              <Sparkles className="w-5 h-5 text-amber-500" />
+            <div className="p-2 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-violet-500/20 border border-fuchsia-500/30">
+              <Sparkles className="w-5 h-5 text-fuchsia-500" />
             </div>
             Activar Misión desde Template
           </DialogTitle>
@@ -257,7 +257,7 @@ export function QuestActivationDialog({
             <div className="p-4 space-y-4">
               {isLoading ? (
                 <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500 mx-auto" />
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-fuchsia-500 mx-auto" />
                   <p className="text-muted-foreground text-sm mt-3">Cargando templates...</p>
                 </div>
               ) : availableTemplates.length === 0 ? (
@@ -275,7 +275,7 @@ export function QuestActivationDialog({
                   {groupedTemplates.main.length > 0 && (
                     <TemplateGroup
                       title="Misiones Principales"
-                      icon={<Star className="w-4 h-4 text-amber-500" />}
+                      icon={<Star className="w-4 h-4 text-fuchsia-500" />}
                       templates={groupedTemplates.main}
                       selectedId={selectedTemplateId}
                       onSelect={setSelectedTemplateId}
@@ -287,7 +287,7 @@ export function QuestActivationDialog({
                   {groupedTemplates.side.length > 0 && (
                     <TemplateGroup
                       title="Misiones Secundarias"
-                      icon={<Target className="w-4 h-4 text-blue-500" />}
+                      icon={<Target className="w-4 h-4 text-violet-500" />}
                       templates={groupedTemplates.side}
                       selectedId={selectedTemplateId}
                       onSelect={setSelectedTemplateId}
@@ -350,7 +350,7 @@ export function QuestActivationDialog({
 
             {/* Prerequisites warning */}
             {selectedTemplate.prerequisites && selectedTemplate.prerequisites.length > 0 && (
-              <div className="mt-3 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
+              <div className="mt-3 p-2 rounded bg-fuchsia-500/10 border border-fuchsia-500/20 text-xs text-fuchsia-600 dark:text-fuchsia-400">
                 <strong>Prerrequisitos:</strong> {selectedTemplate.prerequisites.join(', ')}
               </div>
             )}
@@ -364,7 +364,7 @@ export function QuestActivationDialog({
           <Button
             onClick={handleActivate}
             disabled={!selectedTemplate || !canActivate}
-            className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
+            className="bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700"
           >
             <Sparkles className="w-4 h-4 mr-2" />
             Activar Misión
@@ -407,15 +407,15 @@ function TemplateGroup({ title, icon, templates, selectedId, onSelect, activeTem
               onClick={() => !isActive && onSelect(template.id)}
               className={cn(
                 "p-3 rounded-lg border cursor-pointer transition-all",
-                "hover:border-amber-500/30 hover:bg-muted/50",
-                isSelected && "border-amber-500/50 bg-amber-500/10",
+                "hover:border-fuchsia-500/30 hover:bg-muted/50",
+                isSelected && "border-fuchsia-500/50 bg-fuchsia-500/10",
                 isActive && "opacity-50 cursor-not-allowed bg-muted/30"
               )}
             >
               <div className="flex items-center gap-3">
                 <div className={cn(
                   "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0",
-                  isSelected ? "border-amber-500 bg-amber-500" : "border-muted-foreground/30"
+                  isSelected ? "border-fuchsia-500 bg-fuchsia-500" : "border-muted-foreground/30"
                 )}>
                   {isSelected && <Check className="w-3 h-3 text-white" />}
                 </div>

@@ -206,7 +206,7 @@ export function CharacterSlotsEditor({
                   </Badge>
                 )}
                 {rules.some(r => r.comparisonMode === 'dynamic') && (
-                  <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-500 shrink-0">
+                  <Badge variant="outline" className="text-[10px] border-fuchsia-500/30 text-fuchsia-500 shrink-0">
                     Por turno
                   </Badge>
                 )}
@@ -277,10 +277,10 @@ export function CharacterSlotsEditor({
 
       {/* Help */}
       {slots.length > 0 && (
-        <div className="flex items-start gap-2 p-2 rounded-md bg-blue-500/5 border border-blue-500/20 text-xs">
-          <HelpCircle className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 p-2 rounded-md bg-violet-500/5 border border-violet-500/20 text-xs">
+          <HelpCircle className="w-3.5 h-3.5 text-violet-500 shrink-0 mt-0.5" />
           <div className="text-muted-foreground">
-            <p className="font-medium text-blue-500">¿Cómo funcionan los items del slot?</p>
+            <p className="font-medium text-violet-500">¿Cómo funcionan los items del slot?</p>
             <ul className="mt-1 space-y-0.5 list-disc list-inside">
               <li>Agrega items del inventario y define condiciones sobre un atributo del dueño del slot</li>
               <li>Estático: se evalúa una vez al equipar/usar · Dinámico: se re-evalúa cada turno</li>
@@ -488,7 +488,7 @@ function SlotItemRuleEditor({ rule, item, characters, ownerAttributes, onUpdate,
           {item?.name || rule.itemName || rule.itemId}
         </span>
         {rule.comparisonMode === 'dynamic' && (
-          <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-500 shrink-0">
+          <Badge variant="outline" className="text-[9px] border-fuchsia-500/30 text-fuchsia-500 shrink-0">
             Dinámico
           </Badge>
         )}
@@ -1023,9 +1023,9 @@ function AttributeEffectEditor({ effect, characters, ownerAttributes, onUpdate, 
       </div>
 
       {/* Fallback */}
-      <div className="p-2 border rounded-md bg-amber-500/5 border-amber-500/20 space-y-2">
+      <div className="p-2 border rounded-md bg-fuchsia-500/5 border-fuchsia-500/20 space-y-2">
         <div className="flex items-center gap-2">
-          <RotateCcw className="w-3 h-3 text-amber-500" />
+          <RotateCcw className="w-3 h-3 text-fuchsia-500" />
           <label className="flex items-center gap-1.5 text-[10px] cursor-pointer">
             <Switch
               checked={Boolean(effect.fallbackEnabled)}
@@ -1116,10 +1116,10 @@ function SpriteEffectEditor({ effect, characters, onUpdate, onRemove }: SpriteEf
     <div className="p-2 border rounded-md bg-muted/10 space-y-2">
       {/* Header */}
       <div className="flex items-center gap-1.5">
-        <div className="p-1 rounded bg-sky-500/10">
-          <ImageIcon className="w-3 h-3 text-sky-500" />
+        <div className="p-1 rounded bg-violet-500/10">
+          <ImageIcon className="w-3 h-3 text-violet-500" />
         </div>
-        <span className="text-[10px] font-medium text-sky-600 dark:text-sky-400">Efecto de sprite</span>
+        <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400">Efecto de sprite</span>
         <div className="flex-1" />
         <Button
           size="icon"
@@ -1192,9 +1192,9 @@ function SpriteEffectEditor({ effect, characters, onUpdate, onRemove }: SpriteEf
       </div>
 
       {/* Fallback */}
-      <div className="p-2 border rounded-md bg-amber-500/5 border-amber-500/20 space-y-2">
+      <div className="p-2 border rounded-md bg-fuchsia-500/5 border-fuchsia-500/20 space-y-2">
         <div className="flex items-center gap-2">
-          <RotateCcw className="w-3 h-3 text-amber-500" />
+          <RotateCcw className="w-3 h-3 text-fuchsia-500" />
           <label className="flex items-center gap-1.5 text-[10px] cursor-pointer">
             <Switch
               checked={Boolean(effect.fallbackEnabled)}

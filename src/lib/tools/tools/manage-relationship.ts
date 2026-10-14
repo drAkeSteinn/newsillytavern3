@@ -107,7 +107,9 @@ export async function manageRelationshipExecutor(
     const parties = ['__user__', ...(context.allCharacters || []).map(c => c.id).filter(id => id !== me)];
     for (const other of parties) {
       if (other === me) continue;
-      const bond = getRelationship(relationships, me, other);
+      // Custom bond stage labels of the caller (active character)
+      const stageLabels = context.character?.relationshipStageLabels;
+      const bond = getRelationship(relationships, me, other, stageLabels);
       if (bond) {
         const otherName = other === '__user__' ? (context.userName || 'Usuario')
           : context.allCharacters?.find(c => c.id === other)?.name || other;
@@ -115,7 +117,8 @@ export async function manageRelationshipExecutor(
       }
     }
     if (lines.length === 0) {
-      lines.push(`- Sin vínculos registrados todavía (los nuevos vínculos inician en ${DEFAULT_RELATIONSHIP_POINTS}/100 = Conocidos).`);
+      const defaultStage = context.character?.relationshipStageLabels?.['conocidos'] || 'Conocidos';
+      lines.push(`- Sin vínculos registrados todavía (los nuevos vínculos inician en ${DEFAULT_RELATIONSHIP_POINTS}/100 = ${defaultStage}).`);
     }
     return {
       success: true,

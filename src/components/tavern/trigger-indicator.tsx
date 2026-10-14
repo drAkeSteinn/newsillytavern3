@@ -106,12 +106,12 @@ export function TriggerIndicator({ className, showHistory = true, maxHistory = 1
               </div>
               <div className="flex gap-1 mt-0.5">
                 {isLocked && (
-                  <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-amber-500/20 text-amber-600">
+                  <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-fuchsia-500/20 text-fuchsia-600">
                     🔒 Locked
                   </Badge>
                 )}
                 {returnToIdleState.active && (
-                  <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-blue-500/20 text-blue-600">
+                  <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-violet-500/20 text-violet-600">
                     ⏱️ {Math.max(0, Math.ceil((returnToIdleState.returnAt - Date.now()) / 1000))}s
                   </Badge>
                 )}

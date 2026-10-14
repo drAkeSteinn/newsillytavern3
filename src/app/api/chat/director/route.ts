@@ -64,7 +64,7 @@ REGLAS:
 
 HERRAMIENTAS DISPONIBLES:
 Además de proponer el evento del mundo, PUEDES usar herramientas (tool calling) para ajustar el estado del mundo de forma que el evento tenga impacto real:
-- "modify_stat": Sube/baja un atributo de un personaje cuando el evento del mundo lo justifique (ej: un ruido repentino podría subir "irritabilidad" o "miedo"; una noticia excitante podría subir "lujuria"). Usa operadores "+5", "-10", "=50".
+- "modify_stat": Sube/baja un atributo de un personaje cuando el evento del mundo lo justifique (ej: un ruido repentino podría subir un atributo de nerviosismo o miedo; una noticia excitante podría subir un atributo de deseo). Usa SOLO atributos que existan en la lista de atributos de cada personaje, con sus keys exactas. Usa operadores "+5", "-10", "=50".
 - "manage_scene": En chats de grupo, haz que un personaje entre o salga de la escena si el evento del mundo lo provoca (ej: alguien llama a la puerta → entra un personaje; alguien se va molestx → sale).
 - "manage_relationship": Ajusta puntos de relación entre personajes si el evento crea o resuelve tensión entre ellos.
 - "manage_memory": Crea un recuerdo persistente para eventos importantes (severity 'major') que los personajes deberían recordar a largo plazo.

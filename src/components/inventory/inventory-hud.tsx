@@ -90,9 +90,9 @@ function CompactEffectRow({
   onExpire: () => void;
 }) {
   return (
-    <div className="group flex items-center gap-1 text-xs py-0.5 rounded px-0.5 hover:bg-amber-500/10 transition-colors">
-      <Clock className="w-3 h-3 text-amber-500 shrink-0" />
-      <span className="truncate font-medium text-amber-600 dark:text-amber-400">
+    <div className="group flex items-center gap-1 text-xs py-0.5 rounded px-0.5 hover:bg-fuchsia-500/10 transition-colors">
+      <Clock className="w-3 h-3 text-fuchsia-500 shrink-0" />
+      <span className="truncate font-medium text-fuchsia-600 dark:text-fuchsia-400">
         {effect.itemName}
       </span>
       <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5 shrink-0">
@@ -393,13 +393,13 @@ export function InventoryHUD() {
           )}
         >
           <GripVertical className="w-3 h-3 text-muted-foreground shrink-0" />
-          <Coins className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <Coins className="w-3.5 h-3.5 text-fuchsia-500 shrink-0" />
           <span className="font-bold text-sm">{persona.currency ?? 0}</span>
           <span className="text-[10px] text-muted-foreground truncate">{persona.currencyName || 'Divisa'}</span>
 
           {activeEffects.length > 0 && (
             <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5 ml-1 shrink-0">
-              <Sparkles className="w-2.5 h-2.5 mr-0.5 text-amber-500" />
+              <Sparkles className="w-2.5 h-2.5 mr-0.5 text-fuchsia-500" />
               {activeEffects.length}
             </Badge>
           )}
@@ -440,8 +440,8 @@ export function InventoryHUD() {
                 {activeEffects.length > 0 && (
                   <div>
                     <div className="flex items-center gap-1 mb-1">
-                      <Sparkles className="w-3 h-3 text-amber-500" />
-                      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase">
+                      <Sparkles className="w-3 h-3 text-fuchsia-500" />
+                      <span className="text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-400 uppercase">
                         Efectos
                       </span>
                     </div>
@@ -527,7 +527,7 @@ export function InventoryHUD() {
                             )}
                             {/* Action hint icon */}
                             {isConsumable ? (
-                              <FlaskConical className="w-2.5 h-2.5 text-amber-500/60 shrink-0 ml-auto" />
+                              <FlaskConical className="w-2.5 h-2.5 text-fuchsia-500/60 shrink-0 ml-auto" />
                             ) : (
                               <Sword className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0 ml-auto" />
                             )}
@@ -588,7 +588,7 @@ export function InventoryHUD() {
                                   'cursor-pointer hover:bg-primary/10',
                                   'transition-colors duration-150',
                                   'text-left border border-transparent hover:border-primary/20',
-                                  isOccupied && 'border-amber-500/30'
+                                  isOccupied && 'border-fuchsia-500/30'
                                 )}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -602,7 +602,7 @@ export function InventoryHUD() {
                                     <span className="text-muted-foreground truncate block">{se.effectText}</span>
                                   )}
                                   {isOccupied && occupiedItemName && (
-                                    <span className="text-amber-500/80 truncate block">Reemplaza: {occupiedItemName}</span>
+                                    <span className="text-fuchsia-500/80 truncate block">Reemplaza: {occupiedItemName}</span>
                                   )}
                                 </div>
                                 <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />

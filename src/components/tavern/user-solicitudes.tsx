@@ -95,7 +95,7 @@ export function QuickPetitions({
   return (
     <div className="px-2 py-1 flex gap-1 overflow-x-auto border-t bg-background/30 flex-shrink-0">
       <div className="flex items-center gap-1 mr-1">
-        <Send className="w-3 h-3 text-blue-400" />
+        <Send className="w-3 h-3 text-violet-400" />
         <span className="text-[10px] text-muted-foreground">Peticiones:</span>
       </div>
       
@@ -115,7 +115,7 @@ export function QuickPetitions({
               "h-6 px-2 text-xs flex-shrink-0 gap-1",
               isAlreadyActive
                 ? "bg-green-500/10 border-green-500/30 text-green-400 cursor-default"
-                : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/50"
+                : "bg-violet-500/10 border-violet-500/30 text-violet-400 hover:bg-violet-500/20 hover:border-violet-500/50"
             )}
             onClick={() => onActivatePeticion(
               petition.targetCharacterId,
@@ -136,7 +136,7 @@ export function QuickPetitions({
                 "text-[8px] px-1 h-4",
                 isAlreadyActive
                   ? "bg-green-500/20 text-green-300"
-                  : "bg-blue-500/20 text-blue-300"
+                  : "bg-violet-500/20 text-violet-300"
               )}>
                 → {targetChar.name}
               </Badge>
@@ -179,9 +179,9 @@ export function UserSolicitudesPanel({ className }: UserSolicitudesPanelProps) {
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex items-center gap-2 text-sm font-medium">
-        <Inbox className="w-4 h-4 text-amber-500" />
+        <Inbox className="w-4 h-4 text-fuchsia-500" />
         <span>Solicitudes Recibidas</span>
-        <Badge className="bg-amber-500/20 text-amber-400 text-xs">
+        <Badge className="bg-fuchsia-500/20 text-fuchsia-400 text-xs">
           {pendingSolicitudes.length}
         </Badge>
       </div>
@@ -190,12 +190,12 @@ export function UserSolicitudesPanel({ className }: UserSolicitudesPanelProps) {
         {pendingSolicitudes.map((solicitud) => (
           <div
             key={solicitud.id}
-            className="p-3 rounded-lg border bg-amber-500/10 border-amber-500/30"
+            className="p-3 rounded-lg border bg-fuchsia-500/10 border-fuchsia-500/30"
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-medium text-amber-400">
+                  <span className="text-xs font-medium text-fuchsia-400">
                     De: {solicitud.fromCharacterName}
                   </span>
                   <code className="text-[10px] bg-black/20 px-1.5 py-0.5 rounded font-mono">

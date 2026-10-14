@@ -745,16 +745,16 @@ export function FantasyEffect({ children, className }: FantasyEffectProps) {
   return (
     <div className={cn('relative', className)}>
       {/* Rune decorations */}
-      <div className="absolute -top-1 -left-1 text-amber-500/40 text-xs animate-rune-glow">
+      <div className="absolute -top-1 -left-1 text-fuchsia-500/40 text-xs animate-rune-glow">
         ᚠ
       </div>
-      <div className="absolute -top-1 -right-1 text-amber-500/40 text-xs animate-rune-glow" style={{ animationDelay: '0.5s' }}>
+      <div className="absolute -top-1 -right-1 text-fuchsia-500/40 text-xs animate-rune-glow" style={{ animationDelay: '0.5s' }}>
         ᚢ
       </div>
-      <div className="absolute -bottom-1 -left-1 text-amber-500/40 text-xs animate-rune-glow" style={{ animationDelay: '1s' }}>
+      <div className="absolute -bottom-1 -left-1 text-fuchsia-500/40 text-xs animate-rune-glow" style={{ animationDelay: '1s' }}>
         ᚦ
       </div>
-      <div className="absolute -bottom-1 -right-1 text-amber-500/40 text-xs animate-rune-glow" style={{ animationDelay: '1.5s' }}>
+      <div className="absolute -bottom-1 -right-1 text-fuchsia-500/40 text-xs animate-rune-glow" style={{ animationDelay: '1.5s' }}>
         ᚨ
       </div>
       
@@ -812,12 +812,12 @@ export function HolographicEffect({ children, className }: HolographicEffectProp
       {/* Chromatic aberration layers */}
       <div className="absolute inset-0 animate-chromatic-shift pointer-events-none">
         <div className="absolute inset-0 bg-red-500/10 translate-x-[-2px]" />
-        <div className="absolute inset-0 bg-cyan-500/10 translate-x-[2px]" />
+        <div className="absolute inset-0 bg-fuchsia-500/10 translate-x-[2px]" />
       </div>
       
       {/* Scan line */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute w-full h-1 bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent animate-holo-scan" />
+        <div className="absolute w-full h-1 bg-gradient-to-r from-transparent via-fuchsia-400/50 to-transparent animate-holo-scan" />
       </div>
       
       {/* Color shift overlay */}

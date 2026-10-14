@@ -106,7 +106,7 @@ export class PreLLMScanner {
    */
   private buildSections(matches: PreLLMMatchResult[]): PromptSection[] {
     const typeColors: Record<string, string> = {
-      lorebook: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+      lorebook: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
       memory: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
       relationship: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
       custom: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',

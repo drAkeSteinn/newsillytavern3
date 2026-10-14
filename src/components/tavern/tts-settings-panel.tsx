@@ -668,9 +668,9 @@ export function TTSSettingsPanel() {
                   <p className="text-muted-foreground mb-1">Ejemplo:</p>
                   <p className="font-mono">*Camina* "Hola" y sonríe.</p>
                   <div className="mt-1 space-y-0.5">
-                    <p className="text-blue-600">✓ Diálogos: "Hola"</p>
+                    <p className="text-violet-600">✓ Diálogos: "Hola"</p>
                     <p className="text-purple-600">✓ Narración: Camina</p>
-                    <p className="text-orange-600">✓ Texto plano: y sonríe.</p>
+                    <p className="text-violet-600">✓ Texto plano: y sonríe.</p>
                   </div>
                 </div>
                 </div>
@@ -856,10 +856,10 @@ export function TTSSettingsPanel() {
 
           {/* OmniVoice-specific: Voice Design */}
           {isOmniVoice && (
-            <Card className="border-amber-500/20 bg-amber-500/5">
+            <Card className="border-fuchsia-500/20 bg-fuchsia-500/5">
               <CardHeader>
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <Sparkles className="w-4 h-4 text-fuchsia-500" />
                   OmniVoice — Voice Design
                 </CardTitle>
                 <CardDescription>
@@ -895,7 +895,7 @@ export function TTSSettingsPanel() {
 
                 {/* OmniVoice Info */}
                 <div className="text-xs bg-muted/50 p-3 rounded border space-y-2">
-                  <p className="font-medium text-amber-600 dark:text-amber-400">✨ Características OmniVoice</p>
+                  <p className="font-medium text-fuchsia-600 dark:text-fuchsia-400">✨ Características OmniVoice</p>
                   <div className="space-y-1 text-muted-foreground">
                     <p>• <strong>646+ idiomas</strong> — Mayor soporte de idiomas que cualquier otro TTS</p>
                     <p>• <strong>Voice Design</strong> — Crea voces desde descripción de texto</p>
@@ -1333,12 +1333,12 @@ export function TTSSettingsPanel() {
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-medium truncate">{profile.name}</p>
                               {profile.is_demo === 1 && (
-                                <span className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+                                <span className="text-[10px] bg-violet-500/10 text-violet-600 dark:text-violet-400 px-1.5 py-0.5 rounded">
                                   Demo
                                 </span>
                               )}
                               {profile.is_locked === 1 && (
-                                <span className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">
+                                <span className="text-[10px] bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 px-1.5 py-0.5 rounded">
                                   Bloqueado
                                 </span>
                               )}
@@ -1411,7 +1411,7 @@ export function TTSSettingsPanel() {
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-medium">{archetype.name}</p>
                               {archetype.is_featured && (
-                                <span className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">
+                                <span className="text-[10px] bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 px-1.5 py-0.5 rounded">
                                   Destacado
                                 </span>
                               )}
@@ -1432,7 +1432,7 @@ export function TTSSettingsPanel() {
                               </span>
                             )}
                             {archetype.facets.age && (
-                              <span className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+                              <span className="text-[10px] bg-violet-500/10 text-violet-600 dark:text-violet-400 px-1.5 py-0.5 rounded">
                                 {archetype.facets.age}
                               </span>
                             )}
@@ -1442,7 +1442,7 @@ export function TTSSettingsPanel() {
                               </span>
                             )}
                             {archetype.facets.accent && (
-                              <span className="text-[10px] bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded">
+                              <span className="text-[10px] bg-violet-500/10 text-violet-600 dark:text-violet-400 px-1.5 py-0.5 rounded">
                                 {archetype.facets.accent}
                               </span>
                             )}
@@ -1506,7 +1506,7 @@ export function TTSSettingsPanel() {
                             </span>
                           )}
                           {voice.type === 'openai_alias' && (
-                            <span className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+                            <span className="text-[10px] bg-violet-500/10 text-violet-600 dark:text-violet-400 px-1.5 py-0.5 rounded">
                               OpenAI
                             </span>
                           )}

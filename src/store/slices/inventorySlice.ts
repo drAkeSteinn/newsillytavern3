@@ -358,9 +358,9 @@ export function getRarityColor(rarity: ItemRarity): string {
   const colors: Record<ItemRarity, string> = {
     common: 'text-gray-400',
     uncommon: 'text-green-400',
-    rare: 'text-blue-400',
+    rare: 'text-violet-400',
     epic: 'text-purple-400',
-    legendary: 'text-amber-400',
+    legendary: 'text-fuchsia-400',
     unique: 'text-red-400',
     cursed: 'text-fuchsia-400',
   };
@@ -585,9 +585,9 @@ export function getRarityBgColor(rarity: ItemRarity): string {
   const colors: Record<ItemRarity, string> = {
     common: 'bg-gray-500/10 border-gray-500/20',
     uncommon: 'bg-green-500/10 border-green-500/20',
-    rare: 'bg-blue-500/10 border-blue-500/20',
+    rare: 'bg-violet-500/10 border-violet-500/20',
     epic: 'bg-purple-500/10 border-purple-500/20',
-    legendary: 'bg-amber-500/10 border-amber-500/20',
+    legendary: 'bg-fuchsia-500/10 border-fuchsia-500/20',
     unique: 'bg-red-500/10 border-red-500/20',
     cursed: 'bg-fuchsia-500/10 border-fuchsia-500/20',
   };

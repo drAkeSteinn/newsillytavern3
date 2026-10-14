@@ -79,8 +79,8 @@ export function QuestSettingsPanel() {
       <div className="flex items-center justify-between shrink-0">
         <div className="space-y-1">
           <h2 className="text-2xl font-bold flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
-              <Target className="w-5 h-5 text-amber-500" />
+            <div className="p-2 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-violet-500/20 border border-fuchsia-500/30">
+              <Target className="w-5 h-5 text-fuchsia-500" />
             </div>
             Sistema de Misiones
           </h2>
@@ -142,8 +142,8 @@ export function QuestSettingsPanel() {
           ) : (
             <Card className="border-dashed border-2 bg-gradient-to-br from-muted/50 to-muted/30 h-full">
               <CardContent className="flex flex-col items-center justify-center h-full py-16">
-                <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 mb-4">
-                  <Target className="w-12 h-12 text-amber-400" />
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-fuchsia-500/10 to-violet-500/10 mb-4">
+                  <Target className="w-12 h-12 text-fuchsia-400" />
                 </div>
                 <h3 className="text-lg font-medium mb-2">Sin sesión activa</h3>
                 <p className="text-sm text-muted-foreground text-center max-w-md">
@@ -158,13 +158,13 @@ export function QuestSettingsPanel() {
         <TabsContent value="settings" className="flex-1 overflow-y-auto m-0 mt-4">
           <div className="space-y-6 pr-2">
             {/* Banner informativo */}
-            <div className="rounded-xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/20 p-4">
+            <div className="rounded-xl bg-gradient-to-r from-fuchsia-500/10 via-violet-500/10 to-fuchsia-500/10 border border-fuchsia-500/20 p-4">
               <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-amber-500/20">
-                  <Info className="w-4 h-4 text-amber-500" />
+                <div className="p-2 rounded-lg bg-fuchsia-500/20">
+                  <Info className="w-4 h-4 text-fuchsia-500" />
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+                  <p className="text-sm font-medium text-fuchsia-600 dark:text-fuchsia-400">
                     Sistema de Misiones
                   </p>
                   <p className="text-xs text-muted-foreground">
@@ -178,8 +178,8 @@ export function QuestSettingsPanel() {
             {/* Main Enable/Disable */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <div className="p-1.5 rounded-md bg-amber-500/10">
-                  <Target className="w-4 h-4 text-amber-500" />
+                <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                  <Target className="w-4 h-4 text-fuchsia-500" />
                 </div>
                 Estado del Sistema
               </div>
@@ -263,8 +263,8 @@ export function QuestSettingsPanel() {
                     : "border-border/40 bg-muted/30 opacity-50 cursor-not-allowed"
                 )}>
                   <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-cyan-500/10">
-                      <Zap className="w-4 h-4 text-cyan-500" />
+                    <div className="p-2 rounded-lg bg-fuchsia-500/10">
+                      <Zap className="w-4 h-4 text-fuchsia-500" />
                     </div>
                     <div className="space-y-0.5">
                       <Label className="text-sm font-medium">Detección en tiempo real</Label>
@@ -313,7 +313,7 @@ export function QuestSettingsPanel() {
                       <div className="mt-2 p-2 rounded bg-muted/50 font-mono text-[10px]">
                         <span className="text-muted-foreground">Ejemplo:</span>
                         <br />
-                        <span className="text-emerald-500">Prefijo:</span> "Objetivo" + <span className="text-amber-500">Key:</span> "conseguir_madera"
+                        <span className="text-emerald-500">Prefijo:</span> "Objetivo" + <span className="text-fuchsia-500">Key:</span> "conseguir_madera"
                         <br />
                         <span className="text-muted-foreground">= Detecta:</span> "Objetivo:conseguir_madera", "Objetivo: conseguir madera", "Objetivo=conseguir_madera", etc.
                       </div>
@@ -324,8 +324,8 @@ export function QuestSettingsPanel() {
                 {/* Quest Activation Prefix */}
                 <div className="p-4 rounded-lg border border-border/60 bg-gradient-to-r from-background to-muted/30">
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2 rounded-lg bg-amber-500/10">
-                      <Zap className="w-4 h-4 text-amber-500" />
+                    <div className="p-2 rounded-lg bg-fuchsia-500/10">
+                      <Zap className="w-4 h-4 text-fuchsia-500" />
                     </div>
                     <div className="flex-1">
                       <Label className="text-sm font-medium">Prefijo de Activación</Label>
@@ -368,8 +368,8 @@ export function QuestSettingsPanel() {
                 {/* Objective Completion Prefix */}
                 <div className="p-4 rounded-lg border border-border/60 bg-gradient-to-r from-background to-muted/30">
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2 rounded-lg bg-blue-500/10">
-                      <List className="w-4 h-4 text-blue-500" />
+                    <div className="p-2 rounded-lg bg-violet-500/10">
+                      <List className="w-4 h-4 text-violet-500" />
                     </div>
                     <div className="flex-1">
                       <Label className="text-sm font-medium">Prefijo de Objetivos</Label>
@@ -394,8 +394,8 @@ export function QuestSettingsPanel() {
             {/* Display Settings */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <div className="p-1.5 rounded-md bg-blue-500/10">
-                  <Bell className="w-4 h-4 text-blue-500" />
+                <div className="p-1.5 rounded-md bg-violet-500/10">
+                  <Bell className="w-4 h-4 text-violet-500" />
                 </div>
                 Visualización
               </div>
@@ -404,12 +404,12 @@ export function QuestSettingsPanel() {
                 <label className={cn(
                   "flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all",
                   questSettings.enabled 
-                    ? "border-border/60 bg-gradient-to-r from-background to-muted/30 hover:border-blue-500/30 hover:bg-blue-500/5" 
+                    ? "border-border/60 bg-gradient-to-r from-background to-muted/30 hover:border-violet-500/30 hover:bg-violet-500/5" 
                     : "border-border/40 bg-muted/30 opacity-50 cursor-not-allowed"
                 )}>
                   <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-blue-500/10">
-                      <Bell className="w-4 h-4 text-blue-500" />
+                    <div className="p-2 rounded-lg bg-violet-500/10">
+                      <Bell className="w-4 h-4 text-violet-500" />
                     </div>
                     <div className="space-y-0.5">
                       <Label className="text-sm font-medium">Mostrar notificaciones</Label>
@@ -428,7 +428,7 @@ export function QuestSettingsPanel() {
                 <label className={cn(
                   "flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all",
                   questSettings.enabled 
-                    ? "border-border/60 bg-gradient-to-r from-background to-muted/30 hover:border-blue-500/30 hover:bg-blue-500/5" 
+                    ? "border-border/60 bg-gradient-to-r from-background to-muted/30 hover:border-violet-500/30 hover:bg-violet-500/5" 
                     : "border-border/40 bg-muted/30 opacity-50 cursor-not-allowed"
                 )}>
                   <div className="flex items-center gap-3">
@@ -456,13 +456,13 @@ export function QuestSettingsPanel() {
                     : "border-border/40 bg-muted/30 opacity-50"
                 )}>
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 rounded-lg bg-amber-500/10">
-                      <Target className="w-4 h-4 text-amber-500" />
+                    <div className="p-2 rounded-lg bg-fuchsia-500/10">
+                      <Target className="w-4 h-4 text-fuchsia-500" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
                         <Label className="text-sm font-medium">Máximo de misiones activas</Label>
-                        <Badge variant="secondary" className="font-mono bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+                        <Badge variant="secondary" className="font-mono bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20">
                           {questSettings.maxActiveQuests}
                         </Badge>
                       </div>
@@ -495,11 +495,11 @@ export function QuestSettingsPanel() {
             {/* Notification Deduplication */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <div className="p-1.5 rounded-md bg-orange-500/10">
-                  <Layers className="w-4 h-4 text-orange-500" />
+                <div className="p-1.5 rounded-md bg-violet-500/10">
+                  <Layers className="w-4 h-4 text-violet-500" />
                 </div>
                 Deduplicación de Notificaciones
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20 ml-auto">
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20 ml-auto">
                   FASE 8
                 </Badge>
               </div>
@@ -508,12 +508,12 @@ export function QuestSettingsPanel() {
                 <label className={cn(
                   "flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all",
                   questSettings.enabled && questSettings.showNotifications
-                    ? "border-border/60 bg-gradient-to-r from-background to-muted/30 hover:border-orange-500/30 hover:bg-orange-500/5" 
+                    ? "border-border/60 bg-gradient-to-r from-background to-muted/30 hover:border-violet-500/30 hover:bg-violet-500/5" 
                     : "border-border/40 bg-muted/30 opacity-50 cursor-not-allowed"
                 )}>
                   <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-orange-500/10">
-                      <ShieldCheck className="w-4 h-4 text-orange-500" />
+                    <div className="p-2 rounded-lg bg-violet-500/10">
+                      <ShieldCheck className="w-4 h-4 text-violet-500" />
                     </div>
                     <div className="space-y-0.5">
                       <Label className="text-sm font-medium">Deduplicación automática</Label>
@@ -530,16 +530,16 @@ export function QuestSettingsPanel() {
                 </label>
 
                 {/* Info banner about deduplication */}
-                <div className="p-3 rounded-lg border border-orange-500/20 bg-gradient-to-r from-orange-500/5 to-amber-500/5">
+                <div className="p-3 rounded-lg border border-violet-500/20 bg-gradient-to-r from-violet-500/5 to-fuchsia-500/5">
                   <div className="flex items-start gap-2">
-                    <Info className="w-3.5 h-3.5 text-orange-500 mt-0.5 shrink-0" />
+                    <Info className="w-3.5 h-3.5 text-violet-500 mt-0.5 shrink-0" />
                     <div className="text-[11px] text-muted-foreground space-y-1">
                       <p>
                         Cuando se detectan múltiples notificaciones del mismo evento (misma misión + mismo tipo)
                         dentro de una ventana de tiempo, se agrupan en una sola notificación con un contador.
                       </p>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-500 text-[10px] font-mono">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-500 text-[10px] font-mono">
                           <Layers className="w-3 h-3" />
                           3x
                         </span>
@@ -556,13 +556,13 @@ export function QuestSettingsPanel() {
                     : "border-border/40 bg-muted/30 opacity-50"
                 )}>
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 rounded-lg bg-orange-500/10">
-                      <Timer className="w-4 h-4 text-orange-500" />
+                    <div className="p-2 rounded-lg bg-violet-500/10">
+                      <Timer className="w-4 h-4 text-violet-500" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
                         <Label className="text-sm font-medium">Ventana de deduplicación</Label>
-                        <Badge variant="secondary" className="font-mono bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20">
+                        <Badge variant="secondary" className="font-mono bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20">
                           {((questSettings.notificationDedupWindowMs ?? 30000) / 1000).toFixed(0)}s
                         </Badge>
                       </div>
@@ -595,13 +595,13 @@ export function QuestSettingsPanel() {
                     : "border-border/40 bg-muted/30 opacity-50"
                 )}>
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 rounded-lg bg-cyan-500/10">
-                      <Timer className="w-4 h-4 text-cyan-500" />
+                    <div className="p-2 rounded-lg bg-fuchsia-500/10">
+                      <Timer className="w-4 h-4 text-fuchsia-500" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
                         <Label className="text-sm font-medium">Auto-ocultar notificaciones</Label>
-                        <Badge variant="secondary" className="font-mono bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20">
+                        <Badge variant="secondary" className="font-mono bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20">
                           {((questSettings.notificationAutoDismissMs ?? 5000) / 1000).toFixed(0)}s
                         </Badge>
                       </div>
@@ -730,7 +730,7 @@ export function QuestSettingsPanel() {
                             variant="outline" 
                             size="sm"
                             disabled={!questSettings.enabled}
-                            className="hover:border-amber-500/30 hover:bg-amber-500/5"
+                            className="hover:border-fuchsia-500/30 hover:bg-fuchsia-500/5"
                           >
                             <RotateCcw className="w-4 h-4 mr-2" />
                             Restaurar

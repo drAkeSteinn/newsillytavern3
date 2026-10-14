@@ -299,7 +299,7 @@ export function CharacterTriggerEditor({ character, onChange }: CharacterTrigger
       {/* How it works */}
       <div className="text-xs bg-muted/50 border rounded-lg p-3 space-y-2">
         <div className="flex items-center gap-2 font-medium text-foreground">
-          <Zap className="w-4 h-4 text-amber-500" />
+          <Zap className="w-4 h-4 text-fuchsia-500" />
           ¿Cómo funciona?
         </div>
         <div className="grid grid-cols-3 gap-2 text-center">
@@ -453,11 +453,11 @@ export function CharacterTriggerEditor({ character, onChange }: CharacterTrigger
               {/* Key Detection Section - HUD Style */}
               <div className="space-y-3 p-4 rounded-xl border border-border/60 bg-gradient-to-br from-muted/30 to-muted/10">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <div className="p-1.5 rounded-md bg-cyan-500/10">
-                    <Key className="w-4 h-4 text-cyan-500" />
+                  <div className="p-1.5 rounded-md bg-fuchsia-500/10">
+                    <Key className="w-4 h-4 text-fuchsia-500" />
                   </div>
                   Detección de Keys
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/20">
                     Cómo se activa
                   </Badge>
                 </div>
@@ -490,7 +490,7 @@ export function CharacterTriggerEditor({ character, onChange }: CharacterTrigger
                   {alternativeKeys && (
                     <div className="flex flex-wrap gap-1">
                       {parseKeysString(alternativeKeys).map((k, i) => (
-                        <Badge key={i} variant="secondary" className="text-xs font-mono bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+                        <Badge key={i} variant="secondary" className="text-xs font-mono bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400">
                           {k}
                         </Badge>
                       ))}
@@ -618,7 +618,7 @@ export function CharacterTriggerEditor({ character, onChange }: CharacterTrigger
               {/* Return to Idle Section */}
               <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
                 <div className="flex items-center gap-2">
-                  <Timer className="w-4 h-4 text-blue-500" />
+                  <Timer className="w-4 h-4 text-violet-500" />
                   <Label className="text-xs font-medium">Retorno Automático</Label>
                 </div>
                 
@@ -742,9 +742,9 @@ export function CharacterTriggerEditor({ character, onChange }: CharacterTrigger
                     )}
 
                     {/* Preview: what will happen */}
-                    <div className="flex items-center gap-2 p-2 border rounded bg-blue-500/10 border-blue-500/20">
-                      <RefreshCw className="w-3 h-3 text-blue-500" />
-                      <span className="text-[10px] text-blue-600">
+                    <div className="flex items-center gap-2 p-2 border rounded bg-violet-500/10 border-violet-500/20">
+                      <RefreshCw className="w-3 h-3 text-violet-500" />
+                      <span className="text-[10px] text-violet-600">
                         {editingTrigger.returnToMode === 'custom_sprite' ? (
                           <>
                             Después de {formatTime(editingTrigger.returnToIdleMs)} → 

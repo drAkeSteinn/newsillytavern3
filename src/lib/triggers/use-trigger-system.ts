@@ -872,6 +872,8 @@ export function useTriggerSystem(config: TriggerSystemConfig = {}): TriggerSyste
                       soundCollections: store.soundCollections,
                       soundTriggers: store.soundTriggers,
                       backgroundPacks: store.backgroundTriggerPacks,
+                      // ESCENARIO V3: library for 'ubicacion' rewards
+                      scenarios: store.scenarios,
                       soundSettings: {
                         enabled: settings.sound?.enabled ?? false,
                         globalVolume: settings.sound?.globalVolume ?? 0.85,
@@ -891,6 +893,16 @@ export function useTriggerSystem(config: TriggerSystemConfig = {}): TriggerSyste
                       progressQuestObjective: store.progressQuestObjective?.bind(store),
                       completeQuestObjective: completeQuestObjectiveByKey,
                       completeSolicitud: store.completeSolicitud?.bind(store),
+                      // ESCENARIO V3: 'ubicacion' rewards move the shared scene
+                      moveSceneToLocation: (sid: string, collectionId: string, locationId: string, backgroundUrl: string | null) => {
+                        try {
+                          if (collectionId) store.setActiveScenarioCollection?.(sid, collectionId);
+                          if (locationId) store.setActiveScenario?.(sid, locationId);
+                          if (backgroundUrl) store.setBackground?.(backgroundUrl);
+                        } catch (err) {
+                          console.error('[TriggerSystem] moveSceneToLocation failed:', err);
+                        }
+                      },
                       getSessionQuests: (sid: string) => {
                         const s = store.sessions?.find((session: any) => session.id === sid);
                         return s?.sessionQuests || [];

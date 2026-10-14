@@ -40,6 +40,8 @@ export const DATA_FILES = {
   inventory: path.join(DATA_DIR, 'inventory.json'),
   // Timeline
   collections: path.join(DATA_DIR, 'collections.json'),
+  // Scenario Library (ESCENARIO V3)
+  scenarios: path.join(DATA_DIR, 'scenarios.json'),
   // Active states (session restoration)
   activeStates: path.join(DATA_DIR, 'active-states.json'),
 } as const;
@@ -59,6 +61,8 @@ export const VALID_DATA_TYPES = [
   'atmosphere', 'memory', 'quests', 'dialogue', 'inventory',
   // Timeline
   'collections',
+  // Scenario Library (ESCENARIO V3)
+  'scenarios',
   // Active states
   'activeStates',
 ] as const;
@@ -267,6 +271,8 @@ export const DEFAULT_DATA = {
   },
   // Timeline
   collections: [],
+  // Scenario Library (ESCENARIO V3)
+  scenarios: [],
   // Active states
   activeStates: {
     activeSessionId: null,
@@ -363,6 +369,8 @@ export function readAllPersistentData() {
     quests: readDataFile(DATA_FILES.quests, DEFAULT_DATA.quests),
     dialogue: readDataFile(DATA_FILES.dialogue, DEFAULT_DATA.dialogue),
     inventory: readDataFile(DATA_FILES.inventory, DEFAULT_DATA.inventory),
+    // Scenario Library (ESCENARIO V3)
+    scenarios: readDataFile(DATA_FILES.scenarios, DEFAULT_DATA.scenarios),
     // Active states
     activeStates: readDataFile(DATA_FILES.activeStates, DEFAULT_DATA.activeStates),
   };

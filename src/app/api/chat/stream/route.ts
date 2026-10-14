@@ -49,7 +49,8 @@ import {
 } from '@/lib/context-manager';
 import { retrieveEmbeddingsContext, formatEmbeddingsForSSE } from '@/lib/embeddings/chat-context';
 import { isWardrobeAvailable } from '@/lib/wardrobe';
-import { isScenarioAvailable } from '@/lib/scenario';
+import { isScenarioLibraryAvailable, } from '@/lib/scenario/library';
+import { setActiveScenarioLibrary } from '@/lib/scenario/library';
 import type { EmbeddingsChatSettings, ToolsSettings } from '@/types';
 
 import {
@@ -72,6 +73,7 @@ import {
   splitIntoChunks,
   cleanModelArtifacts,
   buildPromptBasedToolsSection,
+  buildNativeToolsReminder,
   GROUP_ONLY_TOOL_IDS,
 } from '@/lib/tools';
 import {
@@ -94,6 +96,25 @@ interface QuestActivation {
   metadata?: Record<string, unknown>;
 }
 
+// ---- Anti-loop: duplicate tool-call guard (per-request state) ----
+// The SSE controller object is stable across all tool rounds of one request,
+// so a WeakMap keyed by it gives us per-turn memory without changing the
+// function signature at 12+ call sites. Without this, a model stuck in a
+// repetition loop re-calls modify_stat/check_stat with identical arguments
+// every round — each duplicate modify_stat re-applied the SAME stat change
+// (stats inflated) and burned tool rounds until maxToolCallsPerTurn.
+interface ToolTurnState {
+  /** signature (toolName + sorted args JSON) → times seen this turn */
+  seen: Map<string, number>;
+}
+const toolTurnState = new WeakMap<object, ToolTurnState>();
+
+function toolCallSignature(name: string, args: Record<string, unknown>): string {
+  const sorted: Record<string, unknown> = {};
+  for (const k of Object.keys(args).sort()) sorted[k] = args[k];
+  return `${name}:${JSON.stringify(sorted)}`;
+}
+
 /**
  * Execute detected tool calls, send SSE events, and return results.
  * Returns { newContent: combined display messages, shouldContinue: true if tools were executed }
@@ -106,27 +127,73 @@ async function executeToolCallsAndContinue(
   character: CharacterCard,
   sessionId: string,
   userName: string,
-  controller: { enqueue: (chunk: string) => void },
+  controller: { enqueue: (chunk: string | Uint8Array) => void },
   sessionQuests?: SessionQuestInstance[],
   questTemplates?: QuestTemplate[],
   statsConfig?: CharacterStatsConfig,
   sessionStats?: SessionStats,
   allCharacters?: CharacterCard[],
   lorebooks?: Lorebook[],
-): Promise<{ newContent: string; shouldContinue: boolean; toolResults: Array<{ success: boolean; displayMessage: string }>; questActivations: QuestActivation[]; toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> }> {
+): Promise<{ newContent: string; shouldContinue: boolean; toolResults: Array<{ success: boolean; displayMessage: string }>; questActivations: QuestActivation[]; toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean; details?: string; displayMessage?: string }> }> {
   if (toolCalls.length === 0 || currentRound >= maxRounds) {
     return { newContent: '', shouldContinue: false, toolResults: [], questActivations: [], toolsUsed: [] };
   }
 
   const toolResults: Array<{ success: boolean; displayMessage: string }> = [];
   const questActivations: QuestActivation[] = [];
-  const toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
+  const toolsUsed: Array<{ name: string; label: string; icon: string; success: boolean; details?: string; displayMessage?: string }> = [];
   let allDisplayMessages = '';
+
+  // Per-turn duplicate detection state (keyed by this request's controller)
+  let turnState = toolTurnState.get(controller);
+  if (!turnState) {
+    turnState = { seen: new Map<string, number>() };
+    toolTurnState.set(controller, turnState);
+  }
 
   for (let i = 0; i < toolCalls.length; i++) {
     const tc = toolCalls[i];
     const toolDef = availableTools.find(t => t.name === tc.name);
     const callId = `${Date.now()}_${i}`;
+
+    // Duplicate guard: same tool + identical arguments already executed this
+    // turn → skip execution, feed a corrective result instead. This stops the
+    // classic "modify_stat loop" (same +10 applied N times) and saves rounds.
+    const sig = toolCallSignature(tc.name, tc.arguments || {});
+    if ((turnState.seen.get(sig) || 0) > 0) {
+      const dupMsg = `⚠️ Ya ejecutaste "${tc.name}" con exactamente los mismos argumentos en este turno — la llamada fue IGNORADA (anti-bucle). No repitas herramientas: escribe directamente tu respuesta narrativa en personaje.`;
+      console.warn(`[Tools] Duplicate tool call blocked (anti-loop): ${sig}`);
+
+      controller.enqueue(createSSEJSON({
+        type: 'tool_call_start',
+        toolName: tc.name,
+        toolLabel: toolDef?.label || tc.name,
+        toolIcon: toolDef?.icon || 'Wrench',
+        params: tc.arguments,
+        callId,
+      }));
+      controller.enqueue(createSSEJSON({
+        type: 'tool_call_result',
+        toolName: tc.name,
+        success: false,
+        displayMessage: dupMsg,
+        duration: 0,
+        callId,
+      }));
+
+      toolResults.push({ success: false, displayMessage: dupMsg });
+      toolsUsed.push({
+        name: tc.name,
+        label: toolDef?.label || tc.name,
+        icon: toolDef?.icon || 'Wrench',
+        success: false,
+        details: 'Llamada duplicada bloqueada (anti-bucle)',
+        displayMessage: dupMsg,
+      });
+      allDisplayMessages += (allDisplayMessages ? '\n' : '') + dupMsg;
+      continue;
+    }
+    turnState.seen.set(sig, 1);
 
     // Send tool_call_start event
     controller.enqueue(createSSEJSON({
@@ -259,9 +326,23 @@ async function executeToolCallsAndContinue(
       }));
     }
 
-    // Check for stat modification from modify_stat tool and send SSE event
-    if (toolResult.statActivation) {
-      const stat = toolResult.statActivation;
+    // Check for stat modification from modify_stat tool and send SSE events.
+    // modify_stat may return MULTIPLE changes (batch "changes" param): emit one
+    // SSE event per change so the client applies each one, and keep the working
+    // sessionStats in sync so SUBSEQUENT tool calls read up-to-date values.
+    // Without this, every tool round received the same request-start snapshot:
+    // two modify_stat("+10") calls both computed base+10 (the second overwrote
+    // the first), and a following check_stat reported the pre-modification
+    // value, misleading the LLM. The object is per-request (parsed from this
+    // request's body), so in-place mutation is safe and visible to the outer
+    // multi-round loop, which passes the same reference.
+    const statActivations = toolResult.statActivations?.length
+      ? toolResult.statActivations
+      : toolResult.statActivation
+        ? [toolResult.statActivation]
+        : [];
+
+    for (const stat of statActivations) {
       console.log(`[Tools] Stat activation from ${tc.name}:`, stat.attributeKey, stat.oldValue, '→', stat.newValue);
 
       controller.enqueue(createSSEJSON({
@@ -274,16 +355,12 @@ async function executeToolCallsAndContinue(
         oldValue: stat.oldValue,
         newValue: stat.newValue,
         reason: stat.reason,
+        // Delta replay metadata: lets the client ADD/SUBTRACT on ITS current
+        // value so skill costs (client-side) and tool changes ACCUMULATE.
+        operator: stat.operator,
+        delta: stat.delta,
       }));
 
-      // Keep the working sessionStats in sync so SUBSEQUENT tool calls read
-      // up-to-date values. Without this, every tool round received the same
-      // request-start snapshot: two modify_stat("+10") calls both computed
-      // base+10 (the second overwrote the first), and a following check_stat
-      // reported the pre-modification value, misleading the LLM.
-      // The object is per-request (parsed from this request's body), so
-      // in-place mutation is safe and visible to the outer multi-round loop,
-      // which passes the same reference.
       if (sessionStats) {
         if (!sessionStats.characterStats) sessionStats.characterStats = {};
         if (!sessionStats.characterStats[stat.characterId]) {
@@ -356,6 +433,11 @@ async function executeToolCallsAndContinue(
         previousLocationId: sa.previousLocationId,
         changed: sa.changed,
         reason: sa.reason,
+        // ESCENARIO V3: collection switch + background + sprite pose sync
+        collectionId: sa.collectionId,
+        collectionName: sa.collectionName,
+        backgroundUrl: sa.backgroundUrl,
+        spritePose: sa.spritePose,
       }));
     }
 
@@ -452,6 +534,12 @@ export async function POST(request: NextRequest) {
 
     // Extract inventory data for Inventory V2 system
     const inventoryData: InventoryPromptData | undefined = body.inventoryData;
+
+    // ESCENARIO V3: App-level Scenario Library sent by the client. Registered
+    // per-request so {{escenario}} (prompt-builder/key-resolver) and the
+    // manage_escenario tool resolve against the current library.
+    const scenarios: import('@/types').ScenarioDefinition[] = Array.isArray(body.scenarios) ? body.scenarios : [];
+    setActiveScenarioLibrary(scenarios);
 
     if (!llmConfig) {
       return createErrorResponse('No LLM configuration provided', 400);
@@ -721,6 +809,9 @@ export async function POST(request: NextRequest) {
       inventoryData,    // Pass inventory data for {{inventory}} and {{currency}} key resolution
       lorebookEntryKeyMap // FIX EXPLORE-3: {{entryKey}} de lorebook tradicional (Phase 6.1)
     );
+    // ESCENARIO V3: explicit library for {{escenario}} resolution (belt & braces
+    // with the per-request registry set above)
+    keyContext.scenarios = scenarios;
 
     // Build HUD context section if enabled (now resolves keys!)
     const hudContextSection = hudContext ? buildHUDContextSection(hudContext, keyContext) : null;
@@ -856,12 +947,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ESCENARIO V2: Filter out the manage_escenario tool if the character doesn't
-    // have a usable scenarioConfig (enabled + ≥1 location). Same pattern as
-    // manage_wardrobe and as the group route — otherwise the LLM gets a tool
-    // (and instructions) for a system this character doesn't use.
+    // ESCENARIO V3: Filter out the manage_escenario tool if neither the character
+    // (scenarioIds + Scenario Library) nor a legacy scenarioConfig provides a
+    // usable scenario. Same pattern as manage_wardrobe.
     if (availableTools.length > 0) {
-      if (!isScenarioAvailable(effectiveCharacter)) {
+      if (!isScenarioLibraryAvailable(effectiveCharacter, scenarios)) {
         availableTools = availableTools.filter(t => t.id !== 'manage_escenario');
       }
     }
@@ -893,6 +983,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (shouldUseTools) {
+      // Native tools reminder: prevents grok-4.x & friends from writing tool
+      // calls as visible text (e.g. [modifystat:statname:...] brackets).
+      finalSystemPrompt += `\n\n${buildNativeToolsReminder()}`;
       console.log(`[Tools] Native tool calling enabled for ${effectiveCharacter.name} (${llmConfig.provider}):`, availableTools.map(t => t.name));
     } else if (toolsEnabled && toolsSettings.usePromptBasedFallback) {
       console.log(`[Tools] Prompt-based fallback enabled for ${effectiveCharacter.name} (${llmConfig.provider}) - using text instructions in system prompt`);
@@ -959,6 +1052,21 @@ export async function POST(request: NextRequest) {
 
     if (!isLastMessageCurrentUser) {
       allMessages = [...allMessages, createUserMessage(sanitizedMessage)];
+    }
+
+    // PER-TURN TOOLS NUDGE (native tool calling only): append a short directive
+    // to the CURRENT user message so the model re-evaluates tool usage EVERY
+    // turn. Recency bias makes this far more effective than a system-prompt-only
+    // instruction (models drift into pure narrative and "forget" the tools).
+    // Copy-on-write: never mutate the shared message objects (they feed the
+    // prompt viewer sections). LLM-visible only — the client store is untouched.
+    if (shouldUseTools) {
+      const lastMsg = allMessages[allMessages.length - 1];
+      if (lastMsg?.role === 'user') {
+        const toolsNudge =
+          '\n\n[REVISIÓN DE TURNO — instrucciones del sistema, no las reproduzcas: al terminar tu respuesta revisa la escena. Si algo justificó cambiar un atributo, invócalo con "modify_stat" (parámetro "changes") en esta misma respuesta. Usa también las demás herramientas cuando la escena lo justifique. Si NADA lo justifica, continúa sin llamar a ninguna.]';
+        allMessages[allMessages.length - 1] = { ...lastMsg, content: lastMsg.content + toolsNudge };
+      }
     }
 
     // Create a TransformStream for SSE
@@ -1117,9 +1225,12 @@ Y cambiar mi expresión:
                           }));
                       toolContextMessages = [
                         ...baseChatMessages,
-                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       continue;
                     }
@@ -1146,9 +1257,12 @@ Y cambiar mi expresión:
                       if (toolResult.shouldContinue) {
                         toolContextMessages = [
                           ...baseChatMessages,
-                          ...buildToolMessagesForOpenAI(textToolCalls, toolResult.toolResults),
+                          ...buildToolMessagesForOpenAI(textToolCalls, toolResult.toolResults, { round: toolRound }),
                         ];
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
@@ -1207,9 +1321,12 @@ Y cambiar mi expresión:
                         // FIX: buildToolMessagesForOpenAI takes (toolCalls, toolResults), not (messages, toolCalls, toolResult)
                         toolContextMessages = [
                           ...toolContextMessages,
-                          ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                          ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                         ];
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         isToolRound = true;
                         continue;
@@ -1306,9 +1423,12 @@ Y cambiar mi expresión:
                           }));
                       toolContextMessages = [
                         ...baseChatMessages,
-                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       continue;
                     }
@@ -1355,7 +1475,10 @@ Y cambiar mi expresión:
                           ...baseChatMessages,
                           { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${toolResult.newContent}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
                         ] as any;
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
@@ -1419,9 +1542,12 @@ Y cambiar mi expresión:
                         // FIX: buildToolMessagesForOpenAI takes (toolCalls, toolResults), append to existing messages
                         toolContextMessages = [
                           ...toolContextMessages,
-                          ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                          ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                         ];
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         isToolRound = true;
                         continue;
@@ -1497,7 +1623,10 @@ Y cambiar mi expresión:
                             success: true, displayMessage: toolResult.newContent || `[${tc.name} ejecutada]`
                           }));
                       const toolMessages = buildToolMessagesForAnthropic(toolCalls, toolResultPairs);
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolContextMessages = [
                         ...baseChatMessages,
                         ...toolMessages.flatMap(m => m),
@@ -1536,7 +1665,10 @@ Y cambiar mi expresión:
                           ...baseChatMessages,
                           { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${toolResult.newContent}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
                         ] as any;
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
@@ -1597,7 +1729,10 @@ Y cambiar mi expresión:
                           ...toolContextMessages,
                           ...toolMessages.flatMap(m => m),
                         ];
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         isToolRound = true;
                         continue;
@@ -1705,7 +1840,10 @@ Y cambiar mi expresión:
                           ...baseChatMessages,
                           { role: 'user', content: `[Resultado de herramientas: ${toolNames}]\n${toolResult.newContent}\n\nResponde de forma natural usando esta información. No menciones las herramientas ni el proceso interno.` },
                         ] as any;
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
@@ -1763,7 +1901,10 @@ Y cambiar mi expresión:
                           }));
                       const toolResultMessages = buildToolMessagesForOllama(toolFollowAccumulator.toolCalls, toolResultPairs);
                       toolContextMessages = [...toolContextMessages, ...toolResultMessages] as any;
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       isToolRound = true;
                       continue;
@@ -1829,8 +1970,13 @@ Y cambiar mi expresión:
                   // FIX: execute on accumulated deltas regardless of finish_reason (same rationale as round 0)
                   if (hasToolCalls(accumulator)) {
                     if (roundContent.trim()) {
-                      for (const chunk of splitIntoChunks(roundContent)) {
-                        controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                      // Strip text-format tool calls (e.g. bracket shorthand) from the
+                      // visible narrative — native tool calls are the authoritative ones.
+                      const nativeRoundDisplay = stripToolCallFromText(roundContent);
+                      if (nativeRoundDisplay.trim()) {
+                        for (const chunk of splitIntoChunks(nativeRoundDisplay)) {
+                          controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                        }
                       }
                     }
                     const toolResult = await executeToolCallsAndContinue(
@@ -1850,9 +1996,12 @@ Y cambiar mi expresión:
                           }));
                       toolContextMessages = [
                         ...baseChatMessages,
-                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       continue;
                     }
@@ -1878,23 +2027,27 @@ Y cambiar mi expresión:
                       if (textToolResult.shouldContinue) {
                         toolContextMessages = [
                           ...baseChatMessages,
-                          ...buildToolMessagesForOpenAI(textToolCalls, textToolResult.toolResults),
+                          ...buildToolMessagesForOpenAI(textToolCalls, textToolResult.toolResults, { round: toolRound }),
                         ];
-                        accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                        // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                        // text from the SAVED message, so the message shrank after reload).
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                         toolRound++;
                         continue;
                       }
                     }
                   }
 
-                  // No tool calls detected - stream buffered content (clean artifacts)
+                  // No tool calls detected - stream buffered content (clean artifacts
+                  // and any text-format tool-call shorthand that failed to parse)
                   console.log(`[Grok+Tools] No tool calls detected, streaming ${roundContent.length} chars`);
-                  const cleanedGrokContent = cleanModelArtifacts(roundContent);
+                  const cleanedGrokContent = stripToolCallFromText(roundContent);
                   for (const chunk of splitIntoChunks(cleanedGrokContent)) {
                     controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
                   }
                   // Fix: Update accumulatedContent to cleaned version
-                  accumulatedContent = cleanModelArtifacts(accumulatedContent);
+                  accumulatedContent = stripToolCallFromText(accumulatedContent);
                   toolRound = maxToolRounds + 1;
                   continue;
                 } else if (shouldUseTools && isToolRound) {
@@ -1915,8 +2068,12 @@ Y cambiar mi expresión:
                   if (canUseMoreTools && hasToolCalls(toolFollowAccumulator)) {
                     // Another tool call detected - stream content and execute
                     if (roundContent.trim()) {
-                      for (const chunk of splitIntoChunks(roundContent)) {
-                        controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                      // Strip text-format tool calls from visible narrative (native calls are authoritative)
+                      const followUpDisplay = stripToolCallFromText(roundContent);
+                      if (followUpDisplay.trim()) {
+                        for (const chunk of splitIntoChunks(followUpDisplay)) {
+                          controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                        }
                       }
                     }
                     const toolResult = await executeToolCallsAndContinue(
@@ -1936,20 +2093,56 @@ Y cambiar mi expresión:
                           }));
                       toolContextMessages = [
                         ...toolContextMessages,
-                        ...buildToolMessagesForOpenAI(toolFollowAccumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(toolFollowAccumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       isToolRound = true;
                       continue;
                     }
                   } else {
-                    // No more tool calls - stream the response
-                    const cleanedContent = cleanModelArtifacts(roundContent);
-                    for (const chunk of splitIntoChunks(cleanedContent)) {
-                      controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                    // No native tool calls in follow-up round. Check for text-based
+                    // tool calls first (bracket shorthand / ```tool_call blocks),
+                    // otherwise stream the cleaned narrative.
+                    const followUpTextCalls = canUseMoreTools ? parseAllToolCallsFromText(roundContent) : [];
+                    if (followUpTextCalls.length > 0) {
+                      console.log(`[Grok+Tools] Follow-up text-based tool call(s): ${followUpTextCalls.map(tc => tc.name).join(', ')}`);
+                      const cleanFollowUpContent = stripToolCallFromText(roundContent);
+                      if (cleanFollowUpContent.trim()) {
+                        for (const chunk of splitIntoChunks(cleanFollowUpContent)) {
+                          controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                        }
+                      }
+                      const followUpTextResult = await executeToolCallsAndContinue(
+                        followUpTextCalls, availableTools, toolRound, maxToolRounds,
+                        effectiveCharacter, sessionId || '', effectiveUserName, controller,
+                        sessionQuests, questTemplates,
+                        effectiveCharacter.statsConfig, sessionStats, allCharacters,
+                        lorebooks
+                      );
+                      allToolsUsed = [...allToolsUsed, ...followUpTextResult.toolsUsed];
+                      allQuestActivations = [...allQuestActivations, ...followUpTextResult.questActivations];
+                      if (followUpTextResult.shouldContinue) {
+                        toolContextMessages = [
+                          ...toolContextMessages,
+                          ...buildToolMessagesForOpenAI(followUpTextCalls, followUpTextResult.toolResults, { round: toolRound }),
+                        ];
+                        if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
+                        toolRound++;
+                        isToolRound = true;
+                        continue;
+                      }
+                    } else {
+                      // No more tool calls - stream the response (cleaned)
+                      const cleanedContent = stripToolCallFromText(roundContent);
+                      for (const chunk of splitIntoChunks(cleanedContent)) {
+                        controller.enqueue(createSSEJSON({ type: 'token', content: chunk }));
+                      }
+                      accumulatedContent = stripToolCallFromText(accumulatedContent);
                     }
-                    accumulatedContent = cleanModelArtifacts(accumulatedContent);
                   }
                 } else {
                   generator = streamGrok(chatMessages, llmConfig);
@@ -2011,9 +2204,12 @@ Y cambiar mi expresión:
                       baseChatMessages = chatMessages;
                       toolContextMessages = [
                         ...chatMessages,
-                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(accumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       isToolRound = true;
                       continue;
@@ -2067,9 +2263,12 @@ Y cambiar mi expresión:
                           }));
                       toolContextMessages = [
                         ...toolContextMessages,
-                        ...buildToolMessagesForOpenAI(toolFollowAccumulator.toolCalls, toolResultPairs),
+                        ...buildToolMessagesForOpenAI(toolFollowAccumulator.toolCalls, toolResultPairs, { round: toolRound }),
                       ];
-                      accumulatedContent = '';
+// PRESERVE multi-round text: keep the text already streamed from previous
+                      // tool rounds (the old `accumulatedContent = ''` dropped round-0/round-1 RP
+                      // text from the SAVED message, so the message shrank after reload).
+                      if (accumulatedContent && !accumulatedContent.endsWith('\n')) accumulatedContent += '\n';
                       toolRound++;
                       isToolRound = true;
                       continue;
@@ -2139,7 +2338,7 @@ Y cambiar mi expresión:
                   type: 'instructions' as const,
                   label: `[Tool Follow-up — Round ${toolRound}]`,
                   content: toolContextContent,
-                  color: 'text-amber-400',
+                  color: 'text-fuchsia-400',
                 },
               ];
               controller.enqueue(createSSEJSON({

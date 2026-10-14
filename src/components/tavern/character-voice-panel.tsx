@@ -232,7 +232,7 @@ export function CharacterVoicePanel({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-amber-500" />
+              <KeyRound className="w-4 h-4 text-fuchsia-500" />
               Palabras clave (Voz / KWS)
             </CardTitle>
             <CardDescription>
@@ -270,7 +270,7 @@ export function CharacterVoicePanel({
                 {kwsKeywords!.map((keyword) => (
                   <span
                     key={keyword}
-                    className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 text-xs"
+                    className="inline-flex items-center gap-1 rounded-md bg-fuchsia-500/10 border border-fuchsia-500/25 px-2 py-0.5 text-xs"
                   >
                     {keyword}
                     <button
@@ -314,7 +314,7 @@ export function CharacterVoicePanel({
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-blue-500" />
+                    <MessageSquare className="w-4 h-4 text-violet-500" />
                     <Label className="text-xs">Diálogos ("texto entre comillas")</Label>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -352,7 +352,7 @@ export function CharacterVoicePanel({
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-orange-500" />
+                    <AlertCircle className="w-4 h-4 text-violet-500" />
                     <Label className="text-xs">Texto plano (sin formato)</Label>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -374,7 +374,7 @@ export function CharacterVoicePanel({
                   <p className="text-muted-foreground mb-1">Ejemplo:</p>
                   <p className="font-mono">*Camina* "Hola, ¿cómo estás?"</p>
                   <div className="mt-1 space-y-0.5">
-                    <p className="text-blue-600">✓ Diálogos: "Hola, ¿cómo estás?"</p>
+                    <p className="text-violet-600">✓ Diálogos: "Hola, ¿cómo estás?"</p>
                     <p className="text-purple-600">✓ Narración: Camina</p>
                   </div>
                 </div>
@@ -393,7 +393,7 @@ export function CharacterVoicePanel({
                   onClick={() => setActiveSection('dialogue')}
                 >
                   <CardTitle className="text-sm flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-blue-500" />
+                    <MessageSquare className="w-4 h-4 text-violet-500" />
                     Voz de Diálogo
                   </CardTitle>
                   <CardDescription className="text-xs">
@@ -553,7 +553,7 @@ function VoiceConfigEditor({
                         <span className="flex items-center gap-1">
                           {profile.name}
                           {profile.is_demo === 1 && (
-                            <span className="text-[9px] bg-blue-500/10 text-blue-500 px-1 rounded">demo</span>
+                            <span className="text-[9px] bg-violet-500/10 text-violet-500 px-1 rounded">demo</span>
                           )}
                           {profile.language && profile.language !== 'Auto' && (
                             <span className="text-[9px] text-muted-foreground">({profile.language})</span>
@@ -567,7 +567,7 @@ function VoiceConfigEditor({
                 {/* OmniVoice: Show system voices (OpenAI aliases, etc.) */}
                 {isOmniVoice && voices.filter(v => v.type === 'openai_alias').length > 0 && (
                   <>
-                    <div className="px-2 py-1.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                    <div className="px-2 py-1.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400 flex items-center gap-1">
                       <Sparkles className="w-3 h-3" />
                       Voces OpenAI
                     </div>

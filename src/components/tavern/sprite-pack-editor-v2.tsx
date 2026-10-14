@@ -292,7 +292,7 @@ function SpriteConditionEditorFull({
               className={cn(
                 'flex-1 h-8 text-xs font-medium rounded-md border transition-colors',
                 conditionOperator !== 'OR'
-                  ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                  ? 'bg-violet-500/20 text-violet-400 border-violet-500/30'
                   : 'bg-muted/30 text-muted-foreground border-transparent'
               )}
               onClick={() => onConditionOperatorChange('AND')}
@@ -803,7 +803,7 @@ export function SpritePackEditorV2({
                                   "relative group border rounded-lg overflow-hidden shrink-0 snap-start",
                                   "w-56",
                                   isCondEnabled ? "border-purple-500/50 bg-purple-500/5" : "bg-muted/30",
-                                  isDefaultSprite && pack.conditionalMode && "border-amber-500/50 bg-amber-500/5"
+                                  isDefaultSprite && pack.conditionalMode && "border-fuchsia-500/50 bg-fuchsia-500/5"
                                 )}
                               >
                                 <div className="aspect-square relative">
@@ -816,7 +816,7 @@ export function SpritePackEditorV2({
                                   {/* Type indicator */}
                                   {isVideoUrl(sprite.url) && (
                                     <div className="absolute top-1 right-1">
-                                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-blue-500/80 text-white">
+                                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-violet-500/80 text-white">
                                         <Video className="w-3 h-3" />
                                       </Badge>
                                     </div>
@@ -839,7 +839,7 @@ export function SpritePackEditorV2({
                                   {/* Default indicator */}
                                   {isDefaultSprite && pack.conditionalMode && (
                                     <div className="absolute bottom-1 left-1">
-                                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-amber-500/80 text-white">
+                                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-fuchsia-500/80 text-white">
                                         ★
                                       </Badge>
                                     </div>
@@ -882,7 +882,7 @@ export function SpritePackEditorV2({
                                       )}
                                       {/* Default badge */}
                                       {isDefaultSprite && (
-                                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-amber-500/10 text-amber-600 border-amber-500/30">
+                                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-fuchsia-500/10 text-fuchsia-600 border-fuchsia-500/30">
                                           <Star className="w-2.5 h-2.5 mr-0.5" />
                                           Default
                                         </Badge>
@@ -991,7 +991,7 @@ export function SpritePackEditorV2({
                       Pack: <span className="font-medium text-foreground">{currentEditSprite.pack.name}</span>
                     </p>
                     {isVideoUrl(currentEditSprite.sprite.url) && (
-                      <Badge variant="secondary" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/30">
+                      <Badge variant="secondary" className="text-xs bg-violet-500/10 text-violet-600 border-violet-500/30">
                         <Video className="w-3 h-3 mr-1" /> Video
                       </Badge>
                     )}
@@ -1047,7 +1047,7 @@ export function SpritePackEditorV2({
                       className={cn(
                         "h-9",
                         currentEditSprite.sprite.isDefault || currentEditSprite.pack.defaultSpriteId === currentEditSprite.sprite.id
-                          ? "bg-amber-500 hover:bg-amber-600 text-white"
+                          ? "bg-fuchsia-500 hover:bg-fuchsia-600 text-white"
                           : "text-muted-foreground"
                       )}
                       onClick={() => {
@@ -1230,7 +1230,7 @@ export function SpritePackEditorV2({
                             {/* Type indicator */}
                             {isVideoUrl(sprite.url) && (
                               <div className="absolute top-1 right-1">
-                                <Badge variant="secondary" className="text-[9px] h-4 px-1 bg-blue-500/80 text-white">
+                                <Badge variant="secondary" className="text-[9px] h-4 px-1 bg-violet-500/80 text-white">
                                   <Video className="w-2.5 h-2.5" />
                                 </Badge>
                               </div>
@@ -1256,7 +1256,7 @@ export function SpritePackEditorV2({
                               </p>
                             )}
                             {existingPack && (
-                              <p className="text-[9px] text-amber-600 text-center truncate">
+                              <p className="text-[9px] text-fuchsia-600 text-center truncate">
                                 En: {existingPack.packName}
                               </p>
                             )}

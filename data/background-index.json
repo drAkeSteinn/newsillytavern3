@@ -15,10 +15,31 @@
       "pack": "Rick"
     },
     {
+      "label": "Room/00105abc-65a8-4cfd-98bb-a71e3a-1791882415130-hvmdqw.png",
+      "filename": "00105abc-65a8-4cfd-98bb-a71e3a-1791882415130-hvmdqw.png",
+      "url": "/backgrounds/Room/00105abc-65a8-4cfd-98bb-a71e3a-1791882415130-hvmdqw.png",
+      "thumb": "/backgrounds/Room/00105abc-65a8-4cfd-98bb-a71e3a-1791882415130-hvmdqw.png",
+      "pack": "Room"
+    },
+    {
       "label": "Room/1775203629528-psmcuu.jpg",
       "filename": "1775203629528-psmcuu.jpg",
       "url": "/backgrounds/Room/1775203629528-psmcuu.jpg",
       "thumb": "/backgrounds/Room/1775203629528-psmcuu.jpg",
+      "pack": "Room"
+    },
+    {
+      "label": "Room/6319d281-e56e-447b-8dc0-212115-1791890849240-i5tmew.png",
+      "filename": "6319d281-e56e-447b-8dc0-212115-1791890849240-i5tmew.png",
+      "url": "/backgrounds/Room/6319d281-e56e-447b-8dc0-212115-1791890849240-i5tmew.png",
+      "thumb": "/backgrounds/Room/6319d281-e56e-447b-8dc0-212115-1791890849240-i5tmew.png",
+      "pack": "Room"
+    },
+    {
+      "label": "Room/6319d281-e56e-447b-8dc0-212115-1791891595968-4d6bjp.png",
+      "filename": "6319d281-e56e-447b-8dc0-212115-1791891595968-4d6bjp.png",
+      "url": "/backgrounds/Room/6319d281-e56e-447b-8dc0-212115-1791891595968-4d6bjp.png",
+      "thumb": "/backgrounds/Room/6319d281-e56e-447b-8dc0-212115-1791891595968-4d6bjp.png",
       "pack": "Room"
     },
     {
@@ -64,6 +85,6 @@
       "pack": "Room"
     }
   ],
-  "lastUpdated": 1791092649361,
+  "lastUpdated": 1791924760858,
   "source": "scan"
 }

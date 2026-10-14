@@ -600,8 +600,18 @@ export interface CharacterCard {
    *  When enabled with at least 1 location, the {{escenario}} key resolves to the
    *  active location's description and the manage_escenario tool becomes available. */
   scenarioConfig?: ScenarioConfig;
-  microReactionConfig?: MicroReactionConfig;     // FASE 4: Micro-reaction configuration for group chats
+  /** ESCENARIO V3: ids of the App-level scenario collections (Scenario Library)
+   *  this character can use. Managed from the character editor dropdown; the
+   *  scenarios themselves live in the App Config → Escenarios library. When at
+   *  least one is available it takes priority over the legacy scenarioConfig. */
+  scenarioIds?: string[];
   emotionalConfig?: EmotionalStateConfig;        // FASE 5: Autonomous emotional state system
+  /** Custom bond stage labels for this character (editable from the stats editor).
+   *  Map of stage key → label. Keys: extranos | conocidos | amigos | intimos | pareja.
+   *  Only display names are customizable; point ranges stay fixed. Used by the
+   *  relationship panel, {{relacion_etapa}}, the relacion_etapa mirror and the
+   *  manage_relationship tool. */
+  relationshipStageLabels?: Record<string, string>;
   quickReplies?: CharacterQuickReply[];          // Character-specific quick replies with optional attribute modifiers
   defaultTransition?: SpriteTransitionConfig;    // FASE 7: Default transition for state-based sprite changes
   /** FASE 19: Per-character equipment slots. When defined, these slots override the global
@@ -893,8 +903,8 @@ export interface EmotionalStateConfig {
   initialState: string;                      // Default emotional state when session starts
   evaluationInterval: number;                // Evaluate every N turns (1 = every turn, 2 = every other turn, etc.)
   contextMessagesCount: number;              // How many recent messages to include as context for evaluation (default: 6)
-  includeInPrompt: boolean;                  // Whether to include {{emocion}} in the prompt automatically (default: true)
-  promptInjectionFormat?: string;            // Custom format for prompt injection. Use {estado} as placeholder. Default: "Estado emocional actual: {estado}"
+  includeInPrompt: boolean;                  // DEPRECATED: the automatic prompt section was removed. The emotional state is now injected manually with the {{estado}} key in card sections or lorebook entries.
+  promptInjectionFormat?: string;            // DEPRECATED (kept for backward compat). The emotional state placeholder is now the {{estado}} key resolved globally by the key resolver.
 }
 
 /** Result of an emotional state evaluation */
@@ -1029,6 +1039,10 @@ export interface CharacterGroup {
    *  scenario in group chats, so all members share the same location list and
    *  the same {{escenario}} / manage_escenario / quick-reply scene. */
   scenarioConfig?: ScenarioConfig;
+  /** ESCENARIO V3: ids of the App-level scenario collections available to the
+   *  whole group (shared scene). Takes priority over the members' character-level
+   *  scenarioIds when set. */
+  scenarioIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1759,6 +1773,15 @@ export interface BackgroundCollectionEntry {
   contextKeys: string[];      // Secondary keywords that must ALSO be present
   tags?: string[];            // Optional tags for organization
   transitionDuration?: number; // Override transition duration (ms)
+  /**
+   * ESCENARIO V3.2 — Sprite poses saved ON THIS FONDO, per character.
+   * Poses are UNIQUE per (fondo × personaje): pressing "Guardar pose en la
+   * posición actual" writes the live sprite position/scale/opacity here
+   * (persisted in the collection's collection.json). Whenever this fondo
+   * becomes the active background (manual, scene switcher, tool calling or
+   * activation keys) each character's sprite returns to its saved pose.
+   */
+  spritePoses?: Record<string, SpritePose>;
 }
 
 /**
@@ -2170,11 +2193,11 @@ export const DEFAULT_CHATBOX_APPEARANCE: ChatboxAppearanceSettings = {
   },
   
   textColors: {
-    userMessage: '#3b82f6',
-    characterMessage: '#f59e0b',
+    userMessage: '#ff3ed8',
+    characterMessage: '#c084fc',
     narratorMessage: '#8b5cf6',
     systemMessage: '#6b7280',
-    linkColor: '#3b82f6',
+    linkColor: '#f472b6',
     codeColor: '#10b981',
   },
   
@@ -2297,10 +2320,19 @@ export interface QuickReplyWardrobeAction {
 /**
  * Scenario effect: moves the scene to a location when the quick reply is used.
  * - 'go': sets the session's active scenario to the location identified by `locationId`
+ *
+ * ESCENARIO V3: `locationId` es el id de CUALQUIER nivel de la jerarquía
+ * (escenario/colección, lugar o punto de interés de la biblioteca global) y
+ * `collectionId` fija el escenario (colección) destino. Retrocompatibilidad:
+ * respuestas rápidas antiguas sólo tienen locationId (V2 flat locations) — el
+ * runtime las resuelve igualmente (la síntesis legacy conserva los ids).
  */
 export interface QuickReplyScenarioAction {
   action: 'go';
-  /** ID of the ScenarioLocation to move to (required for 'go') */
+  /** Escenario (colección V3) destino. Opcional para legacy V2. */
+  collectionId?: string;
+  /** ID of the destination location: escenario, lugar, punto de interés (V3)
+   *  or legacy ScenarioLocation id (V2, resolved via legacy synthesis). */
   locationId?: string;
 }
 
@@ -2423,6 +2455,14 @@ export interface AppSettings {
   handy?: HandySettings;
   /** Director Agent settings (drama manager) */
   director?: import('@/lib/director/types').DirectorSettings;
+  /** ESCENARIO V3.1: sprite poses bound to the BACKGROUND (fondo), per character.
+   *  Key: characterId → backgroundUrl → pose. Saved ONLY when the user presses
+   *  "Guardar pose" (sprite popover or ScenarioSwitcher); applied automatically
+   *  whenever the active background changes to a fondo that has a saved pose —
+   *  no matter the source (manual gallery, scenario switcher, manage_escenario
+   *  tool calling or activation keys). Each fondo keeps its own position
+   *  independently of the escenario/lugar/punto level. */
+  spriteBackgroundPoses?: Record<string, Record<string, SpritePose>>;
 }
 
 // ============ Embeddings Chat Integration Settings ============
@@ -3198,7 +3238,7 @@ export interface QuestObjectiveTemplate {
 // Los triggers se ejecutan a través del UnifiedTriggerExecutor,
 // que simula que el TokenDetector encontró la key.
 
-export type QuestRewardType = 'attribute' | 'trigger' | 'objective' | 'solicitud' | 'target_attribute' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack' | 'message';
+export type QuestRewardType = 'attribute' | 'trigger' | 'objective' | 'solicitud' | 'target_attribute' | 'currency' | 'conditional_sprite_collection' | 'activate_sprite_pack' | 'message' | 'ubicacion';
 
 // Target mode para grupos
 export type TriggerTargetMode = 'self' | 'all' | 'target';
@@ -3334,6 +3374,34 @@ export interface QuestRewardActivateSpritePack {
   targetPackId?: string;               // Sprite pack to activate on target character (for 'target' mode)
 }
 
+// ============================================
+// UBICACION REWARD (ESCENARIO V3)
+// ============================================
+
+/**
+ * Quest Reward: Ubicación (ESCENARIO V3)
+ *
+ * Mueve la escena compartida de la sesión a una ubicación de la biblioteca
+ * de escenarios (Ajustes → Escenarios). La ubicación puede ser cualquiera de
+ * los TRES niveles de la jerarquía:
+ *   - Escenario (colección ScenarioDefinition) → locationId = definition.id
+ *   - Lugar (ScenarioPlace)                    → locationId = place.id
+ *   - Punto de interés (ScenarioSpot)          → locationId = spot.id
+ *
+ * Al ejecutarse: setActiveScenarioCollection + setActiveScenario + fondo de la
+ * ubicación (spot → lugar → escenario). El cambio de fondo reubica el sprite
+ * automáticamente (pose guardada por fondo × personaje).
+ */
+export interface QuestRewardUbicacion {
+  /** Escenario destino (ScenarioDefinition.id). Opcional: si falta, se busca
+   *  locationId en toda la biblioteca (priorizando la colección activa). */
+  collectionId?: string;
+  /** Id de la ubicación destino (escenario, lugar o punto de interés). */
+  locationId: string;
+  /** Etiqueta legible para la UI (opcional, informativa). */
+  locationLabel?: string;
+}
+
 // Opción para dropdown de selección de objetivos en UI
 export interface ObjectiveDropdownOption {
   questId: string;
@@ -3385,6 +3453,10 @@ export interface QuestReward {
   // Para type: 'message' - mensaje automático al chat al cumplirse el umbral
   // (se envía como respuesta rápida al finalizar el turno)
   message?: QuestRewardMessage;
+
+  // Para type: 'ubicacion' - mueve la escena a una ubicación V3
+  // (escenario / lugar / punto de interés de la biblioteca global)
+  ubicacion?: QuestRewardUbicacion;
 
   // Condiciones opcionales para ejecutar el reward
   condition?: QuestRewardCondition;
@@ -3815,7 +3887,7 @@ export const DEFAULT_CONTENT_STYLE_SETTINGS: ContentStyleSettings = {
     textDecoration: 'none',
   },
   thought: {
-    color: 'text-blue-600 dark:text-blue-400',
+    color: 'text-violet-600 dark:text-violet-400',
     fontWeight: 'normal',
     fontStyle: 'italic',
     textDecoration: 'none',
@@ -3961,7 +4033,7 @@ export const DEFAULT_DIALOGUE_SETTINGS: DialogueSettings = {
       textDecoration: 'none',
     },
     thought: {
-      color: 'text-blue-600 dark:text-blue-400',
+      color: 'text-violet-600 dark:text-violet-400',
       fontWeight: 'normal',
       fontStyle: 'italic',
       textDecoration: 'none',
@@ -3984,7 +4056,7 @@ export const DEFAULT_DIALOGUE_SETTINGS: DialogueSettings = {
     },
   },
   characterStyles: [],
-  userBubbleColor: 'bg-blue-500/20',
+  userBubbleColor: 'bg-violet-500/20',
   assistantBubbleColor: 'bg-purple-500/20',
   systemBubbleColor: 'bg-muted',
   messageSpacing: 'normal',
@@ -4558,6 +4630,12 @@ export interface AttributeDefinition {
   key: string;               // Template key: "vida" → {{vida}} - Also used as primary detection key
   type: AttributeType;
 
+  // Esencia del atributo para el LLM (inyectada en {{attributes_rulz}}).
+  // Define la semántica estable: qué representa, qué lo sube, qué lo baja y su ritmo.
+  // Ej: "Obsesión hacia {user}. Sube +5/+10 cuando la hace sentir deseada. NUNCA baja por rechazo."
+  // Opcional: si está vacío, el bloque muestra solo una línea mínima (nombre + tipo + rango).
+  llmEssence?: string;
+
   // Para tipo number
   defaultValue: number | string;
   min?: number;
@@ -4846,6 +4924,9 @@ export interface ScenarioLocation {
   /** When true, this location is the default one (session start without a
    *  greeting-specific location). Only one location should have this flag. */
   isDefault?: boolean;
+  /** ESCENARIO V3: sprite pose saved for this legacy location (from the
+   *  CharacterSprite "save pose" button). Applied on scene move. */
+  spritePose?: SpritePose;
 }
 
 export interface ScenarioConfig {
@@ -4854,6 +4935,67 @@ export interface ScenarioConfig {
   locations: ScenarioLocation[];
   /** Optional header for the scenario block in the prompt (default: [ESCENARIO]). */
   blockHeader?: string;
+}
+
+// ============================================
+// Scenario Library V3 (App-level scenario collections)
+// ============================================
+// A global library of scenario "collections" (e.g., "Departamento", "Bar",
+// "Salón de fiestas") managed in App Config. Each scenario contains PLACES
+// (sala, comedor, cuarto...) and each place contains SPOTS (cama, escritorio...).
+// Characters reference scenarios by id (character.scenarioIds) and the
+// manage_escenario tool moves the scene across the hierarchy. Each level can
+// pin a background image (applied automatically on scene move) and a sprite
+// pose (position+scale applied to the character sprite on scene move).
+
+/** Saved sprite position + scale for a scenario location. Matches the
+ *  CharacterSprite local settings (percentages of the chat viewport). */
+export interface SpritePose {
+  x: number;        // horizontal position (0-100%)
+  y: number;        // vertical position from bottom (0-100%)
+  width: number;    // width (10-80%)
+  height: number;   // height (10-90%)
+  opacity: number;  // 0-1
+}
+
+/** A specific spot inside a place (e.g., "Cama", "Escritorio"). */
+export interface ScenarioSpot {
+  id: string;
+  name: string;
+  description?: string;
+  /** Background applied when the scene moves to this spot (optional override). */
+  backgroundUrl?: string;
+  /** Sprite pose applied when the scene moves to this spot (optional). */
+  spritePose?: SpritePose;
+}
+
+/** A place inside a scenario (e.g., "Cuarto", "Cocina"). */
+export interface ScenarioPlace {
+  id: string;
+  name: string;
+  description?: string;
+  /** Background applied when the scene is in this place (optional). */
+  backgroundUrl?: string;
+  /** Sprite pose applied when the scene is in this place (optional). */
+  spritePose?: SpritePose;
+  /** Specific spots inside this place (e.g., Cama, Escritorio). */
+  spots: ScenarioSpot[];
+}
+
+/** An App-level scenario collection (e.g., "Departamento", "Bar"). */
+export interface ScenarioDefinition {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  /** Default background for the whole scenario (fallback when place/spot has none). */
+  defaultBackgroundUrl?: string;
+  /** All places within this scenario. */
+  places: ScenarioPlace[];
+  /** Place used when the scene enters this scenario without a specific target. */
+  defaultPlaceId?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // Stat change log entry (for history/debug)
@@ -4969,6 +5111,13 @@ export interface SessionStats {
   // Set by the manage_escenario tool (go), a quick reply's scenarioAction,
   // or automatically when a session starts with a greeting that pins a location.
   activeScenarioId?: string | null;
+
+  // ESCENARIO V3: id of the App-level scenario collection (ScenarioDefinition)
+  // the scene is currently inside. SESSION-level like activeScenarioId (which
+  // stores the place-or-spot id WITHIN the collection). null/undefined → the
+  // resolver searches all effective collections for activeScenarioId, falling
+  // back to the first/default collection.
+  activeScenarioCollectionId?: string | null;
 
   // Metadata
   initialized: boolean;      // Whether stats were initialized from defaults

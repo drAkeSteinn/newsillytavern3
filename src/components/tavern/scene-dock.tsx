@@ -72,7 +72,7 @@ export function SceneDock({ onToggleSceneMode, isSceneMode }: SceneDockProps) {
                   className={cn(
                     'h-9 w-9 rounded-xl',
                     activeAtmospherePresetId && activeAtmospherePresetId !== 'clear'
-                      ? 'text-sky-400 hover:text-sky-300 hover:bg-sky-500/10'
+                      ? 'text-violet-400 hover:text-violet-300 hover:bg-violet-500/10'
                       : 'text-muted-foreground'
                   )}
                   aria-label="Atmósfera"
@@ -89,7 +89,7 @@ export function SceneDock({ onToggleSceneMode, isSceneMode }: SceneDockProps) {
           <PopoverContent side="left" className="w-52">
             <div className="space-y-1.5">
               <h4 className="font-medium text-sm flex items-center gap-2">
-                <CloudSun className="w-4 h-4 text-sky-400" />
+                <CloudSun className="w-4 h-4 text-violet-400" />
                 Atmósfera
               </h4>
               <div className="grid grid-cols-1 gap-1">
@@ -139,7 +139,7 @@ export function SceneDock({ onToggleSceneMode, isSceneMode }: SceneDockProps) {
               size="icon"
               className={cn(
                 'h-9 w-9 rounded-xl',
-                hudVisible ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10' : 'text-muted-foreground'
+                hudVisible ? 'text-fuchsia-400 hover:text-fuchsia-300 hover:bg-fuchsia-500/10' : 'text-muted-foreground'
               )}
               onClick={toggleHud}
               disabled={!lastHudId}

@@ -2771,6 +2771,52 @@
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
+      "message": "Obtained: de sarcasmo",
+      "id": "notif-1791882697311-ic94vng",
+      "timestamp": "2026-10-13T09:11:37.311Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de sarcas",
+      "id": "notif-1791882697285-mnvrdxp",
+      "timestamp": "2026-10-13T09:11:37.285Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de sar",
+      "id": "notif-1791882697260-x7in3za",
+      "timestamp": "2026-10-13T09:11:37.260Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Plug Inflador de Semen",
+      "quantity": 1,
+      "message": "Obtained: de",
+      "id": "notif-1791882697235-x2n5gzp",
+      "timestamp": "2026-10-13T09:11:37.235Z",
+      "read": false
+    },
+    {
+      "type": "item_added",
+      "itemId": "cum-001",
+      "itemName": "Plug Inflador de Semen",
+      "quantity": 1,
+      "message": "Obtuviste Plug Inflador de Semen",
+      "id": "notif-1791882697210-x149cp4",
+      "timestamp": "2026-10-13T09:11:37.210Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
       "message": "Obtained: como pendeja",
       "id": "notif-1789188379911-ltu0ynb",
       "timestamp": "2026-09-12T04:46:19.911Z",
@@ -3170,51 +3216,6 @@
       "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura",
       "id": "notif-1789137318764-4ugmqux",
       "timestamp": "2026-09-11T14:35:18.764Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cint",
-      "id": "notif-1789137318741-12xsysi",
-      "timestamp": "2026-09-11T14:35:18.741Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hast",
-      "id": "notif-1789137318714-ctk0yas",
-      "timestamp": "2026-09-11T14:35:18.714Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop to",
-      "id": "notif-1789137318690-s4qruh2",
-      "timestamp": "2026-09-11T14:35:18.690Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop",
-      "id": "notif-1789137318663-dvvcvcx",
-      "timestamp": "2026-09-11T14:35:18.663Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baj",
-      "id": "notif-1789137318636-q1tn7u7",
-      "timestamp": "2026-09-11T14:35:18.636Z",
       "read": false
     }
   ]

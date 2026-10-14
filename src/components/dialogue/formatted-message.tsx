@@ -102,7 +102,7 @@ export function FormattedMessage({
           className={cn(
             'rounded-full object-cover flex-shrink-0 ring-2 ring-white/10',
             avatarSizeClasses[settings.avatarSize],
-            isUser && 'ring-blue-500/30',
+            isUser && 'ring-violet-500/30',
             !isUser && 'ring-purple-500/30',
           )}
         />
@@ -192,7 +192,7 @@ function SegmentDisplay({
         return (
           <span className={cn(
             'italic',
-            highlightActions ? 'text-amber-400/90' : 'text-muted-foreground',
+            highlightActions ? 'text-fuchsia-400/90' : 'text-muted-foreground',
           )}>
             *<TypewriterText 
               text={segment.content}

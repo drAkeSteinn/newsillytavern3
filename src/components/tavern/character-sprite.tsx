@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils';
 import { 
   Maximize2, 
   RotateCcw,
+  MapPin,
+  Crosshair,
   Settings,
   Lock,
   LockOpen,
@@ -27,6 +29,14 @@ import { SpriteTransitionWrapper } from './sprite-transition-wrapper';
 import { useTavernStore } from '@/store';
 import { createDefaultCharacterState } from '@/store/slices/spriteSlice';
 import { evaluatePackConditionalSprites } from '@/lib/sprites/condition-evaluator';
+import {
+  saveSpritePoseToCurrentBackground,
+  clearSpritePoseForBackground,
+  resolveBackgroundDisplayName,
+  resolveLegacyLocationPoseForBackground,
+  lookupSpritePoseForBackground,
+} from '@/lib/scenario/save-pose';
+import { toast } from 'sonner';
 import {
   Select,
   SelectContent,
@@ -276,6 +286,14 @@ export function CharacterSprite({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  // FIX: the settings Popover is rendered inside a PORTAL (outside this sprite
+  // div). Without tracking its open state, moving the pointer from the sprite
+  // into the panel fired onMouseLeave → setShowControls(false) → the whole
+  // controls column (including the open Popover) unmounted and the panel
+  // closed before the user could reach the bottom options (transition dropdown,
+  // position buttons, duration slider). While the panel is open the controls
+  // MUST stay mounted regardless of hover.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [countdown, setCountdown] = useState<number>(0);
   
   const spriteRef = useRef<HTMLDivElement>(null);
@@ -453,6 +471,14 @@ export function CharacterSprite({
     ? (charSpriteState.triggerTransition ?? undefined)
     : (charSpriteState.defaultTransition ?? character?.defaultTransition ?? undefined);
 
+  // FIX (transition dropdown): effective default transition for the settings UI.
+  // The choice is now PERSISTED on the character card (updateCharacter) so it
+  // survives reloads — characterSpriteStates is runtime-only and NOT persisted,
+  // which made the dropdown silently reset to 'none' after refreshing.
+  const effectiveDefaultTransition: SpriteTransitionConfig | null =
+    charSpriteState.defaultTransition ?? character?.defaultTransition ?? null;
+  const effectiveDefaultType = effectiveDefaultTransition?.type ?? 'none';
+
   // Debug: Log when sprite data changes
   useEffect(() => {
     console.log('[CharacterSprite] Sprite data:', {
@@ -471,10 +497,88 @@ export function CharacterSprite({
     onSettingsChange?.(settings);
   }, [settings, characterId, onSettingsChange]);
 
+  // ============================================
+  // ESCENARIO V3.2 — POSE LIGADA AL FONDO (por personaje): whenever the ACTIVE
+  // background changes, move the sprite to the pose saved for THAT fondo for
+  // THIS character. Poses live in the fondo's COLLECTION ENTRY
+  // (entry.spritePoses[characterId] → collection.json) with a settings
+  // fallback. This covers EVERY source of background change: manual
+  // (galleries), scenario switcher (escenario/lugar/punto), manage_escenario
+  // tool calling and activation keys — they all converge on activeBackground.
+  // If the fondo has no registry pose, fall back to the LEGACY node pose
+  // (Task 17). If nothing is saved, the sprite simply stays where it is.
+  // ============================================
+  const activeBackground = useTavernStore((s) => s.activeBackground);
+  const savedBackgroundPose = useTavernStore((s) =>
+    lookupSpritePoseForBackground(s, characterId, s.activeBackground)
+  );
+
+  useEffect(() => {
+    if (!activeBackground) return;
+    const pose = savedBackgroundPose
+      ?? resolveLegacyLocationPoseForBackground(characterId, activeBackground);
+    if (pose) {
+      setSettings(prev => ({ ...prev, x: pose.x, y: pose.y, width: pose.width, height: pose.height, opacity: pose.opacity }));
+      console.log('[CharacterSprite] Applied pose for background:', activeBackground);
+    }
+  }, [activeBackground, savedBackgroundPose, characterId]);
+
+  // ============================================
+  // ESCENARIO V3.2: save the current sprite position + scale LIGADOS AL FONDO
+  // ACTUAL (entry.spritePoses[characterId] in the collection JSON, settings
+  // fallback for orphan fondos). The write logic is SHARED with the
+  // ScenarioSwitcher button (saveSpritePoseToCurrentBackground).
+  // ============================================
+  const handleSavePoseToBackground = async () => {
+    const result = await saveSpritePoseToCurrentBackground(characterId, {
+      x: settings.x,
+      y: settings.y,
+      width: settings.width,
+      height: settings.height,
+      opacity: settings.opacity,
+    });
+    if (!result.ok) {
+      const messages: Record<string, string> = {
+        'no-background': 'No hay ningún fondo activo para guardar la pose',
+        'invalid-pose': 'No se pudo leer la posición actual del sprite',
+        'save-failed': 'No se pudo escribir la pose en el JSON de la colección — inténtalo de nuevo',
+      };
+      toast.error(messages[result.error ?? 'invalid-pose'] ?? 'No se pudo guardar la pose');
+      return;
+    }
+    toast.success(`🧷 Pose guardada para el fondo "${result.where}" (${result.storage === 'collection' ? 'collection.json' : 'ajustes locales'}) — el sprite volverá aquí al mostrar ese fondo`);
+  };
+
+  const handleClearPoseForBackground = async () => {
+    if (!activeBackground) return;
+    if (await clearSpritePoseForBackground(characterId, activeBackground)) {
+      toast.success(`Pose eliminada para el fondo "${resolveBackgroundDisplayName(activeBackground)}"`);
+    } else {
+      toast.info('Este fondo no tenía pose guardada');
+    }
+  };
+
+  const currentBackgroundName = activeBackground
+    ? resolveBackgroundDisplayName(activeBackground)
+    : null;
+
   // Drag handlers - click anywhere on sprite to drag
   const handleDragStart = (e: React.MouseEvent) => {
-    // Don't start drag if clicking on controls
-    if ((e.target as HTMLElement).closest('.sprite-controls')) return;
+    // Don't start drag if clicking on controls.
+    // ⚠️ TWO checks are needed:
+    // 1) closest('.sprite-controls') → in-DOM controls (buttons/handles).
+    // 2) closest('[data-radix-popper-content-wrapper]') → the settings Popover
+    //    and its Selects are rendered in a PORTAL under <body>. React portal
+    //    events still bubble through the REACT tree to this sprite's
+    //    onMouseDown, and the DOM check (1) fails for portal content because
+    //    it is NOT a DOM descendant of .sprite-controls. Without check (2),
+    //    ANY pointerdown inside the settings panel (position buttons, sliders,
+    //    transition dropdown…) started a phantom drag → setIsDragging(true)
+    //    unmounted the controls column and closed the panel mid-click. That
+    //    is why every option in the sprite settings appeared "broken".
+    const target = e.target as HTMLElement;
+    if (target.closest('.sprite-controls')) return;
+    if (target.closest('[data-radix-popper-content-wrapper]')) return;
     if (isResizing) return;
     
     e.preventDefault();
@@ -624,7 +728,9 @@ export function CharacterSprite({
       }}
       onMouseDown={handleDragStart}
       onMouseEnter={() => setShowControls(true)}
-      onMouseLeave={() => !isDragging && setShowControls(false)}
+      onMouseLeave={() => {
+        if (!isDragging && !settingsOpen) setShowControls(false);
+      }}
     >
       {/* The actual sprite image/video */}
       {currentSpriteUrl ? (
@@ -636,7 +742,7 @@ export function CharacterSprite({
         />
       ) : (
         <div className="w-full h-full flex items-end justify-center">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg">
+          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-fuchsia-400 to-violet-600 flex items-center justify-center shadow-lg">
             <span className="text-white font-bold text-2xl">
               {characterName?.[0]?.toUpperCase() || '?'}
             </span>
@@ -649,7 +755,7 @@ export function CharacterSprite({
         <div className="sprite-controls absolute top-2 left-1/2 -translate-x-1/2 z-50">
           <Badge 
             variant="secondary" 
-            className="bg-amber-500/90 text-white border-amber-400 gap-1.5 px-3 py-1 shadow-lg"
+            className="bg-fuchsia-500/90 text-white border-fuchsia-400 gap-1.5 px-3 py-1 shadow-lg"
           >
             <Lock className="h-3 w-3" />
             <span className="text-xs font-medium">Locked</span>
@@ -670,7 +776,7 @@ export function CharacterSprite({
         )}>
           <Badge 
             variant="secondary" 
-            className="bg-blue-500/90 text-white border-blue-400 gap-1.5 px-3 py-1 shadow-lg"
+            className="bg-violet-500/90 text-white border-violet-400 gap-1.5 px-3 py-1 shadow-lg"
           >
             <Timer className="h-3 w-3" />
             <span className="text-xs font-medium">→ Idle: {formatTime(countdown)}</span>
@@ -678,8 +784,8 @@ export function CharacterSprite({
         </div>
       )}
 
-      {/* Controls overlay - only show on hover */}
-      {showControls && !isDragging && (
+      {/* Controls overlay - only show on hover (or while the settings panel is open) */}
+      {(showControls || settingsOpen) && !isDragging && (
         <div className="sprite-controls absolute top-2 right-2 z-50 flex flex-col gap-1"
           onMouseEnter={(e) => e.stopPropagation()}
         >
@@ -691,7 +797,7 @@ export function CharacterSprite({
                   <Button 
                     variant="secondary" 
                     size="icon" 
-                    className="h-8 w-8 bg-amber-500/80 hover:bg-amber-500 text-white"
+                    className="h-8 w-8 bg-fuchsia-500/80 hover:bg-fuchsia-500 text-white"
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={handleUnlockSprite}
                   >
@@ -733,7 +839,7 @@ export function CharacterSprite({
                     <Button 
                       variant="secondary" 
                       size="icon" 
-                      className="h-8 w-8 bg-blue-500/80 hover:bg-blue-500 text-white"
+                      className="h-8 w-8 bg-violet-500/80 hover:bg-violet-500 text-white"
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={handleForceReturnToIdle}
                     >
@@ -748,8 +854,9 @@ export function CharacterSprite({
             </>
           )}
 
-          {/* Settings button */}
-          <Popover>
+          {/* Settings button — controlled popover: stays open while the user
+              interacts with the portaled panel (fixes options "not working") */}
+          <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
             <PopoverTrigger asChild>
               <Button 
                 variant="secondary" 
@@ -760,7 +867,16 @@ export function CharacterSprite({
                 <Settings className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-72" align="end">
+            <PopoverContent
+              className="w-72"
+              align="end"
+              // Belt & suspenders for the portal-bubbling bug fixed in
+              // handleDragStart: stop React-tree propagation here so pointer
+              // events inside the panel NEVER reach the sprite's drag handler.
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="font-medium text-sm">Sprite Settings</h4>
@@ -775,12 +891,53 @@ export function CharacterSprite({
                   </Button>
                 </div>
 
+                {/* ESCENARIO V3.1: save current position + scale LIGADOS AL FONDO ACTUAL */}
+                <div className="p-2 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <MapPin className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <span className="text-sm font-medium">Pose del fondo</span>
+                    {savedBackgroundPose && (
+                      <Badge className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-0 hover:bg-emerald-500/15 shrink-0">
+                        <Crosshair className="h-3 w-3 mr-0.5" />
+                        Guardada
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-1.5">
+                    Guarda la posición y escala actuales del sprite <span className="font-medium text-foreground/80">ligadas al fondo actual</span>
+                    {currentBackgroundName ? <>: <span className="text-emerald-600 dark:text-emerald-400">{currentBackgroundName}</span></> : null}.
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mb-2">
+                    Al cambiar a este fondo (manual, por la escena, por tool calling o por clave de activación) el sprite volverá aquí. Cada fondo puede tener su propia posición.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full h-7 text-xs border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+                    onClick={handleSavePoseToBackground}
+                  >
+                    <MapPin className="h-3 w-3 mr-1" />
+                    Guardar pose en la posición actual
+                  </Button>
+                  {savedBackgroundPose && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full h-7 text-xs text-muted-foreground hover:text-destructive mt-1"
+                      onClick={handleClearPoseForBackground}
+                    >
+                      <X className="h-3 w-3 mr-1" />
+                      Quitar pose de este fondo
+                    </Button>
+                  )}
+                </div>
+
                 {/* Lock status */}
                 {spriteLockActive && (
-                  <div className="p-2 rounded-md bg-amber-500/10 border border-amber-500/20">
+                  <div className="p-2 rounded-md bg-fuchsia-500/10 border border-fuchsia-500/20">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Lock className="h-4 w-4 text-amber-500" />
+                        <Lock className="h-4 w-4 text-fuchsia-500" />
                         <span className="text-sm font-medium">Sprite Locked</span>
                       </div>
                       <Button
@@ -803,10 +960,10 @@ export function CharacterSprite({
 
                 {/* Return to idle status */}
                 {isReturnToIdleScheduled && (
-                  <div className="p-2 rounded-md bg-blue-500/10 border border-blue-500/20">
+                  <div className="p-2 rounded-md bg-violet-500/10 border border-violet-500/20">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Timer className="h-4 w-4 text-blue-500" />
+                        <Timer className="h-4 w-4 text-violet-500" />
                         <span className="text-sm font-medium">Return to Idle</span>
                       </div>
                       <div className="flex gap-1">
@@ -941,7 +1098,7 @@ export function CharacterSprite({
                 {/* FASE 7: Default Sprite Transition */}
                 <div className="space-y-2 pt-2 border-t">
                   <div className="flex items-center gap-1.5 text-xs font-medium">
-                    <Sparkles className="w-3 h-3 text-orange-500" />
+                    <Sparkles className="w-3 h-3 text-violet-500" />
                     Default Sprite Transition
                   </div>
                   <p className="text-[10px] text-muted-foreground">
@@ -951,20 +1108,22 @@ export function CharacterSprite({
                     <div>
                       <span className="text-[10px] text-muted-foreground">Tipo</span>
                       <Select
-                        value={charSpriteState.defaultTransition?.type ?? character?.defaultTransition?.type ?? 'none'}
+                        value={effectiveDefaultType}
                         onValueChange={(v) => {
                           const store = useTavernStore.getState();
-                          const currentDefault = charSpriteState.defaultTransition ?? character?.defaultTransition;
-                          const newTransition: SpriteTransitionConfig = v === 'none'
-                            ? { type: 'none', duration: 0, easing: 'ease-in-out' }
-                            : {
-                                type: v as SpriteTransition,
-                                duration: currentDefault?.duration ?? 300,
-                                easing: currentDefault?.easing ?? 'ease-in-out',
-                                direction: currentDefault?.direction ?? 'left',
-                              };
-                          // Update in store per-character state
-                          store.setCharacterSpriteStateField?.(characterId, 'defaultTransition', v === 'none' ? null : newTransition);
+                          const currentDefault = effectiveDefaultTransition;
+                          // FIX: persist on the CHARACTER CARD (survives reloads).
+                          // 'none' writes an explicit {type:'none'} config instead of
+                          // null — writing null made the UI fall back to
+                          // character.defaultTransition and the dropdown snapped back
+                          // to its previous value instead of staying on "Sin Transición".
+                          const newTransition: SpriteTransitionConfig = {
+                            type: v as SpriteTransition,
+                            duration: currentDefault?.duration ?? 300,
+                            easing: currentDefault?.easing ?? 'ease-in-out',
+                            direction: currentDefault?.direction ?? 'left',
+                          };
+                          store.updateCharacter?.(characterId, { defaultTransition: newTransition });
                         }}
                       >
                         <SelectTrigger className="h-7 text-xs mt-0.5">
@@ -979,22 +1138,22 @@ export function CharacterSprite({
                         </SelectContent>
                       </Select>
                     </div>
-                    {(charSpriteState.defaultTransition?.type ?? character?.defaultTransition?.type ?? 'none') !== 'none' && (
+                    {effectiveDefaultType !== 'none' && (
                       <>
                         <div>
                           <div className="flex justify-between">
                             <span className="text-[10px] text-muted-foreground">Duración</span>
-                            <span className="text-[10px] text-muted-foreground">{charSpriteState.defaultTransition?.duration ?? character?.defaultTransition?.duration ?? 300}ms</span>
+                            <span className="text-[10px] text-muted-foreground">{effectiveDefaultTransition?.duration ?? 300}ms</span>
                           </div>
                           <Slider
-                            value={[charSpriteState.defaultTransition?.duration ?? character?.defaultTransition?.duration ?? 300]}
+                            value={[effectiveDefaultTransition?.duration ?? 300]}
                             min={100}
                             max={2000}
                             step={50}
                             onValueChange={([v]) => {
                               const store = useTavernStore.getState();
-                              const current = charSpriteState.defaultTransition ?? character?.defaultTransition ?? { type: 'fade' as SpriteTransition, easing: 'ease-in-out' as SpriteTransitionEasing, direction: 'left' as SpriteTransitionDirection };
-                              store.setCharacterSpriteStateField?.(characterId, 'defaultTransition', { ...current, duration: v });
+                              const current = effectiveDefaultTransition ?? { type: 'fade' as SpriteTransition, easing: 'ease-in-out' as SpriteTransitionEasing, direction: 'left' as SpriteTransitionDirection };
+                              store.updateCharacter?.(characterId, { defaultTransition: { ...current, duration: v } });
                             }}
                             className="mt-1"
                           />
@@ -1013,8 +1172,8 @@ export function CharacterSprite({
         </div>
       )}
 
-      {/* Resize handle - top left corner */}
-      {showControls && !isDragging && (
+      {/* Resize handle - top left corner (also while settings panel is open) */}
+      {(showControls || settingsOpen) && !isDragging && (
         <div
           className="sprite-controls absolute top-2 left-2 w-6 h-6 cursor-nwse-resize bg-background/80 backdrop-blur-sm rounded flex items-center justify-center hover:bg-background/90"
           onMouseDown={handleResizeStart}
@@ -1024,8 +1183,8 @@ export function CharacterSprite({
         </div>
       )}
 
-      {/* Drag indicator border when hovering */}
-      {showControls && !isDragging && (
+      {/* Drag indicator border when hovering (or settings panel open) */}
+      {(showControls || settingsOpen) && !isDragging && (
         <div className="absolute inset-0 border-2 border-dashed border-primary/30 rounded-lg pointer-events-none" />
       )}
     </div>

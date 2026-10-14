@@ -1,0 +1,914 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→import { useState, useEffect, useCallback, useRef } from 'react';
+     4→     4→import { Button } from '@/components/ui/button';
+     5→     5→import { Input } from '@/components/ui/input';
+     6→     6→import { Textarea } from '@/components/ui/textarea';
+     7→     7→import { ScrollArea } from '@/components/ui/scroll-area';
+     8→     8→import { Badge } from '@/components/ui/badge';
+     9→     9→import { Label } from '@/components/ui/label';
+    10→    10→import {
+    11→    11→  Accordion,
+    12→    12→  AccordionContent,
+    13→    13→  AccordionItem,
+    14→    14→  AccordionTrigger,
+    15→    15→} from '@/components/ui/accordion';
+    16→    16→import { cn } from '@/lib/utils';
+    17→    17→import { 
+    18→    18→  Image as ImageIcon, 
+    19→    19→  Video, 
+    20→    20→  RefreshCw, 
+    21→    21→  X,
+    22→    22→  FolderPlus,
+    23→    23→  Trash2,
+    24→    24→  Upload,
+    25→    25→  Loader2,
+    26→    26→  Save,
+    27→    27→  Tag,
+    28→    28→  Key,
+    29→    29→  AlertTriangle,
+    30→    30→  FolderOpen,
+    31→    31→  ChevronDown,
+    32→    32→  FileImage
+    33→    33→} from 'lucide-react';
+    34→    34→import {
+    35→    35→  Dialog,
+    36→    36→  DialogContent,
+    37→    37→  DialogHeader,
+    38→    38→  DialogTitle,
+    39→    39→  DialogDescription,
+    40→    40→  DialogFooter,
+    41→    41→} from '@/components/ui/dialog';
+    42→    42→import {
+    43→    43→  AlertDialog,
+    44→    44→  AlertDialogAction,
+    45→    45→  AlertDialogCancel,
+    46→    46→  AlertDialogContent,
+    47→    47→  AlertDialogDescription,
+    48→    48→  AlertDialogFooter,
+    49→    49→  AlertDialogHeader,
+    50→    50→  AlertDialogTitle,
+    51→    51→} from '@/components/ui/alert-dialog';
+    52→    52→import {
+    53→    53→  Tooltip,
+    54→    54→  TooltipContent,
+    55→    55→  TooltipProvider,
+    56→    56→  TooltipTrigger,
+    57→    57→} from '@/components/ui/tooltip';
+    58→    58→import { getLogger } from '@/lib/logger';
+    59→    59→import type { BackgroundCollection, BackgroundCollectionEntry, BackgroundFile } from '@/types';
+    60→    60→import { motion, AnimatePresence } from 'framer-motion';
+    61→    61→
+    62→    62→const bgLogger = getLogger('background');
+    63→    63→
+    64→    64→interface CollectionManagerProps {
+    65→    65→  open: boolean;
+    66→    66→  onOpenChange: (open: boolean) => void;
+    67→    67→}
+    68→    68→
+    69→    69→export function BackgroundCollectionManager({ open, onOpenChange }: CollectionManagerProps) {
+    70→    70→  const [collections, setCollections] = useState<BackgroundCollection[]>([]);
+    71→    71→  const [isLoading, setIsLoading] = useState(false);
+    72→    72→  const [selectedCollectionName, setSelectedCollectionName] = useState<string | null>(null);
+    73→    73→  const [localCollection, setLocalCollection] = useState<BackgroundCollection | null>(null);
+    74→    74→  const localCollectionRef = useRef<BackgroundCollection | null>(null);
+    75→    75→  
+    76→    76→  // Create collection dialog
+    77→    77→  const [showCreateDialog, setShowCreateDialog] = useState(false);
+    78→    78→  const [newCollectionName, setNewCollectionName] = useState('');
+    79→    79→  const [newCollectionDescription, setNewCollectionDescription] = useState('');
+    80→    80→  
+    81→    81→  // Delete confirmation
+    82→    82→  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+    83→    83→  const [deleteTarget, setDeleteTarget] = useState<{ type: 'collection' | 'file'; name: string; filename?: string } | null>(null);
+    84→    84→  
+    85→    85→  // Upload state
+    86→    86→  const [isUploading, setIsUploading] = useState(false);
+    87→    87→  const fileInputRef = useRef<HTMLInputElement>(null);
+    88→    88→  
+    89→    89→  // Save state
+    90→    90→  const [isSaving, setIsSaving] = useState(false);
+    91→    91→  const [hasChanges, setHasChanges] = useState(false);
+    92→    92→  
+    93→    93→  // Track initial load
+    94→    94→  const hasLoadedRef = useRef(false);
+    95→    95→
+    96→    96→  // Keep ref in sync with state
+    97→    97→  useEffect(() => {
+    98→    98→    localCollectionRef.current = localCollection;
+    99→    99→  }, [localCollection]);
+   100→   100→
+   101→   101→  // Fetch collections - only depends on open
+   102→   102→  const fetchCollections = useCallback(async () => {
+   103→   103→    setIsLoading(true);
+   104→   104→    try {
+   105→   105→      const response = await fetch('/api/backgrounds/collections');
+   106→   106→      if (!response.ok) {
+   107→   107→        bgLogger.error('Error fetching collections', { status: response.status });
+   108→   108→        return [];
+   109→   109→      }
+   110→   110→      const data = await response.json();
+   111→   111→      setCollections(data.collections || []);
+   112→   112→      return data.collections || [];
+   113→   113→    } catch (error) {
+   114→   114→      bgLogger.error('Error fetching collections', { error });
+   115→   115→      return [];
+   116→   116→    } finally {
+   117→   117→      setIsLoading(false);
+   118→   118→    }
+   119→   119→  }, []);
+   120→   120→
+   121→   121→  // Initial fetch when dialog opens
+   122→   122→  useEffect(() => {
+   123→   123→    if (open && !hasLoadedRef.current) {
+   124→   124→      fetchCollections();
+   125→   125→      hasLoadedRef.current = true;
+   126→   126→    }
+   127→   127→    if (!open) {
+   128→   128→      hasLoadedRef.current = false;
+   129→   129→    }
+   130→   130→  }, [open, fetchCollections]);
+   131→   131→
+   132→   132→  // Select a collection
+   133→   133→  const handleSelectCollection = useCallback((collection: BackgroundCollection) => {
+   134→   134→    setSelectedCollectionName(collection.name);
+   135→   135→    setLocalCollection(collection);
+   136→   136→    setHasChanges(false);
+   137→   137→  }, []);
+   138→   138→
+   139→   139→  // Create new collection
+   140→   140→  const handleCreateCollection = async () => {
+   141→   141→    if (!newCollectionName.trim()) return;
+   142→   142→    
+   143→   143→    setIsLoading(true);
+   144→   144→    try {
+   145→   145→      const response = await fetch('/api/backgrounds/collections', {
+   146→   146→        method: 'POST',
+   147→   147→        headers: { 'Content-Type': 'application/json' },
+   148→   148→        body: JSON.stringify({
+   149→   149→          action: 'create',
+   150→   150→          name: newCollectionName.trim(),
+   151→   151→          description: newCollectionDescription.trim()
+   152→   152→        })
+   153→   153→      });
+   154→   154→      
+   155→   155→      if (!response.ok) {
+   156→   156→        alert(`Error del servidor (${response.status})`);
+   157→   157→        return;
+   158→   158→      }
+   159→   159→      
+   160→   160→      const data = await response.json();
+   161→   161→      
+   162→   162→      if (data.success) {
+   163→   163→        const newCollections = await fetchCollections();
+   164→   164→        setShowCreateDialog(false);
+   165→   165→        setNewCollectionName('');
+   166→   166→        setNewCollectionDescription('');
+   167→   167→        if (data.collection) {
+   168→   168→          handleSelectCollection(data.collection);
+   169→   169→        }
+   170→   170→      } else {
+   171→   171→        alert(data.error || 'Failed to create collection');
+   172→   172→      }
+   173→   173→    } catch (error) {
+   174→   174→      bgLogger.error('Error creating collection', { error });
+   175→   175→    } finally {
+   176→   176→      setIsLoading(false);
+   177→   177→    }
+   178→   178→  };
+   179→   179→
+   180→   180→  // Delete collection
+   181→   181→  const handleDeleteCollection = async () => {
+   182→   182→    if (!deleteTarget || deleteTarget.type !== 'collection') return;
+   183→   183→    
+   184→   184→    setIsLoading(true);
+   185→   185→    try {
+   186→   186→      const folderName = collections.find(c => c.name === deleteTarget.name)?.path.split('/').pop();
+   187→   187→      
+   188→   188→      const response = await fetch(
+   189→   189→        `/api/backgrounds/collections?folderName=${encodeURIComponent(folderName || deleteTarget.name)}`,
+   190→   190→        { method: 'DELETE' }
+   191→   191→      );
+   192→   192→      
+   193→   193→      if (!response.ok) {
+   194→   194→        alert(`Error del servidor (${response.status})`);
+   195→   195→        return;
+   196→   196→      }
+   197→   197→      
+   198→   198→      const data = await response.json();
+   199→   199→      
+   200→   200→      if (data.success) {
+   201→   201→        setSelectedCollectionName(null);
+   202→   202→        setLocalCollection(null);
+   203→   203→        await fetchCollections();
+   204→   204→      } else {
+   205→   205→        alert(data.error || 'Failed to delete collection');
+   206→   206→      }
+   207→   207→    } catch (error) {
+   208→   208→      bgLogger.error('Error deleting collection', { error });
+   209→   209→    } finally {
+   210→   210→      setIsLoading(false);
+   211→   211→      setShowDeleteDialog(false);
+   212→   212→      setDeleteTarget(null);
+   213→   213→    }
+   214→   214→  };
+   215→   215→
+   216→   216→  // Delete file from collection
+   217→   217→  const handleDeleteFile = async () => {
+   218→   218→    if (!deleteTarget || deleteTarget.type !== 'file' || !localCollection) return;
+   219→   219→    
+   220→   220→    setIsLoading(true);
+   221→   221→    try {
+   222→   222→      const folderName = localCollection.path.split('/').pop();
+   223→   223→      
+   224→   224→      const response = await fetch(
+   225→   225→        `/api/backgrounds/collections?folderName=${encodeURIComponent(folderName || '')}&filename=${encodeURIComponent(deleteTarget.filename || '')}`,
+   226→   226→        { method: 'DELETE' }
+   227→   227→      );
+   228→   228→      
+   229→   229→      if (!response.ok) {
+   230→   230→        alert(`Error del servidor (${response.status})`);
+   231→   231→        return;
+   232→   232→      }
+   233→   233→      
+   234→   234→      const data = await response.json();
+   235→   235→      
+   236→   236→      if (data.success) {
+   237→   237→        const newCollections = await fetchCollections();
+   238→   238→        const updated = newCollections.find((c: BackgroundCollection) => c.name === selectedCollectionName);
+   239→   239→        if (updated) {
+   240→   240→          setLocalCollection(updated);
+   241→   241→        }
+   242→   242→      } else {
+   243→   243→        alert(data.error || 'Failed to delete file');
+   244→   244→      }
+   245→   245→    } catch (error) {
+   246→   246→      bgLogger.error('Error deleting file', { error });
+   247→   247→    } finally {
+   248→   248→      setIsLoading(false);
+   249→   249→      setShowDeleteDialog(false);
+   250→   250→      setDeleteTarget(null);
+   251→   251→    }
+   252→   252→  };
+   253→   253→
+   254→   254→  // Upload file to collection
+   255→   255→  const handleUploadFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+   256→   256→    const file = event.target.files?.[0];
+   257→   257→    if (!file || !localCollection) return;
+   258→   258→    
+   259→   259→    setIsUploading(true);
+   260→   260→    try {
+   261→   261→      const formData = new FormData();
+   262→   262→      formData.append('file', file);
+   263→   263→      formData.append('type', 'background');
+   264→   264→      formData.append('collection', localCollection.path.split('/').pop() || '');
+   265→   265→      
+   266→   266→      const response = await fetch('/api/upload', {
+   267→   267→        method: 'POST',
+   268→   268→        body: formData
+   269→   269→      });
+   270→   270→      
+   271→   271→      const data = await response.json();
+   272→   272→      
+   273→   273→      if (data.success) {
+   274→   274→        const newCollections = await fetchCollections();
+   275→   275→        const updated = newCollections.find((c: BackgroundCollection) => c.name === selectedCollectionName);
+   276→   276→        if (updated) {
+   277→   277→          setLocalCollection(updated);
+   278→   278→        }
+   279→   279→      } else {
+   280→   280→        alert(data.error || 'Failed to upload file');
+   281→   281→      }
+   282→   282→    } catch (error) {
+   283→   283→      bgLogger.error('Error uploading file', { error });
+   284→   284→    } finally {
+   285→   285→      setIsUploading(false);
+   286→   286→      if (fileInputRef.current) {
+   287→   287→        fileInputRef.current.value = '';
+   288→   288→      }
+   289→   289→    }
+   290→   290→  };
+   291→   291→
+   292→   292→  // Save collection metadata
+   293→   293→  const handleSaveCollection = async () => {
+   294→   294→    if (!localCollection) return;
+   295→   295→    
+   296→   296→    setIsSaving(true);
+   297→   297→    try {
+   298→   298→      const folderName = localCollection.path.split('/').pop();
+   299→   299→      
+   300→   300→      const response = await fetch('/api/backgrounds/collections', {
+   301→   301→        method: 'PUT',
+   302→   302→        headers: { 'Content-Type': 'application/json' },
+   303→   303→        body: JSON.stringify({
+   304→   304→          folderName,
+   305→   305→          name: localCollection.name,
+   306→   306→          description: localCollection.description,
+   307→   307→          entries: localCollection.entries,
+   308→   308→          transitionDuration: localCollection.transitionDuration
+   309→   309→        })
+   310→   310→      });
+   311→   311→      
+   312→   312→      if (!response.ok) {
+   313→   313→        alert(`Error del servidor (${response.status})`);
+   314→   314→        return;
+   315→   315→      }
+   316→   316→      
+   317→   317→      const data = await response.json();
+   318→   318→      
+   319→   319→      if (data.success) {
+   320→   320→        setHasChanges(false);
+   321→   321→        await fetchCollections();
+   322→   322→      } else {
+   323→   323→        alert(data.error || 'Failed to save collection');
+   324→   324→      }
+   325→   325→    } catch (error) {
+   326→   326→      bgLogger.error('Error saving collection', { error });
+   327→   327→    } finally {
+   328→   328→      setIsSaving(false);
+   329→   329→    }
+   330→   330→  };
+   331→   331→
+   332→   332→  // Update local collection state
+   333→   333→  const updateLocalCollection = (updates: Partial<BackgroundCollection>) => {
+   334→   334→    if (!localCollection) return;
+   335→   335→    setLocalCollection({ ...localCollection, ...updates });
+   336→   336→    setHasChanges(true);
+   337→   337→  };
+   338→   338→
+   339→   339→  // Update entry in local collection
+   340→   340→  const updateEntry = (entryId: string, updates: Partial<BackgroundCollectionEntry>) => {
+   341→   341→    if (!localCollection) return;
+   342→   342→    
+   343→   343→    setLocalCollection(prev => {
+   344→   344→      if (!prev) return prev;
+   345→   345→      return {
+   346→   346→        ...prev,
+   347→   347→        entries: prev.entries.map(e => 
+   348→   348→          e.id === entryId ? { ...e, ...updates } : e
+   349→   349→        )
+   350→   350→      };
+   351→   351→    });
+   352→   352→    setHasChanges(true);
+   353→   353→  };
+   354→   354→
+   355→   355→  // Sync entries with files
+   356→   356→  const syncEntriesWithFiles = () => {
+   357→   357→    if (!localCollection) return;
+   358→   358→    
+   359→   359→    const existingUrls = new Set(localCollection.entries.map(e => e.url));
+   360→   360→    const newEntries: BackgroundCollectionEntry[] = [...localCollection.entries];
+   361→   361→    
+   362→   362→    for (const file of localCollection.files) {
+   363→   363→      if (!existingUrls.has(file.url)) {
+   364→   364→        newEntries.push({
+   365→   365→          id: `bg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+   366→   366→          name: file.name.replace(/\.[^.]+$/, ''),
+   367→   367→          url: file.url,
+   368→   368→          triggerKeys: [],
+   369→   369→          contextKeys: [],
+   370→   370→          tags: file.type === 'video' ? ['video'] : []
+   371→   371→        });
+   372→   372→      }
+   373→   373→    }
+   374→   374→    
+   375→   375→    setLocalCollection(prev => {
+   376→   376→      if (!prev) return prev;
+   377→   377→      return { ...prev, entries: newEntries };
+   378→   378→    });
+   379→   379→    setHasChanges(true);
+   380→   380→  };
+   381→   381→
+   382→   382→  // Get entry for file
+   383→   383→  const getEntryForFile = (file: BackgroundFile): BackgroundCollectionEntry | undefined => {
+   384→   384→    return localCollection?.entries.find(e => e.url === file.url);
+   385→   385→  };
+   386→   386→
+   387→   387→  return (
+   388→   388→    <AnimatePresence>
+   389→   389→      {open && (
+   390→   390→        <motion.div
+   391→   391→          key="collection-manager-overlay"
+   392→   392→          initial={{ opacity: 0 }}
+   393→   393→          animate={{ opacity: 1 }}
+   394→   394→          exit={{ opacity: 0 }}
+   395→   395→          transition={{ duration: 0.2, ease: 'easeInOut' }}
+   396→   396→          className="fixed inset-0 z-[55] bg-background"
+   397→   397→        >
+   398→   398→          <div className="h-full flex flex-col">
+   399→   399→            {/* Header */}
+   400→   400→            <motion.div
+   401→   401→              initial={{ y: -8, opacity: 0 }}
+   402→   402→              animate={{ y: 0, opacity: 1 }}
+   403→   403→              transition={{ duration: 0.2, delay: 0.05, ease: 'easeOut' }}
+   404→   404→              className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center justify-between px-4 flex-shrink-0"
+   405→   405→            >
+   406→   406→              <div className="flex items-center gap-2">
+   407→   407→                <FolderOpen className="w-5 h-5 text-muted-foreground" />
+   408→   408→                <h2 className="font-semibold text-sm">Gestionar Colecciones</h2>
+   409→   409→                {hasChanges && (
+   410→   410→                  <Badge variant="outline" className="text-violet-500 border-violet-500 text-xs ml-2">
+   411→   411→                    Sin guardar
+   412→   412→                  </Badge>
+   413→   413→                )}
+   414→   414→              </div>
+   415→   415→              <div className="flex items-center gap-1.5">
+   416→   416→                <Button 
+   417→   417→                  variant="outline" 
+   418→   418→                  size="sm" 
+   419→   419→                  className="h-8 text-xs"
+   420→   420→                  onClick={handleSaveCollection}
+   421→   421→                  disabled={!hasChanges || isSaving}
+   422→   422→                >
+   423→   423→                  {isSaving ? (
+   424→   424→                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+   425→   425→                  ) : (
+   426→   426→                    <Save className="w-3.5 h-3.5" />
+   427→   427→                  )}
+   428→   428→                  <span className="ml-1 hidden sm:inline">Guardar</span>
+   429→   429→                </Button>
+   430→   430→                <Button 
+   431→   431→                  variant="ghost" 
+   432→   432→                  size="icon"
+   433→   433→                  className="h-8 w-8"
+   434→   434→                  onClick={() => fetchCollections()}
+   435→   435→                  disabled={isLoading}
+   436→   436→                >
+   437→   437→                  {isLoading ? (
+   438→   438→                    <Loader2 className="w-4 h-4 animate-spin" />
+   439→   439→                  ) : (
+   440→   440→                    <RefreshCw className="w-4 h-4" />
+   441→   441→                  )}
+   442→   442→                </Button>
+   443→   443→                <Button 
+   444→   444→                  variant="ghost" 
+   445→   445→                  size="icon"
+   446→   446→                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+   447→   447→                  onClick={() => onOpenChange(false)}
+   448→   448→                >
+   449→   449→                  <X className="w-4 h-4" />
+   450→   450→                </Button>
+   451→   451→              </div>
+   452→   452→            </motion.div>
+   453→   453→
+   454→   454→            {/* Body: Sidebar + Main Content */}
+   455→   455→            <motion.div
+   456→   456→              initial={{ opacity: 0, y: 4 }}
+   457→   457→              animate={{ opacity: 1, y: 0 }}
+   458→   458→              transition={{ duration: 0.2, delay: 0.1, ease: 'easeOut' }}
+   459→   459→              className="flex-1 flex overflow-hidden"
+   460→   460→            >
+   461→   461→              {/* Collections Sidebar */}
+   462→   462→              <div className="w-14 md:w-64 border-r bg-muted/30 flex flex-col flex-shrink-0">
+   463→   463→                <div className="p-1.5 md:p-2 border-b">
+   464→   464→                  <Tooltip>
+   465→   465→                    <TooltipTrigger asChild>
+   466→   466→                      <Button
+   467→   467→                        variant="default"
+   468→   468→                        size="sm"
+   469→   469→                        className="w-full h-8"
+   470→   470→                        onClick={() => setShowCreateDialog(true)}
+   471→   471→                      >
+   472→   472→                        <FolderPlus className="w-4 h-4 shrink-0" />
+   473→   473→                        <span className="hidden md:inline ml-2">Nueva Colección</span>
+   474→   474→                      </Button>
+   475→   475→                    </TooltipTrigger>
+   476→   476→                    <TooltipContent side="right" className="md:hidden">
+   477→   477→                      Nueva Colección
+   478→   478→                    </TooltipContent>
+   479→   479→                  </Tooltip>
+   480→   480→                </div>
+   481→   481→                <ScrollArea className="flex-1">
+   482→   482→                  <div className="p-1.5 md:p-2 space-y-0.5">
+   483→   483→                    {collections.map(collection => (
+   484→   484→                      <Tooltip key={collection.name}>
+   485→   485→                        <TooltipTrigger asChild>
+   486→   486→                          <div
+   487→   487→                            className={cn(
+   488→   488→                              "group flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors",
+   489→   489→                              selectedCollectionName === collection.name
+   490→   490→                                ? "bg-primary text-primary-foreground"
+   491→   491→                                : "hover:bg-muted"
+   492→   492→                            )}
+   493→   493→                            onClick={() => handleSelectCollection(collection)}
+   494→   494→                          >
+   495→   495→                            <FolderOpen className="w-4 h-4 flex-shrink-0" />
+   496→   496→                            <div className="flex-1 min-w-0 hidden md:block">
+   497→   497→                              <p className="font-medium truncate text-sm">{collection.name}</p>
+   498→   498→                              <p className="text-xs opacity-70">
+   499→   499→                                {collection.files.length} archivo{collection.files.length !== 1 ? 's' : ''}
+   500→   500→                              </p>
+   501→   501→                            </div>
+   502→   502→                            <Button
+   503→   503→                              variant="ghost"
+   504→   504→                              size="icon"
+   505→   505→                              className={cn(
+   506→   506→                                "h-6 w-6 shrink-0",
+   507→   507→                                selectedCollectionName === collection.name 
+   508→   508→                                  ? "text-primary-foreground hover:text-primary-foreground hover:bg-primary/80" 
+   509→   509→                                  : "opacity-0 group-hover:opacity-100"
+   510→   510→                              )}
+   511→   511→                              onClick={(e) => {
+   512→   512→                                e.stopPropagation();
+   513→   513→                                setDeleteTarget({ type: 'collection', name: collection.name });
+   514→   514→                                setShowDeleteDialog(true);
+   515→   515→                              }}
+   516→   516→                            >
+   517→   517→                              <Trash2 className="w-3 h-3" />
+   518→   518→                            </Button>
+   519→   519→                          </div>
+   520→   520→                        </TooltipTrigger>
+   521→   521→                        <TooltipContent side="right" className="md:hidden">
+   522→   522→                          {collection.name}
+   523→   523→                        </TooltipContent>
+   524→   524→                      </Tooltip>
+   525→   525→                    ))}
+   526→   526→                    
+   527→   527→                    {collections.length === 0 && !isLoading && (
+   528→   528→                      <div className="text-center py-8 text-muted-foreground">
+   529→   529→                        <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
+   530→   530→                        <p className="text-sm hidden md:block">Sin colecciones</p>
+   531→   531→                        <p className="text-xs mt-1 hidden md:block">Crea una para comenzar</p>
+   532→   532→                      </div>
+   533→   533→                    )}
+   534→   534→                  </div>
+   535→   535→                </ScrollArea>
+   536→   536→              </div>
+   537→   537→
+   538→   538→              {/* Main Content */}
+   539→   539→              <div className="flex-1 flex flex-col overflow-hidden">
+   540→   540→                {localCollection ? (
+   541→   541→                  <>
+   542→   542→                    {/* Collection Header */}
+   543→   543→                    <div className="p-4 border-b bg-muted/20 flex-shrink-0">
+   544→   544→                      <div className="flex items-start justify-between gap-4">
+   545→   545→                        <div className="flex-1 space-y-2">
+   546→   546→                          <Input
+   547→   547→                            value={localCollection.name}
+   548→   548→                            onChange={(e) => updateLocalCollection({ name: e.target.value })}
+   549→   549→                            className="font-semibold text-lg border-none bg-transparent px-0 focus-visible:ring-0"
+   550→   550→                          />
+   551→   551→                          <Textarea
+   552→   552→                            value={localCollection.description || ''}
+   553→   553→                            onChange={(e) => updateLocalCollection({ description: e.target.value })}
+   554→   554→                            placeholder="Descripción de la colección..."
+   555→   555→                            className="min-h-[40px] resize-none border-none bg-transparent px-0 focus-visible:ring-0 text-sm"
+   556→   556→                          />
+   557→   557→                        </div>
+   558→   558→                        <div className="flex items-center gap-2">
+   559→   559→                          <input
+   560→   560→                            type="file"
+   561→   561→                            ref={fileInputRef}
+   562→   562→                            onChange={handleUploadFile}
+   563→   563→                            accept="image/*,video/*"
+   564→   564→                            className="hidden"
+   565→   565→                          />
+   566→   566→                          <Button
+   567→   567→                            variant="default"
+   568→   568→                            size="sm"
+   569→   569→                            onClick={() => fileInputRef.current?.click()}
+   570→   570→                            disabled={isUploading}
+   571→   571→                          >
+   572→   572→                            {isUploading ? (
+   573→   573→                              <Loader2 className="w-4 h-4 animate-spin" />
+   574→   574→                            ) : (
+   575→   575→                              <Upload className="w-4 h-4" />
+   576→   576→                            )}
+   577→   577→                            <span className="ml-1">Subir</span>
+   578→   578→                          </Button>
+   579→   579→                          <Button
+   580→   580→                            variant="outline"
+   581→   581→                            size="sm"
+   582→   582→                            onClick={syncEntriesWithFiles}
+   583→   583→                            title="Sincronizar entradas con archivos"
+   584→   584→                          >
+   585→   585→                            <RefreshCw className="w-4 h-4" />
+   586→   586→                          </Button>
+   587→   587→                        </div>
+   588→   588→                      </div>
+   589→   589→                    </div>
+   590→   590→
+   591→   591→                    {/* Files Accordion */}
+   592→   592→                    <ScrollArea className="flex-1">
+   593→   593→                      <div className="p-4">
+   594→   594→                        {localCollection.files.length === 0 ? (
+   595→   595→                          <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+   596→   596→                            <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
+   597→   597→                            <p>Sin fondos en esta colección</p>
+   598→   598→                            <p className="text-xs mt-1">Sube imágenes o videos para comenzar</p>
+   599→   599→                          </div>
+   600→   600→                        ) : (
+   601→   601→                          <Accordion type="multiple" className="w-full space-y-2">
+   602→   602→                            {localCollection.files.map((file, index) => {
+   603→   603→                              const entry = getEntryForFile(file);
+   604→   604→                              const isVideo = file.type === 'video';
+   605→   605→                              
+   606→   606→                              return (
+   607→   607→                                <AccordionItem 
+   608→   608→                                  key={file.url} 
+   609→   609→                                  value={`file-${index}`}
+   610→   610→                                  className="border rounded-lg bg-card overflow-hidden"
+   611→   611→                                >
+   612→   612→                                  <div className="flex items-center">
+   613→   613→                                    <AccordionTrigger className="px-3 py-2 hover:no-underline hover:bg-muted/50 flex-1">
+   614→   614→                                      <div className="flex items-center gap-3 w-full pr-4">
+   615→   615→                                        {/* Small Thumbnail */}
+   616→   616→                                        <div className="w-12 h-8 flex-shrink-0 relative rounded overflow-hidden bg-muted">
+   617→   617→                                          {isVideo ? (
+   618→   618→                                            <video
+   619→   619→                                              src={file.url}
+   620→   620→                                              className="w-full h-full object-cover"
+   621→   621→                                              muted
+   622→   622→                                            />
+   623→   623→                                          ) : (
+   624→   624→                                            <img
+   625→   625→                                              src={file.url}
+   626→   626→                                              alt={file.name}
+   627→   627→                                              className="w-full h-full object-cover"
+   628→   628→                                            />
+   629→   629→                                          )}
+   630→   630→                                          {isVideo && (
+   631→   631→                                            <Video className="absolute inset-0 m-auto w-3 h-3 text-white drop-shadow" />
+   632→   632→                                          )}
+   633→   633→                                        </div>
+   634→   634→                                        
+   635→   635→                                        {/* File name */}
+   636→   636→                                        <div className="flex-1 min-w-0 text-left">
+   637→   637→                                          <p className="font-medium text-sm truncate">
+   638→   638→                                            {entry?.name || file.name.replace(/\.[^.]+$/, '')}
+   639→   639→                                          </p>
+   640→   640→                                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+   641→   641→                                            <span>{file.name}</span>
+   642→   642→                                            {(entry?.triggerKeys?.length || 0) > 0 && (
+   643→   643→                                              <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+   644→   644→                                                {entry?.triggerKeys?.length} trigger{(entry?.triggerKeys?.length || 0) > 1 ? 's' : ''}
+   645→   645→                                              </Badge>
+   646→   646→                                            )}
+   647→   647→                                          </div>
+   648→   648→                                        </div>
+   649→   649→                                      </div>
+   650→   650→                                    </AccordionTrigger>
+   651→   651→                                    
+   652→   652→                                    {/* Quick actions - outside the button */}
+   653→   653→                                    <TooltipProvider>
+   654→   654→                                      <Tooltip>
+   655→   655→                                        <TooltipTrigger asChild>
+   656→   656→                                          <button
+   657→   657→                                            type="button"
+   658→   658→                                            className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors mr-2"
+   659→   659→                                            onClick={(e) => {
+   660→   660→                                              e.stopPropagation();
+   661→   661→                                              setDeleteTarget({ 
+   662→   662→                                                type: 'file', 
+   663→   663→                                                name: localCollection.name,
+   664→   664→                                                filename: file.name 
+   665→   665→                                              });
+   666→   666→                                              setShowDeleteDialog(true);
+   667→   667→                                            }}
+   668→   668→                                          >
+   669→   669→                                            <Trash2 className="w-3.5 h-3.5" />
+   670→   670→                                          </button>
+   671→   671→                                        </TooltipTrigger>
+   672→   672→                                        <TooltipContent>Eliminar archivo</TooltipContent>
+   673→   673→                                      </Tooltip>
+   674→   674→                                    </TooltipProvider>
+   675→   675→                                  </div>
+   676→   676→                                  
+   677→   677→                                  <AccordionContent className="px-4 pb-4">
+   678→   678→                                    <div className="space-y-3 pt-2">
+   679→   679→                                      {/* Name */}
+   680→   680→                                      <div>
+   681→   681→                                        <Label className="text-xs text-muted-foreground">Nombre</Label>
+   682→   682→                                        <Input
+   683→   683→                                          value={entry?.name || file.name.replace(/\.[^.]+$/, '')}
+   684→   684→                                          onChange={(e) => {
+   685→   685→                                            if (entry) {
+   686→   686→                                              updateEntry(entry.id, { name: e.target.value });
+   687→   687→                                            }
+   688→   688→                                          }}
+   689→   689→                                          className="h-8 mt-1"
+   690→   690→                                        />
+   691→   691→                                      </div>
+   692→   692→
+   693→   693→                                      {/* Trigger Keys */}
+   694→   694→                                      <div>
+   695→   695→                                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+   696→   696→                                          <Key className="w-3 h-3" />
+   697→   697→                                          Claves de Activación
+   698→   698→                                        </Label>
+   699→   699→                                        <div className="flex flex-wrap gap-1 mt-1">
+   700→   700→                                          {(entry?.triggerKeys || []).map((key, i) => (
+   701→   701→                                            <Badge 
+   702→   702→                                              key={i} 
+   703→   703→                                              variant="secondary"
+   704→   704→                                              className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground text-xs"
+   705→   705→                                              onClick={() => {
+   706→   706→                                                if (entry) {
+   707→   707→                                                  updateEntry(entry.id, {
+   708→   708→                                                    triggerKeys: entry.triggerKeys.filter((_, idx) => idx !== i)
+   709→   709→                                                  });
+   710→   710→                                                }
+   711→   711→                                              }}
+   712→   712→                                            >
+   713→   713→                                              {key}
+   714→   714→                                              <X className="w-2.5 h-2.5 ml-0.5" />
+   715→   715→                                            </Badge>
+   716→   716→                                          ))}
+   717→   717→                                          <Input
+   718→   718→                                            placeholder="Agregar..."
+   719→   719→                                            className="h-6 w-20 text-xs px-2"
+   720→   720→                                            onKeyDown={(e) => {
+   721→   721→                                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+   722→   722→                                                if (entry) {
+   723→   723→                                                  updateEntry(entry.id, {
+   724→   724→                                                    triggerKeys: [...(entry.triggerKeys || []), e.currentTarget.value.trim().toLowerCase()]
+   725→   725→                                                  });
+   726→   726→                                                }
+   727→   727→                                                e.currentTarget.value = '';
+   728→   728→                                              }
+   729→   729→                                            }}
+   730→   730→                                          />
+   731→   731→                                        </div>
+   732→   732→                                      </div>
+   733→   733→
+   734→   734→                                      {/* Context Keys */}
+   735→   735→                                      <div>
+   736→   736→                                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+   737→   737→                                          <Tag className="w-3 h-3" />
+   738→   738→                                          Claves de Contexto
+   739→   739→                                        </Label>
+   740→   740→                                        <div className="flex flex-wrap gap-1 mt-1">
+   741→   741→                                          {(entry?.contextKeys || []).map((key, i) => (
+   742→   742→                                            <Badge 
+   743→   743→                                              key={i} 
+   744→   744→                                              variant="outline"
+   745→   745→                                              className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground text-xs"
+   746→   746→                                              onClick={() => {
+   747→   747→                                                if (entry) {
+   748→   748→                                                  updateEntry(entry.id, {
+   749→   749→                                                    contextKeys: entry.contextKeys.filter((_, idx) => idx !== i)
+   750→   750→                                                  });
+   751→   751→                                                }
+   752→   752→                                              }}
+   753→   753→                                            >
+   754→   754→                                              {key}
+   755→   755→                                              <X className="w-2.5 h-2.5 ml-0.5" />
+   756→   756→                                            </Badge>
+   757→   757→                                          ))}
+   758→   758→                                          <Input
+   759→   759→                                            placeholder="Agregar..."
+   760→   760→                                            className="h-6 w-20 text-xs px-2"
+   761→   761→                                            onKeyDown={(e) => {
+   762→   762→                                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+   763→   763→                                                if (entry) {
+   764→   764→                                                  updateEntry(entry.id, {
+   765→   765→                                                    contextKeys: [...(entry.contextKeys || []), e.currentTarget.value.trim().toLowerCase()]
+   766→   766→                                                  });
+   767→   767→                                                }
+   768→   768→                                                e.currentTarget.value = '';
+   769→   769→                                              }
+   770→   770→                                            }}
+   771→   771→                                          />
+   772→   772→                                        </div>
+   773→   773→                                      </div>
+   774→   774→
+   775→   775→                                      {/* Tags */}
+   776→   776→                                      <div>
+   777→   777→                                        <Label className="text-xs text-muted-foreground">Etiquetas</Label>
+   778→   778→                                        <div className="flex flex-wrap gap-1 mt-1">
+   779→   779→                                          {(entry?.tags || []).map((tag, i) => (
+   780→   780→                                            <Badge 
+   781→   781→                                              key={i} 
+   782→   782→                                              variant="default"
+   783→   783→                                              className="cursor-pointer hover:bg-destructive text-xs"
+   784→   784→                                              onClick={() => {
+   785→   785→                                                if (entry) {
+   786→   786→                                                  updateEntry(entry.id, {
+   787→   787→                                                    tags: entry.tags?.filter((_, idx) => idx !== i)
+   788→   788→                                                  });
+   789→   789→                                                }
+   790→   790→                                              }}
+   791→   791→                                            >
+   792→   792→                                              {tag}
+   793→   793→                                              <X className="w-2.5 h-2.5 ml-0.5" />
+   794→   794→                                            </Badge>
+   795→   795→                                          ))}
+   796→   796→                                          <Input
+   797→   797→                                            placeholder="Agregar..."
+   798→   798→                                            className="h-6 w-20 text-xs px-2"
+   799→   799→                                            onKeyDown={(e) => {
+   800→   800→                                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+   801→   801→                                                if (entry) {
+   802→   802→                                                  updateEntry(entry.id, {
+   803→   803→                                                    tags: [...(entry.tags || []), e.currentTarget.value.trim().toLowerCase()]
+   804→   804→                                                  });
+   805→   805→                                                }
+   806→   806→                                                e.currentTarget.value = '';
+   807→   807→                                              }
+   808→   808→                                            }}
+   809→   809→                                          />
+   810→   810→                                        </div>
+   811→   811→                                      </div>
+   812→   812→                                    </div>
+   813→   813→                                  </AccordionContent>
+   814→   814→                                </AccordionItem>
+   815→   815→                              );
+   816→   816→                            })}
+   817→   817→                          </Accordion>
+   818→   818→                        )}
+   819→   819→                      </div>
+   820→   820→                    </ScrollArea>
+   821→   821→                  </>
+   822→   822→                ) : (
+   823→   823→                  <div className="flex-1 flex items-center justify-center text-muted-foreground">
+   824→   824→                    <div className="text-center">
+   825→   825→                      <FolderOpen className="w-12 h-12 mx-auto mb-2 opacity-50" />
+   826→   826→                      <p>Selecciona una colección para gestionar</p>
+   827→   827→                      <p className="text-xs mt-1">O crea una nueva</p>
+   828→   828→                    </div>
+   829→   829→                  </div>
+   830→   830→                )}
+   831→   831→              </div>
+   832→   832→            </motion.div>
+   833→   833→          </div>
+   834→   834→
+   835→   835→          {/* Create Collection Dialog */}
+   836→   836→          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+   837→   837→            <DialogContent>
+   838→   838→              <DialogHeader>
+   839→   839→                <DialogTitle>Crear Nueva Colección</DialogTitle>
+   840→   840→                <DialogDescription>
+   841→   841→                  Crea una nueva colección de fondos. Se creará una carpeta en el directorio de fondos.
+   842→   842→                </DialogDescription>
+   843→   843→              </DialogHeader>
+   844→   844→              <div className="space-y-4 py-4">
+   845→   845→                <div className="space-y-2">
+   846→   846→                  <Label>Nombre de la Colección</Label>
+   847→   847→                  <Input
+   848→   848→                    value={newCollectionName}
+   849→   849→                    onChange={(e) => setNewCollectionName(e.target.value)}
+   850→   850→                    placeholder="Ej: Bosque, Castillo, Playa"
+   851→   851→                  />
+   852→   852→                </div>
+   853→   853→                <div className="space-y-2">
+   854→   854→                  <Label>Descripción (opcional)</Label>
+   855→   855→                  <Textarea
+   856→   856→                    value={newCollectionDescription}
+   857→   857→                    onChange={(e) => setNewCollectionDescription(e.target.value)}
+   858→   858→                    placeholder="Describe esta colección..."
+   859→   859→                  />
+   860→   860→                </div>
+   861→   861→              </div>
+   862→   862→              <DialogFooter>
+   863→   863→                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+   864→   864→                  Cancelar
+   865→   865→                </Button>
+   866→   866→                <Button onClick={handleCreateCollection} disabled={!newCollectionName.trim() || isLoading}>
+   867→   867→                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderPlus className="w-4 h-4" />}
+   868→   868→                  Crear
+   869→   869→                </Button>
+   870→   870→              </DialogFooter>
+   871→   871→            </DialogContent>
+   872→   872→          </Dialog>
+   873→   873→
+   874→   874→          {/* Delete Confirmation Dialog */}
+   875→   875→          <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+   876→   876→            <AlertDialogContent>
+   877→   877→              <AlertDialogHeader>
+   878→   878→                <AlertDialogTitle className="flex items-center gap-2">
+   879→   879→                  <AlertTriangle className="w-5 h-5 text-destructive" />
+   880→   880→                  Confirmar Eliminación
+   881→   881→                </AlertDialogTitle>
+   882→   882→                <AlertDialogDescription>
+   883→   883→                  {deleteTarget?.type === 'collection' ? (
+   884→   884→                    <>
+   885→   885→                      ¿Estás seguro de que quieres eliminar la colección <strong>{deleteTarget.name}</strong>?
+   886→   886→                      Se eliminarán permanentemente todos los archivos de esta colección. Esta acción no se puede deshacer.
+   887→   887→                    </>
+   888→   888→                  ) : (
+   889→   889→                    <>
+   890→   890→                      ¿Estás seguro de que quieres eliminar <strong>{deleteTarget?.filename}</strong>?
+   891→   891→                      Esta acción no se puede deshacer.
+   892→   892→                    </>
+   893→   893→                  )}
+   894→   894→                </AlertDialogDescription>
+   895→   895→              </AlertDialogHeader>
+   896→   896→              <AlertDialogFooter>
+   897→   897→                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+   898→   898→                <AlertDialogAction
+   899→   899→                  onClick={deleteTarget?.type === 'collection' ? handleDeleteCollection : handleDeleteFile}
+   900→   900→                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   901→   901→                >
+   902→   902→                  Eliminar
+   903→   903→                </AlertDialogAction>
+   904→   904→              </AlertDialogFooter>
+   905→   905→            </AlertDialogContent>
+   906→   906→          </AlertDialog>
+   907→   907→        </motion.div>
+   908→   908→      )}
+   909→   909→    </AnimatePresence>
+   910→   910→  );
+   911→   911→}
+   912→   912→
+   913→   913→export default BackgroundCollectionManager;
+   914→   914→

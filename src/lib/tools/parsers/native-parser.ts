@@ -153,14 +153,44 @@ export function finalizeToolCalls(accumulator: ToolCallAccumulator): void {
 }
 
 /**
+ * Post-tool reminder injected right after tool results (highest-recency position).
+ * Without this the model treats the tool round as "now write the final text" and
+ * never applies narratively-justified attribute changes — modify_stat was never
+ * called because the model believed the action "Costos" already covered it.
+ */
+export const POST_TOOL_REMINDER =
+  '[RECORDATORIO DE HERRAMIENTAS] Los resultados de arriba ya se aplicaron al mundo. ' +
+  'Los "Costos" de las acciones NO cuentan como tus cambios narrativos. ' +
+  'Si la escena de este turno justifica cambios de atributos (deseo, placer, energía, adicción, estados de ánimo, etc.) y aún no los aplicaste, ' +
+  'llama AHORA a "modify_stat" — usa "changes" para modificar varios atributos a la vez. ' +
+  'Si ya aplicaste los cambios o de verdad nada debía cambiar, escribe directamente tu respuesta normal en personaje.';
+
+/**
+ * Round ≥ 1 variant: the first-round reminder ("llama AHORA a modify_stat")
+ * ACCUMULATES in follow-up rounds and actively drives tool-call loops — the
+ * model keeps re-calling the same tools to obey a stale instruction. On later
+ * rounds the message must FORBID repeats and demand the final narrative.
+ */
+export const ANTI_TOOL_LOOP_REMINDER =
+  '[RECORDATORIO — FIN DE HERRAMIENTAS] Ya ejecutaste herramientas este turno y sus resultados están arriba y aplicados. ' +
+  'NO repitas llamadas que ya hiciste (misma herramienta con los mismos argumentos = bucle prohibido). ' +
+  'Solo llama una herramienta más si hay un cambio NUEVO y justificado por la escena que aún NO hayas aplicado (una sola llamada, usando "changes" si son varios atributos). ' +
+  'En cualquier otro caso, escribe AHORA tu respuesta narrativa final en personaje, sin llamar más herramientas.';
+
+/**
  * Format tool calls as OpenAI-style assistant message and tool result messages
  * for the follow-up API call.
+ *
+ * @param opts.round 0 = first tool round (encourage pending changes);
+ *                    ≥ 1 = follow-up rounds (forbid repeats, demand final text).
  */
 export function buildToolMessagesForOpenAI(
   toolCalls: NativeToolCall[],
   toolResults: Array<{ success: boolean; displayMessage: string }>,
+  opts?: { round?: number },
 ): Array<{ role: string; content: unknown; tool_calls?: unknown; tool_call_id?: string }> {
   const messages: Array<{ role: string; content: unknown; tool_calls?: unknown; tool_call_id?: string }> = [];
+  const round = opts?.round ?? 0;
 
   // Assistant message with tool_calls
   messages.push({
@@ -187,6 +217,10 @@ export function buildToolMessagesForOpenAI(
         : JSON.stringify({ success: false, result: 'Error: no result' }),
     });
   }
+
+  // Post-tool reminder (highest-recency position). Round-aware: only the FIRST
+  // round encourages new modify_stat calls; later rounds forbid repetition.
+  messages.push({ role: 'system', content: round > 0 ? ANTI_TOOL_LOOP_REMINDER : POST_TOOL_REMINDER });
 
   return messages;
 }

@@ -67,7 +67,7 @@ const PRESETS: PresetItem[] = [
     title: 'Posturas',
     description: 'Diferentes posturas del cuerpo',
     icon: <Coffee className="w-4 h-4" />,
-    color: 'text-amber-500',
+    color: 'text-fuchsia-500',
     libraries: {
       poses: [
         { name: 'standing', prefix: 'pose-' },
@@ -81,7 +81,7 @@ const PRESETS: PresetItem[] = [
     title: 'Ropa/Vestimenta',
     description: 'Diferentes outfits y vestimentas',
     icon: <BookOpen className="w-4 h-4" />,
-    color: 'text-blue-500',
+    color: 'text-violet-500',
     libraries: {
       clothes: [
         { name: 'casual', prefix: 'cloth-' },
@@ -130,7 +130,7 @@ export function PresetSelector({ onApplyPreset, appliedPresets, className }: Pre
         Aplica configuraciones predefinidas de libraries y packs. Los sprite labels son ejemplos y deben actualizarse con tus sprites.
       </p>
       
-      <div className="text-xs bg-amber-500/10 border border-amber-500/20 p-2 rounded text-amber-600">
+      <div className="text-xs bg-fuchsia-500/10 border border-fuchsia-500/20 p-2 rounded text-fuchsia-600">
         ⚠️ Los presets usan labels de ejemplo. Debes configurar los sprites reales en cada item del pack.
       </div>
 

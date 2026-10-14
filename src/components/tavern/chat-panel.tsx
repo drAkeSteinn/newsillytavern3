@@ -34,6 +34,7 @@ import { t } from '@/lib/i18n';
 import { chatLogger } from '@/lib/logger';
 import { generateId } from '@/lib/utils';
 import { collectThresholdMessages, type ThresholdMessageTarget } from '@/lib/stats/threshold-messages';
+import { applyStatActivationToStore } from '@/lib/stats/apply-stat-activation';
 
 // FIX: in-flight guard against overlapping memory extractions (e.g. a proactive
 // message landing on the same turn boundary as a normal reply fired two
@@ -979,6 +980,7 @@ export function ChatPanel() {
             hudContext: activeHUDContext,  // Pass HUD context for prompt injection
             allCharacters: allCharactersWithPersona,  // Pass all characters + persona for peticiones/solicitudes
             toolsSettings: settings.tools,  // Pass tools settings for group chat tool-calling
+            scenarios: useTavernStore.getState().scenarios,  // ESCENARIO V3: App scenario library for manage_escenario + {{escenario}}
             soundTriggers,  // Pass sound triggers for {{sonidos}} resolution
             settings,  // Pass settings for {{sonidos}} template
             embeddingsChat: {
@@ -1247,17 +1249,16 @@ export function ChatPanel() {
                     toast.info(`🕐 Estación: ${parsed.season}`);
                   }
                 } else if (parsed.type === 'stat_activation') {
-                  // Stat modified by tool - execute on client side
-                  console.log('[ChatPanel] Stat activation from tool:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue);
+                  // Stat modified by tool - execute on client side.
+                  // Delta-aware: '+'/'-' operators replay on the CLIENT's
+                  // current value so skill costs and tool changes ACCUMULATE
+                  // (never cancel each other). '='/'set' → absolute.
+                  console.log('[ChatPanel] Stat activation from tool:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue, `(op: ${parsed.operator ?? 'absolute'})`);
                   const store = useTavernStore.getState();
-                  store.updateCharacterStat?.(
-                    activeSessionId,
-                    parsed.characterId,
-                    parsed.attributeKey,
-                    parsed.newValue,
-                    'llm_detection'
-                  );
-                  toast.success(`📊 ${parsed.attributeName || parsed.attributeKey}: ${parsed.oldValue} → ${parsed.newValue}`);
+                  const applied = applyStatActivationToStore(store, activeSessionId, parsed);
+                  const prefix = applied.mode === 'delta' ? ' (acumulado)' : '';
+                  const reasonSuffix = parsed.reason ? ` · ${parsed.reason}` : '';
+                  toast.success(`📊 ${parsed.attributeName || parsed.attributeKey}: ${applied.clientOldValue ?? parsed.oldValue} → ${applied.appliedValue}${prefix}${reasonSuffix}`);
                 } else if (parsed.type === 'solicitud_activation') {
                   // Solicitud activated/completed by tool - execute on client side
                   console.log('[ChatPanel] Solicitud activation from tool:', parsed.toolName, parsed.activationType, parsed.solicitudKey);
@@ -1297,13 +1298,27 @@ export function ChatPanel() {
                     console.log('[ChatPanel] Wardrobe info:', parsed.outfitName || '(sin cambio)');
                   }
                 } else if (parsed.type === 'scenario_activation') {
-                  // ESCENARIO V2: Scenario tool activation — update session stats activeScenarioId (session-level)
+                  // ESCENARIO V3.1: scenario tool activation — sync session state
+                  // (activeScenarioCollectionId + activeScenarioId) and the
+                  // background image. The sprite pose is NOT queued here: poses
+                  // are bound to the FONDO (settings.spriteBackgroundPoses) and
+                  // CharacterSprite applies them automatically whenever the
+                  // active background changes (legacy node poses still work via
+                  // the resolveLegacyLocationPoseForBackground fallback).
                   console.log('[ChatPanel] Scenario activation from tool:', parsed.toolName, parsed.action, parsed.previousLocationId ?? '(default)', '→', parsed.locationId ?? '(default)', parsed.locationName);
                   const store = useTavernStore.getState();
                   if (parsed.changed) {
-                    // Move the scene to the new location (session-level)
+                    // Move the scene (session-level): collection first, then place/spot
+                    if (parsed.collectionId) {
+                      store.setActiveScenarioCollection?.(activeSessionId, parsed.collectionId);
+                    }
                     store.setActiveScenario?.(activeSessionId, parsed.locationId ?? null);
-                    toast.success(`📍 Escenario: ${parsed.locationName}`);
+                    // Apply the background configured for the new location —
+                    // this alone triggers the sprite pose of that fondo
+                    if (parsed.backgroundUrl) {
+                      store.setActiveBackground?.(parsed.backgroundUrl);
+                    }
+                    toast.success(`📍 Escenario: ${parsed.collectionName ? `${parsed.collectionName} → ` : ''}${parsed.locationName}`);
                   } else {
                     // list / get_info are informational — no toast, just console log
                     console.log('[ChatPanel] Scenario info:', parsed.locationName || '(sin cambio)');
@@ -1745,6 +1760,7 @@ export function ChatPanel() {
               customNamespaces: activeCharacter?.embeddingNamespaces,
             },  // Pass embeddings chat settings + character namespace override
             toolsSettings: settings.tools,  // Pass tool calling configuration
+            scenarios: useTavernStore.getState().scenarios,  // ESCENARIO V3: App scenario library for manage_escenario + {{escenario}}
             inventoryData: (() => {
               // CRITICAL: Re-read store state fresh to ensure we have the latest
               // equipment/consumable data. When equipItem/useConsumable runs,
@@ -1991,17 +2007,16 @@ export function ChatPanel() {
                     toast.info(`🕐 Estación: ${parsed.season}`);
                   }
                 } else if (parsed.type === 'stat_activation') {
-                  // Stat modified by tool - execute on client side
-                  console.log('[ChatPanel] Stat activation from tool:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue);
+                  // Stat modified by tool - execute on client side.
+                  // Delta-aware: '+'/'-' operators replay on the CLIENT's
+                  // current value so skill costs and tool changes ACCUMULATE
+                  // (never cancel each other). '='/'set' → absolute.
+                  console.log('[ChatPanel] Stat activation from tool:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue, `(op: ${parsed.operator ?? 'absolute'})`);
                   const store = useTavernStore.getState();
-                  store.updateCharacterStat?.(
-                    activeSessionId,
-                    parsed.characterId,
-                    parsed.attributeKey,
-                    parsed.newValue,
-                    'llm_detection'
-                  );
-                  toast.success(`📊 ${parsed.attributeName || parsed.attributeKey}: ${parsed.oldValue} → ${parsed.newValue}`);
+                  const applied = applyStatActivationToStore(store, activeSessionId, parsed);
+                  const prefix = applied.mode === 'delta' ? ' (acumulado)' : '';
+                  const reasonSuffix = parsed.reason ? ` · ${parsed.reason}` : '';
+                  toast.success(`📊 ${parsed.attributeName || parsed.attributeKey}: ${applied.clientOldValue ?? parsed.oldValue} → ${applied.appliedValue}${prefix}${reasonSuffix}`);
                 } else if (parsed.type === 'solicitud_activation') {
                   // Solicitud activated/completed by tool - execute on client side
                   console.log('[ChatPanel] Solicitud activation from tool:', parsed.toolName, parsed.activationType, parsed.solicitudKey);
@@ -2039,12 +2054,27 @@ export function ChatPanel() {
                     console.log('[ChatPanel] Wardrobe info:', parsed.outfitName || '(sin cambio)');
                   }
                 } else if (parsed.type === 'scenario_activation') {
-                  // ESCENARIO V2: Scenario tool activation — update session stats activeScenarioId (session-level)
+                  // ESCENARIO V3.1: scenario tool activation — sync session state
+                  // (activeScenarioCollectionId + activeScenarioId) and the
+                  // background image. The sprite pose is NOT queued here: poses
+                  // are bound to the FONDO (settings.spriteBackgroundPoses) and
+                  // CharacterSprite applies them automatically whenever the
+                  // active background changes (legacy node poses still work via
+                  // the resolveLegacyLocationPoseForBackground fallback).
                   console.log('[ChatPanel] Scenario activation from tool:', parsed.toolName, parsed.action, parsed.previousLocationId ?? '(default)', '→', parsed.locationId ?? '(default)', parsed.locationName);
                   const store = useTavernStore.getState();
                   if (parsed.changed) {
+                    // Move the scene (session-level): collection first, then place/spot
+                    if (parsed.collectionId) {
+                      store.setActiveScenarioCollection?.(activeSessionId, parsed.collectionId);
+                    }
                     store.setActiveScenario?.(activeSessionId, parsed.locationId ?? null);
-                    toast.success(`📍 Escenario: ${parsed.locationName}`);
+                    // Apply the background configured for the new location —
+                    // this alone triggers the sprite pose of that fondo
+                    if (parsed.backgroundUrl) {
+                      store.setActiveBackground?.(parsed.backgroundUrl);
+                    }
+                    toast.success(`📍 Escenario: ${parsed.collectionName ? `${parsed.collectionName} → ` : ''}${parsed.locationName}`);
                   } else {
                     console.log('[ChatPanel] Scenario info:', parsed.locationName || '(sin cambio)');
                   }
@@ -3021,7 +3051,7 @@ export function ChatPanel() {
           transitionDuration={settings.backgroundTriggers?.transitionDuration || 500}
         />
         <div className="relative z-10 text-center space-y-4 p-8">
-          <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
+          <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-fuchsia-400 to-violet-600 flex items-center justify-center">
             <Sparkles className="w-10 h-10 text-white" />
           </div>
           <h2 className="text-2xl font-bold">{t('chat.welcome.title')}</h2>
@@ -3030,7 +3060,7 @@ export function ChatPanel() {
           </p>
           {/* Proactive indicator when no session */}
           {isProactiveConfigured && (
-            <div className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-300/50 text-xs backdrop-blur-sm border border-amber-500/15 mx-auto w-fit">
+            <div className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-full bg-fuchsia-500/10 text-fuchsia-300/50 text-xs backdrop-blur-sm border border-fuchsia-500/15 mx-auto w-fit">
               <Sparkles className="h-3 w-3" />
               <span>Proactivo</span>
               <span className="opacity-70">— Inicia un chat para activar</span>

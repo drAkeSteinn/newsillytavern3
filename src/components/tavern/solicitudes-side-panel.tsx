@@ -109,10 +109,10 @@ export function SolicitudesSidePanel({
         {/* Header */}
         <div className="flex items-center justify-between p-2 border-b bg-muted/30 flex-shrink-0">
           <div className="flex items-center gap-1.5">
-            <Inbox className="w-4 h-4 text-amber-500" />
+            <Inbox className="w-4 h-4 text-fuchsia-500" />
             <span className="font-medium text-xs">Solicitudes</span>
             {pendingSolicitudes.length > 0 && (
-              <Badge className="bg-amber-500/20 text-amber-400 text-[9px] px-1">
+              <Badge className="bg-fuchsia-500/20 text-fuchsia-400 text-[9px] px-1">
                 {pendingSolicitudes.length}
               </Badge>
             )}
@@ -158,13 +158,13 @@ export function SolicitudesSidePanel({
                         className={cn(
                           "p-2 rounded-lg border transition-colors",
                           isExpiringSoon
-                            ? "bg-orange-500/5 border-orange-500/30 hover:bg-orange-500/10"
-                            : "bg-amber-500/5 border-amber-500/20 hover:bg-amber-500/10"
+                            ? "bg-violet-500/5 border-violet-500/30 hover:bg-violet-500/10"
+                            : "bg-fuchsia-500/5 border-fuchsia-500/20 hover:bg-fuchsia-500/10"
                         )}
                       >
                         {/* Key badge and time */}
                         <div className="flex items-center justify-between gap-1 mb-1">
-                          <code className="text-[9px] bg-black/30 px-1 py-0.5 rounded font-mono text-amber-300 truncate max-w-[100px]">
+                          <code className="text-[9px] bg-black/30 px-1 py-0.5 rounded font-mono text-fuchsia-300 truncate max-w-[100px]">
                             {solicitud.key}
                           </code>
                           <div className="flex items-center gap-1">
@@ -173,7 +173,7 @@ export function SolicitudesSidePanel({
                               <span className={cn(
                                 "text-[8px] flex items-center gap-0.5 px-1 py-0.5 rounded",
                                 isExpiringSoon
-                                  ? "bg-orange-500/20 text-orange-400"
+                                  ? "bg-violet-500/20 text-violet-400"
                                   : "bg-muted/50 text-muted-foreground"
                               )}>
                                 {isExpiringSoon ? (
@@ -242,7 +242,7 @@ export function SolicitudesSidePanel({
         className={cn(
           "h-auto py-2 px-1 gap-1 bg-background/95 backdrop-blur-sm border-r-0 rounded-r-none rounded-l-lg shadow-lg flex-shrink-0",
           isExpanded && "hidden",
-          "border-amber-500/30 hover:border-amber-500/50",
+          "border-fuchsia-500/30 hover:border-fuchsia-500/50",
           "flex-col items-center justify-center"
         )}
         style={{ 
@@ -251,10 +251,10 @@ export function SolicitudesSidePanel({
         }}
         onClick={() => setIsExpanded(true)}
       >
-        <Inbox className="w-4 h-4 text-amber-500 mb-1" style={{ writingMode: 'horizontal-tb' }} />
+        <Inbox className="w-4 h-4 text-fuchsia-500 mb-1" style={{ writingMode: 'horizontal-tb' }} />
         <span className="text-[10px] font-medium" style={{ writingMode: 'horizontal-tb' }}>
           {pendingSolicitudes.length > 0 && (
-            <Badge className="bg-amber-500 text-white text-[9px] px-1 h-4 min-w-[16px] justify-center">
+            <Badge className="bg-fuchsia-500 text-white text-[9px] px-1 h-4 min-w-[16px] justify-center">
               {pendingSolicitudes.length}
             </Badge>
           )}

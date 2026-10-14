@@ -44,13 +44,13 @@ interface CharacterMemoryEditorProps {
 
 // Event type configurations
 const EVENT_TYPES: { type: MemoryEventType; label: string; icon: React.ReactNode; color: string }[] = [
-  { type: 'fact', label: 'Hecho', icon: <Brain className="w-3 h-3" />, color: 'bg-blue-500' },
+  { type: 'fact', label: 'Hecho', icon: <Brain className="w-3 h-3" />, color: 'bg-violet-500' },
   { type: 'relationship', label: 'Relación', icon: <Heart className="w-3 h-3" />, color: 'bg-pink-500' },
   { type: 'event', label: 'Evento', icon: <Sparkles className="w-3 h-3" />, color: 'bg-purple-500' },
   { type: 'emotion', label: 'Emoción', icon: <Heart className="w-3 h-3" />, color: 'bg-red-500' },
   { type: 'location', label: 'Ubicación', icon: <MapPin className="w-3 h-3" />, color: 'bg-green-500' },
-  { type: 'item', label: 'Objeto', icon: <Package className="w-3 h-3" />, color: 'bg-amber-500' },
-  { type: 'state_change', label: 'Cambio', icon: <TrendingUp className="w-3 h-3" />, color: 'bg-cyan-500' },
+  { type: 'item', label: 'Objeto', icon: <Package className="w-3 h-3" />, color: 'bg-fuchsia-500' },
+  { type: 'state_change', label: 'Cambio', icon: <TrendingUp className="w-3 h-3" />, color: 'bg-fuchsia-500' },
 ];
 
 export function CharacterMemoryEditor({ 
@@ -608,7 +608,7 @@ export function CharacterMemoryEditor({
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Edit3 className="w-4 h-4 text-amber-500" />
+            <Edit3 className="w-4 h-4 text-fuchsia-500" />
             Notas del Personaje
           </CardTitle>
           <CardDescription>

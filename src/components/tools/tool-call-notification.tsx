@@ -117,8 +117,8 @@ function PhaseIcon({
   switch (phase) {
     case 'executing':
       return (
-        <div className={cn(base, 'bg-amber-500/20')}>
-          <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+        <div className={cn(base, 'bg-fuchsia-500/20')}>
+          <Loader2 className="w-4 h-4 text-fuchsia-400 animate-spin" />
         </div>
       );
     case 'done':
@@ -135,8 +135,8 @@ function PhaseIcon({
       );
     default:
       return (
-        <div className={cn(base, 'bg-amber-500/20')}>
-          <icon className="w-4 h-4 text-amber-400" />
+        <div className={cn(base, 'bg-fuchsia-500/20')}>
+          <icon className="w-4 h-4 text-fuchsia-400" />
         </div>
       );
   }
@@ -255,19 +255,19 @@ export function ToolCallNotification({
       ? 'border-emerald-500/40'
       : phase === 'error'
         ? 'border-red-500/40'
-        : 'border-amber-500/40';
+        : 'border-fuchsia-500/40';
 
   const accentGlow =
     phase === 'done'
       ? 'shadow-emerald-500/10 shadow-lg'
       : phase === 'error'
         ? 'shadow-red-500/10 shadow-lg'
-        : 'shadow-amber-500/10 shadow-lg';
+        : 'shadow-fuchsia-500/10 shadow-lg';
 
   // Pulse ring for executing phase
   const pulseRing =
     phase === 'executing' ? (
-      <span className="absolute inset-0 rounded-xl animate-ping bg-amber-500/10 pointer-events-none" />
+      <span className="absolute inset-0 rounded-xl animate-ping bg-fuchsia-500/10 pointer-events-none" />
     ) : null;
 
   return (
@@ -328,7 +328,7 @@ export function ToolCallNotification({
                 <span
                   className={cn(
                     'shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
-                    phase === 'executing' && 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+                    phase === 'executing' && 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400',
                     phase === 'done' && 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
                     phase === 'error' && 'bg-red-500/15 text-red-600 dark:text-red-400',
                   )}

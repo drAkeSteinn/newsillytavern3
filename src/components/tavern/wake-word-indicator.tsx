@@ -107,7 +107,7 @@ export function WakeWordIndicator({
         className={cn(
           "h-7 px-2 text-xs gap-1.5 transition-all",
           isActive && isListening && "bg-green-600 hover:bg-green-700",
-          isActive && !isListening && "bg-amber-600 hover:bg-amber-700",
+          isActive && !isListening && "bg-fuchsia-600 hover:bg-fuchsia-700",
           isRecording && "animate-pulse"
         )}
         onClick={isActive ? stopDetection : startDetection}
@@ -167,7 +167,7 @@ export function WakeWordIndicator({
         <Button
           size="sm"
           variant="outline"
-          className="h-7 text-xs text-amber-500"
+          className="h-7 text-xs text-fuchsia-500"
           onClick={handleRequestPermission}
         >
           <MicOff className="w-3 h-3 mr-1" />

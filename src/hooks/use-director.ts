@@ -19,6 +19,7 @@ import { useTavernStore } from '@/store';
 import type { DirectorResult, DirectorSnapshot, DirectorSettings } from '@/lib/director/types';
 import { DEFAULT_DIRECTOR_SETTINGS } from '@/lib/director/types';
 import type { ToolExecutionResult } from '@/lib/tools/types';
+import { applyStatActivationToStore } from '@/lib/stats/apply-stat-activation';
 
 const POST_TURN_DEBOUNCE_MS = 8000;   // wait after a turn before directing
 const CHECK_INTERVAL_MS = 60 * 1000;  // idle check cadence
@@ -159,12 +160,14 @@ export function useDirector(activeSessionId: string | null | undefined) {
       if (result.toolResults && result.toolResults.length > 0) {
         for (const tr of result.toolResults) {
           // stat_activation → updateCharacterStat
+          // Delta-aware: '+'/'-' replays on the CLIENT's current value so
+          // skill costs and tool changes ACCUMULATE (never cancel).
           if (tr.statActivation) {
             const sa = tr.statActivation;
             const targetCharId = sa.characterId || charId;
             if (targetCharId) {
-              store.updateCharacterStat?.(sessionId, targetCharId, sa.attributeKey, sa.newValue, 'director');
-              console.log(`[Director] Tool ${tr.toolName}: stat ${sa.attributeKey} → ${sa.newValue} (char ${targetCharId})`);
+              const applied = applyStatActivationToStore(store, sessionId, sa, 'director');
+              console.log(`[Director] Tool ${tr.toolName}: stat ${sa.attributeKey} → ${applied.appliedValue} (${applied.mode}, char ${targetCharId})`);
             }
           }
 

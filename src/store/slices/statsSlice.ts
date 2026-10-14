@@ -73,7 +73,8 @@ function recomputeRelationshipMirror(
   characterStats: SessionStats['characterStats'],
   id: string,
   relationships: Record<string, import('@/types').SessionRelationship>,
-  now: number
+  now: number,
+  stageLabels?: import('@/lib/relationships').RelationshipStageLabels
 ): void {
   const existing = characterStats[id] || { attributeValues: {}, lastUpdated: {} };
   const attributeValues = { ...existing.attributeValues };
@@ -87,13 +88,20 @@ function recomputeRelationshipMirror(
   } else {
     const withUser = bonds.find(b => b.aId === '__user__' || b.bId === '__user__');
     const chosen = withUser || bonds.reduce((m, b) => (b.points > m.points ? b : m), bonds[0]);
-    const stage = computeRelationshipStage(chosen.points);
+    const stage = computeRelationshipStage(chosen.points, stageLabels);
     attributeValues[RELATIONSHIP_MIRROR_KEY] = chosen.points;
     attributeValues[RELATIONSHIP_STAGE_KEY] = stage.label;
     lastUpdated[RELATIONSHIP_MIRROR_KEY] = now;
     lastUpdated[RELATIONSHIP_STAGE_KEY] = now;
   }
   characterStats[id] = { ...existing, attributeValues, lastUpdated };
+}
+
+/** Look up a character's custom bond stage labels from the store state */
+function getStageLabelsFor(state: any, characterId: string): import('@/lib/relationships').RelationshipStageLabels | undefined {
+  const char = (state?.characters as Array<{ id: string; relationshipStageLabels?: import('@/lib/relationships').RelationshipStageLabels }> | undefined)
+    ?.find(c => c.id === characterId);
+  return char?.relationshipStageLabels;
 }
 
 // ============================================
@@ -173,6 +181,8 @@ function executeThresholdRewardsInternal(
               transitionDuration: settings.backgroundTriggers?.transitionDuration ?? 500,
               defaultTransitionType: settings.backgroundTriggers?.defaultTransitionType ?? 'fade',
             },
+            // ESCENARIO V3: library for 'ubicacion' rewards
+            scenarios: state.scenarios,
           }, storeActions);
           if (!result.success) {
             console.warn(`[StatsSlice] Threshold reward failed (${reward.type}):`, result.error || result.message);
@@ -396,6 +406,11 @@ export interface StatsSlice {
   setActiveScenario: (sessionId: string, scenarioId: string | null) => void;
   /** Get the currently active scenario location id (null = default location). */
   getActiveScenarioId: (sessionId: string) => string | null;
+  // ESCENARIO V3: Set the active scenario COLLECTION (ScenarioDefinition id) —
+  // session-level like activeScenarioId (which stores the place-or-spot id
+  // WITHIN the collection). Called when the scene moves to another collection
+  // (manage_escenario go to another scenario, or the manual scenario switcher).
+  setActiveScenarioCollection: (sessionId: string, collectionId: string | null) => void;
 }
 
 // ============================================
@@ -1904,7 +1919,9 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
       const prev = (sessionStats.relationships?.[pairKey]?.points) ?? DEFAULT_RELATIONSHIP_POINTS;
       const raw = typeof updates.set === 'number' ? updates.set : prev + (updates.delta ?? 0);
       const points = clampRelationshipPoints(raw);
-      const stage = computeRelationshipStage(points);
+      // Custom bond stage labels: prefer the non-user party's character labels
+      const mainCharId = aId === '__user__' ? bId : aId;
+      const stage = computeRelationshipStage(points, getStageLabelsFor(state, mainCharId));
 
       const bond: import('@/types').SessionRelationship = {
         pairKey,
@@ -1942,7 +1959,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
             },
           };
         } else {
-          recomputeRelationshipMirror(characterStats, id, newRelationships, now);
+          recomputeRelationshipMirror(characterStats, id, newRelationships, now, getStageLabelsFor(state, id));
         }
       }
 
@@ -2003,7 +2020,7 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     const characterStats: SessionStats['characterStats'] = { ...sessionStats.characterStats };
     const now = Date.now();
     for (const id of [bond.aId, bond.bId]) {
-      recomputeRelationshipMirror(characterStats, id, relationships, now);
+      recomputeRelationshipMirror(characterStats, id, relationships, now, getStageLabelsFor(state, id));
     }
 
     const newSessionStats: SessionStats = {
@@ -2532,6 +2549,37 @@ export const createStatsSlice = (set: any, get: any): StatsSlice => ({
     const session = state.sessions?.find(s => s.id === sessionId);
     if (!session?.sessionStats) return null;
     return session.sessionStats.activeScenarioId ?? null;
+  },
+
+  // ESCENARIO V3: Set the active scenario collection (SESSION-level)
+  setActiveScenarioCollection: (sessionId, collectionId) => {
+    const state = get();
+    const sessions = state.sessions as Array<{ id: string; sessionStats?: SessionStats }>;
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+
+    const previous = session.sessionStats?.activeScenarioCollectionId ?? null;
+    if (previous === collectionId) return; // No change
+
+    const now = Date.now();
+    const updatedStats: SessionStats = {
+      characterStats: {},
+      solicitudes: { characterSolicitudes: {}, lastModified: now },
+      initialized: false,
+      ...session.sessionStats,
+      activeScenarioCollectionId: collectionId,
+      lastModified: now,
+    };
+
+    set((state: any) => ({
+      sessions: state.sessions.map((s: any) =>
+        s.id === sessionId
+          ? { ...s, sessionStats: updatedStats, updatedAt: new Date().toISOString() }
+          : s
+      ),
+    }));
+
+    console.log(`[Scenario] Session ${sessionId.slice(0, 8)}: collection ${previous ?? '(default)'} → ${collectionId ?? '(default)'}`);
   },
 });
 

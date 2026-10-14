@@ -229,7 +229,7 @@ function ActivityLog({ entries }: { entries: LogEntry[] }) {
           </span>
           <span className={cn(
             "shrink-0 font-bold",
-            entry.type === 'send' && "text-blue-500",
+            entry.type === 'send' && "text-violet-500",
             entry.type === 'recv' && "text-green-500",
             entry.type === 'error' && "text-red-500",
             entry.type === 'info' && "text-muted-foreground",
@@ -1326,7 +1326,7 @@ export function HandyControlPanel() {
                   <Badge variant="outline" className="text-[10px]">Sin accionadores conocidos</Badge>
                 )}
                 {positionInverted && (
-                  <Badge className="text-[10px] gap-1 bg-amber-600 hover:bg-amber-700">
+                  <Badge className="text-[10px] gap-1 bg-fuchsia-600 hover:bg-fuchsia-700">
                     <RotateCcw className="w-3 h-3" /> Inversión Activa
                   </Badge>
                 )}
@@ -1337,11 +1337,11 @@ export function HandyControlPanel() {
             <div className={cn(
               "mt-2.5 flex items-center justify-between rounded-md border p-2",
               positionInverted
-                ? "border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800"
+                ? "border-fuchsia-300 bg-fuchsia-50 dark:bg-fuchsia-950/30 dark:border-fuchsia-800"
                 : "border-muted"
             )}>
               <div className="flex items-center gap-2">
-                <RotateCcw className={cn("w-3.5 h-3.5", positionInverted ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")} />
+                <RotateCcw className={cn("w-3.5 h-3.5", positionInverted ? "text-fuchsia-600 dark:text-fuchsia-400" : "text-muted-foreground")} />
                 <div>
                   <p className="text-[10px] font-medium">Corrección por Software</p>
                   <p className="text-[9px] text-muted-foreground">
@@ -1370,11 +1370,11 @@ export function HandyControlPanel() {
                 <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Diagnostics (Solo Lectura)</p>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] font-mono">
                   <span className="text-muted-foreground">Hall Sensor:</span>
-                  <span className={sliderSettings.x_inverse_hall ? "text-amber-600 dark:text-amber-400 font-bold" : "text-green-600 dark:text-green-400"}>
+                  <span className={sliderSettings.x_inverse_hall ? "text-fuchsia-600 dark:text-fuchsia-400 font-bold" : "text-green-600 dark:text-green-400"}>
                     {sliderSettings.x_inverse_hall ? 'Invertido' : 'Normal'}
                   </span>
                   <span className="text-muted-foreground">Motor:</span>
-                  <span className={sliderSettings.x_inverse_motor ? "text-amber-600 dark:text-amber-400 font-bold" : "text-green-600 dark:text-green-400"}>
+                  <span className={sliderSettings.x_inverse_motor ? "text-fuchsia-600 dark:text-fuchsia-400 font-bold" : "text-green-600 dark:text-green-400"}>
                     {sliderSettings.x_inverse_motor ? 'Invertido' : 'Normal'}
                   </span>
                   <span className="text-muted-foreground">Stroke Min:</span>
@@ -1513,7 +1513,7 @@ export function HandyControlPanel() {
                       label="Zona de recorrido"
                     />
                     {!hampPlaying && (
-                      <p className="text-[9px] text-amber-600 dark:text-amber-400">
+                      <p className="text-[9px] text-fuchsia-600 dark:text-fuchsia-400">
                         * Inicia el movimiento para aplicar cambios de recorrido en tiempo real
                       </p>
                     )}
@@ -1564,9 +1564,9 @@ export function HandyControlPanel() {
 
                   {/* ---- Device Stroke Reset Warning ---- */}
                   {!positionInverted && currentSliderPos !== null && (currentSliderPos < 0 || currentSliderPos > 110) && (
-                    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 p-2">
-                      <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                      <div className="text-[10px] text-amber-700 dark:text-amber-400 space-y-1">
+                    <div className="flex items-start gap-2 rounded-md border border-fuchsia-200 bg-fuchsia-50 dark:bg-fuchsia-950/30 dark:border-fuchsia-900 p-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-fuchsia-500 shrink-0 mt-0.5" />
+                      <div className="text-[10px] text-fuchsia-700 dark:text-fuchsia-400 space-y-1">
                         <p className="font-medium">¡Posición fuera de rango — posible inversión!</p>
                         <p>El valor <span className="font-mono font-bold">{currentSliderPos}</span> está fuera del rango válido (0 — 109.3). Si el slider está físicamente en el máximo, activa la <strong>Corrección por Software</strong> en la tarjeta de información del dispositivo.</p>
                       </div>
@@ -1594,7 +1594,7 @@ export function HandyControlPanel() {
                         positionInverted
                           ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900"
                           : (currentSliderPos < 0 || currentSliderPos > 110)
-                            ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900"
+                            ? "bg-fuchsia-50 dark:bg-fuchsia-950/30 border-fuchsia-200 dark:border-fuchsia-900"
                             : "bg-muted/40"
                       )}>
                         <p className={cn(
@@ -1608,7 +1608,7 @@ export function HandyControlPanel() {
                             <span className="ml-1">✓</span>
                           )}
                           {!positionInverted && (currentSliderPos < 0 || currentSliderPos > 110) && (
-                            <span className="text-amber-600 dark:text-amber-400 ml-1">⚠ Fuera de rango</span>
+                            <span className="text-fuchsia-600 dark:text-fuchsia-400 ml-1">⚠ Fuera de rango</span>
                           )}
                         </p>
                         <p className={cn(
@@ -1616,7 +1616,7 @@ export function HandyControlPanel() {
                           positionInverted
                             ? "text-green-700 dark:text-green-400"
                             : (currentSliderPos < 0 || currentSliderPos > 110)
-                              ? "text-amber-600 dark:text-amber-400"
+                              ? "text-fuchsia-600 dark:text-fuchsia-400"
                               : "text-foreground"
                         )}>
                           {currentSliderPos}
@@ -1694,13 +1694,13 @@ export function HandyControlPanel() {
                       <div className={cn(
                         "rounded-md border p-2",
                         manualPositionOverride !== ''
-                          ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900"
+                          ? "bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-900"
                           : "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900"
                       )}>
                         <p className={cn(
                           "text-[9px] uppercase tracking-wider font-medium",
                           manualPositionOverride !== ''
-                            ? "text-blue-600 dark:text-blue-400"
+                            ? "text-violet-600 dark:text-violet-400"
                             : "text-green-600 dark:text-green-400"
                         )}>
                           {manualPositionOverride !== '' ? 'Posición Manual (Override)' : 'Posición Efectiva (Dispositivo)'}
@@ -1734,8 +1734,8 @@ export function HandyControlPanel() {
 
                   {/* ---- Current manual range display ---- */}
                   {(manualStrokeMin !== null || manualStrokeMax !== null) && (
-                    <div className="rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 p-2 space-y-1">
-                      <p className="text-[9px] text-blue-600 dark:text-blue-400 uppercase tracking-wider font-medium">
+                    <div className="rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900 p-2 space-y-1">
+                      <p className="text-[9px] text-violet-600 dark:text-violet-400 uppercase tracking-wider font-medium">
                         Rango Manual Configurado
                       </p>
                       <div className="flex justify-between text-xs font-mono">
@@ -1999,7 +1999,7 @@ export function HandyControlPanel() {
                     )}
                   </div>
                   {!capabilities?.lra && !capabilities?.erm && (
-                    <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                    <p className="text-[10px] text-fuchsia-600 dark:text-fuchsia-400 mt-1">
                       ⚠ Tu dispositivo puede no soportar vibración (sin LRA/ERM detectado)
                     </p>
                   )}
