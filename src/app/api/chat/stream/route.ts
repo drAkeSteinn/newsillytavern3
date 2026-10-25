@@ -1106,7 +1106,7 @@ export async function POST(request: NextRequest) {
           // If tools are enabled and provider supports native tool calling,
           // use the tool-aware streaming functions.
           // FIX EXPLORE-3: resolvedPostHistoryInstructions ya está resuelto arriba (nivel handler).
-          const maxToolRounds = toolsSettings.maxToolCallsPerTurn || 2;
+          const maxToolRounds = toolsSettings.maxToolCallsPerTurn || 4;
           let toolRound = 0;
           let toolContextMessages: Array<Record<string, unknown>> = []; // for tool result messages
 
@@ -1125,6 +1125,22 @@ export async function POST(request: NextRequest) {
           while (toolRound <= maxToolRounds) {
             let generator: AsyncGenerator<string>;
             let isToolRound = toolRound > 0;
+
+            // FIX: Prevent duplicate responses when round 0 already produced
+            // narrative text alongside tool calls. Without this, the follow-up
+            // round produces ANOTHER narrative response, and both get
+            // concatenated in accumulatedContent — the user sees two different
+            // responses back-to-back. Only follow up when round 0 had ONLY
+            // tool calls (no narrative), which is when the follow-up is
+            // actually needed to obtain the response text.
+            if (isToolRound) {
+              const existingNarrative = stripToolCallFromText(accumulatedContent).trim();
+              if (existingNarrative.length > 20) {
+                console.log(`[Tools] Round 0 already produced ${existingNarrative.length} chars of narrative — skipping follow-up to avoid duplicate response`);
+                toolRound = maxToolRounds + 1;
+                break;
+              }
+            }
 
             // FIX EXPLORE-3: resolvedPostHistoryInstructions ya está resuelto a nivel handler.
             if (toolRound === 0) {

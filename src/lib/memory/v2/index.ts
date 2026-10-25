@@ -12,6 +12,8 @@ export { extractAndSaveV2, parseExtractionOutput } from './extraction';
 export { timeExpandQuery, searchMemoriesV2, rerankMemories } from './retrieval';
 export { buildV2MemoryContext } from './injection';
 export { migrateLegacyToV2, migrateLegacyForCharacter } from './migration';
+export { exportRecordsToMarkdown, parseMarkdownToEntries, entriesToRecords } from './markdown-serializer';
+export type { ParsedMemoryEntry } from './markdown-serializer';
 
 import type { EmbeddingsChatSettings } from '@/types';
 

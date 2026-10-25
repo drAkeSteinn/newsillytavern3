@@ -54,8 +54,8 @@
     "novelMode": true,
     "chatWidth": 60,
     "chatHeight": 70,
-    "chatX": 47.77777777777778,
-    "chatY": 55.201373759380296,
+    "chatX": 43.75992063492064,
+    "chatY": 51.991497216170416,
     "chatOpacity": 0.95,
     "blurBackground": false,
     "showCharacterSprite": true
@@ -157,7 +157,7 @@
     "namespaceStrategy": "character",
     "showInPromptViewer": true,
     "memoryExtractionEnabled": true,
-    "memoryExtractionFrequency": 2,
+    "memoryExtractionFrequency": 5,
     "memoryExtractionMinImportance": 3,
     "memoryExtractionContextDepth": 3,
     "searchContextDepth": 2,
@@ -166,7 +166,8 @@
     "extractionModelEndpoint": "http://localhost:11434",
     "extractionModelApiKey": "",
     "extractionModelName": "llama3.1:8b",
-    "knowledgeMaxResults": 4
+    "knowledgeMaxResults": 4,
+    "crossSessionMemory": false
   },
   "handy": {
     "enabled": true,

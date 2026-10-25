@@ -62,8 +62,8 @@ export default function TavernFlow() {
       {/* Atmosphere Effects Renderer */}
       {hydrated && <AtmosphereRenderer />}
       
-      {/* Scene Lighting — subtle day-moment color grading driven by the world clock */}
-      {hydrated && <SceneLighting worldClock={worldClock} />}
+      {/* Scene Lighting — subtle day-moment color grading driven by the real system time */}
+      {hydrated && <SceneLighting />}
       
       {/* Header */}
       <header className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center justify-between px-4 flex-shrink-0">

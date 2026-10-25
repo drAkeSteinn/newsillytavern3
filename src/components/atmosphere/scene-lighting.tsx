@@ -4,18 +4,16 @@
 // Scene Lighting — subtle day-moment color grading
 // ============================================
 //
-// A soft full-screen gradient veil that follows the world clock's day moment.
-// Deliberately SUBTLE (max ~10-14% opacity): it tints the scene like golden
-// hour / dusk / night ambience instead of a dramatic filter. Layered with
-// mix-blend-mode: soft-light for natural color grading, plus a faint
+// A soft full-screen gradient veil that follows the REAL system time's day
+// moment. Deliberately SUBTLE (max ~10-14% opacity): it tints the scene like
+// golden hour / dusk / night ambience instead of a dramatic filter. Layered
+// with mix-blend-mode: soft-light for natural color grading, plus a faint
 // top-darkening vignette at night.
+//
+// Polls the real clock every minute so the grading transitions naturally
+// as the real time of day changes.
 
-import { useMemo } from 'react';
-import type { WorldClock } from '@/lib/world/time';
-
-interface SceneLightingProps {
-  worldClock?: WorldClock | null;
-}
+import { useEffect, useMemo, useState } from 'react';
 
 interface MomentGrading {
   /** primary tint (soft-light blend) */
@@ -49,17 +47,25 @@ const GRADINGS: Record<string, MomentGrading> = {
   },
 };
 
-function momentFor(clock: WorldClock | null | undefined): string | null {
-  if (!clock) return null;
-  const hour = Math.floor((clock.totalMinutes % 1440) / 60);
+function momentFromRealTime(): string | null {
+  if (typeof window === 'undefined') return null;
+  const hour = new Date().getHours();
   if (hour < 6) return 'madrugada';
   if (hour < 12) return 'mañana';
   if (hour < 19) return 'tarde';
   return 'noche';
 }
 
-export function SceneLighting({ worldClock }: SceneLightingProps) {
-  const moment = momentFor(worldClock);
+export function SceneLighting() {
+  const [moment, setMoment] = useState<string | null>(() => momentFromRealTime());
+
+  // Poll the real clock every minute so the grading follows time-of-day changes.
+  useEffect(() => {
+    const tick = () => setMoment(momentFromRealTime());
+    const interval = setInterval(tick, 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const grading = useMemo(() => (moment ? GRADINGS[moment] : null), [moment]);
 
   if (!grading) return null;

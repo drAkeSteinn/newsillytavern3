@@ -2771,27 +2771,208 @@
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: de sarcasmo",
-      "id": "notif-1791882697311-ic94vng",
-      "timestamp": "2026-10-13T09:11:37.311Z",
+      "message": "Obtained: tan cabronas tengo de pegarme a él",
+      "id": "notif-1792743671192-ki8taa6",
+      "timestamp": "2026-10-23T08:21:11.192Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: de sarcas",
-      "id": "notif-1791882697285-mnvrdxp",
-      "timestamp": "2026-10-13T09:11:37.285Z",
+      "message": "Obtained: tan cabronas tengo de pegarm",
+      "id": "notif-1792743671158-k0uhudm",
+      "timestamp": "2026-10-23T08:21:11.158Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: de sar",
-      "id": "notif-1791882697260-x7in3za",
-      "timestamp": "2026-10-13T09:11:37.260Z",
+      "message": "Obtained: tan cabronas tengo de peg",
+      "id": "notif-1792743671128-lp5yyfj",
+      "timestamp": "2026-10-23T08:21:11.128Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: tan cabronas tengo de",
+      "id": "notif-1792743671095-54fnlwa",
+      "timestamp": "2026-10-23T08:21:11.095Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: tan cabronas tengo",
+      "id": "notif-1792743671061-aetk4x0",
+      "timestamp": "2026-10-23T08:21:11.061Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: tan cabronas ten",
+      "id": "notif-1792743671027-7whx813",
+      "timestamp": "2026-10-23T08:21:11.027Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: tan cabronas",
+      "id": "notif-1792743670993-49dtrny",
+      "timestamp": "2026-10-23T08:21:10.993Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: tan cabron",
+      "id": "notif-1792743670962-hgy1dkx",
+      "timestamp": "2026-10-23T08:21:10.962Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: tan cab",
+      "id": "notif-1792743670938-nuevpal",
+      "timestamp": "2026-10-23T08:21:10.938Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Bomba de Leche Constante",
+      "quantity": 1,
+      "message": "Obtained: tan",
+      "id": "notif-1792743670915-yacatc2",
+      "timestamp": "2026-10-23T08:21:10.915Z",
+      "read": false
+    },
+    {
+      "type": "item_added",
+      "itemId": "leche-006",
+      "itemName": "Bomba de Leche Constante",
+      "quantity": 1,
+      "message": "Obtuviste Bomba de Leche Constante",
+      "id": "notif-1792743670888-ctmuy96",
+      "timestamp": "2026-10-23T08:21:10.888Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda otra vez, soy una pinche zorr",
+      "id": "notif-1792743395906-trkdx8y",
+      "timestamp": "2026-10-23T08:16:35.906Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda otra vez, soy una pinch",
+      "id": "notif-1792743395878-mahmldy",
+      "timestamp": "2026-10-23T08:16:35.878Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda otra vez, soy una pi",
+      "id": "notif-1792743395854-h65evpt",
+      "timestamp": "2026-10-23T08:16:35.854Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda otra vez, soy una",
+      "id": "notif-1792743395821-943ahxb",
+      "timestamp": "2026-10-23T08:16:35.821Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda otra vez, soy",
+      "id": "notif-1792743395793-y794tfh",
+      "timestamp": "2026-10-23T08:16:35.793Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda otra vez",
+      "id": "notif-1792743395758-vd43n9b",
+      "timestamp": "2026-10-23T08:16:35.758Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda otra",
+      "id": "notif-1792743395733-v5ncygf",
+      "timestamp": "2026-10-23T08:16:35.733Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda ot",
+      "id": "notif-1792743395707-lsptkl8",
+      "timestamp": "2026-10-23T08:16:35.707Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármela toda",
+      "id": "notif-1792743395676-oqegzoj",
+      "timestamp": "2026-10-23T08:16:35.676Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragármel",
+      "id": "notif-1792743395644-lpfw5fl",
+      "timestamp": "2026-10-23T08:16:35.644Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tragár",
+      "id": "notif-1792743395614-x0fgczf",
+      "timestamp": "2026-10-23T08:16:35.614Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Item",
+      "quantity": 1,
+      "message": "Obtained: de tra",
+      "id": "notif-1792743395588-8gqb48o",
+      "timestamp": "2026-10-23T08:16:35.588Z",
       "read": false
     },
     {
@@ -2799,8 +2980,8 @@
       "itemName": "Plug Inflador de Semen",
       "quantity": 1,
       "message": "Obtained: de",
-      "id": "notif-1791882697235-x2n5gzp",
-      "timestamp": "2026-10-13T09:11:37.235Z",
+      "id": "notif-1792743395555-eylubjx",
+      "timestamp": "2026-10-23T08:16:35.555Z",
       "read": false
     },
     {
@@ -2809,413 +2990,234 @@
       "itemName": "Plug Inflador de Semen",
       "quantity": 1,
       "message": "Obtuviste Plug Inflador de Semen",
-      "id": "notif-1791882697210-x149cp4",
-      "timestamp": "2026-10-13T09:11:37.210Z",
+      "id": "notif-1792743395528-yr6i1lw",
+      "timestamp": "2026-10-23T08:16:35.528Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: como pendeja",
-      "id": "notif-1789188379911-ltu0ynb",
-      "timestamp": "2026-09-12T04:46:19.911Z",
+      "message": "Obtained: de chupársela desde que la sentí dura",
+      "id": "notif-1792742761955-kxisx5d",
+      "timestamp": "2026-10-23T08:06:01.955Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: como pende",
-      "id": "notif-1789188379889-y9tppmq",
-      "timestamp": "2026-09-12T04:46:19.889Z",
+      "message": "Obtained: de chupársela desde que la sent",
+      "id": "notif-1792742761926-lug840t",
+      "timestamp": "2026-10-23T08:06:01.926Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: como pe",
-      "id": "notif-1789188379868-ypm39sz",
-      "timestamp": "2026-09-12T04:46:19.868Z",
+      "message": "Obtained: de chupársela desde qu",
+      "id": "notif-1792742761891-fj9zo1s",
+      "timestamp": "2026-10-23T08:06:01.891Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: como",
-      "id": "notif-1789188379843-ak1q9aj",
-      "timestamp": "2026-09-12T04:46:19.843Z",
+      "message": "Obtained: de chupársela desde",
+      "id": "notif-1792742761855-y1va3yi",
+      "timestamp": "2026-10-23T08:06:01.855Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empieza a lamerlos con la lengua plana",
-      "id": "notif-1789137319870-ouhc2cl",
-      "timestamp": "2026-09-11T14:35:19.870Z",
+      "message": "Obtained: de chupársela de",
+      "id": "notif-1792742761821-zqwcsxv",
+      "timestamp": "2026-10-23T08:06:01.821Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empieza a lamerlos con la lengua pla",
-      "id": "notif-1789137319838-iaasqpt",
-      "timestamp": "2026-09-11T14:35:19.838Z",
+      "message": "Obtained: de chupársela",
+      "id": "notif-1792742761791-5o3d43g",
+      "timestamp": "2026-10-23T08:06:01.791Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empieza a lamerlos con la lengua",
-      "id": "notif-1789137319810-260w7eo",
-      "timestamp": "2026-09-11T14:35:19.810Z",
+      "message": "Obtained: de chupárs",
+      "id": "notif-1792742761763-1nnzjfr",
+      "timestamp": "2026-10-23T08:06:01.763Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empieza a lamerlos con la leng",
-      "id": "notif-1789137319781-d7tm6pp",
-      "timestamp": "2026-09-11T14:35:19.781Z",
+      "message": "Obtained: de chup",
+      "id": "notif-1792742761734-ejkyc5v",
+      "timestamp": "2026-10-23T08:06:01.734Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empieza a lamerlos co",
-      "id": "notif-1789137319754-gkohta5",
-      "timestamp": "2026-09-11T14:35:19.754Z",
+      "message": "Obtained: de chupársela pero si alguien ve ya valió verga",
+      "id": "notif-1792742607708-vgq8xq7",
+      "timestamp": "2026-10-23T08:03:27.708Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empieza a lamerlos",
-      "id": "notif-1789137319724-iomaa61",
-      "timestamp": "2026-09-11T14:35:19.724Z",
+      "message": "Obtained: de chupársela pero si alguien ve ya valió ve",
+      "id": "notif-1792742607680-0mgd4c5",
+      "timestamp": "2026-10-23T08:03:27.680Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empieza a lamer",
-      "id": "notif-1789137319693-2ezl5gv",
-      "timestamp": "2026-09-11T14:35:19.693Z",
+      "message": "Obtained: de chupársela pero si alguien ve ya valió",
+      "id": "notif-1792742607655-exrytxx",
+      "timestamp": "2026-10-23T08:03:27.655Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empieza a la",
-      "id": "notif-1789137319664-5vm2f9y",
-      "timestamp": "2026-09-11T14:35:19.664Z",
+      "message": "Obtained: de chupársela pero si alguien ve ya va",
+      "id": "notif-1792742607632-p1le5cw",
+      "timestamp": "2026-10-23T08:03:27.632Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y empiez",
-      "id": "notif-1789137319632-xoa2smj",
-      "timestamp": "2026-09-11T14:35:19.632Z",
+      "message": "Obtained: de chupársela pero si alguien ve ya",
+      "id": "notif-1792742607608-6itn528",
+      "timestamp": "2026-10-23T08:03:27.608Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados y emp",
-      "id": "notif-1789137319602-8x2f718",
-      "timestamp": "2026-09-11T14:35:19.602Z",
+      "message": "Obtained: de chupársela pero si alguien ve",
+      "id": "notif-1792742607586-x1orsd0",
+      "timestamp": "2026-10-23T08:03:27.586Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesados",
-      "id": "notif-1789137319576-o2g2xq5",
-      "timestamp": "2026-09-11T14:35:19.576Z",
+      "message": "Obtained: de chupársela pero si alguien",
+      "id": "notif-1792742607562-39vuko8",
+      "timestamp": "2026-10-23T08:03:27.562Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevos pesa",
-      "id": "notif-1789137319548-as5zki2",
-      "timestamp": "2026-09-11T14:35:19.548Z",
+      "message": "Obtained: de chupársela pero si algu",
+      "id": "notif-1792742607538-fasiutg",
+      "timestamp": "2026-10-23T08:03:27.538Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los huevo",
-      "id": "notif-1789137319520-yx5rvfe",
-      "timestamp": "2026-09-11T14:35:19.520Z",
+      "message": "Obtained: de chupársela per",
+      "id": "notif-1792742607512-7rhv82a",
+      "timestamp": "2026-10-23T08:03:27.512Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los hu",
-      "id": "notif-1789137319495-bkae6m3",
-      "timestamp": "2026-09-11T14:35:19.495Z",
+      "message": "Obtained: de chupársela",
+      "id": "notif-1792742607486-nvvtqr2",
+      "timestamp": "2026-10-23T08:03:27.486Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra los",
-      "id": "notif-1789137319470-qcy0kra",
-      "timestamp": "2026-09-11T14:35:19.470Z",
+      "message": "Obtained: de chupárse",
+      "id": "notif-1792742607461-a6yg7iq",
+      "timestamp": "2026-10-23T08:03:27.461Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta contra",
-      "id": "notif-1789137319444-lo3skbx",
-      "timestamp": "2026-09-11T14:35:19.444Z",
+      "message": "Obtained: de chupá",
+      "id": "notif-1792742607436-tryvo7n",
+      "timestamp": "2026-10-23T08:03:27.436Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las aprieta cont",
-      "id": "notif-1789137319418-9kb4ysy",
-      "timestamp": "2026-09-11T14:35:19.418Z",
+      "message": "Obtained: de ch",
+      "id": "notif-1792742607411-rehuy2f",
+      "timestamp": "2026-10-23T08:03:27.411Z",
+      "read": false
+    },
+    {
+      "type": "add",
+      "itemName": "Plug Inflador de Semen",
+      "quantity": 1,
+      "message": "Obtained: de",
+      "id": "notif-1792742607386-96lez4j",
+      "timestamp": "2026-10-23T08:03:27.386Z",
+      "read": false
+    },
+    {
+      "type": "item_added",
+      "itemId": "cum-001",
+      "itemName": "Plug Inflador de Semen",
+      "quantity": 1,
+      "message": "Obtuviste Plug Inflador de Semen",
+      "id": "notif-1792742607361-5k4mwbf",
+      "timestamp": "2026-10-23T08:03:27.361Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las apriet",
-      "id": "notif-1789137319392-ri3lxr7",
-      "timestamp": "2026-09-11T14:35:19.392Z",
+      "message": "Obtained: gatear y pedirme besos…",
+      "id": "notif-1792347179737-py8fzs8",
+      "timestamp": "2026-10-18T18:12:59.737Z",
       "read": false
     },
     {
       "type": "add",
       "itemName": "Item",
       "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las apr",
-      "id": "notif-1789137319365-mxojsn4",
-      "timestamp": "2026-09-11T14:35:19.365Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas, las",
-      "id": "notif-1789137319338-rwa45jf",
-      "timestamp": "2026-09-11T14:35:19.338Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expuestas",
-      "id": "notif-1789137319311-yg269q1",
-      "timestamp": "2026-09-11T14:35:19.311Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente expues",
-      "id": "notif-1789137319280-lk3drsz",
-      "timestamp": "2026-09-11T14:35:19.280Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente exp",
-      "id": "notif-1789137319254-dqwzsex",
-      "timestamp": "2026-09-11T14:35:19.254Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamente",
-      "id": "notif-1789137319225-2gkkm30",
-      "timestamp": "2026-09-11T14:35:19.225Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completamen",
-      "id": "notif-1789137319200-hctl5sc",
-      "timestamp": "2026-09-11T14:35:19.200Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas completa",
-      "id": "notif-1789137319176-olvmyqq",
-      "timestamp": "2026-09-11T14:35:19.176Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas compl",
-      "id": "notif-1789137319147-ns7gxa1",
-      "timestamp": "2026-09-11T14:35:19.147Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas co",
-      "id": "notif-1789137319122-8hpieoy",
-      "timestamp": "2026-09-11T14:35:19.122Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redondas",
-      "id": "notif-1789137319096-mrrwh5o",
-      "timestamp": "2026-09-11T14:35:19.096Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y redon",
-      "id": "notif-1789137319064-swqfxu5",
-      "timestamp": "2026-09-11T14:35:19.064Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grandes y re",
-      "id": "notif-1789137319039-btvhyh4",
-      "timestamp": "2026-09-11T14:35:19.039Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas grande",
-      "id": "notif-1789137319013-ux781j8",
-      "timestamp": "2026-09-11T14:35:19.013Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas gra",
-      "id": "notif-1789137318989-97whhzq",
-      "timestamp": "2026-09-11T14:35:18.989Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetotas",
-      "id": "notif-1789137318964-q0iwyno",
-      "timestamp": "2026-09-11T14:35:18.964Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus tetot",
-      "id": "notif-1789137318938-suz6qdg",
-      "timestamp": "2026-09-11T14:35:18.938Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus te",
-      "id": "notif-1789137318911-mjd9rkz",
-      "timestamp": "2026-09-11T14:35:18.911Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando sus",
-      "id": "notif-1789137318882-4x6p8h7",
-      "timestamp": "2026-09-11T14:35:18.882Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejando",
-      "id": "notif-1789137318858-y56y0b6",
-      "timestamp": "2026-09-11T14:35:18.858Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura dejan",
-      "id": "notif-1789137318831-drk2s9f",
-      "timestamp": "2026-09-11T14:35:18.831Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura de",
-      "id": "notif-1789137318798-d8omy6m",
-      "timestamp": "2026-09-11T14:35:18.798Z",
-      "read": false
-    },
-    {
-      "type": "add",
-      "itemName": "Item",
-      "quantity": 1,
-      "message": "Obtained: la cabeza de la vergota mientras Ximena se arrodilla completamente a su lado, se baja el crop top hasta la cintura",
-      "id": "notif-1789137318764-4ugmqux",
-      "timestamp": "2026-09-11T14:35:18.764Z",
+      "message": "Obtained: gatear y pedirme bes",
+      "id": "notif-1792347179716-67spbpz",
+      "timestamp": "2026-10-18T18:12:59.716Z",
       "read": false
     }
   ]

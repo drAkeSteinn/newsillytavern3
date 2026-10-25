@@ -1,0 +1,2002 @@
+     1→#!/usr/bin/env python3
+     2→"""
+     3→Chub Ripper — downloads your Chub.ai cards, lorebooks, and chats.
+     4→
+     5→Setup:
+     6→    pip install Pillow PyQt6 requests playwright
+     7→    playwright install chromium
+     8→"""
+     9→
+    10→import base64
+    11→import ctypes
+    12→import ctypes.wintypes
+    13→import datetime as _dt
+    14→import io
+    15→import json
+    16→import os
+    17→import queue
+    18→import re
+    19→import struct
+    20→import sys
+    21→import threading
+    22→import time
+    23→import zlib
+    24→from pathlib import Path
+    25→
+    26→# ─── secure token storage (Windows DPAPI) ─────────────────────────────────────
+    27→
+    28→class _DATA_BLOB(ctypes.Structure):
+    29→    _fields_ = [("cbData", ctypes.wintypes.DWORD),
+    30→                ("pbData", ctypes.POINTER(ctypes.c_char))]
+    31→
+    32→def _token_save(tok: str) -> None:
+    33→    p = Path(__file__).parent
+    34→    try:
+    35→        buf   = ctypes.create_string_buffer(tok.encode("utf-8"))
+    36→        b_in  = _DATA_BLOB(len(tok.encode("utf-8")), buf)
+    37→        b_out = _DATA_BLOB()
+    38→        if not ctypes.windll.Crypt32.CryptProtectData(
+    39→                ctypes.byref(b_in), None, None, None, None, 0,
+    40→                ctypes.byref(b_out)):
+    41→            raise OSError("CryptProtectData failed")
+    42→        enc = ctypes.string_at(b_out.pbData, b_out.cbData)
+    43→        ctypes.windll.Kernel32.LocalFree(b_out.pbData)
+    44→        (p / ".chub_token").write_bytes(base64.b64encode(enc))
+    45→    except Exception:
+    46→        (p / ".chub_token").write_text(tok, encoding="utf-8")
+    47→
+    48→def _token_load() -> str:
+    49→    path = Path(__file__).parent / ".chub_token"
+    50→    if not path.exists():
+    51→        return ""
+    52→    try:
+    53→        raw   = base64.b64decode(path.read_bytes())
+    54→        buf   = ctypes.create_string_buffer(raw)
+    55→        b_in  = _DATA_BLOB(len(raw), buf)
+    56→        b_out = _DATA_BLOB()
+    57→        if not ctypes.windll.Crypt32.CryptUnprotectData(
+    58→                ctypes.byref(b_in), None, None, None, None, 0,
+    59→                ctypes.byref(b_out)):
+    60→            raise OSError("CryptUnprotectData failed")
+    61→        dec = ctypes.string_at(b_out.pbData, b_out.cbData)
+    62→        ctypes.windll.Kernel32.LocalFree(b_out.pbData)
+    63→        return dec.decode("utf-8").strip()
+    64→    except Exception:
+    65→        try:
+    66→            return path.read_text(encoding="utf-8").strip()
+    67→        except Exception:
+    68→            return ""
+    69→
+    70→# ─── config ───────────────────────────────────────────────────────────────────
+    71→
+    72→CONFIG_FILE = Path(__file__).parent / ".chub_config.json"
+    73→
+    74→def _config_load() -> dict:
+    75→    try:
+    76→        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    77→    except Exception:
+    78→        return {}
+    79→
+    80→def _config_save(updates: dict) -> None:
+    81→    try:
+    82→        cfg = _config_load()
+    83→        cfg.update(updates)
+    84→        CONFIG_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    85→    except Exception:
+    86→        pass
+    87→
+    88→# ─── dependency check ─────────────────────────────────────────────────────────
+    89→
+    90→def _check_deps():
+    91→    missing = []
+    92→    errors  = []
+    93→    for pkg, pip_name in [("PIL", "Pillow"), ("PyQt6", "PyQt6"),
+    94→                           ("requests", "requests"), ("playwright", "playwright")]:
+    95→        try:
+    96→            __import__(pkg)
+    97→        except ImportError as e:
+    98→            missing.append(pip_name)
+    99→            errors.append(f"{pip_name}: {e}")
+   100→    if missing:
+   101→        import tkinter as _tk, tkinter.messagebox as _mb
+   102→        _r = _tk.Tk(); _r.withdraw()
+   103→        _mb.showerror("Missing packages",
+   104→            f"pip install {' '.join(missing)}"
+   105→            + ("\n  playwright install chromium" if "playwright" in missing else "")
+   106→            + f"\n\nRunning under: {sys.executable}"
+   107→            + "\n\nIf you already ran run.bat/run.sh and still see this, the pip\n"
+   108→              "install likely targeted a different Python than the one shown\n"
+   109→              "above, or failed silently. Re-run run.bat/run.sh and check the\n"
+   110→              "console output for the actual pip error.\n\nDetails:\n"
+   111→            + "\n".join(errors))
+   112→        sys.exit(1)
+   113→
+   114→_check_deps()
+   115→
+   116→from PyQt6.QtWidgets import (
+   117→    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+   118→    QGridLayout, QLabel, QPushButton, QLineEdit, QCheckBox,
+   119→    QProgressBar, QScrollArea, QFrame, QStackedWidget, QMenu, QDialog,
+   120→    QSizePolicy, QSpacerItem,
+   121→)
+   122→from PyQt6.QtCore import Qt, QTimer, QSize, QPoint, pyqtSignal
+   123→from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QCursor, QIcon
+   124→
+   125→from PIL import Image, ImageDraw
+   126→
+   127→# ─── paths ────────────────────────────────────────────────────────────────────
+   128→
+   129→ROOT         = Path(__file__).parent
+   130→CARDS_DIR    = ROOT / "Cards"
+   131→LORE_DIR     = ROOT / "Lorebooks"
+   132→CHATS_DIR    = ROOT / "Chats"
+   133→PRESETS_DIR  = ROOT / "Presets"
+   134→PERSONAS_DIR = ROOT / "Personas"
+   135→
+   136→REPO_API    = "https://ro.chub.ai"
+   137→GATEWAY_API = "https://gateway.chub.ai"
+   138→CDN_BASE    = "https://avatars.charhub.io/avatars"
+   139→DELAY       = 0.3
+   140→
+   141→# ─── theme ────────────────────────────────────────────────────────────────────
+   142→
+   143→BG      = "#0d1117"
+   144→SURFACE = "#161b22"
+   145→CARD    = "#1c2128"
+   146→BORDER  = "#30363d"
+   147→TEXT    = "#e6edf3"
+   148→MUTED   = "#7d8590"
+   149→DIM     = "#484f58"
+   150→ACCENT  = "#2f81f7"
+   151→A_HOVER = "#1a6fd4"
+   152→GREEN   = "#3fb950"
+   153→RED     = "#f85149"
+   154→
+   155→STATUS_FG = {
+   156→    "queued":       DIM,
+   157→    "downloading":  ACCENT,
+   158→    "done":         GREEN,
+   159→    "skipped":      DIM,
+   160→    "failed":       RED,
+   161→    "unavailable":  "#e3b341",
+   162→}
+   163→STATUS_LABEL = {
+   164→    "queued":       "Queued",
+   165→    "downloading":  "Downloading…",
+   166→    "done":         "✓  Done",
+   167→    "skipped":      "Already saved",
+   168→    "failed":       "✗  Failed",
+   169→    "unavailable":  "⚠  Unavailable",
+   170→}
+   171→
+   172→TW, TH = 128, 168   # image dimensions
+   173→COLS    = 6
+   174→PAGE    = 100        # tiles per lazy-load batch
+   175→
+   176→# ─── QSS stylesheet ───────────────────────────────────────────────────────────
+   177→
+   178→STYLESHEET = f"""
+   179→QMainWindow, QDialog, QWidget {{
+   180→    background-color: {BG};
+   181→    color: {TEXT};
+   182→    font-family: "Segoe UI";
+   183→    font-size: 10pt;
+   184→}}
+   185→QLabel {{ background-color: transparent; color: {TEXT}; }}
+   186→QLabel#appTitle {{
+   187→    font-size: 20pt;
+   188→    font-weight: bold;
+   189→    letter-spacing: -0.5px;
+   190→}}
+   191→QLabel#appSubtitle {{
+   192→    color: {MUTED};
+   193→    font-size: 10pt;
+   194→}}
+   195→QLabel#sectionLabel {{
+   196→    color: {DIM};
+   197→    font-size: 8pt;
+   198→    font-weight: bold;
+   199→    letter-spacing: 1.2px;
+   200→}}
+   201→QLabel#fmtLabel {{
+   202→    color: {MUTED};
+   203→    font-size: 9pt;
+   204→}}
+   205→QLabel#statusLbl {{ color: {MUTED}; font-size: 9pt; }}
+   206→QLabel#badge {{
+   207→    background-color: {SURFACE};
+   208→    color: {DIM};
+   209→    border-radius: 5px;
+   210→    padding: 2px 8px;
+   211→    font-size: 9pt;
+   212→}}
+   213→QLabel#progLbl {{ color: {MUTED}; }}
+   214→
+   215→QPushButton {{
+   216→    background-color: {SURFACE};
+   217→    color: {MUTED};
+   218→    border: 1px solid {BORDER};
+   219→    border-radius: 6px;
+   220→    padding: 4px 10px;
+   221→    min-height: 28px;
+   222→    font-family: "Segoe UI";
+   223→    font-size: 10pt;
+   224→}}
+   225→QPushButton:hover {{ background-color: {CARD}; color: {TEXT}; }}
+   226→QPushButton:disabled {{ color: {DIM}; }}
+   227→QPushButton:pressed {{ background-color: {BG}; }}
+   228→
+   229→QPushButton#fetchBtn {{
+   230→    background-color: {ACCENT}; color: {TEXT};
+   231→    border: none; font-weight: bold; font-size: 10pt;
+   232→    padding: 6px 18px;
+   233→}}
+   234→QPushButton#fetchBtn:hover {{ background-color: {A_HOVER}; }}
+   235→QPushButton#fetchBtn:disabled {{ background-color: {SURFACE}; color: {DIM}; }}
+   236→
+   237→QPushButton#dlBtn {{
+   238→    background-color: {GREEN}; color: {BG};
+   239→    border: none; font-weight: bold; font-size: 11pt;
+   240→}}
+   241→QPushButton#dlBtn:hover {{ background-color: #2ea843; }}
+   242→
+   243→QPushButton#retryBtn {{
+   244→    background-color: {RED}; color: {TEXT};
+   245→    border: none; font-weight: bold;
+   246→}}
+   247→QPushButton#retryBtn:hover {{ background-color: #c93f3a; }}
+   248→
+   249→QPushButton#tabBtn {{
+   250→    background-color: transparent;
+   251→    color: {MUTED};
+   252→    border: none;
+   253→    border-bottom: 2px solid transparent;
+   254→    border-radius: 0;
+   255→    padding: 8px 14px 6px 14px;
+   256→    min-height: 32px;
+   257→    font-size: 10pt;
+   258→    text-align: left;
+   259→}}
+   260→QPushButton#tabBtn:hover {{
+   261→    color: {TEXT};
+   262→    background-color: {CARD};
+   263→}}
+   264→QPushButton#tabBtn[active="true"] {{
+   265→    color: {TEXT};
+   266→    border-bottom: 2px solid {ACCENT};
+   267→    font-weight: bold;
+   268→}}
+   269→
+   270→QPushButton#folderBtn {{
+   271→    background-color: transparent;
+   272→    color: {DIM};
+   273→    border: none;
+   274→    border-radius: 4px;
+   275→    padding: 0;
+   276→    font-size: 11pt;
+   277→    min-height: 26px;
+   278→}}
+   279→QPushButton#folderBtn:hover {{ background-color: {CARD}; color: {ACCENT}; }}
+   280→
+   281→QPushButton#loadMoreBtn {{
+   282→    background-color: {SURFACE}; color: {MUTED};
+   283→    border: 1px solid {BORDER}; border-radius: 8px;
+   284→    font-size: 10pt; min-height: 34px;
+   285→}}
+   286→QPushButton#loadMoreBtn:hover {{ background-color: {CARD}; color: {TEXT}; }}
+   287→
+   288→QLineEdit {{
+   289→    background-color: {SURFACE};
+   290→    color: {TEXT};
+   291→    border: 1px solid {BORDER};
+   292→    border-radius: 6px;
+   293→    padding: 6px 10px;
+   294→    font-size: 10pt;
+   295→    selection-background-color: {ACCENT};
+   296→}}
+   297→QLineEdit:focus {{ border-color: {ACCENT}; }}
+   298→QLineEdit#tokenEntry {{
+   299→    font-family: "Consolas", "Menlo", monospace;
+   300→    font-size: 10pt;
+   301→    padding: 8px 12px;
+   302→}}
+   303→QLineEdit#searchEntry {{
+   304→    padding: 4px 10px;
+   305→}}
+   306→
+   307→QCheckBox {{ color: {TEXT}; spacing: 8px; font-size: 10pt; }}
+   308→QFrame#tile QCheckBox {{ spacing: 0px; }}
+   309→QCheckBox::indicator {{
+   310→    width: 16px; height: 16px;
+   311→    border: 1px solid {BORDER};
+   312→    border-radius: 3px;
+   313→    background-color: {SURFACE};
+   314→}}
+   315→QCheckBox::indicator:checked {{
+   316→    background-color: {ACCENT};
+   317→    border-color: {ACCENT};
+   318→}}
+   319→QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
+   320→
+   321→QPushButton#dropBtn {{
+   322→    background-color: {SURFACE};
+   323→    color: {TEXT};
+   324→    border: 1px solid {BORDER};
+   325→    border-radius: 6px;
+   326→    padding: 4px 12px;
+   327→    min-height: 28px;
+   328→    text-align: left;
+   329→}}
+   330→QPushButton#dropBtn:hover {{
+   331→    background-color: {CARD};
+   332→    border-color: {MUTED};
+   333→    color: {TEXT};
+   334→}}
+   335→
+   336→QProgressBar {{
+   337→    background-color: {BORDER};
+   338→    border: none;
+   339→    border-radius: 3px;
+   340→    max-height: 5px;
+   341→    text-align: center;
+   342→}}
+   343→QProgressBar::chunk {{
+   344→    background-color: {ACCENT};
+   345→    border-radius: 3px;
+   346→}}
+   347→
+   348→QScrollArea {{ background-color: {BG}; border: none; }}
+   349→QScrollBar:vertical {{
+   350→    background-color: {SURFACE};
+   351→    width: 10px; margin: 0;
+   352→}}
+   353→QScrollBar::handle:vertical {{
+   354→    background-color: {BORDER};
+   355→    border-radius: 5px;
+   356→    min-height: 30px; margin: 2px;
+   357→}}
+   358→QScrollBar::handle:vertical:hover {{ background-color: {DIM}; }}
+   359→QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; border: none; }}
+   360→QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+   361→QScrollBar:horizontal {{ height: 0; }}
+   362→
+   363→QFrame#divider {{
+   364→    background-color: {BORDER};
+   365→    border: none;
+   366→    max-height: 1px;
+   367→}}
+   368→QFrame#vsep {{
+   369→    background-color: {BORDER};
+   370→    border: none;
+   371→    max-width: 1px;
+   372→}}
+   373→QWidget#surface {{ background-color: {SURFACE}; }}
+   374→QWidget#header {{ background-color: {BG}; }}
+   375→QWidget#settingsBar {{ background-color: {BG}; }}
+   376→QWidget#statusStrip {{ background-color: {BG}; }}
+   377→QWidget#toolBar {{ background-color: {BG}; }}
+   378→QWidget#footerBar {{ background-color: {BG}; border-top: 1px solid {BORDER}; }}
+   379→QWidget#tileContainer {{ background-color: {BG}; }}
+   380→
+   381→QMenu {{
+   382→    background-color: {SURFACE};
+   383→    color: {TEXT};
+   384→    border: 1px solid {BORDER};
+   385→}}
+   386→QMenu::item {{ padding: 4px 20px; }}
+   387→QMenu::item:selected {{ background-color: {ACCENT}; }}
+   388→
+   389→QToolTip {{
+   390→    background-color: {SURFACE};
+   391→    color: {TEXT};
+   392→    border: 1px solid {BORDER};
+   393→    border-radius: 4px;
+   394→    padding: 4px 8px;
+   395→    font-size: 10pt;
+   396→}}
+   397→"""
+   398→
+   399→_FORCE_ON = (
+   400→    f"QPushButton {{ background-color: {ACCENT}; color: {TEXT}; border: none; "
+   401→    f"border-radius: 6px; padding: 4px 10px; min-height: 28px; font-size: 10pt; }}"
+   402→    f"QPushButton:hover {{ background-color: {A_HOVER}; }}"
+   403→)
+   404→
+   405→# Tile frame stylesheets
+   406→_TILE_NORMAL = (
+   407→    f"QFrame#tile {{ background-color: {CARD}; border: 1px solid {BORDER}; border-radius: 10px; }}"
+   408→)
+   409→_TILE_HOVER = (
+   410→    f"QFrame#tile {{ background-color: {CARD}; border: 1px solid {ACCENT}; border-radius: 10px; }}"
+   411→)
+   412→
+   413→# ─── placeholder pixmap ───────────────────────────────────────────────────────
+   414→
+   415→_PH_PIX: QPixmap | None = None
+   416→
+   417→def _hex_to_rgb(h: str) -> tuple:
+   418→    h = h.lstrip("#")
+   419→    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+   420→
+   421→def _placeholder() -> QPixmap:
+   422→    global _PH_PIX
+   423→    if _PH_PIX is None:
+   424→        cr, cg, cb = _hex_to_rgb(CARD)
+   425→        br, bg_c, bb = _hex_to_rgb(BORDER)
+   426→        dr, dg, db = _hex_to_rgb(DIM)
+   427→        img = Image.new("RGB", (TW, TH), (cr, cg, cb))
+   428→        draw = ImageDraw.Draw(img)
+   429→        draw.rectangle([2, 2, TW - 3, TH - 3], outline=(br, bg_c, bb), width=1)
+   430→        cx, cy = TW // 2, TH // 2
+   431→        r = 20
+   432→        draw.ellipse([cx-r, cy-r-12, cx+r, cy+r-12], outline=(dr, dg, db), width=2)
+   433→        draw.rectangle([cx-r, cy+r-6, cx+r, cy+r+28], outline=(dr, dg, db), width=2)
+   434→        _PH_PIX = _pil_to_pixmap(img)
+   435→    return _PH_PIX
+   436→
+   437→def _pil_to_pixmap(img: Image.Image) -> QPixmap:
+   438→    rgb = img.convert("RGB")
+   439→    data = rgb.tobytes("raw", "RGB")
+   440→    qimg = QImage(data, rgb.width, rgb.height, rgb.width * 3, QImage.Format.Format_RGB888)
+   441→    return QPixmap.fromImage(qimg)
+   442→
+   443→def _make_app_icon() -> QIcon:
+   444→    """Build the app/window icon at runtime so we don't ship a binary file.
+   445→    Rounded accent square with a white download arrow + baseline bar."""
+   446→    icon = QIcon()
+   447→    cr, cg, cb = _hex_to_rgb(ACCENT)
+   448→    white = (255, 255, 255, 255)
+   449→    for s in (16, 24, 32, 48, 64, 128, 256):
+   450→        img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+   451→        d = ImageDraw.Draw(img)
+   452→        radius = max(2, int(s * 0.22))
+   453→        try:
+   454→            d.rounded_rectangle([0, 0, s - 1, s - 1], radius=radius,
+   455→                                fill=(cr, cg, cb, 255))
+   456→        except AttributeError:
+   457→            d.rectangle([0, 0, s - 1, s - 1], fill=(cr, cg, cb, 255))
+   458→
+   459→        # Arrow shaft (centered vertical bar).
+   460→        shaft_w   = max(2, int(s * 0.14))
+   461→        shaft_top = int(s * 0.22)
+   462→        shaft_bot = int(s * 0.52)
+   463→        d.rectangle(
+   464→            [s // 2 - shaft_w // 2, shaft_top,
+   465→             s // 2 + shaft_w // 2, shaft_bot],
+   466→            fill=white,
+   467→        )
+   468→        # Arrowhead triangle.
+   469→        head_top = shaft_bot - max(1, int(s * 0.02))
+   470→        head_bot = int(s * 0.72)
+   471→        head_w   = max(4, int(s * 0.38))
+   472→        d.polygon(
+   473→            [(s // 2 - head_w // 2, head_top),
+   474→             (s // 2 + head_w // 2, head_top),
+   475→             (s // 2,               head_bot)],
+   476→            fill=white,
+   477→        )
+   478→        # Baseline bar (the “save-to-disk” line).
+   479→        bar_pad = int(s * 0.22)
+   480→        bar_y   = int(s * 0.82)
+   481→        bar_h   = max(2, int(s * 0.07))
+   482→        d.rectangle([bar_pad, bar_y, s - bar_pad, bar_y + bar_h], fill=white)
+   483→
+   484→        qimg = QImage(
+   485→            img.tobytes("raw", "RGBA"),
+   486→            s, s, s * 4,
+   487→            QImage.Format.Format_RGBA8888,
+   488→        )
+   489→        icon.addPixmap(QPixmap.fromImage(qimg))
+   490→    return icon
+   491→
+   492→# ─── text helpers ─────────────────────────────────────────────────────────────
+   493→
+   494→def _safe(s: str) -> str:
+   495→    return re.sub(r'[<>:"/\\|?*]', "_", str(s)).strip() or "unknown"
+   496→
+   497→def _lc_author(path: str) -> str:
+   498→    parts = path.split("/", 1)
+   499→    if len(parts) == 2:
+   500→        return parts[0].lower() + "/" + parts[1]
+   501→    return path.lower()
+   502→
+   503→# ─── message / branch helpers ─────────────────────────────────────────────────
+   504→
+   505→def _extract_messages(body) -> list:
+   506→    if isinstance(body, list):
+   507→        return body
+   508→    if not isinstance(body, dict):
+   509→        return []
+   510→    for key in ("chatMessages", "messages", "results", "items"):
+   511→        raw = body.get(key)
+   512→        if isinstance(raw, list) and raw:
+   513→            return raw
+   514→        if isinstance(raw, dict) and raw:
+   515→            msgs = [v for v in raw.values() if isinstance(v, dict)]
+   516→            msgs.sort(key=lambda m: int(m.get("id", 0)))
+   517→            return msgs
+   518→    return []
+   519→
+   520→def _build_branches(msg_map: dict) -> list:
+   521→    if not msg_map:
+   522→        return []
+   523→    children: dict = {}
+   524→    for mid, msg in msg_map.items():
+   525→        pid = msg.get("parent_id")
+   526→        if pid is None:
+   527→            continue
+   528→        try:
+   529→            pid = int(pid)
+   530→        except (ValueError, TypeError):
+   531→            continue
+   532→        if pid in msg_map:
+   533→            children.setdefault(pid, []).append(mid)
+   534→
+   535→    def _is_root(msg):
+   536→        pid = msg.get("parent_id")
+   537→        if pid is None:
+   538→            return True
+   539→        try:
+   540→            return int(pid) not in msg_map
+   541→        except (ValueError, TypeError):
+   542→            return True
+   543→
+   544→    root_ids = sorted(mid for mid, msg in msg_map.items() if _is_root(msg))
+   545→    if not root_ids:
+   546→        return [sorted(msg_map.values(), key=lambda m: int(m.get("id", 0)))]
+   547→
+   548→    branches = []
+   549→    stack = [(rid, []) for rid in reversed(root_ids)]
+   550→    while stack:
+   551→        node_id, path = stack.pop()
+   552→        if node_id not in msg_map:
+   553→            continue
+   554→        new_path = path + [msg_map[node_id]]
+   555→        kids = sorted(children.get(node_id, []))
+   556→        if not kids:
+   557→            branches.append(new_path)
+   558→        else:
+   559→            for kid in reversed(kids):
+   560→                stack.append((kid, new_path))
+   561→    return branches or [sorted(msg_map.values(), key=lambda m: int(m.get("id", 0)))]
+   562→
+   563→def _build_main_path(msg_map: dict) -> list:
+   564→    """Walk msg_map along the is_main path, returning one entry per message:
+   565→    (node, siblings, index_of_node_in_siblings). Siblings are every message
+   566→    that shares the same parent (i.e. alternate branches at that point)."""
+   567→    if not msg_map:
+   568→        return []
+   569→    children: dict = {}
+   570→    for mid, msg in msg_map.items():
+   571→        pid = msg.get("parent_id")
+   572→        if pid is None:
+   573→            continue
+   574→        try:
+   575→            pid = int(pid)
+   576→        except (ValueError, TypeError):
+   577→            continue
+   578→        if pid in msg_map:
+   579→            children.setdefault(pid, []).append(mid)
+   580→    for kids in children.values():
+   581→        kids.sort()
+   582→
+   583→    def _is_root(msg):
+   584→        pid = msg.get("parent_id")
+   585→        if pid is None:
+   586→            return True
+   587→        try:
+   588→            return int(pid) not in msg_map
+   589→        except (ValueError, TypeError):
+   590→            return True
+   591→
+   592→    roots = sorted(mid for mid, msg in msg_map.items() if _is_root(msg))
+   593→    if not roots:
+   594→        return []
+   595→
+   596→    def _pick_main(ids):
+   597→        for i in ids:
+   598→            if msg_map[i].get("is_main"):
+   599→                return i
+   600→        return ids[0]
+   601→
+   602→    path = []
+   603→    cur = _pick_main(roots)
+   604→    while cur is not None:
+   605→        node = msg_map[cur]
+   606→        pid = node.get("parent_id")
+   607→        try:
+   608→            pid = int(pid) if pid is not None else None
+   609→        except (ValueError, TypeError):
+   610→            pid = None
+   611→        sibling_ids = roots if (pid is None or pid not in msg_map) else children.get(pid, [cur])
+   612→        siblings = [msg_map[s] for s in sibling_ids]
+   613→        idx = sibling_ids.index(cur)
+   614→        path.append((node, siblings, idx))
+   615→        kid_ids = children.get(cur, [])
+   616→        cur = _pick_main(kid_ids) if kid_ids else None
+   617→    return path
+   618→
+   619→def _fmt_chat_date(iso: str) -> str:
+   620→    try:
+   621→        dt = _dt.datetime.fromisoformat((iso or "").replace("Z", "+00:00"))
+   622→    except Exception:
+   623→        return iso or ""
+   624→    return dt.strftime("%B %d, %Y %I:%M%p")
+   625→
+   626→def _merged_st_lines(path: list, char_name: str, user_name: str) -> list:
+   627→    lines = []
+   628→    for node, siblings, idx in path:
+   629→        if node.get("message") is None:
+   630→            continue
+   631→        is_bot = bool(node.get("is_bot"))
+   632→        entry = {
+   633→            "name": char_name if is_bot else user_name,
+   634→            "is_user": not is_bot,
+   635→            "is_system": False,
+   636→            "send_date": _fmt_chat_date(node.get("created_at", "")),
+   637→            "mes": node.get("message") or "",
+   638→            "extra": {},
+   639→        }
+   640→        if len(siblings) > 1:
+   641→            entry["swipe_id"] = idx
+   642→            entry["swipes"] = [s.get("message") or "" for s in siblings]
+   643→        lines.append(entry)
+   644→    return lines
+   645→
+   646→def _merged_chat_text(path: list, char_name: str, user_name: str, chat_fmt: str) -> str:
+   647→    lines = _merged_st_lines(path, char_name, user_name)
+   648→    if chat_fmt == "JSON":
+   649→        header = {"user_name": user_name, "character_name": char_name,
+   650→                  "create_date": _dt.datetime.now().strftime("%B %d, %Y %I:%M%p"),
+   651→                  "chat_metadata": {}}
+   652→        return json.dumps({"header": header, "messages": lines}, indent=2, ensure_ascii=False)
+   653→    if chat_fmt == "TXT":
+   654→        out = [f"Character: {char_name}", "─" * 40, ""]
+   655→        for entry in lines:
+   656→            out.append(f"{entry['name']}: {entry['mes']}")
+   657→            if entry.get("swipes"):
+   658→                for si, alt in enumerate(entry["swipes"]):
+   659→                    if si == entry["swipe_id"]:
+   660→                        continue
+   661→                    out.append(f"  ↳ [swipe {si+1}/{len(entry['swipes'])}] {alt}")
+   662→            out.append("")
+   663→        return "\n".join(out)
+   664→    # JSONL (SillyTavern chat format): header line + one message per line
+   665→    header = {"user_name": user_name, "character_name": char_name,
+   666→              "create_date": _dt.datetime.now().strftime("%B %d, %Y %I:%M%p"),
+   667→              "chat_metadata": {}}
+   668→    out_lines = [json.dumps(header, ensure_ascii=False)]
+   669→    out_lines.extend(json.dumps(e, ensure_ascii=False) for e in lines)
+   670→    return "\n".join(out_lines)
+   671→
+   672→def _req(sess, method: str, url: str, max_retries: int = 3, **kwargs):
+   673→    for attempt in range(max_retries + 1):
+   674→        r = getattr(sess, method)(url, **kwargs)
+   675→        if r.status_code != 429:
+   676→            return r
+   677→        time.sleep(2 ** attempt)
+   678→    return r
+   679→
+   680→def _item_already_saved(content_type: str, key: str, node: dict, card_fmt: str) -> bool:
+   681→    if content_type == "cards":
+   682→        fname = _safe(key.replace("/", "_"))
+   683→        if card_fmt != "JSON" and (CARDS_DIR / f"{fname}.png").exists():  return True
+   684→        if card_fmt != "PNG"  and (CARDS_DIR / f"{fname}.json").exists(): return True
+   685→        return False
+   686→    if content_type == "lorebooks":
+   687→        return (LORE_DIR / f"{_safe(node.get('name', key))}.json").exists()
+   688→    if content_type == "presets":
+   689→        return (PRESETS_DIR / f"{_safe(key.replace('/', '_'))}.json").exists()
+   690→    if content_type == "personas":
+   691→        chub_id = str(node.get("id", ""))
+   692→        pname   = node.get("name") or chub_id
+   693→        folder  = f"{_safe(pname)}_{chub_id}" if chub_id else _safe(pname)
+   694→        return (PERSONAS_DIR / folder / f"{_safe(pname)}.json").exists()
+   695→    if content_type == "chats":
+   696→        d = CHATS_DIR / key
+   697→        return d.exists() and any(d.iterdir())
+   698→    return False
+   699→
+   700→def _dir_size_str(path: Path) -> str:
+   701→    try:
+   702→        total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+   703→        for unit in ("B", "KB", "MB", "GB"):
+   704→            if total < 1024:
+   705→                return f"{total:.0f} {unit}"
+   706→            total /= 1024
+   707→        return f"{total:.1f} TB"
+   708→    except Exception:
+   709→        return "?"
+   710→
+   711→# ─── chat helpers ─────────────────────────────────────────────────────────────
+   712→
+   713→def _chat_name(s: dict) -> str:
+   714→    for f in ("character_name", "title"):
+   715→        if s.get(f): return s[f]
+   716→    if s.get("name"): return s["name"]
+   717→    for nk in ("characters", "node", "character", "char"):
+   718→        n = s.get(nk)
+   719→        if isinstance(n, dict):
+   720→            for f in ("name", "full_name", "displayName", "title", "project_name"):
+   721→                if n.get(f): return n[f]
+   722→    pip = s.get("primary_image_path")
+   723→    if not pip:
+   724→        chars = s.get("characters")
+   725→        if isinstance(chars, dict):
+   726→            pip = chars.get("full_path") or chars.get("fullPath")
+   727→    if isinstance(pip, str) and pip:
+   728→        slug = pip.rstrip("/").split("/")[-1]
+   729→        if slug:
+   730→            return slug.replace("-", " ").replace("_", " ").title()
+   731→    return str(s.get("id", "unknown"))
+   732→
+   733→def _char_folder_key(s: dict) -> tuple[str, str]:
+   734→    char_id   = str(s.get("character_id", "") or "")
+   735→    chars_obj = s.get("characters")
+   736→    char_name = ""
+   737→    if isinstance(chars_obj, dict):
+   738→        char_name = chars_obj.get("name") or ""
+   739→        if not char_name:
+   740→            fp = chars_obj.get("full_path") or chars_obj.get("fullPath") or ""
+   741→            if fp:
+   742→                char_name = fp.rstrip("/").split("/")[-1].replace("-", " ").replace("_", " ").title()
+   743→    if not char_name:
+   744→        char_name = char_id or "unknown"
+   745→    folder_key = _safe(f"{char_name}_{char_id}" if char_id else char_name)
+   746→    return char_name, folder_key
+   747→
+   748→def _chat_avatar_url(s: dict) -> str | None:
+   749→    for f in ("primary_image_path", "primary_image_url", "avatar_url", "avatar", "image_url"):
+   750→        v = s.get(f)
+   751→        if isinstance(v, str) and v.startswith("http"):
+   752→            return v
+   753→    for nk in ("characters", "node", "character", "char"):
+   754→        n = s.get(nk)
+   755→        if isinstance(n, dict):
+   756→            av = n.get("avatar_url") or n.get("avatar")
+   757→            if isinstance(av, str) and av.startswith("http"):
+   758→                return av
+   759→            fp = n.get("fullPath") or n.get("full_path")
+   760→            if fp:
+   761→                return f"{CDN_BASE}/{fp}/chara_card_v2.png"
+   762→    return None
+   763→
+   764→# ─── Tile ─────────────────────────────────────────────────────────────────────
+   765→
+   766→class Tile(QFrame):
+   767→    clicked = pyqtSignal()
+   768→
+   769→    def __init__(self, name: str, parent: QWidget | None = None):
+   770→        super().__init__(parent)
+   771→        self.setObjectName("tile")
+   772→        self.setStyleSheet(_TILE_NORMAL)
+   773→        self.setFixedWidth(TW + 20)
+   774→
+   775→        layout = QVBoxLayout(self)
+   776→        layout.setContentsMargins(6, 8, 6, 6)
+   777→        layout.setSpacing(2)
+   778→        layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+   779→
+   780→        self._img_lbl = QLabel()
+   781→        self._img_lbl.setFixedSize(TW, TH)
+   782→        self._img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+   783→        self._img_lbl.setPixmap(_placeholder())
+   784→        layout.addWidget(self._img_lbl, alignment=Qt.AlignmentFlag.AlignHCenter)
+   785→
+   786→        short = (name[:15] + "…") if len(name) > 16 else name
+   787→        name_lbl = QLabel(short)
+   788→        name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+   789→        name_lbl.setWordWrap(True)
+   790→        name_lbl.setStyleSheet(f"color: {TEXT}; font-size: 11pt;")
+   791→        layout.addWidget(name_lbl)
+   792→
+   793→        self._badge = QLabel("Queued")
+   794→        self._badge.setObjectName("badge")
+   795→        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+   796→        layout.addWidget(self._badge)
+   797→
+   798→        self._chk = QCheckBox()
+   799→        self._chk.setChecked(True)
+   800→        layout.addWidget(self._chk, alignment=Qt.AlignmentFlag.AlignHCenter)
+   801→
+   802→        self.setToolTip(name)
+   803→
+   804→    def set_status(self, key: str):
+   805→        self._badge.setText(STATUS_LABEL.get(key, key))
+   806→        self._badge.setStyleSheet(
+   807→            f"background-color: {SURFACE}; color: {STATUS_FG.get(key, MUTED)}; "
+   808→            f"border-radius: 5px; padding: 2px 8px; font-size: 9pt;"
+   809→        )
+   810→
+   811→    def set_badge_text(self, text: str):
+   812→        self._badge.setText(text)
+   813→
+   814→    def set_image(self, raw: bytes):
+   815→        try:
+   816→            pil = Image.open(io.BytesIO(raw))
+   817→            pil.thumbnail((TW, TH), Image.LANCZOS)
+   818→            cr, cg, cb = _hex_to_rgb(CARD)
+   819→            bg = Image.new("RGB", (TW, TH), (cr, cg, cb))
+   820→            bg.paste(pil, ((TW - pil.width) // 2, (TH - pil.height) // 2))
+   821→            self._img_lbl.setPixmap(_pil_to_pixmap(bg))
+   822→        except Exception:
+   823→            pass
+   824→
+   825→    def is_checked(self) -> bool:
+   826→        return self._chk.isChecked()
+   827→
+   828→    def set_checked(self, val: bool):
+   829→        self._chk.setChecked(val)
+   830→
+   831→    def enterEvent(self, event):
+   832→        self.setStyleSheet(_TILE_HOVER)
+   833→        super().enterEvent(event)
+   834→
+   835→    def leaveEvent(self, event):
+   836→        self.setStyleSheet(_TILE_NORMAL)
+   837→        super().leaveEvent(event)
+   838→
+   839→    def mousePressEvent(self, event):
+   840→        if event.button() == Qt.MouseButton.LeftButton:
+   841→            self.clicked.emit()
+   842→        super().mousePressEvent(event)
+   843→
+   844→# ─── TileGrid ─────────────────────────────────────────────────────────────────
+   845→
+   846→class TileGrid(QScrollArea):
+   847→    def __init__(self, kind: str, parent: QWidget | None = None):
+   848→        super().__init__(parent)
+   849→        self.kind     = kind
+   850→        self._click_cb = None
+   851→
+   852→        self.setWidgetResizable(True)
+   853→        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+   854→        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+   855→
+   856→        self._container = QWidget()
+   857→        self._container.setObjectName("tileContainer")
+   858→        self._layout = QGridLayout(self._container)
+   859→        self._layout.setContentsMargins(10, 10, 10, 10)
+   860→        self._layout.setHorizontalSpacing(8)
+   861→        self._layout.setVerticalSpacing(8)
+   862→        self._layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+   863→        self.setWidget(self._container)
+   864→
+   865→        self._tiles:      dict[str, Tile]  = {}
+   866→        self._names:      dict[str, str]   = {}
+   867→        self._order:      list[str]        = []
+   868→        self._visible:    int              = 0
+   869→        self._cols:       int              = COLS
+   870→        self._col:        int              = 0
+   871→        self._row:        int              = 0
+   872→        self._bulk_state: bool             = True
+   873→        self._sort_keys:  dict[str, str]   = {}
+   874→        self._statuses:   dict[str, str]   = {}
+   875→        self._msg_counts: dict[str, int]   = {}
+   876→        self._force_keys: set[str]         = set()
+   877→        self._load_btn:   QPushButton | None = None
+   878→
+   879→        self._reflow_timer = QTimer(self)
+   880→        self._reflow_timer.setSingleShot(True)
+   881→        self._reflow_timer.timeout.connect(self._reflow)
+   882→
+   883→    def resizeEvent(self, event):
+   884→        super().resizeEvent(event)
+   885→        sb_w = self.verticalScrollBar().width() if self.verticalScrollBar().isVisible() else 12
+   886→        slot_w = TW + 32
+   887→        new_cols = max(1, (event.size().width() - sb_w - 12) // slot_w)
+   888→        if new_cols != self._cols:
+   889→            self._cols = new_cols
+   890→            self._reflow_timer.start(120)
+   891→
+   892→    def _reflow(self):
+   893→        self._container.setUpdatesEnabled(False)
+   894→        try:
+   895→            while self._layout.count():
+   896→                self._layout.takeAt(0)
+   897→            self._col = self._row = 0
+   898→            for key in self._order[:self._visible]:
+   899→                t = self._tiles[key]
+   900→                if t.isVisible():
+   901→                    self._layout.addWidget(t, self._row, self._col)
+   902→                    self._col += 1
+   903→                    if self._col >= self._cols:
+   904→                        self._col = 0; self._row += 1
+   905→            self._sync_load_btn()
+   906→        finally:
+   907→            self._container.setUpdatesEnabled(True)
+   908→
+   909→    def _place(self, t: Tile):
+   910→        self._layout.addWidget(t, self._row, self._col)
+   911→        self._col += 1
+   912→        if self._col >= self._cols:
+   913→            self._col = 0; self._row += 1
+   914→
+   915→    def _sync_load_btn(self):
+   916→        remaining = len(self._order) - self._visible
+   917→        if remaining <= 0:
+   918→            if self._load_btn:
+   919→                self._layout.removeWidget(self._load_btn)
+   920→                self._load_btn.hide()
+   921→            return
+   922→        if self._load_btn is None:
+   923→            self._load_btn = QPushButton()
+   924→            self._load_btn.setObjectName("loadMoreBtn")
+   925→            self._load_btn.clicked.connect(self._load_more)
+   926→            self._load_btn.setParent(self._container)
+   927→        n = min(PAGE, remaining)
+   928→        self._load_btn.setText(f"Load {n} more  ({remaining} remaining)")
+   929→        self._load_btn.show()
+   930→        btn_row = self._row + (1 if self._col > 0 else 0)
+   931→        self._layout.addWidget(self._load_btn, btn_row, 0, 1, max(self._cols, 1))
+   932→
+   933→    def _load_more(self):
+   934→        if self._load_btn:
+   935→            self._layout.removeWidget(self._load_btn)
+   936→            self._load_btn.hide()
+   937→        start = self._visible
+   938→        end   = min(start + PAGE, len(self._order))
+   939→        self._container.setUpdatesEnabled(False)
+   940→        try:
+   941→            for i in range(start, end):
+   942→                key = self._order[i]
+   943→                t   = self._tiles[key]
+   944→                t.show()
+   945→                self._place(t)
+   946→            self._visible = end
+   947→            self._sync_load_btn()
+   948→        finally:
+   949→            self._container.setUpdatesEnabled(True)
+   950→
+   951→    def add(self, key: str, name: str):
+   952→        if key in self._tiles:
+   953→            return
+   954→        t = Tile(name, self._container)
+   955→        t.set_checked(self._bulk_state)
+   956→
+   957→        # Right-click context menu
+   958→        t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+   959→        def _ctx(pos, _k=key, _t=t):
+   960→            menu = QMenu(_t)
+   961→            if _k in self._force_keys:
+   962→                act = menu.addAction("✓ Force re-download (on — click to disable)")
+   963→                act.triggered.connect(lambda: self._force_keys.discard(_k))
+   964→            else:
+   965→                act = menu.addAction("↺ Force re-download this item")
+   966→                act.triggered.connect(lambda: self._force_keys.add(_k))
+   967→            menu.exec(_t.mapToGlobal(pos))
+   968→        t.customContextMenuRequested.connect(_ctx)
+   969→
+   970→        if self.kind == "chats" and self._click_cb is not None:
+   971→            t.clicked.connect(lambda _k=key: self._click_cb(_k))
+   972→
+   973→        self._tiles[key] = t
+   974→        self._names[key] = name.lower()
+   975→        self._order.append(key)
+   976→
+   977→        if self._visible < PAGE:
+   978→            self._place(t)
+   979→            self._visible += 1
+   980→        else:
+   981→            t.hide()
+   982→            self._sync_load_btn()
+   983→
+   984→    def set_status(self, key: str, s: str):
+   985→        self._statuses[key] = s
+   986→        if t := self._tiles.get(key):
+   987→            t.set_status(s)
+   988→
+   989→    def set_image(self, key: str, raw: bytes):
+   990→        if t := self._tiles.get(key):
+   991→            t.set_image(raw)
+   992→
+   993→    def set_badge(self, key: str, text: str):
+   994→        if t := self._tiles.get(key):
+   995→            t.set_badge_text(text)
+   996→
+   997→    def set_sort_key(self, key: str, date_str: str):
+   998→        self._sort_keys[key] = date_str
+   999→
+  1000→    def set_msg_count(self, key: str, count: int):
+  1001→        self._msg_counts[key] = count
+  1002→
+  1003→    def count(self) -> int:
+  1004→        return len(self._tiles)
+  1005→
+  1006→    def select_all(self, val: bool = True):
+  1007→        self._bulk_state = val
+  1008→        for t in self._tiles.values():
+  1009→            t.set_checked(val)
+  1010→
+  1011→    def get_checked(self) -> set[str]:
+  1012→        rendered  = set(self._order[:self._visible])
+  1013→        checked   = {k for k in rendered if self._tiles[k].is_checked()}
+  1014→        if self._bulk_state:
+  1015→            checked |= set(self._order[self._visible:])
+  1016→        return checked
+  1017→
+  1018→    def filter(self, query: str):
+  1019→        q = query.strip().lower()
+  1020→        if q and self._visible < len(self._order):
+  1021→            self._container.setUpdatesEnabled(False)
+  1022→            try:
+  1023→                for i in range(self._visible, len(self._order)):
+  1024→                    t = self._tiles[self._order[i]]
+  1025→                    t.show()
+  1026→                    self._place(t)
+  1027→                self._visible = len(self._order)
+  1028→            finally:
+  1029→                self._container.setUpdatesEnabled(True)
+  1030→        if not q:
+  1031→            for t in self._tiles.values():
+  1032→                t.show()
+  1033→            self._reflow()
+  1034→            return
+  1035→        while self._layout.count():
+  1036→            self._layout.takeAt(0)
+  1037→        self._col = self._row = 0
+  1038→        for key in self._order:
+  1039→            t = self._tiles[key]
+  1040→            if q in self._names.get(key, ""):
+  1041→                t.show()
+  1042→                self._layout.addWidget(t, self._row, self._col)
+  1043→                self._col += 1
+  1044→                if self._col >= self._cols:
+  1045→                    self._col = 0; self._row += 1
+  1046→            else:
+  1047→                t.hide()
+  1048→        if self._load_btn:
+  1049→            self._layout.removeWidget(self._load_btn)
+  1050→            self._load_btn.hide()
+  1051→
+  1052→    def filter_by_status(self, allowed: set | None):
+  1053→        if self._visible < len(self._order):
+  1054→            self._container.setUpdatesEnabled(False)
+  1055→            try:
+  1056→                for i in range(self._visible, len(self._order)):
+  1057→                    t = self._tiles[self._order[i]]
+  1058→                    t.show()
+  1059→                    self._place(t)
+  1060→                self._visible = len(self._order)
+  1061→            finally:
+  1062→                self._container.setUpdatesEnabled(True)
+  1063→        for key in self._order:
+  1064→            t  = self._tiles[key]
+  1065→            st = self._statuses.get(key, "queued")
+  1066→            if allowed is None or st in allowed:
+  1067→                t.show()
+  1068→            else:
+  1069→                t.hide()
+  1070→        self._reflow()
+  1071→
+  1072→    def sort_by_date(self, newest_first: bool = True):
+  1073→        self._order.sort(key=lambda k: self._sort_keys.get(k, ""), reverse=newest_first)
+  1074→        self._force_render_all()
+  1075→        self._reflow()
+  1076→
+  1077→    def sort_by_msgs(self, descending: bool = True):
+  1078→        self._order.sort(key=lambda k: self._msg_counts.get(k, 0), reverse=descending)
+  1079→        self._force_render_all()
+  1080→        self._reflow()
+  1081→
+  1082→    def _force_render_all(self):
+  1083→        if self._visible < len(self._order):
+  1084→            self._container.setUpdatesEnabled(False)
+  1085→            try:
+  1086→                for i in range(self._visible, len(self._order)):
+  1087→                    t = self._tiles[self._order[i]]
+  1088→                    t.show()
+  1089→                self._visible = len(self._order)
+  1090→            finally:
+  1091→                self._container.setUpdatesEnabled(True)
+  1092→
+  1093→    def clear(self):
+  1094→        self._container.setUpdatesEnabled(False)
+  1095→        try:
+  1096→            while self._layout.count():
+  1097→                self._layout.takeAt(0)
+  1098→            for t in self._tiles.values():
+  1099→                t.deleteLater()
+  1100→            self._tiles.clear()
+  1101→            self._names.clear()
+  1102→            self._order.clear()
+  1103→            self._visible    = 0
+  1104→            self._col        = 0
+  1105→            self._row        = 0
+  1106→            self._bulk_state = True
+  1107→            self._sort_keys.clear()
+  1108→            self._statuses.clear()
+  1109→            self._msg_counts.clear()
+  1110→            self._force_keys.clear()
+  1111→            if self._load_btn:
+  1112→                self._load_btn.hide()
+  1113→        finally:
+  1114→            self._container.setUpdatesEnabled(True)
+  1115→
+  1116→# ─── Dropdown button (QPushButton + QMenu, visible ▾) ─────────────────────────
+  1117→
+  1118→class _DropBtn(QPushButton):
+  1119→    currentTextChanged = pyqtSignal(str)
+  1120→
+  1121→    def __init__(self, items: list[str], parent=None):
+  1122→        super().__init__(parent)
+  1123→        self._items   = list(items)
+  1124→        self._current = items[0] if items else ""
+  1125→        self.setObjectName("dropBtn")
+  1126→        self._update_text()
+  1127→        self.clicked.connect(self._open_menu)
+  1128→
+  1129→    def _update_text(self):
+  1130→        self.setText(f"{self._current}  ▾")
+  1131→
+  1132→    def _open_menu(self):
+  1133→        menu = QMenu(self)
+  1134→        for item in self._items:
+  1135→            act = menu.addAction(item)
+  1136→            act.setCheckable(True)
+  1137→            act.setChecked(item == self._current)
+  1138→            act.triggered.connect(lambda _c, i=item: self._select(i))
+  1139→        menu.exec(self.mapToGlobal(QPoint(0, self.height())))
+  1140→
+  1141→    def _select(self, item: str):
+  1142→        if item != self._current:
+  1143→            self._current = item
+  1144→            self._update_text()
+  1145→            self.currentTextChanged.emit(item)
+  1146→
+  1147→    def currentText(self) -> str:
+  1148→        return self._current
+  1149→
+  1150→    def setCurrentText(self, text: str):
+  1151→        if text in self._items and text != self._current:
+  1152→            self._current = text
+  1153→            self._update_text()
+  1154→
+  1155→    def setCurrentIndex(self, idx: int):
+  1156→        if 0 <= idx < len(self._items):
+  1157→            self.setCurrentText(self._items[idx])
+  1158→
+  1159→# ─── Main application ─────────────────────────────────────────────────────────
+  1160→
+  1161→class App(QMainWindow):
+  1162→    def __init__(self):
+  1163→        super().__init__()
+  1164→        self.setWindowTitle("Chub Ripper")
+  1165→        self.resize(1100, 780)
+  1166→        self.setMinimumSize(820, 560)
+  1167→
+  1168→        self._q                     = queue.Queue()
+  1169→        self._download_ready        = threading.Event()
+  1170→        self._cancel_event          = threading.Event()
+  1171→        self._cancel_download_event = threading.Event()
+  1172→        self._tok_snapshot          = _token_load()
+  1173→        self._total                 = 0
+  1174→        self._done                  = 0
+  1175→        self._worker_thread:   threading.Thread | None = None
+  1176→        self._download_thread: threading.Thread | None = None
+  1177→        self._fetch_sess            = None
+  1178→        self._fetched_cards:    list[dict] = []
+  1179→        self._fetched_lore:     list[dict] = []
+  1180→        self._fetched_presets:  list[dict] = []
+  1181→        self._fetched_personas: list[dict] = []
+  1182→        self._fetched_sessions: list[dict] = []
+  1183→        self._fetched_char_groups: dict    = {}
+  1184→        self._active_tab            = "cards"
+  1185→        self._force_redownload      = False
+  1186→        self._sort_newest           = True
+  1187→        self._sort_msgs_desc        = True
+  1188→
+  1189→        self._grids:      dict[str, TileGrid]    = {}
+  1190→        self._tab_btns:   dict[str, QPushButton] = {}
+  1191→        self._tab_counts: dict[str, int]         = {}
+  1192→
+  1193→        self._build()
+  1194→
+  1195→        self._pump_timer = QTimer(self)
+  1196→        self._pump_timer.timeout.connect(self._pump)
+  1197→        self._pump_timer.start(50)
+  1198→
+  1199→    # ── build ─────────────────────────────────────────────────────────────────
+  1200→
+  1201→    def _build(self):
+  1202→        central = QWidget()
+  1203→        self.setCentralWidget(central)
+  1204→        root = QVBoxLayout(central)
+  1205→        root.setContentsMargins(0, 0, 0, 0)
+  1206→        root.setSpacing(0)
+  1207→
+  1208→        # ── header (title + subtitle) ─────────────────────────────────────────
+  1209→        hdr = QWidget()
+  1210→        hdr.setObjectName("header")
+  1211→        hdr_l = QVBoxLayout(hdr)
+  1212→        hdr_l.setContentsMargins(24, 18, 24, 10)
+  1213→        hdr_l.setSpacing(2)
+  1214→
+  1215→        title = QLabel("Chub Ripper")
+  1216→        title.setObjectName("appTitle")
+  1217→        hdr_l.addWidget(title)
+  1218→
+  1219→        sub = QLabel("Paste your Ch-Api-Key and click Fetch.")
+  1220→        sub.setObjectName("appSubtitle")
+  1221→        hdr_l.addWidget(sub)
+  1222→        # The subtitle doubles as the live status line — keeps the top tight.
+  1223→        self._status_lbl = sub
+  1224→        root.addWidget(hdr)
+  1225→
+  1226→        # ── settings bar (auth + include + format) ───────────────────────────
+  1227→        settings = QWidget()
+  1228→        settings.setObjectName("settingsBar")
+  1229→        s_l = QVBoxLayout(settings)
+  1230→        s_l.setContentsMargins(24, 6, 24, 6)
+  1231→        s_l.setSpacing(10)
+  1232→
+  1233→        # row 1: API key + Fetch (one focused row)
+  1234→        auth_row = QHBoxLayout()
+  1235→        auth_row.setSpacing(10)
+  1236→
+  1237→        auth_lbl = QLabel("API KEY")
+  1238→        auth_lbl.setObjectName("sectionLabel")
+  1239→        auth_lbl.setFixedWidth(76)
+  1240→        auth_row.addWidget(auth_lbl)
+  1241→
+  1242→        self._token_entry = QLineEdit(self._tok_snapshot)
+  1243→        self._token_entry.setObjectName("tokenEntry")
+  1244→        self._token_entry.setEchoMode(QLineEdit.EchoMode.Password)
+  1245→        self._token_entry.setPlaceholderText(
+  1246→            "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  ·  "
+  1247→            "DevTools → Network → ro.chub.ai → Headers → Ch-Api-Key")
+  1248→        self._token_entry.setMinimumHeight(36)
+  1249→        auth_row.addWidget(self._token_entry, 1)
+  1250→
+  1251→        self._show_btn = QPushButton("Show")
+  1252→        self._show_btn.setFixedSize(64, 36)
+  1253→        self._show_btn.clicked.connect(self._toggle_token_visibility)
+  1254→        auth_row.addWidget(self._show_btn)
+  1255→
+  1256→        self._fetch_btn = QPushButton("Fetch")
+  1257→        self._fetch_btn.setObjectName("fetchBtn")
+  1258→        self._fetch_btn.setFixedSize(110, 36)
+  1259→        self._fetch_btn.clicked.connect(self._start)
+  1260→        auth_row.addWidget(self._fetch_btn)
+  1261→        s_l.addLayout(auth_row)
+  1262→
+  1263→        # row 2: Include + Format on the same line, separated
+  1264→        opts_row = QHBoxLayout()
+  1265→        opts_row.setSpacing(10)
+  1266→
+  1267→        inc_lbl = QLabel("INCLUDE")
+  1268→        inc_lbl.setObjectName("sectionLabel")
+  1269→        inc_lbl.setFixedWidth(76)
+  1270→        opts_row.addWidget(inc_lbl)
+  1271→
+  1272→        self._chk_cards     = QCheckBox("Cards");     self._chk_cards.setChecked(True)
+  1273→        self._chk_lorebooks = QCheckBox("Lorebooks"); self._chk_lorebooks.setChecked(True)
+  1274→        self._chk_presets   = QCheckBox("Presets");   self._chk_presets.setChecked(True)
+  1275→        self._chk_personas  = QCheckBox("Personas");  self._chk_personas.setChecked(True)
+  1276→        self._chk_chats     = QCheckBox("Chats");     self._chk_chats.setChecked(True)
+  1277→        for chk in (self._chk_cards, self._chk_lorebooks, self._chk_presets,
+  1278→                    self._chk_personas, self._chk_chats):
+  1279→            opts_row.addWidget(chk)
+  1280→            opts_row.addSpacing(6)
+  1281→
+  1282→        opts_row.addStretch()
+  1283→
+  1284→        fmt_lbl = QLabel("FORMAT")
+  1285→        fmt_lbl.setObjectName("sectionLabel")
+  1286→        opts_row.addWidget(fmt_lbl)
+  1287→        opts_row.addSpacing(6)
+  1288→
+  1289→        card_lbl = QLabel("Card")
+  1290→        card_lbl.setObjectName("fmtLabel")
+  1291→        opts_row.addWidget(card_lbl)
+  1292→        self._card_fmt_cb = _DropBtn(["PNG", "JSON"])
+  1293→        self._card_fmt_cb.setFixedSize(86, 32)
+  1294→        opts_row.addWidget(self._card_fmt_cb)
+  1295→        opts_row.addSpacing(10)
+  1296→
+  1297→        chat_lbl = QLabel("Chat")
+  1298→        chat_lbl.setObjectName("fmtLabel")
+  1299→        opts_row.addWidget(chat_lbl)
+  1300→        self._chat_fmt_cb = _DropBtn(["JSONL", "JSON", "TXT"])
+  1301→        self._chat_fmt_cb.setFixedSize(96, 32)
+  1302→        opts_row.addWidget(self._chat_fmt_cb)
+  1303→        opts_row.addSpacing(10)
+  1304→
+  1305→        self._chk_merge_chats = QCheckBox("Merge branches")
+  1306→        self._chk_merge_chats.setToolTip(
+  1307→            "Save each chat as ONE file instead of one file per branch.\n"
+  1308→            "Alternate branches are folded in as SillyTavern-style swipes\n"
+  1309→            "on the message where they diverge."
+  1310→        )
+  1311→        opts_row.addWidget(self._chk_merge_chats)
+  1312→
+  1313→        s_l.addLayout(opts_row)
+  1314→        root.addWidget(settings)
+  1315→
+  1316→        # ── tab bar + stacked content ──────────────────────────────────────────
+  1317→        tab_area = QWidget()
+  1318→        tab_area_l = QVBoxLayout(tab_area)
+  1319→        tab_area_l.setContentsMargins(0, 0, 0, 0)
+  1320→        tab_area_l.setSpacing(0)
+  1321→
+  1322→        tab_bar = QWidget()
+  1323→        tab_bar_l = QHBoxLayout(tab_bar)
+  1324→        tab_bar_l.setContentsMargins(16, 6, 16, 4)
+  1325→        tab_bar_l.setSpacing(0)
+  1326→        tab_bar_l.addStretch(1)  # center the tab group
+  1327→
+  1328→        _dir_map = {"cards": CARDS_DIR, "lorebooks": LORE_DIR,
+  1329→                    "presets": PRESETS_DIR, "personas": PERSONAS_DIR, "chats": CHATS_DIR}
+  1330→
+  1331→        self._stack = QStackedWidget()
+  1332→
+  1333→        for idx, name in enumerate(("Cards", "Lorebooks", "Presets", "Personas", "Chats")):
+  1334→            key = name.lower()
+  1335→
+  1336→            # Thin vertical divider between tab pairs.
+  1337→            if idx > 0:
+  1338→                sep = QFrame()
+  1339→                sep.setFrameShape(QFrame.Shape.VLine)
+  1340→                sep.setFixedSize(1, 20)
+  1341→                sep.setStyleSheet(f"background-color: {BORDER}; border: none;")
+  1342→                tab_bar_l.addSpacing(10)
+  1343→                tab_bar_l.addWidget(sep, alignment=Qt.AlignmentFlag.AlignVCenter)
+  1344→                tab_bar_l.addSpacing(10)
+  1345→
+  1346→            # Pair button + folder icon in a tight horizontal group so they
+  1347→            # read as one unit instead of two floating elements.
+  1348→            pair = QWidget()
+  1349→            pair_l = QHBoxLayout(pair)
+  1350→            pair_l.setContentsMargins(0, 0, 0, 0)
+  1351→            pair_l.setSpacing(0)
+  1352→
+  1353→            btn = QPushButton(name)
+  1354→            btn.setObjectName("tabBtn")
+  1355→            btn.setProperty("active", False)
+  1356→            btn.setMinimumHeight(36)
+  1357→            btn.clicked.connect(lambda _c, k=key: self._show_tab(k))
+  1358→            pair_l.addWidget(btn)
+  1359→            self._tab_btns[key] = btn
+  1360→
+  1361→            _fdir = _dir_map[key]
+  1362→            fb = QPushButton("📁")
+  1363→            fb.setObjectName("folderBtn")
+  1364→            fb.setFixedSize(28, 36)
+  1365→            fb.setToolTip(f"Open {name} folder\n{_dir_size_str(_fdir)}")
+  1366→            fb.clicked.connect(lambda _c, k=key: self._open_tab_folder(k))
+  1367→            pair_l.addWidget(fb)
+  1368→
+  1369→            tab_bar_l.addWidget(pair)
+  1370→
+  1371→            grid = TileGrid(kind=key)
+  1372→            self._grids[key] = grid
+  1373→            self._stack.addWidget(grid)
+  1374→
+  1375→        self._grids["chats"]._click_cb = self._preview_chat
+  1376→        tab_bar_l.addStretch(1)  # symmetric stretch for centered tabs
+  1377→
+  1378→        # ── divider between tab row and toolbar (visual grouping) ────────────
+  1379→        tab_div_top = QFrame()
+  1380→        tab_div_top.setObjectName("divider")
+  1381→        tab_div_top.setFixedHeight(1)
+  1382→
+  1383→        # ── toolbar (its own centered row, sits flush under the tab row) ─────
+  1384→        # All items share the same width and gap so the cadence is even.
+  1385→        TOOL_W, TOOL_H, TOOL_GAP = 96, 28, 8
+  1386→
+  1387→        tool_bar = QWidget()
+  1388→        tool_bar.setObjectName("toolBar")
+  1389→        tool_bar_l = QHBoxLayout(tool_bar)
+  1390→        tool_bar_l.setContentsMargins(16, 6, 16, 6)
+  1391→        tool_bar_l.setSpacing(TOOL_GAP)
+  1392→        tool_bar_l.addStretch(1)
+  1393→
+  1394→        self._search_entry = QLineEdit()
+  1395→        self._search_entry.setObjectName("searchEntry")
+  1396→        self._search_entry.setPlaceholderText("Search…")
+  1397→        self._search_entry.setFixedSize(TOOL_W, TOOL_H)
+  1398→        self._search_entry.textChanged.connect(self._on_search)
+  1399→        tool_bar_l.addWidget(self._search_entry)
+  1400→
+  1401→        self._filter_cb = _DropBtn(["All", "New", "Already saved", "Done", "Failed", "Unavailable"])
+  1402→        self._filter_cb.setFixedSize(TOOL_W, TOOL_H)
+  1403→        self._filter_cb.currentTextChanged.connect(self._on_status_filter)
+  1404→        tool_bar_l.addWidget(self._filter_cb)
+  1405→
+  1406→        all_btn = QPushButton("✓ All")
+  1407→        all_btn.setFixedSize(TOOL_W, TOOL_H)
+  1408→        all_btn.clicked.connect(lambda: self._grids[self._active_tab].select_all(True))
+  1409→        tool_bar_l.addWidget(all_btn)
+  1410→
+  1411→        none_btn = QPushButton("✗ None")
+  1412→        none_btn.setFixedSize(TOOL_W, TOOL_H)
+  1413→        none_btn.clicked.connect(lambda: self._grids[self._active_tab].select_all(False))
+  1414→        tool_bar_l.addWidget(none_btn)
+  1415→
+  1416→        self._force_btn = QPushButton("↺ Overwrite")
+  1417→        self._force_btn.setFixedSize(TOOL_W, TOOL_H)
+  1418→        self._force_btn.setToolTip("Re-download items that are already saved")
+  1419→        self._force_btn.clicked.connect(self._toggle_force_redownload)
+  1420→        tool_bar_l.addWidget(self._force_btn)
+  1421→
+  1422→        self._sort_btn = QPushButton("↓ Date")
+  1423→        self._sort_btn.setFixedSize(TOOL_W, TOOL_H)
+  1424→        self._sort_btn.clicked.connect(self._toggle_chat_sort)
+  1425→        tool_bar_l.addWidget(self._sort_btn)
+  1426→
+  1427→        self._sort_msgs_btn = QPushButton("↓ Msgs")
+  1428→        self._sort_msgs_btn.setFixedSize(TOOL_W, TOOL_H)
+  1429→        self._sort_msgs_btn.clicked.connect(self._toggle_chat_sort_msgs)
+  1430→        tool_bar_l.addWidget(self._sort_msgs_btn)
+  1431→
+  1432→        tool_bar_l.addStretch(1)
+  1433→
+  1434→        # _show_tab() expects this; no-op so chat-only buttons can share visibility.
+  1435→        self._sort_sep = QWidget()
+  1436→        self._sort_sep.setFixedSize(0, 0)
+  1437→
+  1438→        # divider below the toolbar row (separates chrome from content)
+  1439→        tab_div = QFrame()
+  1440→        tab_div.setObjectName("divider")
+  1441→        tab_div.setFixedHeight(1)
+  1442→
+  1443→        tab_area_l.addWidget(tab_bar)
+  1444→        tab_area_l.addWidget(tab_div_top)
+  1445→        tab_area_l.addWidget(tool_bar)
+  1446→        tab_area_l.addWidget(tab_div)
+  1447→        tab_area_l.addWidget(self._stack, 1)
+  1448→        root.addWidget(tab_area, 1)
+  1449→
+  1450→        # ── footer (progress + actions; status lives up top) ──────────────────
+  1451→        foot = QWidget()
+  1452→        foot.setObjectName("footerBar")
+  1453→        foot.setFixedHeight(56)
+  1454→        foot_l = QHBoxLayout(foot)
+  1455→        foot_l.setContentsMargins(20, 0, 20, 0)
+  1456→        foot_l.setSpacing(14)
+  1457→
+  1458→        # Progress bar + counter (stacked, left side, expands to fill)
+  1459→        prog_wrap = QWidget()
+  1460→        prog_wrap_l = QVBoxLayout(prog_wrap)
+  1461→        prog_wrap_l.setContentsMargins(0, 0, 0, 0)
+  1462→        prog_wrap_l.setSpacing(4)
+  1463→        prog_wrap.setMinimumWidth(240)
+  1464→
+  1465→        self._prog_lbl = QLabel("")
+  1466→        self._prog_lbl.setObjectName("progLbl")
+  1467→        self._prog_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+  1468→        prog_wrap_l.addWidget(self._prog_lbl)
+  1469→
+  1470→        self._bar = QProgressBar()
+  1471→        self._bar.setRange(0, 1000)
+  1472→        self._bar.setValue(0)
+  1473→        self._bar.setTextVisible(False)
+  1474→        prog_wrap_l.addWidget(self._bar)
+  1475→        foot_l.addWidget(prog_wrap, 1)
+  1476→
+  1477→        self._dl_btn = QPushButton("⬇  Download All")
+  1478→        self._dl_btn.setObjectName("dlBtn")
+  1479→        self._dl_btn.setFixedSize(154, 36)
+  1480→        self._dl_btn.clicked.connect(self._start_download)
+  1481→        self._dl_btn.hide()
+  1482→        foot_l.addWidget(self._dl_btn)
+  1483→
+  1484→        self._retry_btn = QPushButton("↺ Retry Failed")
+  1485→        self._retry_btn.setObjectName("retryBtn")
+  1486→        self._retry_btn.setFixedSize(128, 36)
+  1487→        self._retry_btn.clicked.connect(self._start_retry)
+  1488→        self._retry_btn.hide()
+  1489→        foot_l.addWidget(self._retry_btn)
+  1490→
+  1491→        root.addWidget(foot)
+  1492→
+  1493→        cfg = _config_load()
+  1494→        self._show_tab(cfg.get("last_tab", "cards"))
+  1495→
+  1496→    # ── tab / UI helpers ──────────────────────────────────────────────────────
+  1497→
+  1498→    def _set_tab_label(self, key: str, count: int | None = None):
+  1499→        if count is not None:
+  1500→            self._tab_counts[key] = count
+  1501→        n = self._tab_counts.get(key, 0)
+  1502→        name = key.capitalize()
+  1503→        if n:
+  1504→            # Build with rich text so the count looks like a secondary chip.
+  1505→            self._tab_btns[key].setText(f"{name}  {n}")
+  1506→        else:
+  1507→            self._tab_btns[key].setText(name)
+  1508→
+  1509→    def _show_tab(self, key: str):
+  1510→        self._active_tab = key
+  1511→        for k, btn in self._tab_btns.items():
+  1512→            btn.setProperty("active", k == key)
+  1513→            # force re-polish so the [active="true"] selector takes effect
+  1514→            btn.style().unpolish(btn)
+  1515→            btn.style().polish(btn)
+  1516→        self._stack.setCurrentWidget(self._grids[key])
+  1517→        self._search_entry.blockSignals(True)
+  1518→        self._search_entry.clear()
+  1519→        self._search_entry.blockSignals(False)
+  1520→        self._filter_cb.blockSignals(True)
+  1521→        self._filter_cb.setCurrentIndex(0)
+  1522→        self._filter_cb.blockSignals(False)
+  1523→        _config_save({"last_tab": key})
+  1524→        is_chats = (key == "chats")
+  1525→        self._sort_sep.setVisible(is_chats)
+  1526→        self._sort_btn.setVisible(is_chats)
+  1527→        self._sort_msgs_btn.setVisible(is_chats)
+  1528→
+  1529→    def _refresh_tab(self, key: str):
+  1530→        self._set_tab_label(key, self._grids[key].count())
+  1531→
+  1532→    def _toggle_token_visibility(self):
+  1533→        hidden = self._token_entry.echoMode() == QLineEdit.EchoMode.Password
+  1534→        self._token_entry.setEchoMode(
+  1535→            QLineEdit.EchoMode.Normal if hidden else QLineEdit.EchoMode.Password)
+  1536→        self._show_btn.setText("Hide" if hidden else "Show")
+  1537→
+  1538→    def _toggle_chat_sort(self):
+  1539→        self._sort_newest = not self._sort_newest
+  1540→        self._grids["chats"].sort_by_date(newest_first=self._sort_newest)
+  1541→        self._sort_btn.setText("↓ Date" if self._sort_newest else "↑ Date")
+  1542→
+  1543→    def _toggle_chat_sort_msgs(self):
+  1544→        self._sort_msgs_desc = not self._sort_msgs_desc
+  1545→        self._grids["chats"].sort_by_msgs(descending=self._sort_msgs_desc)
+  1546→        self._sort_msgs_btn.setText("↓ Msgs" if self._sort_msgs_desc else "↑ Msgs")
+  1547→
+  1548→    def _on_status_filter(self, choice: str):
+  1549→        STATUS_MAP = {
+  1550→            "All":           None,
+  1551→            "New":           {"queued"},
+  1552→            "Already saved": {"skipped"},
+  1553→            "Done":          {"done"},
+  1554→            "Failed":        {"failed"},
+  1555→            "Unavailable":   {"unavailable"},
+  1556→        }
+  1557→        self._grids[self._active_tab].filter_by_status(STATUS_MAP.get(choice))
+  1558→
+  1559→    def _toggle_force_redownload(self):
+  1560→        self._force_redownload = not self._force_redownload
+  1561→        if self._force_redownload:
+  1562→            self._force_btn.setStyleSheet(_FORCE_ON)
+  1563→        else:
+  1564→            self._force_btn.setStyleSheet("")
+  1565→
+  1566→    def _open_tab_folder(self, key: str):
+  1567→        import subprocess as _sp
+  1568→        d = {"cards": CARDS_DIR, "lorebooks": LORE_DIR, "presets": PRESETS_DIR,
+  1569→             "personas": PERSONAS_DIR, "chats": CHATS_DIR}.get(key)
+  1570→        if not d:
+  1571→            return
+  1572→        d.mkdir(parents=True, exist_ok=True)
+  1573→        if sys.platform == "win32":
+  1574→            os.startfile(d)
+  1575→        elif sys.platform == "darwin":
+  1576→            _sp.run(["open", str(d)])
+  1577→        else:
+  1578→            _sp.run(["xdg-open", str(d)])
+  1579→
+  1580→    def _on_search(self, text: str):
+  1581→        self._grids[self._active_tab].filter(text)
+  1582→
+  1583→    def _reset_grids(self):
+  1584→        for key, grid in self._grids.items():
+  1585→            grid.clear()
+  1586→            self._tab_counts[key] = 0
+  1587→            self._set_tab_label(key, 0)
+  1588→        self._dl_btn.hide()
+  1589→        self._retry_btn.hide()
+  1590→        self._bar.setValue(0)
+  1591→        self._prog_lbl.setText("")
+  1592→        self._total = 0
+  1593→        self._done  = 0
+  1594→
+  1595→    def _tick(self):
+  1596→        if self._total:
+  1597→            self._bar.setValue(int(self._done * 1000 / self._total))
+  1598→            self._prog_lbl.setText(f"{self._done} / {self._total}")
+  1599→
+  1600→    # ── actions ───────────────────────────────────────────────────────────────
+  1601→
+  1602→    def _start(self):
+  1603→        if self._worker_thread and self._worker_thread.is_alive():
+  1604→            self._cancel_event.set()
+  1605→            self._download_ready.set()
+  1606→            self._fetch_btn.setEnabled(False)
+  1607→            self._fetch_btn.setText("Cancelling…")
+  1608→            return
+  1609→
+  1610→        tok = self._token_entry.text().strip()
+  1611→        if tok.lower().startswith("bearer "):
+  1612→            tok = tok[7:].strip()
+  1613→            self._token_entry.setText(tok)
+  1614→        if not tok:
+  1615→            self._status_lbl.setText("Paste your Bearer token first.")
+  1616→            return
+  1617→
+  1618→        self._tok_snapshot = tok
+  1619→        self._cancel_event.clear()
+  1620→        self._download_ready.clear()
+  1621→        self._reset_grids()
+  1622→        self._fetch_btn.setText("✕ Cancel")
+  1623→        self._status_lbl.setText("Fetching…")
+  1624→
+  1625→        self._fetch_cards     = self._chk_cards.isChecked()
+  1626→        self._fetch_lorebooks = self._chk_lorebooks.isChecked()
+  1627→        self._fetch_presets   = self._chk_presets.isChecked()
+  1628→        self._fetch_personas  = self._chk_personas.isChecked()
+  1629→        self._fetch_chats     = self._chk_chats.isChecked()
+  1630→        self._card_fmt        = self._card_fmt_cb.currentText()
+  1631→        self._chat_fmt        = self._chat_fmt_cb.currentText()
+  1632→        self._merge_chats     = self._chk_merge_chats.isChecked()
+  1633→
+  1634→        self._worker_thread = threading.Thread(target=self._worker, daemon=True)
+  1635→        self._worker_thread.start()
+  1636→
+  1637→    def _start_download(self):
+  1638→        if getattr(self, "_download_thread", None) and self._download_thread.is_alive():
+  1639→            self._cancel_download_event.set()
+  1640→            self._dl_btn.setEnabled(False)
+  1641→            self._dl_btn.setText("Cancelling…")
+  1642→            return
+  1643→
+  1644→        self._cancel_download_event.clear()
+  1645→        self._dl_btn.setEnabled(True)
+  1646→        self._dl_btn.setText("✕ Cancel Download")
+  1647→        self._status_lbl.setText("Starting downloads…")
+  1648→
+  1649→        # Re-read format/merge toggles now, in case the user changed them
+  1650→        # after Fetch but before clicking Download.
+  1651→        self._card_fmt    = self._card_fmt_cb.currentText()
+  1652→        self._chat_fmt    = self._chat_fmt_cb.currentText()
+  1653→        self._merge_chats = self._chk_merge_chats.isChecked()
+  1654→
+  1655→        self._checked_snapshot: dict[str, set[str]] = {
+  1656→            tab: grid.get_checked() for tab, grid in self._grids.items()
+  1657→        }
+  1658→        if self._worker_thread and self._worker_thread.is_alive():
+  1659→            self._download_ready.set()
+  1660→        elif self._fetch_sess is not None:
+  1661→            self._download_thread = threading.Thread(target=self._download_phase, daemon=True)
+  1662→            self._download_thread.start()
+  1663→
+  1664→    def _start_retry(self):
+  1665→        fs = getattr(self, "_failed_snapshot", {})
+  1666→        if not any(fs.values()):
+  1667→            return
+  1668→        self._checked_snapshot = {k: set(v) for k, v in fs.items()}
+  1669→        self._failed_snapshot  = {}
+  1670→        self._retry_btn.hide()
+  1671→        self._start_download()
+  1672→
+  1673→    def _preview_chat(self, fkey: str):
+  1674→        chat_dir = CHATS_DIR / fkey
+  1675→        if not chat_dir.exists():
+  1676→            return
+  1677→        files = sorted(f for f in chat_dir.iterdir() if f.is_file())
+  1678→        if not files:
+  1679→            return
+  1680→
+  1681→        dlg = QDialog(self)
+  1682→        dlg.setWindowTitle(fkey.replace("_", " "))
+  1683→        dlg.resize(620, 520)
+  1684→
+  1685→        dlg_l = QVBoxLayout(dlg)
+  1686→        scroll = QScrollArea()
+  1687→        scroll.setWidgetResizable(True)
+  1688→        container = QWidget()
+  1689→        con_l = QVBoxLayout(container)
+  1690→        con_l.setAlignment(Qt.AlignmentFlag.AlignTop)
+  1691→        scroll.setWidget(container)
+  1692→        dlg_l.addWidget(scroll)
+  1693→
+  1694→        hdr_lbl = QLabel(f"Preview: {files[0].name}")
+  1695→        hdr_lbl.setStyleSheet(f"color: {MUTED};")
+  1696→        con_l.addWidget(hdr_lbl)
+  1697→
+  1698→        try:
+  1699→            f = files[0]
+  1700→            msgs = []
+  1701→            if f.suffix == ".jsonl":
+  1702→                msgs = [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines()
+  1703→                        if l.strip()][:20]
+  1704→            elif f.suffix == ".json":
+  1705→                data = json.loads(f.read_text(encoding="utf-8"))
+  1706→                msgs = data[:20] if isinstance(data, list) else []
+  1707→            elif f.suffix == ".txt":
+  1708→                lbl = QLabel(f.read_text(encoding="utf-8")[:3000])
+  1709→                lbl.setWordWrap(True)
+  1710→                con_l.addWidget(lbl)
+  1711→            for m in msgs:
+  1712→                role    = m.get("role", "?")
+  1713→                content = str(m.get("message") or m.get("content") or "")[:400]
+  1714→                speaker = "User" if role in ("user", "human") else "AI"
+  1715→                col     = TEXT if speaker == "AI" else MUTED
+  1716→                lbl = QLabel(f"[{speaker}]  {content}")
+  1717→                lbl.setWordWrap(True)
+  1718→                lbl.setStyleSheet(f"color: {col};")
+  1719→                con_l.addWidget(lbl)
+  1720→        except Exception as e:
+  1721→            err = QLabel(f"Could not read: {e}")
+  1722→            err.setStyleSheet(f"color: {RED};")
+  1723→            con_l.addWidget(err)
+  1724→
+  1725→        dlg.exec()
+  1726→
+  1727→    # ── queue pump ────────────────────────────────────────────────────────────
+  1728→
+  1729→    def _pump(self):
+  1730→        try:
+  1731→            adds = images = 0
+  1732→            while True:
+  1733→                msg = self._q.get_nowait()
+  1734→                self._handle(msg)
+  1735→                kind = msg[0]
+  1736→                if kind == "ADD":
+  1737→                    adds += 1
+  1738→                    if adds >= 20:
+  1739→                        break
+  1740→                elif kind == "IMAGE":
+  1741→                    images += 1
+  1742→                    if images >= 4:
+  1743→                        break
+  1744→        except queue.Empty:
+  1745→            pass
+  1746→
+  1747→    def _handle(self, msg: tuple):
+  1748→        kind = msg[0]
+  1749→        if kind == "LOG":
+  1750→            self._status_lbl.setText(msg[1])
+  1751→        elif kind == "ADD":
+  1752→            _, tab, key, name = msg
+  1753→            self._grids[tab].add(key, name)
+  1754→            self._refresh_tab(tab)
+  1755→        elif kind == "STATUS":
+  1756→            _, tab, key, s = msg
+  1757→            self._grids[tab].set_status(key, s)
+  1758→            if s in ("done", "skipped", "failed", "unavailable"):
+  1759→                self._done += 1
+  1760→                self._tick()
+  1761→        elif kind == "IMAGE":
+  1762→            _, tab, key, raw = msg
+  1763→            self._grids[tab].set_image(key, raw)
+  1764→        elif kind == "SORT_KEY":
+  1765→            _, tab, key, date_str = msg
+  1766→            self._grids[tab].set_sort_key(key, date_str)
+  1767→        elif kind == "BADGE":
+  1768→            _, tab, key, text = msg
+  1769→            self._grids[tab].set_badge(key, text)
+  1770→        elif kind == "MSG_COUNT":
+  1771→            _, tab, key, count = msg
+  1772→            self._grids[tab].set_msg_count(key, count)
+  1773→        elif kind == "SHOW_RETRY_BTN":
+  1774→            self._retry_btn.show()
+  1775→        elif kind == "SHOW_DL_BTN":
+  1776→            total, n_sessions, n_chars = msg[1], msg[2], msg[3]
+  1777→            self._total = total
+  1778→            self._bar.setValue(0)
+  1779→            self._prog_lbl.setText(f"0 / {total}")
+  1780→            self._dl_btn.show()
+  1781→            self._fetch_btn.setEnabled(True)
+  1782→            self._fetch_btn.setText("Fetch")
+  1783→            if n_sessions:
+  1784→                self._tab_counts["chats"] = n_sessions
+  1785→                self._tab_btns["chats"].setText(f"Chats  {n_sessions}  ({n_chars} chars)")
+  1786→        elif kind == "CANCELLED":
+  1787→            self._status_lbl.setText("Fetch cancelled.")
+  1788→            self._fetch_btn.setEnabled(True)
+  1789→            self._fetch_btn.setText("Fetch")
+  1790→        elif kind == "DOWNLOAD_CANCELLED":
+  1791→            self._status_lbl.setText("Download cancelled.")
+  1792→            self._dl_btn.setEnabled(True)
+  1793→            self._dl_btn.setText("⬇  Download All")
+  1794→        elif kind == "DONE":
+  1795→            self._status_lbl.setText(msg[1])
+  1796→            self._fetch_btn.setEnabled(True)
+  1797→            self._fetch_btn.setText("Fetch")
+  1798→            self._dl_btn.setEnabled(True)
+  1799→            self._dl_btn.setText("⬇  Download All")
+  1800→            self._bar.setValue(1000)
+  1801→        elif kind == "ERROR":
+  1802→            self._status_lbl.setText(f"Error: {msg[1][:120]}")
+  1803→            self._fetch_btn.setEnabled(True)
+  1804→            self._fetch_btn.setText("Fetch")
+  1805→            self._dl_btn.setEnabled(True)
+  1806→            self._dl_btn.setText("⬇  Download All")
+  1807→
+  1808→    # ── worker (fetch phase) ──────────────────────────────────────────────────
+  1809→
+  1810→    def _worker(self):
+  1811→        import traceback as _tb
+  1812→        import requests as _rq
+  1813→        from playwright.sync_api import sync_playwright
+  1814→
+  1815→        q = self._q
+  1816→        _log_file = open(ROOT / "debug.log", "a", encoding="utf-8", buffering=1)
+  1817→        _log_file.write(f"\n{'='*60}\n{time.strftime('%Y-%m-%d %H:%M:%S')}\n{'='*60}\n")
+  1818→        _log_file.write(f"Python {sys.version}  |  platform: {sys.platform}\n")
+  1819→        _log_file.write(
+  1820→            f"fetch: cards={self._fetch_cards} lorebooks={self._fetch_lorebooks} "
+  1821→            f"presets={self._fetch_presets} personas={self._fetch_personas} "
+  1822→            f"chats={self._fetch_chats}  "
+  1823→            f"card_fmt={self._card_fmt}  chat_fmt={self._chat_fmt}\n"
+  1824→        )
+  1825→        def log(m):   _log_file.write(m + "\n"); q.put(("LOG", m))
+  1826→        def flog(m):  _log_file.write(m + "\n")
+  1827→        def add(t, k, n):    q.put(("ADD",    t, k, n))
+  1828→        def status(t, k, s): q.put(("STATUS", t, k, s))
+  1829→        def image(t, k, b):  q.put(("IMAGE",  t, k, b))
+  1830→
+  1831→        try:
+  1832→            tok = self._tok_snapshot
+  1833→
+  1834→            sess = _rq.Session()
+  1835→            sess.headers.update({
+  1836→                "Ch-Api-Key": tok,
+  1837→                "Samwise":    tok,
+  1838→                "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+  1839→                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+  1840→                               "Chrome/148.0.0.0 Safari/537.36"),
+  1841→                "Referer": "https://chub.ai/",
+  1842→                "Origin":  "https://chub.ai",
+  1843→            })
+  1844→            _token_save(tok)
+  1845→
+  1846→            my_handle: str = ""
+  1847→            try:
+  1848→                probe = sess.get(f"{REPO_API}/api/self", timeout=10)
+  1849→                if probe.status_code in (401, 403):
+  1850→                    q.put(("ERROR",
+  1851→                           f"API key rejected ({probe.status_code}).\n"
+  1852→                           "DevTools → Network → any ro.chub.ai request → Headers → Ch-Api-Key"))
+  1853→                    return
+  1854→                log(f"Key accepted ({probe.status_code})")
+  1855→                if probe.ok:
+  1856→                    pj = probe.json()
+  1857→                    my_handle = (pj.get("data", {}).get("user_name") or
+  1858→                                 pj.get("data", {}).get("handle") or
+  1859→                                 pj.get("user_name") or pj.get("handle") or
+  1860→                                 pj.get("name") or "")
+  1861→                    flog(f"  /api/self keys: {list(pj.keys())[:10]}  handle={my_handle!r}")
+  1862→            except Exception as e:
+  1863→                log(f"Key probe error: {e} (continuing)")
+  1864→
+  1865→            def _collect(nodes, tab, seen):
+  1866→                for n in nodes:
+  1867→                    fp = n.get("fullPath", "")
+  1868→                    if fp and fp not in seen:
+  1869→                        seen.add(fp)
+  1870→                        add(tab, fp, n.get("name", fp))
+  1871→                        try:
+  1872→                            r = sess.get(
+  1873→                                f"https://avatars.charhub.io/avatars/{fp}/avatar.webp",
+  1874→                                timeout=10)
+  1875→                            if r.ok:
+  1876→                                image(tab, fp, r.content)
+  1877→                        except Exception:
+  1878→                            pass
+  1879→                        yield n
+  1880→
+  1881→            def _paginate_sessions(captured_url, first_body):
+  1882→                from urllib.parse import urlparse, parse_qs, urlunparse
+  1883→                def _extract(body):
+  1884→                    return (body.get("chats") or body.get("results") or
+  1885→                            body.get("sessions") or body.get("items") or
+  1886→                            body.get("data") or (body if isinstance(body, list) else []))
+  1887→                def _build_char_map(body):
+  1888→                    cmap = {}
+  1889→                    for key in ("characters", "nodes", "character_map", "character_data"):
+  1890→                        val = body.get(key)
+  1891→                        if isinstance(val, dict):
+  1892→                            for k, v in val.items():
+  1893→                                if isinstance(v, dict): cmap[str(k)] = v
+  1894→                        elif isinstance(val, list):
+  1895→                            for c in val:
+  1896→                                if isinstance(c, dict):
+  1897→                                    cid = c.get("id") or c.get("character_id")
+  1898→                                    if cid: cmap[str(cid)] = c
+  1899→                    return cmap
+  1900→                def _enrich(s, cmap):
+  1901→                    if not cmap: return s
+  1902→                    cid = str(s.get("character_id") or "")
+  1903→                    char = cmap.get(cid)
+  1904→                    if not char: return s
+  1905→                    s = dict(s)
+  1906→                    if not s.get("character_name"):
+  1907→                        for f in ("name", "full_name", "displayName", "title"):
+  1908→                            if char.get(f): s["character_name"] = char[f]; break
+  1909→                    if not s.get("primary_image_path"):
+  1910→                        fp = char.get("fullPath") or char.get("full_path")
+  1911→                        if fp: s["primary_image_path"] = fp
+  1912→                    return s
+  1913→                char_map = _build_char_map(first_body)
+  1914→                items = _extract(first_body)
+  1915→                log(f"  chats page 1: {len(items)} items")
+  1916→                sessions = [_enrich(s, char_map) for s in items]
+  1917→                parsed = urlparse(captured_url)
+  1918→                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+  1919→                qs.pop("cursor", None); qs.setdefault("include_character", "true")
+  1920→                base = urlunparse(parsed._replace(query=""))
+  1921→                cursor = first_body.get("cursor"); pg = 2
+  1922→                while cursor:
+  1923→                    r = sess.get(base, params={**qs, "cursor": cursor}, timeout=30)
+  1924→                    log(f"  chats page {pg} → {r.status_code}")
+  1925→                    if not r.ok: break
+  1926→                    body = r.json()
+  1927→                    page_char_map = _build_char_map(body)
+  1928→                    items = _extract(body)
+  1929→                    new_cursor = body.get("cursor")
+  1930→                    if not items: break
+  1931→                    sessions.extend(_enrich(s, page_char_map) for s in items)
+  1932→                    log(f"  chats page {pg}: +{len(items)}  total: {len(sessions)}")
+  1933→                    cursor = new_cursor; pg += 1; time.sleep(0.3)
+  1934→                return sessions
+  1935→
+  1936→            with sync_playwright() as pw:
+  1937→                browser = pw.chromium.launch(headless=True)
+  1938→                ctx = browser.new_context(
+  1939→                    extra_http_headers={"Ch-Api-Key": tok, "Samwise": tok},
+  1940→                    user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+  1941→                                "AppleWebKit/537.36 (KHTML, like Gecko) "
+  1942→                                "Chrome/148.0.0.0 Safari/537.36"),
+  1943→                )
+  1944→                page = ctx.new_page()
+  1945→
+  1946→                def _sniff_page(nav_url, domain_hint, label, wait_ms=6000):
+  1947→                    candidates = []
+  1948→                    def on_resp(resp):
+  1949→                        try:
+  1950→                            host = resp.url.split("//")[1].split("/")[0].split("?")[0]
+  1951→                        except Exception:
+  1952→                            return
+  1953→                        if domain_hint not in host or resp.status != 200: return
+  1954→                        try:
+  1955→                            body = resp.json()
+  1956→                            if isinstance(body, (dict, list)):
+  1957→                                candidates.append((resp.url, body))
+  1958→                                keys = list(body.keys())[:6] if isinstance(body, dict) else f"list[{len(body)}]"
+  1959→                                log(f"  → {resp.url.split('?')[0][-80:]}  keys={keys}")
+  1960→                        except Exception:
+  1961→                            pass
+  1962→                    page.on("response", on_resp)
+  1963→                    log(f"Navigating to {label}…")
+  1964→                    try:
+  1965→                        page.goto(nav_url, wait_until="domcontentloaded", timeout=30000)
+  1966→                        page.wait_for_timeout(wait_ms)
+  1967→                    except Exception as e:
+  1968→                        log(f"  nav error: {e}")
+  1969→                    page.remove_listener("response", on_resp)
+  1970→                    if not candidates:
+  1971→                        log(f"  nothing captured for {label}"); return "", {}
+  1972→                    def _score(body):
+  1973→                        if isinstance(body, list): return len(body)
+  1974→                        d = body.get("data", {}) if isinstance(body, dict) else {}
+  1975→                        for key in ("results", "sessions", "items", "chats", "lorebooks"):
+  1976→                            val = body.get(key)
+  1977→                            if val: return len(val)
+  1978→                        return len(d.get("nodes") or []) or d.get("count", 0)
+  1979→                    best_url, best_body = max(candidates, key=lambda c: _score(c[1]))
+  1980→                    log(f"  best: {best_url[:90]}")
+  1981→                    return best_url, best_body
+  1982→
+  1983→                seen_fps: set[str] = set()
+  1984→                all_card_nodes: list[dict] = []
+  1985→                if self._fetch_cards:
+  1986→                    def _paginate_cards_direct(extra, label):
+  1987→                        pg = 1; prev_cursor = None
+  1988→                        while True:
+  1989→                            if self._cancel_event.is_set(): break
+  1990→                            params = {"first": 48, "namespace": "characters",
+  1991→                                      "nsfw": "true", "nsfl": "false", "chub": "true",
+  1992→                                      "sort": "created_at", "asc": "false",
+  1993→                                      "include_forks": "true", "count": "true",
+  1994→                                      **extra, "page": pg}
+  1995→                            try:
+  1996→                                r = sess.get(f"{REPO_API}/search", params=params, timeout=30)
+  1997→                                log(f"  → {r.url.split('?')[0]}  ({r.status_code})")
+  1998→                                if not r.ok: break
+  1999→                                body = r.json()
+  2000→                                d = body.get("data", {}) if isinstance(body, dict) else {}
+
+[showing lines 1-2000 of 2726; use offset=2001 with limit to continue reading]

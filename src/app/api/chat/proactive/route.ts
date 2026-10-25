@@ -488,7 +488,7 @@ export async function POST(request: NextRequest) {
     // Extract tools settings
     const toolsSettings: ToolsSettings = {
       enabled: body.toolsSettings?.enabled ?? true,
-      maxToolCallsPerTurn: body.toolsSettings?.maxToolCallsPerTurn ?? 2,
+      maxToolCallsPerTurn: body.toolsSettings?.maxToolCallsPerTurn ?? 4,
       characterConfigs: body.toolsSettings?.characterConfigs || [],
       usePromptBasedFallback: body.toolsSettings?.usePromptBasedFallback ?? false,
       disabledTools: body.toolsSettings?.disabledTools || [],
@@ -1101,7 +1101,7 @@ export async function POST(request: NextRequest) {
 
           // Route to appropriate provider
           let accumulatedContent = '';
-          const maxToolRounds = toolsSettings.maxToolCallsPerTurn || 2;
+          const maxToolRounds = toolsSettings.maxToolCallsPerTurn || 4;
           let toolRound = 0;
           let toolContextMessages: Array<Record<string, unknown>> = [];
           let allToolsUsed: Array<{ name: string; label: string; icon: string; success: boolean }> = [];
@@ -1114,6 +1114,19 @@ export async function POST(request: NextRequest) {
           while (toolRound <= maxToolRounds) {
             let generator: AsyncGenerator<string>;
             let isToolRound = toolRound > 0;
+
+            // FIX: Prevent duplicate responses when round 0 already produced
+            // narrative text alongside tool calls. The follow-up round would
+            // produce ANOTHER narrative, resulting in two concatenated
+            // responses. Only follow up when round 0 had ONLY tool calls.
+            if (isToolRound) {
+              const existingNarrative = stripToolCallFromText(accumulatedContent).trim();
+              if (existingNarrative.length > 20) {
+                console.log(`[Tools] Round 0 already produced ${existingNarrative.length} chars of narrative — skipping follow-up to avoid duplicate response`);
+                toolRound = maxToolRounds + 1;
+                break;
+              }
+            }
 
             if (toolRound === 0) {
               baseSystemPrompt = finalSystemPrompt;

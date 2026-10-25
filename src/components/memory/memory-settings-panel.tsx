@@ -64,12 +64,16 @@ import {
   RefreshCw,
   DatabaseZap,
 } from 'lucide-react';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { DEFAULT_SUMMARY_SETTINGS } from '@/types';
 import { toast } from 'sonner';
 import { DEFAULT_EMBEDDINGS_CHAT } from '@/lib/embeddings/constants';
 import { SummaryViewer } from '@/components/memory/summary-viewer';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Download, Upload, Plus, FileUp } from 'lucide-react';
 
 // ============================================
 // Preview data for extraction prompts
@@ -1091,6 +1095,20 @@ function MemoryV2Tab() {
         </CardContent>
       </Card>
 
+      {/* Import / Export .MD */}
+      <MemoryImportExport
+        charId={activeCharacterId}
+        groupId={undefined}
+        onAfterChange={() => { loadHealth(); loadRecords(); }}
+      />
+
+      {/* Create new memory */}
+      <CreateMemoryCard
+        charId={activeCharacterId}
+        groupId={undefined}
+        onAfterCreate={() => { loadHealth(); loadRecords(); }}
+      />
+
       {/* Records browser + debug search */}
       <Card>
         <CardHeader className="pb-3">
@@ -1164,6 +1182,347 @@ function MemoryV2Tab() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ============================================
+// Memory Import / Export (.MD)
+// ============================================
+
+interface MemoryImportExportProps {
+  charId?: string;
+  groupId?: string;
+  onAfterChange?: () => void;
+}
+
+function MemoryImportExport({ charId, groupId, onAfterChange }: MemoryImportExportProps) {
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importMd, setImportMd] = useState('');
+  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ action: 'export-md' });
+      if (charId) params.set('charId', charId);
+      if (groupId) params.set('groupId', groupId);
+      params.set('includeArchived', '1');
+      const res = await fetch(`/api/memory/v2?${params.toString()}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Export failed');
+      const md = data.markdown as string;
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const scope = charId ? `char-${charId.slice(0, 8)}` : groupId ? `group-${groupId.slice(0, 8)}` : 'all';
+      a.href = url;
+      a.download = `memorias-v2-${scope}-${new Date().toISOString().slice(0, 10)}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Exportadas ${data.total} memorias a .MD`);
+    } catch (e) {
+      toast.error('Error exportando: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setImportMd(String(ev.target?.result || ''));
+      setShowImportDialog(true);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const runImport = async () => {
+    if (!importMd.trim()) {
+      toast.error('El markdown está vacío');
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await fetch('/api/memory/v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'import-md',
+          markdown: importMd,
+          charId: charId || undefined,
+          groupId: groupId || undefined,
+          mode: importMode,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Import failed');
+      const msg = `Importación completada: ${data.added} nuevas${data.failed ? `, ${data.failed} fallidas` : ''}${data.wiped ? `, ${data.wiped} reemplazadas` : ''}`;
+      toast.success(msg);
+      setShowImportDialog(false);
+      setImportMd('');
+      onAfterChange?.();
+    } catch (e) {
+      toast.error('Error importando: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FileText className="w-4 h-4" />
+          Exportar / Importar (.MD)
+        </CardTitle>
+        <CardDescription>
+          Respalda tus memorias en un archivo Markdown legible, o impórtalas desde un .MD.
+          El formato es el mismo para ambos, así puedes editar el archivo manualmente y reimportarlo.
+          Al importar, se generan los embeddings automáticamente (si el modelo está disponible).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={handleExport} disabled={exporting}>
+            <Download className={cn('w-3.5 h-3.5 mr-1.5', exporting && 'animate-pulse')} />
+            {exporting ? 'Exportando…' : 'Exportar a .MD'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="w-3.5 h-3.5 mr-1.5" />
+            Importar desde .MD
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".md,.markdown,.txt"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          <b>Exportar</b> descarga todas las memorias del {charId ? 'personaje actual' : groupId ? 'grupo actual' : 'sistema entero'} en formato .MD.<br />
+          <b>Importar</b> parsea el .MD y añade los recuerdos. El modo <b>Reemplazar</b> borra las memorias existentes del scope antes de importar; <b>Agregar</b> mantiene las existentes.
+        </p>
+      </CardContent>
+
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Importar memorias desde .MD</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">Modo:</Label>
+              <Select value={importMode} onValueChange={(v) => setImportMode(v as 'append' | 'replace')}>
+                <SelectTrigger className="h-7 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="append">Agregar (mantener existentes)</SelectItem>
+                  <SelectItem value="replace">Reemplazar (borrar y reimportar)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Textarea
+              value={importMd}
+              onChange={(e) => setImportMd(e.target.value)}
+              placeholder="## evento&#10;<!-- type: evento | subject: personaje | date: 2026-10-15 | importance: 0.8 | source: curada -->&#10;Contenido del recuerdo…"
+              className="font-mono text-xs min-h-[300px]"
+            />
+            <p className="text-xs text-muted-foreground">
+              Revisa el contenido. Al confirmar, se añadirán los recuerdos y se generarán sus embeddings.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowImportDialog(false)} disabled={importing}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={runImport} disabled={importing || !importMd.trim()}>
+              <FileUp className={cn('w-3.5 h-3.5 mr-1.5', importing && 'animate-pulse')} />
+              {importing ? 'Importando…' : 'Importar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ============================================
+// Create new memory (manual, with calendar)
+// ============================================
+
+interface CreateMemoryCardProps {
+  charId?: string;
+  groupId?: string;
+  onAfterCreate?: () => void;
+}
+
+const TYPE_OPTIONS = [
+  { value: 'hecho', label: 'Hecho' },
+  { value: 'evento', label: 'Evento' },
+  { value: 'preferencia', label: 'Preferencia' },
+  { value: 'relacion', label: 'Relación' },
+  { value: 'nota', label: 'Nota' },
+  { value: 'resumen_escena', label: 'Resumen de escena' },
+];
+
+const SUBJECT_OPTIONS = [
+  { value: 'usuario', label: 'Usuario' },
+  { value: 'personaje', label: 'Personaje' },
+  { value: 'pareja', label: 'Pareja' },
+  { value: 'mundo', label: 'Mundo' },
+];
+
+function CreateMemoryCard({ charId, groupId, onAfterCreate }: CreateMemoryCardProps) {
+  const [open, setOpen] = useState(false);
+  const [type, setType] = useState<'hecho' | 'evento' | 'preferencia' | 'relacion' | 'nota' | 'resumen_escena'>('hecho');
+  const [subject, setSubject] = useState<'usuario' | 'personaje' | 'pareja' | 'mundo'>('personaje');
+  const [content, setContent] = useState('');
+  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [importance, setImportance] = useState(0.5);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!content.trim()) {
+      toast.error('El contenido no puede estar vacío');
+      return;
+    }
+    if (!charId && !groupId) {
+      toast.error('Selecciona un personaje o grupo primero');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/memory/v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add',
+          charId: charId || undefined,
+          groupId: groupId || undefined,
+          type,
+          subject,
+          content: content.trim(),
+          importance,
+          eventDate: date ? date.toISOString() : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed');
+      toast.success('Memoria creada y embebida');
+      setOpen(false);
+      setContent('');
+      onAfterCreate?.();
+    } catch (e) {
+      toast.error('Error: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Plus className="w-4 h-4" />
+          Crear nueva memoria
+        </CardTitle>
+        <CardDescription>
+          Añade un recuerdo manual (curado) al personaje o grupo. Selecciona el tipo, la fecha
+          y escribe el contexto. El sistema generará el embedding automáticamente.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button size="sm" onClick={() => setOpen(true)} disabled={!charId && !groupId}>
+          <Plus className="w-3.5 h-3.5 mr-1.5" />
+          Agregar memoria
+        </Button>
+        {!charId && !groupId && (
+          <p className="text-xs text-muted-foreground mt-2">Selecciona un personaje o grupo para crear memorias.</p>
+        )}
+      </CardContent>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Nueva memoria</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Tipo</Label>
+                <Select value={type} onValueChange={(v) => setType(v as typeof type)}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Sujeto</Label>
+                <Select value={subject} onValueChange={(v) => setSubject(v as typeof subject)}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {SUBJECT_OPTIONS.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Fecha del evento</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="w-full justify-start text-xs font-normal">
+                    <Clock className="w-3.5 h-3.5 mr-1.5" />
+                    {date ? date.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Selecciona una fecha'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={setDate}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Importancia: {importance.toFixed(2)}</Label>
+              <Slider value={[importance]} onValueChange={(v) => setImportance(v[0])} min={0} max={1} step={0.1} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Contenido / Contexto</Label>
+              <Textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Ej: A Ney Walker le gusta que la llamen 'perrita' cuando está excitada…"
+                className="min-h-[120px] text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setOpen(false)} disabled={saving}>Cancelar</Button>
+            <Button size="sm" onClick={handleSave} disabled={saving || !content.trim()}>
+              {saving ? 'Guardando…' : 'Guardar memoria'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }
 

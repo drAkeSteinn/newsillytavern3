@@ -1,0 +1,2002 @@
+     1→'use client';
+     2→
+     3→import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+     4→import { useTavernStore } from '@/store/tavern-store';
+     5→import { BackgroundWithOverlays } from './background-layer';
+     6→import { NovelChatBox } from './novel-chat-box';
+     7→import { CharacterSprite } from './character-sprite';
+     8→// Unified Trigger System - Single import for all triggers
+     9→import { useTriggerSystem } from '@/lib/triggers';
+    10→import { useBackgroundTriggers } from '@/hooks/use-background-triggers';
+    11→import { useTTS, useTTSAutoGeneration } from '@/hooks/use-tts';
+    12→import { useTimelineSpriteSounds } from '@/hooks/use-timeline-sprite-sounds';
+    13→import { useProactiveMessages } from '@/hooks/use-proactive-messages';
+    14→import { useDirector } from '@/hooks/use-director';
+    15→import { useAutoAtmosphere } from '@/hooks/use-auto-atmosphere';
+    16→import { parseTextActions } from '@/lib/tools/text-actions';
+    17→import { rollD20, statToModifier, DIFFICULTY_DC, OUTCOME_LABELS } from '@/lib/tools/tools/skill-check';
+    18→import { GroupSprites } from './group-sprites';
+    19→import { HUDDisplay } from './hud-display';
+    20→import { QuestNotifications } from './quest-notifications';
+    21→import { InventoryHUD } from '@/components/inventory/inventory-hud';
+    22→import { TTSFloatingIndicator } from './tts-playback-controls';
+    23→import { ComicSoundOverlay } from './comic-sound-overlay';
+    24→import { Sparkles, Clapperboard, Heart } from 'lucide-react';
+    25→import { RelationshipPanel } from './relationship-panel';
+    26→import { SceneDock } from './scene-dock';
+    27→import { OnboardingHints, type OnboardingHintDef } from './onboarding-hints';
+    28→import type { CharacterCard, SummaryData, ChatMessage, MicroReaction } from '@/types';
+    29→import { generateMicroReactions } from '@/lib/micro-reactions';
+    30→import { EmbeddingsContextContainer } from '@/components/embeddings/embeddings-context-indicator';
+    31→import { ToolCallNotification, type ToolCallPhase } from '@/components/tools/tool-call-notification';
+    32→import { toast } from 'sonner';
+    33→import { t } from '@/lib/i18n';
+    34→import { chatLogger } from '@/lib/logger';
+    35→import { generateId } from '@/lib/utils';
+    36→import { collectThresholdMessages, type ThresholdMessageTarget } from '@/lib/stats/threshold-messages';
+    37→import { applyStatActivationToStore } from '@/lib/stats/apply-stat-activation';
+    38→
+    39→// FIX: in-flight guard against overlapping memory extractions (e.g. a proactive
+    40→// message landing on the same turn boundary as a normal reply fired two
+    41→// concurrent extract-memory requests, inflating heat/stats and racing UPDATEs).
+    42→let memoryExtractionInFlight = false;
+    43→
+    44→export function ChatPanel() {
+    45→  const [streamingContent, setStreamingContent] = useState('');
+    46→  const [streamingCharacter, setStreamingCharacter] = useState<CharacterCard | null>(null);
+    47→  const [streamingProgress, setStreamingProgress] = useState<{ current: number; total: number } | null>(null);
+    48→  const [embeddingsContexts, setEmbeddingsContexts] = useState<Array<{
+    49→    count: number;
+    50→    namespaces: string[];
+    51→    topResults: Array<{ content: string; similarity: number; namespace: string; source_type?: string }>;
+    52→    characterId?: string;
+    53→    characterName?: string;
+    54→  }>>([]);
+    55→  const [memoryExtractingInfo, setMemoryExtractingInfo] = useState<{ active: boolean; characterNames: string }>({ active: false, characterNames: '' });
+    56→  const [toolCallInfo, setToolCallInfo] = useState<{
+    57→    active: boolean;
+    58→    toolName?: string;
+    59→    toolLabel?: string;
+    60→    toolIcon?: string;
+    61→    params?: Record<string, unknown>;
+    62→    result?: { success: boolean; displayMessage: string; duration: number };
+    63→    phase: ToolCallPhase;
+    64→    callId?: string;
+    65→  }>({ active: false, phase: 'idle' });
+    66→
+    67→  // FASE 4: Interrupt reaction state
+    68→  const [interruptReaction, setInterruptReaction] = useState<{
+    69→    content: string;
+    70→    characterId: string;
+    71→    characterName: string;
+    72→  } | null>(null);
+    73→  const [isGeneratingInterrupt, setIsGeneratingInterrupt] = useState(false);
+    74→  const streamingContentRef = useRef<string>(''); // Track streaming content for interrupt
+    75→
+    76→  // Use proper selectors to subscribe to store changes
+    77→  const activeSessionId = useTavernStore((state) => state.activeSessionId);
+    78→  const activeCharacterId = useTavernStore((state) => state.activeCharacterId);
+    79→  const activeGroupId = useTavernStore((state) => state.activeGroupId);
+    80→  const sessions = useTavernStore((state) => state.sessions);
+    81→  const characters = useTavernStore((state) => state.characters);
+    82→  const groups = useTavernStore((state) => state.groups);
+    83→  const settings = useTavernStore((state) => state.settings);
+    84→  const isGenerating = useTavernStore((state) => state.isGenerating);
+    85→  const activeBackground = useTavernStore((state) => state.activeBackground);
+    86→  const activeOverlayBack = useTavernStore((state) => state.activeOverlayBack);
+    87→  const activeOverlayFront = useTavernStore((state) => state.activeOverlayFront);
+    88→  const personas = useTavernStore((state) => state.personas);
+    89→  const activePersonaId = useTavernStore((state) => state.activePersonaId);
+    90→  const setWorldTime = useTavernStore((state: any) => state.setWorldTime);
+    91→  const hudTemplates = useTavernStore((state) => state.hudTemplates);
+    92→  const hudSessionState = useTavernStore((state) => state.hudSessionState);
+    93→  const setActiveHUD = useTavernStore((state) => state.setActiveHUD);
+    94→  // Lorebooks for prompt injection
+    95→  const lorebooks = useTavernStore((state) => state.lorebooks);
+    96→  const activeLorebookIds = useTavernStore((state) => state.activeLorebookIds);
+    97→  
+    98→  // Quests for prompt injection
+    99→  const questTemplates = useTavernStore((state) => state.questTemplates);
+   100→  const questSettings = useTavernStore((state) => state.questSettings);
+   101→  const loadQuestTemplates = useTavernStore((state) => state.loadTemplates);
+   102→  
+   103→  // Ensure quest templates are loaded (needed for action reward → objective completion)
+   104→  useEffect(() => {
+   105→    if (questTemplates.length === 0) {
+   106→      loadQuestTemplates();
+   107→    }
+   108→  }, []); // Run once on mount
+   109→
+   110→  // Ensure memory namespaces exist when session is restored from localStorage
+   111→  // setActiveSession calls ensure-namespace, but on app restore the session is already
+   112→  // active without calling setActiveSession, so we ensure namespaces here.
+   113→  //
+   114→  // PERF FIX: Only call ensure-namespace when embeddings are actually enabled.
+   115→  // Previously this fired on every session restore regardless of the embeddings setting,
+   116→  // which loaded the 267MB LanceDB native binary into the Node process for no reason
+   117→  // (embeddings default to OFF).
+   118→  useEffect(() => {
+   119→    if (!activeSessionId) return;
+   120→
+   121→    const ensureNamespaces = async () => {
+   122→      try {
+   123→        const state = useTavernStore.getState();
+   124→        // Effective embeddings-subsystem usage: knowledge search or Memory V2.
+   125→        // The legacy `enabled` master flag is deprecated and no longer gates anything.
+   126→        const ec = (state.settings as any)?.embeddingsChat || {};
+   127→        const embeddingsEnabled = ec.knowledgeSearchEnabled !== false || ec.memoryV2Enabled !== false;
+   128→        if (!embeddingsEnabled) {
+   129→          // Embeddings subsystem fully disabled — skip loading LanceDB entirely
+   130→          return;
+   131→        }
+   132→
+   133→        const session = state.getSessionById(activeSessionId);
+   134→        if (!session) return;
+   135→
+   136→        let memberIds: string[] = [];
+   137→        let memberNames: string[] = [];
+   138→
+   139→        if (session.groupId) {
+   140→          const group = state.getGroupById?.(session.groupId);
+   141→          if (group?.members) {
+   142→            const groupCharacters = group.members
+   143→              .map((m: any) => state.getCharacterById(m.characterId))
+   144→              .filter((c: any) => c !== undefined);
+   145→            memberIds = groupCharacters.map((c: any) => c.id);
+   146→            memberNames = groupCharacters.map((c: any) => c.name);
+   147→          }
+   148→        }
+   149→
+   150→        const resp = await fetch('/api/embeddings/ensure-namespace', {
+   151→          method: 'POST',
+   152→          headers: { 'Content-Type': 'application/json' },
+   153→          body: JSON.stringify({
+   154→            characterId: session.characterId,
+   155→            characterName: session.characterId ? state.getCharacterById?.(session.characterId)?.name : '',
+   156→            groupId: session.groupId,
+   157→            groupName: session.groupId ? state.getGroupById?.(session.groupId)?.name : undefined,
+   158→            memberIds,
+   159→            memberNames,
+   160→            sessionId: activeSessionId,
+   161→          }),
+   162→        });
+   163→
+   164→        if (resp.ok) {
+   165→          console.log(`[ChatPanel] Ensured memory namespaces for restored session ${activeSessionId.slice(0, 8)}`);
+   166→        }
+   167→      } catch (err) {
+   168→        // Non-blocking — namespaces are created on-demand anyway
+   169→        console.warn('[ChatPanel] Failed to ensure namespaces on restore:', err);
+   170→      }
+   171→    };
+   172→
+   173→    ensureNamespaces();
+   174→  }, [activeSessionId]);
+   175→
+   176→  // Garbage collection: Clean up orphaned memory namespaces on mount
+   177→  // Orphaned = memory-* namespaces whose session no longer exists in the store.
+   178→  //
+   179→  // PERF FIX: Only run cleanup when embeddings are enabled — otherwise this also
+   180→  // loads the LanceDB native binary (267MB) for no benefit.
+   181→  useEffect(() => {
+   182→    const cleanupOrphanedNamespaces = async () => {
+   183→      try {
+   184→        const state = useTavernStore.getState();
+   185→        // Effective embeddings-subsystem usage (see ensure-namespace effect above):
+   186→        // knowledge search or Memory V2 — the deprecated `enabled` flag is ignored.
+   187→        const ec = (state.settings as any)?.embeddingsChat || {};
+   188→        const embeddingsEnabled = ec.knowledgeSearchEnabled !== false || ec.memoryV2Enabled !== false;
+   189→        if (!embeddingsEnabled) return;
+   190→
+   191→        const sessions = state.sessions || [];
+   192→        const activeSessionIds = sessions.map((s: any) => s.id);
+   193→
+   194→        const resp = await fetch('/api/embeddings/cleanup-orphaned', {
+   195→          method: 'POST',
+   196→          headers: { 'Content-Type': 'application/json' },
+   197→          body: JSON.stringify({ activeSessionIds }),
+   198→        });
+   199→
+   200→        if (resp.ok) {
+   201→          const data = await resp.json();
+   202→          if (data.data?.deletedCount > 0) {
+   203→            console.log(`[ChatPanel] Cleaned up ${data.data.deletedCount} orphaned namespace(s)`);
+   204→          }
+   205→        }
+   206→      } catch (err) {
+   207→        // Non-blocking — orphaned namespaces don't break functionality
+   208→        console.warn('[ChatPanel] Failed to cleanup orphaned namespaces:', err);
+   209→      }
+   210→    };
+   211→
+   212→    cleanupOrphanedNamespaces();
+   213→  }, []); // Run once on mount
+   214→  
+   215→  // Sound triggers for {{sonidos}} key resolution
+   216→  const soundTriggers = useTavernStore((state) => state.soundTriggers);
+   217→  
+   218→  const setGenerating = useTavernStore((state) => state.setGenerating);
+   219→  const addMessage = useTavernStore((state) => state.addMessage);
+   220→  const deleteMessage = useTavernStore((state) => state.deleteMessage);
+   221→  const updateMessage = useTavernStore((state) => state.updateMessage);
+   222→  const updateSession = useTavernStore((state) => state.updateSession);
+   223→  const addSwipeAlternative = useTavernStore((state) => state.addSwipeAlternative);
+   224→  // UNIFIED SPRITE SYSTEM: Use per-character sprite state management
+   225→  const startSpriteGenerationForCharacter = useTavernStore((state) => state.startGenerationForCharacter);
+   226→  const endSpriteGenerationForCharacter = useTavernStore((state) => state.endGenerationForCharacter);
+   227→  const endSpriteGenerationForCharacterWithTTS = useTavernStore((state) => state.endGenerationForCharacterWithTTS);
+   228→  
+   229→  // Memory & Summary System - Track messages and generate summaries
+   230→  const summarySettings = useTavernStore((state) => state.summarySettings);
+   231→  const incrementMessageCount = useTavernStore((state) => state.incrementMessageCount);
+   232→  const shouldGenerateSummary = useTavernStore((state) => state.shouldGenerateSummary);
+   233→  const setSessionSummary = useTavernStore((state) => state.setSessionSummary);
+   234→  const resetMessageCount = useTavernStore((state) => state.resetMessageCount);
+   235→  const initSessionTracking = useTavernStore((state) => state.initSessionTracking);
+   236→  const deleteMessagesUpTo = useTavernStore((state) => state.deleteMessagesUpTo);
+   237→  // FASE 11 v2: para togglear proactivo sin editar la card
+   238→  const updateCharacter = useTavernStore((state) => state.updateCharacter);
+   239→
+   240→  // Ref to track ongoing generation and prevent race conditions
+   241→  const generationIdRef = useRef<string | null>(null);
+   242→  const isGenerationInProgressRef = useRef(false);
+   243→  
+   244→  // Get derived values from subscribed state
+   245→  const activeSession = sessions.find((s) => s.id === activeSessionId);
+   246→  const worldClock = (activeSession as { sessionStats?: { worldClock?: import('@/lib/world/time').WorldClock } } | undefined)?.sessionStats?.worldClock ?? null;
+   247→  const activeCharacter = characters.find((c) => c.id === activeCharacterId);
+   248→  const activeGroup = groups.find((g) => g.id === activeGroupId);
+   249→  const activePersona = personas.find((p) => p.id === activePersonaId);
+   250→  
+   251→  // Determine if we're in group mode
+   252→  const isGroupMode = !!activeGroupId && !!activeGroup;
+   253→
+   254→  // ============================================
+   255→  // THRESHOLD MESSAGE EFFECTS (reward type: 'message')
+   256→  // At end of turn, threshold effects with a "message" reward are evaluated;
+   257→  // when a condition is CROSSED (false→true edge) the configured message is
+   258→  // sent to the chat as if it were a quick reply (user message), which
+   259→  // triggers the next generation. Edge states persist in sessionStats.
+   260→  // ============================================
+   261→  const pendingThresholdSendRef = useRef<string | null>(null);
+   262→  const thresholdSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   263→  // Assigned below (after handleSend) — refs keep call order safe inside closures
+   264→  const handleSendRef = useRef<(msg: string) => void | Promise<void>>(() => {});
+   265→  const runThresholdMessageScanRef = useRef<(scopeCharacterIds?: string[]) => void>(() => {});
+   266→
+   267→  const scheduleThresholdAutoSend = useCallback((texts: string[]) => {
+   268→    if (!texts || texts.length === 0) return;
+   269→    const combined = texts.join('\n\n');
+   270→    pendingThresholdSendRef.current = pendingThresholdSendRef.current
+   271→      ? `${pendingThresholdSendRef.current}\n\n${combined}`
+   272→      : combined;
+   273→
+   274→    const trySend = () => {
+   275→      // Wait for the current generation to finish before sending
+   276→      if (isGenerationInProgressRef.current) {
+   277→        thresholdSendTimerRef.current = setTimeout(trySend, 400);
+   278→        return;
+   279→      }
+   280→      thresholdSendTimerRef.current = null;
+   281→      const text = pendingThresholdSendRef.current;
+   282→      pendingThresholdSendRef.current = null;
+   283→      if (text && text.trim()) {
+   284→        handleSendRef.current(text);
+   285→      }
+   286→    };
+   287→    if (!thresholdSendTimerRef.current) {
+   288→      thresholdSendTimerRef.current = setTimeout(trySend, 400);
+   289→    }
+   290→  }, []);
+   291→
+   292→  // Cleanup pending threshold auto-send on unmount
+   293→  useEffect(() => {
+   294→    return () => {
+   295→      if (thresholdSendTimerRef.current) {
+   296→        clearTimeout(thresholdSendTimerRef.current);
+   297→        thresholdSendTimerRef.current = null;
+   298→      }
+   299→    };
+   300→  }, []);
+   301→
+   302→  const runThresholdMessageScan = useCallback((scopeCharacterIds?: string[]) => {
+   303→    try {
+   304→      const store = useTavernStore.getState() as any;
+   305→      const sessionId = activeSessionId;
+   306→      if (!sessionId) return;
+   307→
+   308→      const session = (store.sessions as Array<any>)?.find((s: any) => s.id === sessionId);
+   309→      const sessionStats = session?.sessionStats;
+   310→      if (!sessionStats) return;
+   311→
+   312→      const persona = (store.personas || []).find((p: any) => p.id === store.activePersonaId);
+   313→      const charactersList = store.characters || [];
+   314→
+   315→      // Participants to scan: scoped ids (turn responders) or session members
+   316→      let ids: string[] = [];
+   317→      if (scopeCharacterIds && scopeCharacterIds.length > 0) {
+   318→        ids = [...scopeCharacterIds];
+   319→      } else if (isGroupMode && activeGroup) {
+   320→        ids = activeGroup.members?.map((m: any) => m.characterId) || activeGroup.characterIds || [];
+   321→      } else if (activeCharacter) {
+   322→        ids = [activeCharacter.id];
+   323→      }
+   324→      if (persona?.statsConfig?.enabled && !ids.includes('__user__')) {
+   325→        ids.push('__user__');
+   326→      }
+   327→      if (ids.length === 0) return;
+   328→
+   329→      const targets: ThresholdMessageTarget[] = [];
+   330→      for (const id of ids) {
+   331→        if (id === '__user__' && persona) {
+   332→          targets.push({ characterId: '__user__', characterName: persona.name || 'User', statsConfig: persona.statsConfig });
+   333→          continue;
+   334→        }
+   335→        const char = charactersList.find((c: any) => c.id === id);
+   336→        if (char) targets.push({ characterId: char.id, characterName: char.name, statsConfig: char.statsConfig });
+   337→      }
+   338→      if (targets.length === 0) return;
+   339→
+   340→      const { messages, newStates } = collectThresholdMessages({
+   341→        sessionStats,
+   342→        targets,
+   343→        userName: persona?.name || 'User',
+   344→        characterCards: Object.fromEntries(charactersList.map((c: any) => [c.id, c])),
+   345→      });
+   346→
+   347→      // Persist edge states (also resets when conditions stop being met)
+   348→      if (newStates && Object.keys(newStates).length > 0) {
+   349→        store.setThresholdMessageStates?.(sessionId, newStates);
+   350→      }
+   351→
+   352→      if (messages.length > 0) {
+   353→        for (const m of messages) {
+   354→          toast.info(`💬 Umbral "${m.effectName}" — ${m.characterName}`);
+   355→        }
+   356→        scheduleThresholdAutoSend(messages.map(m => m.text));
+   357→      }
+   358→    } catch (err) {
+   359→      console.error('[ChatPanel] Threshold message scan failed:', err);
+   360→    }
+   361→  }, [activeSessionId, isGroupMode, activeGroup, activeCharacter, scheduleThresholdAutoSend]);
+   362→
+   363→  runThresholdMessageScanRef.current = runThresholdMessageScan;
+   364→
+   365→  // ============================================
+   366→  // LOREBOOK SELECTION LOGIC
+   367→  // ============================================
+   368→  // Normal Chat:
+   369→  //   - Character has lorebooks → use those
+   370→  //   - Character has NO lorebooks → use empty (no fallback to global)
+   371→  //
+   372→  // Group Chat:
+   373→  //   - Group has lorebooks → use ONLY those (for all characters)
+   374→  //   - Group has NO lorebooks → each character uses their own
+   375→  //   - Characters without lorebooks get empty (no fallback)
+   376→  // ============================================
+   377→  
+   378→  // Get effective lorebook IDs based on character or group
+   379→  const effectiveLorebookIds = useMemo(() => {
+   380→    if (isGroupMode) {
+   381→      // Group mode: group lorebooks take priority
+   382→      if (activeGroup?.lorebookIds && activeGroup.lorebookIds.length > 0) {
+   383→        // Group has lorebooks → use only those
+   384→        return activeGroup.lorebookIds;
+   385→      }
+   386→      // Group has NO lorebooks → return empty (will be handled per-character in API)
+   387→      return [];
+   388→    } else {
+   389→      // Normal chat: character lorebooks only, no fallback
+   390→      if (activeCharacter?.lorebookIds && activeCharacter.lorebookIds.length > 0) {
+   391→        return activeCharacter.lorebookIds;
+   392→      }
+   393→      // No lorebooks for this character
+   394→      return [];
+   395→    }
+   396→  }, [isGroupMode, activeGroup?.lorebookIds, activeCharacter?.lorebookIds]);
+   397→
+   398→  // For group chat: build per-character lorebook map (ALWAYS sent in group mode).
+   399→  // Server merges each character's personal lorebooks with the shared group
+   400→  // lorebooks (dedup by id), so a character never loses its own lore when the
+   401→  // group defines shared books.
+   402→  const characterLorebooksMap = useMemo(() => {
+   403→    if (!isGroupMode) return null;
+   404→    
+   405→    // Build per-character map for every group member
+   406→    const map: Record<string, string[]> = {};
+   407→    const groupCharacterIds = activeGroup?.members?.map(m => m.characterId) 
+   408→      ?? activeGroup?.characterIds ?? [];
+   409→    
+   410→    for (const charId of groupCharacterIds) {
+   411→      const char = characters.find(c => c.id === charId);
+   412→      map[charId] = char?.lorebookIds ?? []; // Empty if no lorebooks
+   413→    }
+   414→    
+   415→    return map;
+   416→  }, [isGroupMode, activeGroup, characters]);
+   417→
+   418→  // ============================================
+   419→  // UNIFIED TRIGGER SYSTEM
+   420→  // Single hook for all triggers (sound + sprite)
+   421→  // This replaces separate useSoundTriggers and useSpriteTriggers hooks
+   422→  // ============================================
+   423→  const {
+   424→    processStreamingContent: processTriggers,
+   425→    resetForNewMessage: resetTriggers,
+   426→    clearAllState: clearAllTriggerState,
+   427→    completePartialMatches: completeTriggersPartialMatches,
+   428→  } = useTriggerSystem({
+   429→    soundEnabled: settings.sound?.enabled ?? true,
+   430→    spriteEnabled: settings.chatLayout.showCharacterSprite,
+   431→    maxSoundsPerMessage: settings.sound?.maxSoundsPerMessage ?? 10,
+   432→    activePersona: activePersona,
+   433→  });
+   434→  
+   435→  // Background triggers hook (separate for now, will be integrated later)
+   436→  const { scanForBackgroundTriggers, resetDetection: resetBgDetection } = useBackgroundTriggers();
+   437→  
+   438→  // Timeline Sprite Sounds - plays sounds when sprites with timeline sounds are activated
+   439→  useTimelineSpriteSounds();
+   440→  
+   441→  // TTS hook for text-to-speech functionality
+   442→  const { 
+   443→    speakWithDualVoice, 
+   444→    speak, 
+   445→    stop: stopTTS, 
+   446→    isPlaying: isTTSPlaying,
+   447→    ttsConfig,
+   448→    isConnected: isTTSConnected,
+   449→  } = useTTS();
+   450→  
+   451→  // Auto-generation TTS - automatically plays TTS for new assistant messages
+   452→  // Pass TTS functions and config from parent to avoid creating new instances
+   453→  // Use useMemo to stabilize the messages array reference and prevent unnecessary re-renders
+   454→  const messages = useMemo(() => {
+   455→    return activeSession?.messages.filter(m => !m.isDeleted) || [];
+   456→  }, [activeSession?.messages]);
+   457→  useTTSAutoGeneration(messages, {
+   458→    enabled: true,
+   459→    delay: 500,
+   460→    speak,
+   461→    speakWithDualVoice,
+   462→    ttsConfig,
+   463→    isPlaying: isTTSPlaying,
+   464→    isConnected: isTTSConnected,
+   465→  });
+   466→
+   467→  // ============================================
+   468→  // PROACTIVE MESSAGES SYSTEM
+   469→  // Characters can send messages without user speaking first
+   470→  // ============================================
+   471→  const {
+   472→    isActive: isProactiveActive,
+   473→    isConfigured: isProactiveConfigured,
+   474→    inactiveReason: proactiveInactiveReason,
+   475→    nextIn: proactiveNextIn,
+   476→    sessionCount: proactiveSessionCount,
+   477→    isGeneratingProactive,
+   478→    triggerNow: triggerProactiveNow,
+   479→  } = useProactiveMessages({
+   480→    isGenerating,
+   481→    onProactiveStreamStart: useCallback((characterId: string, characterName: string) => {
+   482→      // Find the character and set streaming state
+   483→      const char = characters.find(c => c.id === characterId) || activeCharacter;
+   484→      if (char) {
+   485→        setStreamingCharacter(char);
+   486→        setStreamingContent('');
+   487→      }
+   488→    }, [characters, activeCharacter]),
+   489→    onProactiveStreamToken: useCallback((token: string) => {
+   490→      setStreamingContent(prev => prev + token);
+   491→    }, []),
+   492→    onProactiveStreamEnd: useCallback(() => {
+   493→      setStreamingContent('');
+   494→      setStreamingCharacter(null);
+   495→    }, []),
+   496→  });
+   497→
+   498→  // ============================================
+   499→  // DIRECTOR AGENT (drama manager)
+   500→  // Runs after each turn / while idle. Applies world events,
+   501→  // group scene rotations and tension telemetry.
+   502→  // ============================================
+   503→  const { triggerNow: triggerDirectorNow } = useDirector(activeSessionId);
+   504→
+   505→  // Relationships visual panel (bond graph)
+   506→  const [showRelationships, setShowRelationships] = useState(false);
+   507→
+   508→  // Scene mode (chatbox collapse controlled from the SceneDock)
+   509→  const [isSceneMode, setIsSceneMode] = useState(false);
+   510→
+   511→  // Auto atmosphere: scene lighting follows the world clock's day moment (opt-in)
+   512→  useAutoAtmosphere(worldClock);
+   513→
+   514→  // First-use onboarding hints (only for features present in this context)
+   515→  const onboardingHints = useMemo<OnboardingHintDef[]>(() => {
+   516→    const hints: OnboardingHintDef[] = [];
+   517→    hints.push({ key: 'reloj-mundo', text: '🕐 El reloj del mundo avanza con cada turno. Clic en el chip 🕐 del chat para configurar saltos, estaciones y atmósfera automática.' });
+   518→    hints.push({ key: 'relaciones', text: '💜 El chip morado junto al nombre muestra tu vínculo con el personaje. Clic para ver el grafo de relaciones completo.' });
+   519→    hints.push({ key: 'director', text: '🎬 El Director (icono de claqueta) genera eventos del mundo y rota la escena para mantener viva la sesión.' });
+   520→    hints.push({ key: 'text-actions', text: '🎲 El narrador puede tirar dados escribiendo [check:stat:hard] y cambiar vínculos con [rel:+10 motivo] — funcionan sin tool calling.' });
+   521→    hints.push({ key: 'modo-escena', text: '👁️ Modo escena: colapsa el chat desde el dock lateral (🖥️) para ver el sprite y el fondo a pantalla completa.' });
+   522→    return hints;
+   523→  }, []);
+   524→
+   525→  // ============================================
+   526→  // TEXT ACTIONS — NO tool-calling required
+   527→  // Scans finished assistant messages for [check:...] [rel:...] [tiempo:...]
+   528→  // tokens and executes them through the same store actions the tools use.
+   529→  // Catches every path: send, group, regenerate, proactive, replay.
+   530→  // ============================================
+   531→  const processedTextActionIdsRef = useRef<Set<string>>(new Set());
+   532→  useEffect(() => {
+   533→    if (!activeSessionId || messages.length === 0) return;
+   534→    const last = messages[messages.length - 1];
+   535→    if (!last || last.role !== 'assistant' || !last.content) return;
+   536→    if (processedTextActionIdsRef.current.has(last.id)) return;
+   537→    processedTextActionIdsRef.current.add(last.id);
+   538→
+   539→    const content = last.content || '';
+   540→    if (!/\[(check|rel|tiempo):/i.test(content)) return;
+   541→
+   542→    const speakerId = last.characterId as string | undefined;
+   543→    const speakerName = speakerId
+   544→      ? characters.find(c => c.id === speakerId)?.name || activeCharacter?.name
+   545→      : activeCharacter?.name;
+   546→
+   547→    (async () => {
+   548→      const { toast } = await import('sonner');
+   549→      const store = useTavernStore.getState();
+   550→      const session = (store.sessions as Array<{ id: string; sessionStats?: import('@/types').SessionStats }>)?.find(s => s.id === activeSessionId);
+   551→      const stats = session?.sessionStats;
+   552→      const actions = parseTextActions(content);
+   553→
+   554→      for (const action of actions) {
+   555→        try {
+   556→          if (action.kind === 'check') {
+   557→            const userVal = stats?.characterStats?.['__user__']?.attributeValues?.[action.stat];
+   558→            const charVal = speakerId ? stats?.characterStats?.[speakerId]?.attributeValues?.[action.stat] : undefined;
+   559→            const raw = userVal ?? charVal;
+   560→            const statNum = typeof raw === 'string' ? parseFloat(raw) : typeof raw === 'number' ? raw : NaN;
+   561→            const modifier = statToModifier(Number.isFinite(statNum) ? statNum : null);
+   562→            const dc = DIFFICULTY_DC[action.difficulty] ?? (parseInt(action.difficulty, 10) || DIFFICULTY_DC.medium);
+   563→            const roll = rollD20();
+   564→            const total = roll + modifier;
+   565→            const outcome = roll === 20 ? 'critical_success'
+   566→              : roll === 1 ? 'critical_failure'
+   567→              : total >= dc ? 'success'
+   568→              : total >= dc - 2 ? 'partial'
+   569→              : 'failure';
+   570→            const label = OUTCOME_LABELS[outcome];
+   571→            const who = speakerName || 'Usuario';
+   572→            store.pushSessionEvent?.(activeSessionId, {
+   573→              type: 'skill_check',
+   574→              description: `${who} — tirada de ${action.stat}: ${label} (${total} vs CD ${dc})`,
+   575→              characterId: speakerId,
+   576→              characterName: speakerName,
+   577→            });
+   578→            const icon = outcome === 'critical_success' ? '🎲✨' : outcome === 'critical_failure' ? '🎲💥' : '🎲';
+   579→            toast.info(`${icon} ${label}: d20(${roll})${modifier >= 0 ? '+' : ''}${modifier} = ${total} vs CD ${dc}`);
+   580→          } else if (action.kind === 'rel') {
+   581→            let bId = '__user__';
+   582→            let bName: string | undefined;
+   583→            if (action.target) {
+   584→              const found = (store.characters as Array<{ id: string; name: string }>)?.find(c =>
+   585→                c.name?.toLowerCase() === action.target!.toLowerCase() ||
+   586→                c.name?.toLowerCase()?.split(' ')[0] === action.target!.toLowerCase());
+   587→              if (found) { bId = found.id; bName = found.name; }
+   588→            }
+   589→            const aId = speakerId || '__user__';
+   590→            if (aId !== bId) {
+   591→              const result = store.updateRelationship?.(activeSessionId, aId, bId, {
+   592→                ...(action.op === '=' ? { set: action.value } : { delta: action.op === '+' ? action.value : -action.value }),
+   593→                reason: action.reason,
+   594→              }, { aName: speakerName, bName });
+   595→              if (result) {
+   596→                toast.success(`💜 ${speakerName || '?'} ↔ ${bName || 'Usuario'}: ${result.stageLabel} (${result.points}/100)`);
+   597→              }
+   598→            }
+   599→          } else if (action.kind === 'tiempo') {
+   600→            if (action.mode === 'advance' && action.minutes && action.minutes > 0) {
+   601→              store.setWorldTime?.(activeSessionId, { minutes: action.minutes });
+   602→              toast.info(`🕐 El tiempo avanza ${action.minutes >= 60 ? `${Math.round(action.minutes / 60)}h` : `${action.minutes}m`}`);
+   603→            } else if (action.mode === 'hour' && typeof action.hour === 'number') {
+   604→              store.setWorldTime?.(activeSessionId, { hour: action.hour, minute: action.minute });
+   605→              toast.info(`🕐 El tiempo salta a las ${String(action.hour).padStart(2, '0')}:${String(action.minute || 0).padStart(2, '0')}`);
+   606→            } else if (action.mode === 'season' && action.season) {
+   607→              store.setWorldTime?.(activeSessionId, { season: action.season });
+   608→              toast.info(`🕐 Estación: ${action.season}`);
+   609→            }
+   610→          }
+   611→        } catch (err) {
+   612→          console.warn('[TextActions] action failed:', err);
+   613→        }
+   614→      }
+   615→    })();
+   616→  }, [messages, activeSessionId, characters, activeCharacter]);
+   617→
+   618→  // Track current streaming message key for triggers
+   619→  const streamingMessageKeyRef = useRef<string>('');
+   620→
+   621→  // ============================================
+   622→  // HUD SYNCHRONIZATION
+   623→  // Auto-activate HUD based on character/group
+   624→  // ============================================
+   625→  useEffect(() => {
+   626→    // Determine the HUD template to use
+   627→    const hudTemplateId = isGroupMode
+   628→      ? activeGroup?.hudTemplateId
+   629→      : activeCharacter?.hudTemplateId;
+   630→
+   631→    // Only update if different from current
+   632→    if (hudTemplateId !== hudSessionState.activeTemplateId) {
+   633→      setActiveHUD(hudTemplateId || null);
+   634→    }
+   635→  }, [isGroupMode, activeGroup?.hudTemplateId, activeCharacter?.hudTemplateId, hudSessionState.activeTemplateId, setActiveHUD]);
+   636→
+   637→  // Get active HUD context for prompt injection
+   638→  const activeHUDContext = useMemo(() => {
+   639→    const activeTemplate = hudTemplates.find(t => t.id === hudSessionState.activeTemplateId);
+   640→    if (activeTemplate?.context?.enabled && activeTemplate.context.content.trim()) {
+   641→      return activeTemplate.context;
+   642→    }
+   643→    return undefined;
+   644→  }, [hudTemplates, hudSessionState.activeTemplateId]);
+   645→
+   646→  // Pending item message (inventory → chat injection)
+   647→  const pendingItemMessage = useTavernStore((state) => state.pendingItemMessage);
+   648→  const clearPendingItemMessage = useTavernStore((state) => state.clearPendingItemMessage);
+   649→
+   650→  // Sync ref with store state
+   651→  useEffect(() => {
+   652→    if (!isGenerating && isGenerationInProgressRef.current) {
+   653→      // Store says not generating but we think we are - cleanup
+   654→      isGenerationInProgressRef.current = false;
+   655→      generationIdRef.current = null;
+   656→    }
+   657→  }, [isGenerating]);
+   658→
+   659→  // FASE 4: Keep streamingContentRef in sync with streaming content
+   660→  useEffect(() => {
+   661→    streamingContentRef.current = streamingContent;
+   662→  }, [streamingContent]);
+   663→
+   664→  // ============================================
+   665→  // MEMORY & SUMMARY INTEGRATION
+   666→  // Generates summaries when threshold is reached
+   667→  // ============================================
+   668→  
+   669→  // Initialize session tracking when session changes
+   670→  useEffect(() => {
+   671→    if (activeSessionId && summarySettings.enabled) {
+   672→      initSessionTracking(activeSessionId, isGroupMode);
+   673→    }
+   674→  }, [activeSessionId, summarySettings.enabled, isGroupMode, initSessionTracking]);
+   675→
+   676→  // ============================================
+   677→  // TIMER INTEGRATION
+   678→  // Start timer when session changes or on app reload
+   679→  // ============================================
+   680→  useEffect(() => {
+   681→    if (!activeSessionId) return;
+   682→    
+   683→    const store = useTavernStore.getState() as any;
+   684→    
+   685→    // Start timer for the active session (handles app reload / session restore)
+   686→    if (!isGroupMode && activeCharacter?.statsConfig?.timerEnabled) {
+   687→      store.startSessionTimer?.(activeSessionId, activeCharacter.id, activeCharacter.statsConfig);
+   688→    } else if (isGroupMode && activeGroup?.members) {
+   689→      for (const member of activeGroup.members) {
+   690→        const char = store.getCharacterById?.(member.characterId);
+   691→        if (char?.statsConfig?.timerEnabled) {
+   692→          store.startSessionTimer?.(activeSessionId, char.id, char.statsConfig);
+   693→        }
+   694→      }
+   695→    }
+   696→  }, [activeSessionId, isGroupMode, activeCharacter?.id, activeCharacter?.statsConfig?.timerEnabled, activeGroup?.members]);
+   697→
+   698→  // FASE 2: Time-based solicitud expiration checker
+   699→  // Checks every 30 seconds for solicitudes that have expired by time
+   700→  useEffect(() => {
+   701→    if (!activeSessionId) return;
+   702→
+   703→    const expirationInterval = setInterval(() => {
+   704→      const store = useTavernStore.getState();
+   705→      const turnCount = store.getTurnCount?.(activeSessionId!) || 0;
+   706→      store.expireSolicitudes?.(activeSessionId!, turnCount);
+   707→    }, 30000); // Check every 30 seconds
+   708→
+   709→    return () => clearInterval(expirationInterval);
+   710→  }, [activeSessionId]);
+   711→
+   712→  // Function to generate summary when threshold is reached
+   713→  const generateSummaryIfNeeded = useCallback(async () => {
+   714→    if (!activeSessionId || !summarySettings.enabled || !summarySettings.autoSummarize) {
+   715→      return;
+   716→    }
+   717→
+   718→    // Check if we should generate a summary
+   719→    if (!shouldGenerateSummary(activeSessionId)) {
+   720→      return;
+   721→    }
+   722→
+   723→    try {
+   724→      chatLogger.info('[Memory] Generating summary for session', { sessionId: activeSessionId });
+   725→
+   726→      // Get the current session's messages
+   727→      const currentSession = useTavernStore.getState().sessions.find(s => s.id === activeSessionId);
+   728→      const messages = currentSession?.messages || [];
+   729→      const visibleMessages = messages.filter(m => !m.isDeleted);
+   730→
+   731→      // Get the messages to summarize (all except recent ones to keep)
+   732→      const messagesToSummarize = visibleMessages.slice(0, -summarySettings.keepRecentMessages);
+   733→      
+   734→      if (messagesToSummarize.length === 0) {
+   735→        return;
+   736→      }
+   737→
+   738→      // Get the current summary from the session for incremental update
+   739→      const previousSummary = currentSession?.summary?.content;
+   740→
+   741→      // Get LLM config for summary generation
+   742→      const { llmConfigs } = useTavernStore.getState();
+   743→      const activeLLMConfig = llmConfigs.find(c => c.isActive);
+   744→      
+   745→      if (!activeLLMConfig) {
+   746→        chatLogger.warn('[Memory] No active LLM config for summary generation');
+   747→        return;
+   748→      }
+   749→
+   750→      // Get character name(s) for summary
+   751→      const characterName = isGroupMode 
+   752→        ? activeGroup?.name || 'Group'
+   753→        : activeCharacter?.name || 'Character';
+   754→
+   755→      // Call summary API — scope identifiers let the route store the summary
+   756→      // embedding in a per-character/per-group + per-session namespace instead
+   757→      // of the shared `memory-character-default-unknown` bucket.
+   758→      const response = await fetch('/api/chat/summary', {
+   759→        method: 'POST',
+   760→        headers: { 'Content-Type': 'application/json' },
+   761→        body: JSON.stringify({
+   762→          messages: messagesToSummarize,
+   763→          characterName,
+   764→          userName: activePersona?.name || 'User',
+   765→          settings: summarySettings,
+   766→          previousSummary,
+   767→          characterId: isGroupMode ? undefined : activeCharacter?.id,
+   768→          groupId: isGroupMode ? activeGroup?.id : undefined,
+   769→          sessionId: activeSessionId,
+   770→          apiConfig: {
+   771→            provider: activeLLMConfig.provider,
+   772→            endpoint: activeLLMConfig.endpoint || '',
+   773→            apiKey: activeLLMConfig.apiKey,
+   774→            model: summarySettings.model || activeLLMConfig.model,
+   775→          }
+   776→        })
+   777→      });
+   778→
+   779→      if (!response.ok) {
+   780→        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+   781→        throw new Error(`Summary generation failed: ${errorData.error || response.statusText}`);
+   782→      }
+   783→
+   784→      const data = await response.json();
+   785→
+   786→      if (data.success && data.summary) {
+   787→        // Save summary directly to session (overwrites previous)
+   788→        setSessionSummary(activeSessionId, {
+   789→          content: data.summary.content,
+   790→          messageRange: data.summary.messageRange,
+   791→          tokens: data.summary.tokens,
+   792→          createdAt: data.summary.createdAt,
+   793→          model: data.summary.model,
+   794→        });
+   795→        
+   796→        // Delete old messages that were summarized (keep recent ones + first message)
+   797→        deleteMessagesUpTo(activeSessionId, summarySettings.keepRecentMessages);
+   798→        
+   799→        // Reset message count after successful summary
+   800→        resetMessageCount(activeSessionId);
+   801→        
+   802→        chatLogger.info('[Memory] Summary generated successfully', { 
+   803→          sessionId: activeSessionId,
+   804→          tokens: data.summary.tokens,
+   805→          messagesDeleted: messagesToSummarize.length
+   806→        });
+   807→      } else if (data.error) {
+   808→        chatLogger.warn('[Memory] Summary generation returned error', { error: data.error });
+   809→      }
+   810→    } catch (error) {
+   811→      const errorMessage = error instanceof Error ? error.message : String(error);
+   812→      chatLogger.error('[Memory] Summary generation error', { error: errorMessage });
+   813→    }
+   814→  }, [
+   815→    activeSessionId, 
+   816→    summarySettings, 
+   817→    shouldGenerateSummary, 
+   818→    activeSession,
+   819→    setSessionSummary, 
+   820→    resetMessageCount,
+   821→    deleteMessagesUpTo,
+   822→    isGroupMode,
+   823→    activeGroup,
+   824→    activeCharacter,
+   825→    activePersona
+   826→  ]);
+   827→
+   828→  const handleSend = useCallback(async (userMessage: string) => {
+   829→    // Double-check using both state and ref to prevent race conditions
+   830→    if (!userMessage.trim()) return;
+   831→    if (isGenerating || isGenerationInProgressRef.current) return;
+   832→    if (!activeSessionId) return;
+   833→    
+   834→    // Process timer ticks before sending message (lazy evaluation of elapsed time)
+   835→    try {
+   836→      const store = useTavernStore.getState() as any;
+   837→      if (activeSessionId) {
+   838→        if (!isGroupMode && activeCharacter?.statsConfig?.timerEnabled) {
+   839→          store.processTimerTicks?.(activeSessionId, activeCharacter.id, activeCharacter.statsConfig);
+   840→        } else if (isGroupMode && activeGroup?.members) {
+   841→          for (const member of activeGroup.members) {
+   842→            const char = store.getCharacterById?.(member.characterId);
+   843→            if (char?.statsConfig?.timerEnabled) {
+   844→              store.processTimerTicks?.(activeSessionId, char.id, char.statsConfig);
+   845→            }
+   846→          }
+   847→        }
+   848→      }
+   849→    } catch { /* non-critical timer tick processing */ }
+   850→
+   851→    // For group mode, we don't need activeCharacter
+   852→    if (!isGroupMode && !activeCharacter) return;
+   853→
+   854→    // Ensure quest templates are loaded before building the prompt
+   855→    // This prevents race condition where templates aren't available on first message
+   856→    if (questTemplates.length === 0) {
+   857→      try {
+   858→        await loadQuestTemplates();
+   859→      } catch {}
+   860→    }
+   861→    // CRITICAL: Always re-read quest data from the store to avoid stale closures
+   862→    // The React hook selector captures values at render time, but handleSend is async
+   863→    const latestQuestTemplates = useTavernStore.getState().questTemplates;
+   864→    const latestQuestSettings = useTavernStore.getState().questSettings;
+   865→
+   866→    // Generate a unique ID for this generation
+   867→    const generationId = `gen_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+   868→    generationIdRef.current = generationId;
+   869→    isGenerationInProgressRef.current = true;
+   870→
+   871→    setGenerating(true);
+   872→    setStreamingContent('');
+   873→    setStreamingCharacter(null);
+   874→    setStreamingProgress(null);
+   875→    setEmbeddingsContexts([]);
+   876→    
+   877→    // Generate a unique message key for this streaming session
+   878→    const messageKey = `stream_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+   879→    streamingMessageKeyRef.current = messageKey;
+   880→    resetBgDetection(messageKey);
+   881→    // Reset trigger system state for new message (important for peticiones/solicitudes detection)
+   882→    resetTriggers(messageKey, activeCharacter);
+   883→    
+   884→    // Start sprite generation for the character (single mode)
+   885→    // This initializes the per-character state for proper sprite tracking
+   886→    if (!isGroupMode && activeCharacter) {
+   887→      startSpriteGenerationForCharacter(activeCharacter.id);
+   888→    }
+   889→
+   890→    // Add user message
+   891→    addMessage(activeSessionId, {
+   892→      characterId: activeCharacter?.id || 'user',
+   893→      role: 'user',
+   894→      content: userMessage.trim(),
+   895→      isDeleted: false,
+   896→      swipeId: generateId(),
+   897→      swipeIndex: 0
+   898→    });
+   899→
+   900→    // Helper to check if this generation is still the active one
+   901→    const isStillActive = () => generationIdRef.current === generationId;
+   902→
+   903→    try {
+   904→      // Get the active LLM config
+   905→      const { llmConfigs } = useTavernStore.getState();
+   906→      const activeLLMConfig = llmConfigs.find(c => c.isActive);
+   907→      
+   908→      if (!activeLLMConfig) {
+   909→        throw new Error(t('chat.noLLM'));
+   910→      }
+   911→
+   912→      // Get current session data (re-read to get latest quest instances)
+   913→      const currentSession = useTavernStore.getState().sessions.find(s => s.id === activeSessionId);
+   914→      const currentMessages = currentSession?.messages || [];
+   915→      const currentSessionQuests = currentSession?.sessionQuests || [];
+   916→
+   917→      // Check if streaming is enabled
+   918→      const useStreaming = activeLLMConfig.parameters.stream;
+   919→      
+   920→      // Get context settings from store
+   921→      const contextConfig = settings.context;
+   922→
+   923→      // Handle group chat
+   924→      if (isGroupMode && activeGroup) {
+   925→        // Get group characters
+   926→        const groupCharacterIds = activeGroup.members?.map(m => m.characterId) || activeGroup.characterIds || [];
+   927→        const groupCharacters = characters.filter(c => groupCharacterIds.includes(c.id));
+   928→        
+   929→        if (groupCharacters.length === 0) {
+   930→          throw new Error(t('chat.noGroupCharacters'));
+   931→        }
+   932→
+   933→        // Get active lorebooks for prompt injection
+   934→        // Send the UNION of shared group lorebooks + every member's personal
+   935→        // lorebooks (dedup, active only). The server builds a per-responder
+   936→        // plan (personal + shared, deduped) using characterLorebooksMap.
+   937→        const groupLorebookIdSet = new Set<string>(activeGroup?.lorebookIds ?? []);
+   938→        for (const gc of groupCharacters) {
+   939→          (gc.lorebookIds ?? []).forEach(id => groupLorebookIdSet.add(id));
+   940→        }
+   941→        const activeLorebooks = lorebooks.filter(
+   942→          lb => groupLorebookIdSet.has(lb.id) && activeLorebookIds.includes(lb.id) && lb.active
+   943→        );
+   944→        
+   945→        // Get session stats for attribute values
+   946→        const sessionStats = currentSession?.sessionStats;
+   947→
+   948→        // Build allCharacters array including persona as pseudo-character for peticiones/solicitudes
+   949→        const allCharactersWithPersona = [
+   950→          ...characters,
+   951→          ...(activePersona?.statsConfig?.enabled ? [{
+   952→            id: '__user__',
+   953→            name: activePersona.name || 'User',
+   954→            statsConfig: activePersona.statsConfig,
+   955→          }] as CharacterCard[] : []),
+   956→        ];
+   957→
+   958→        // Use group streaming endpoint
+   959→        const response = await fetch('/api/chat/group-stream', {
+   960→          method: 'POST',
+   961→          headers: { 'Content-Type': 'application/json' },
+   962→          body: JSON.stringify({
+   963→            message: userMessage.trim(),
+   964→            sessionId: activeSessionId,
+   965→            groupId: activeGroupId,
+   966→            group: activeGroup,
+   967→            characters: groupCharacters,
+   968→            messages: currentMessages.filter((m: { isDeleted: boolean }) => !m.isDeleted),
+   969→            llmConfig: activeLLMConfig,
+   970→            userName: activePersona?.name || 'User',
+   971→            persona: activePersona,
+   972→            contextConfig,
+   973→            lorebooks: activeLorebooks,
+   974→            // Pass per-character lorebooks when group has no lorebooks
+   975→            characterLorebooksMap: characterLorebooksMap,
+   976→            sessionStats,  // Pass session stats for attribute values
+   977→            sessionQuests: currentSessionQuests,  // Pass session quests (freshly read)
+   978→            questTemplates: latestQuestTemplates,  // Pass quest templates (freshly read)
+   979→            questSettings: latestQuestSettings,  // Pass quest settings (freshly read)
+   980→            hudContext: activeHUDContext,  // Pass HUD context for prompt injection
+   981→            allCharacters: allCharactersWithPersona,  // Pass all characters + persona for peticiones/solicitudes
+   982→            toolsSettings: settings.tools,  // Pass tools settings for group chat tool-calling
+   983→            scenarios: useTavernStore.getState().scenarios,  // ESCENARIO V3: App scenario library for manage_escenario + {{escenario}}
+   984→            soundTriggers,  // Pass sound triggers for {{sonidos}} resolution
+   985→            settings,  // Pass settings for {{sonidos}} template
+   986→            embeddingsChat: {
+   987→              ...settings.embeddingsChat,
+   988→              customNamespaces: activeGroup?.embeddingNamespaces,
+   989→            },  // Pass embeddings chat settings + group namespace override
+   990→            // Summary for memory/context compression
+   991→            summary: currentSession?.summary,
+   992→            // Last responder ID for round-robin rotation
+   993→            lastResponderId: (() => {
+   994→              // Find the last assistant message to determine who responded last
+   995→              const lastAssistantMsg = [...currentMessages].reverse().find((m: any) => m.role === 'assistant' && !m.isDeleted);
+   996→              return lastAssistantMsg?.characterId || undefined;
+   997→            })(),
+   998→            // Turn count for narrator conditional settings
+   999→            turnCount: currentSession?.turnCount || currentMessages.filter((m: any) => m.role === 'user' && !m.isDeleted).length,
+  1000→            // Whether narrator spoke last turn (for narrator interval tracking)
+  1001→            // Calculate the actual TURN NUMBER when the narrator last spoke
+  1002→            narratorLastTurn: (() => {
+  1003→              const userMsgs = currentMessages.filter((m: any) => m.role === 'user' && !m.isDeleted);
+  1004→              // Walk messages in reverse to find the last narrator message
+  1005→              for (let idx = currentMessages.length - 1; idx >= 0; idx--) {
+  1006→                const m = currentMessages[idx] as any;
+  1007→                if (m.role === 'assistant' && !m.isDeleted && m.isNarratorMessage) {
+  1008→                  // Find which user turn this narrator message is after
+  1009→                  const msgsUpToNarrator = currentMessages.slice(0, idx + 1);
+  1010→                  const userTurnsBefore = msgsUpToNarrator.filter((um: any) => um.role === 'user' && !um.isDeleted).length;
+  1011→                  return userTurnsBefore;
+  1012→                }
+  1013→              }
+  1014→              return -999; // No narrator message found
+  1015→            })(),
+  1016→            inventoryData: (() => {
+  1017→              // CRITICAL: Re-read store state fresh to ensure we have the latest
+  1018→              // equipment/consumable data. When equipItem/useConsumable runs,
+  1019→              // it saves to session JSON BEFORE this code executes (300ms delay).
+  1020→              const invState = useTavernStore.getState();
+  1021→              const invSettings = invState.inventorySettings;
+  1022→              if (!invSettings.enabled) return undefined;
+  1023→              const personaId = activePersona?.id || 'default';
+  1024→              // Re-read session from fresh store state to get updated sessionEquipment & activeConsumableEffects
+  1025→              const freshSession = invState.sessions.find((s: any) => s.id === activeSessionId);
+  1026→              return {
+  1027→                personaItems: invState.getPersonaItems(personaId),
+  1028→                sessionEquipment: freshSession?.sessionEquipment || [],
+  1029→                activeEffects: freshSession?.activeConsumableEffects || invState.activeConsumableEffects.filter(e => e.personaId === personaId),
+  1030→                currency: activePersona?.currency ?? 0,
+  1031→                currencyName: activePersona?.currencyName || invSettings.currencyName,
+  1032→                currencyIcon: activePersona?.currencyIcon || invSettings.currencyIcon,
+  1033→                // Slots are owned by the persona (global slots removed) — resolve
+  1034→                // them here so {{slots}} and prompt building use the right source
+  1035→                inventorySettings: { ...invSettings, equipmentSlots: activePersona?.equipmentSlots || [] },
+  1036→              };
+  1037→            })(),  // Pass inventory data for {{slots}} key resolution
+  1038→          })
+  1039→        });
+  1040→
+  1041→        if (!response.ok) {
+  1042→          const errorData = await response.json().catch(() => ({ error: response.statusText || t('chat.error.streaming') }));
+  1043→          throw new Error(errorData.error || t('chat.error.streaming'));
+  1044→        }
+  1045→
+  1046→        const reader = response.body?.getReader();
+  1047→        if (!reader) throw new Error('No response body');
+  1048→
+  1049→        const decoder = new TextDecoder();
+  1050→        let buffer = '';
+  1051→        let currentCharacterContent = '';
+  1052→        let currentCharacter: CharacterCard | null = null;
+  1053→        // Track group extraction flag from 'done' event
+  1054→        let groupShouldExtract = false;
+  1055→        let groupShouldEvaluateEmotion = false;
+  1056→        let groupResponses: Array<{ characterId: string; characterName: string; content: string }> = [];
+  1057→
+  1058→        try {
+  1059→          while (true) {
+  1060→            // Check if generation was cancelled
+  1061→            if (!isStillActive()) {
+  1062→              reader.cancel();
+  1063→              break;
+  1064→            }
+  1065→            
+  1066→            const { done, value } = await reader.read();
+  1067→            if (done) break;
+  1068→
+  1069→            buffer += decoder.decode(value, { stream: true });
+  1070→            const messages = buffer.split('\n\n');
+  1071→            buffer = messages.pop() || '';
+  1072→
+  1073→            for (const message of messages) {
+  1074→              const dataMatch = message.match(/^data: (.+)$/s);
+  1075→              if (!dataMatch) continue;
+  1076→              
+  1077→              const data = dataMatch[1];
+  1078→              
+  1079→              try {
+  1080→                const parsed = JSON.parse(data);
+  1081→                
+  1082→                if (parsed.type === 'user_turn') {
+  1083→                  // Group chat reactive strategy detected a peticion targeting the user
+  1084→                  // Stop generation and let user respond
+  1085→                  chatLogger.info('Turn stopped for user response', { reason: parsed.reason });
+  1086→                  setStreamingProgress(null);
+  1087→                  setStreamingCharacter(null);
+  1088→                  setGenerating(false);
+  1089→                  // Optionally show a toast notification
+  1090→                  return;
+  1091→                } else if (parsed.type === 'embeddings_context' && parsed.data) {
+  1092→                  // Embeddings context was retrieved for this character
+  1093→                  setEmbeddingsContexts(prev => [...prev, {
+  1094→                    ...parsed.data,
+  1095→                    characterId: parsed.characterId,
+  1096→                    characterName: parsed.characterName,
+  1097→                  }]);
+  1098→                } else if (parsed.type === 'memory_extracting') {
+  1099→                  // Memory extraction is running in background
+  1100→                  const names = parsed.characterNames || parsed.characterName || '';
+  1101→                  const label = Array.isArray(names) ? names.join(', ') : names;
+  1102→                  if (label) {
+  1103→                    setMemoryExtractingInfo({ active: true, characterNames: label });
+  1104→                    setTimeout(() => setMemoryExtractingInfo(prev => ({ ...prev, active: false })), 8000);
+  1105→                  }
+  1106→                } else if (parsed.type === 'tool_call_start') {
+  1107→                  // Tool call detected - show indicator
+  1108→                  console.log('[ChatPanel] Tool call started:', parsed.toolName);
+  1109→                  setToolCallInfo({
+  1110→                    active: true,
+  1111→                    toolName: parsed.toolName,
+  1112→                    toolLabel: parsed.toolLabel,
+  1113→                    toolIcon: parsed.toolIcon,
+  1114→                    params: parsed.params,
+  1115→                    phase: 'executing',
+  1116→                    callId: parsed.callId,
+  1117→                  });
+  1118→                } else if (parsed.type === 'tool_call_result') {
+  1119→                  // Tool execution completed
+  1120→                  console.log('[ChatPanel] Tool call result:', parsed.toolName, parsed.success);
+  1121→                  setToolCallInfo(prev => ({
+  1122→                    ...prev,
+  1123→                    active: true,
+  1124→                    result: { success: parsed.success, displayMessage: parsed.displayMessage, duration: parsed.duration || 0 },
+  1125→                    phase: 'done',
+  1126→                    callId: parsed.callId,
+  1127→                  }));
+  1128→                  setTimeout(() => setToolCallInfo(prev => ({ ...prev, active: false, phase: 'idle' })), 5000);
+  1129→                } else if (parsed.type === 'tool_call_error') {
+  1130→                  // Tool call error
+  1131→                  console.log('[ChatPanel] Tool call error:', parsed.error);
+  1132→                  setToolCallInfo(prev => ({
+  1133→                    ...prev,
+  1134→                    active: true,
+  1135→                    result: { success: false, displayMessage: parsed.error, duration: 0 },
+  1136→                    phase: 'error',
+  1137→                    callId: parsed.callId,
+  1138→                  }));
+  1139→                  setTimeout(() => setToolCallInfo(prev => ({ ...prev, active: false, phase: 'idle' })), 5000);
+  1140→                } else if (parsed.type === 'quest_activation') {
+  1141→                  // Quest objective was completed by a tool - execute on client side
+  1142→                  console.log('[ChatPanel] Quest activation from tool:', parsed.toolName, parsed.activationType, parsed.key);
+  1143→                  // Execute the objective completion on the CLIENT where the store has real data.
+  1144→                  // store.completeObjective handles everything:
+  1145→                  //   - Marks objective as completed
+  1146→                  //   - Executes objective rewards (attribute, trigger, objective chain)
+  1147→                  //   - Auto-completes quest if all required objectives done
+  1148→                  //   - Executes quest rewards on auto-completion
+  1149→                  //   - Activates quest chain if defined
+  1150→                  //   - Adds notifications
+  1151→                  if (parsed.activationType === 'complete_objective' && parsed.metadata && !parsed.metadata.alreadyCompleted) {
+  1152→                    const store = useTavernStore.getState();
+  1153→                    store.completeObjective?.(
+  1154→                      activeSessionId,
+  1155→                      parsed.metadata.questTemplateId,
+  1156→                      parsed.metadata.objectiveId,
+  1157→                      parsed.metadata.characterId,
+  1158→                    );
+  1159→                  }
+  1160→                  // Show immediate toast feedback (store notifications handle quest completion separately)
+  1161→                  if (!parsed.metadata?.alreadyCompleted && parsed.metadata?.objectiveName) {
+  1162→                    toast.success(`Objetivo completado: ${parsed.metadata.objectiveName}`);
+  1163→                  }
+  1164→                } else if (parsed.type === 'action_activation') {
+  1165→                  // Action/skill activated by tool - execute on client side
+  1166→                  console.log('[ChatPanel] Action activation from tool:', parsed.toolName, parsed.skillName);
+  1167→                  const store = useTavernStore.getState();
+  1168→                  store.activateSkillByTool?.(
+  1169→                    activeSessionId,
+  1170→                    parsed.characterId,
+  1171→                    parsed.skillName,
+  1172→                    parsed.skillDescription || '',
+  1173→                    parsed.activationCosts || [],
+  1174→                    parsed.activationRewards || [],
+  1175→                    parsed.skillCompletedDescription || '',
+  1176→                  );
+  1177→                  toast.success(`⚔️ Acción: ${parsed.skillName}`);
+  1178→                } else if (parsed.type === 'scene_activation') {
+  1179→                  // Scene change (enter/leave/focus) triggered by manage_scene tool - execute on client side
+  1180→                  console.log('[ChatPanel] Scene activation from tool:', parsed.toolName, parsed.action, parsed.characterName, 'present:', parsed.present);
+  1181→                  const store = useTavernStore.getState();
+  1182→                  const sceneSession = (store.sessions as Array<{ id: string; groupId?: string }>)?.find(s => s.id === activeSessionId);
+  1183→                  if (sceneSession?.groupId) {
+  1184→                    if (parsed.activationType === 'scene_change') {
+  1185→                      store.applySceneChange?.(sceneSession.groupId, parsed.characterId, !!parsed.present);
+  1186→                    }
+  1187→                    const eventType = parsed.action === 'enter' ? 'scene_enter'
+  1188→                      : parsed.action === 'leave' ? 'scene_leave'
+  1189→                      : 'scene_focus';
+  1190→                    const defaultDesc = parsed.action === 'enter'
+  1191→                      ? `${parsed.characterName} entró a la escena`
+  1192→                      : parsed.action === 'leave'
+  1193→                        ? `${parsed.characterName} salió de la escena`
+  1194→                        : `La atención se centra en ${parsed.characterName}`;
+  1195→                    store.pushSessionEvent?.(activeSessionId, {
+  1196→                      type: eventType,
+  1197→                      description: parsed.narrative || defaultDesc,
+  1198→                      characterId: parsed.characterId,
+  1199→                      characterName: parsed.characterName,
+  1200→                    });
+  1201→                    const icon = parsed.action === 'enter' ? '🚪➡️' : parsed.action === 'leave' ? '🚪⬅️' : '🎭';
+  1202→                    const byTxt = parsed.byCharacterName && parsed.byCharacterName !== parsed.characterName ? ` (por ${parsed.byCharacterName})` : '';
+  1203→                    toast.success(`${icon} ${parsed.characterName} ${parsed.action === 'enter' ? 'entró a' : parsed.action === 'leave' ? 'salió de' : 'es el foco de'} la escena${byTxt}`);
+  1204→                  }
+  1205→                } else if (parsed.type === 'relationship_activation') {
+  1206→                  // Relationship bond changed via manage_relationship tool - execute on client side
+  1207→                  console.log('[ChatPanel] Relationship activation from tool:', parsed.toolName, parsed.aName, '↔', parsed.bName, parsed.prevPoints, '→', parsed.newPoints);
+  1208→                  const store = useTavernStore.getState();
+  1209→                  const relResult = store.updateRelationship?.(
+  1210→                    activeSessionId,
+  1211→                    parsed.aId,
+  1212→                    parsed.bId,
+  1213→                    {
+  1214→                      set: parsed.newPoints,
+  1215→                      reason: parsed.reason || undefined,
+  1216→                    },
+  1217→                    { aName: parsed.aName, bName: parsed.bName },
+  1218→                  );
+  1219→                  if (relResult) {
+  1220→                    const up = (parsed.newPoints ?? 0) > (parsed.prevPoints ?? 0);
+  1221→                    toast.success(`💜 ${parsed.aName} ↔ ${parsed.bName}: ${relResult.stageLabel} (${parsed.newPoints}/100) ${up ? '▲' : '▼'}`);
+  1222→                  }
+  1223→                } else if (parsed.type === 'check_activation') {
+  1224→                  // Dice check resolved via skill_check tool - log event + toast
+  1225→                  console.log('[ChatPanel] Check activation from tool:', parsed.toolName, parsed.statName, parsed.total, 'vs', parsed.dc, '→', parsed.outcome);
+  1226→                  const store = useTavernStore.getState();
+  1227→                  const who = parsed.characterName || 'Usuario';
+  1228→                  const attempt = parsed.narrative || `tirada de ${parsed.statName || 'habilidad'}`;
+  1229→                  store.pushSessionEvent?.(activeSessionId, {
+  1230→                    type: 'skill_check',
+  1231→                    description: `${who} intentó ${attempt}: ${parsed.outcomeLabel} (${parsed.total} vs CD ${parsed.dc})`,
+  1232→                    characterId: parsed.characterId,
+  1233→                    characterName: parsed.characterName,
+  1234→                  });
+  1235→                  const icon = parsed.outcome === 'critical_success' ? '🎲✨' : parsed.outcome === 'critical_failure' ? '🎲💥' : '🎲';
+  1236→                  toast.info(`${icon} ${parsed.outcomeLabel}: ${parsed.total} vs CD ${parsed.dc}`);
+  1237→                } else if (parsed.type === 'time_activation') {
+  1238→                  // World time activation — execute on client side
+  1239→                  console.log('[ChatPanel] Time activation:', parsed.toolName, parsed.activationType, parsed.minutes || parsed.hour || parsed.season);
+  1240→                  const store = useTavernStore.getState();
+  1241→                  if (parsed.activationType === 'advance' && typeof parsed.minutes === 'number') {
+  1242→                    store.setWorldTime?.(activeSessionId, { minutes: parsed.minutes });
+  1243→                    toast.info(`🕐 El tiempo avanza ${parsed.minutes >= 60 ? `${Math.round(parsed.minutes / 60)}h` : `${parsed.minutes}m`}`);
+  1244→                  } else if (parsed.activationType === 'set_hour' && typeof parsed.hour === 'number') {
+  1245→                    store.setWorldTime?.(activeSessionId, { hour: parsed.hour, minute: parsed.minute });
+  1246→                    toast.info(`🕐 El tiempo salta a las ${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute || 0).padStart(2, '0')}`);
+  1247→                  } else if (parsed.activationType === 'set_season' && parsed.season) {
+  1248→                    store.setWorldTime?.(activeSessionId, { season: parsed.season });
+  1249→                    toast.info(`🕐 Estación: ${parsed.season}`);
+  1250→                  }
+  1251→                } else if (parsed.type === 'stat_activation') {
+  1252→                  // Stat modified by tool - execute on client side.
+  1253→                  // Delta-aware: '+'/'-' operators replay on the CLIENT's
+  1254→                  // current value so skill costs and tool changes ACCUMULATE
+  1255→                  // (never cancel each other). '='/'set' → absolute.
+  1256→                  console.log('[ChatPanel] Stat activation from tool:', parsed.toolName, parsed.attributeKey, parsed.oldValue, '→', parsed.newValue, `(op: ${parsed.operator ?? 'absolute'})`);
+  1257→                  const store = useTavernStore.getState();
+  1258→                  const applied = applyStatActivationToStore(store, activeSessionId, parsed);
+  1259→                  const prefix = applied.mode === 'delta' ? ' (acumulado)' : '';
+  1260→                  const reasonSuffix = parsed.reason ? ` · ${parsed.reason}` : '';
+  1261→                  toast.success(`📊 ${parsed.attributeName || parsed.attributeKey}: ${applied.clientOldValue ?? parsed.oldValue} → ${applied.appliedValue}${prefix}${reasonSuffix}`);
+  1262→                } else if (parsed.type === 'solicitud_activation') {
+  1263→                  // Solicitud activated/completed by tool - execute on client side
+  1264→                  console.log('[ChatPanel] Solicitud activation from tool:', parsed.toolName, parsed.activationType, parsed.solicitudKey);
+  1265→                  const store = useTavernStore.getState();
+  1266→                  if (parsed.activationType === 'create_solicitud' && parsed.targetCharacterId) {
+  1267→                    store.createSolicitud?.(
+  1268→                      activeSessionId,
+  1269→                      parsed.targetCharacterId,
+  1270→                      {
+  1271→                        key: parsed.solicitudKey,
+  1272→                        peticionKey: parsed.peticionKey,
+  1273→                        fromCharacterId: parsed.fromCharacterId,
+  1274→                        fromCharacterName: parsed.fromCharacterName,
+  1275→                        description: parsed.description || '',
+  1276→                      }
+  1277→                    );
+  1278→                    toast.success(`📬 Petición: ${parsed.peticionKey || parsed.solicitudKey} → ${parsed.targetCharacterName || ''}`);
+  1279→                  } else if (parsed.activationType === 'complete_solicitud') {
+  1280→                    store.completeSolicitud?.(
+  1281→                      activeSessionId,
+  1282→                      parsed.fromCharacterId,
+  1283→                      parsed.solicitudKey
+  1284→                    );
+  1285→                    toast.success(`✅ Solicitud completada: ${parsed.solicitudKey}`);
+  1286→                  }
+  1287→                } else if (parsed.type === 'wardrobe_activation') {
+  1288→                  // GUARDARROPA V2: Wardrobe tool activation — update session stats activeOutfitId
+  1289→                  console.log('[ChatPanel] Wardrobe activation from tool:', parsed.toolName, parsed.action, parsed.previousOutfitId ?? '(default)', '→', parsed.outfitId ?? '(default)', parsed.outfitName);
+  1290→                  const store = useTavernStore.getState();
+  1291→                  if (parsed.changed && parsed.characterId) {
+  1292→                    // Update the worn outfit in session stats
+  1293→                    store.setActiveOutfit?.(activeSessionId, parsed.characterId, parsed.outfitId ?? null);
+  1294→                    const actionIcon = parsed.action === 'wear' ? '🧥' : parsed.action === 'remove' ? '🔄' : '👗';
+  1295→                    toast.success(`${actionIcon} Vestuario: ${parsed.outfitName}`);
+  1296→                  } else {
+  1297→                    // list / get_info are informational — no toast, just console log
+  1298→                    console.log('[ChatPanel] Wardrobe info:', parsed.outfitName || '(sin cambio)');
+  1299→                  }
+  1300→                } else if (parsed.type === 'scenario_activation') {
+  1301→                  // ESCENARIO V3.1: scenario tool activation — sync session state
+  1302→                  // (activeScenarioCollectionId + activeScenarioId) and the
+  1303→                  // background image. The sprite pose is NOT queued here: poses
+  1304→                  // are bound to the FONDO (settings.spriteBackgroundPoses) and
+  1305→                  // CharacterSprite applies them automatically whenever the
+  1306→                  // active background changes (legacy node poses still work via
+  1307→                  // the resolveLegacyLocationPoseForBackground fallback).
+  1308→                  console.log('[ChatPanel] Scenario activation from tool:', parsed.toolName, parsed.action, parsed.previousLocationId ?? '(default)', '→', parsed.locationId ?? '(default)', parsed.locationName);
+  1309→                  const store = useTavernStore.getState();
+  1310→                  if (parsed.changed) {
+  1311→                    // Move the scene (session-level): collection first, then place/spot
+  1312→                    if (parsed.collectionId) {
+  1313→                      store.setActiveScenarioCollection?.(activeSessionId, parsed.collectionId);
+  1314→                    }
+  1315→                    store.setActiveScenario?.(activeSessionId, parsed.locationId ?? null);
+  1316→                    // Apply the background configured for the new location —
+  1317→                    // this alone triggers the sprite pose of that fondo
+  1318→                    if (parsed.backgroundUrl) {
+  1319→                      store.setActiveBackground?.(parsed.backgroundUrl);
+  1320→                    }
+  1321→                    toast.success(`📍 Escenario: ${parsed.collectionName ? `${parsed.collectionName} → ` : ''}${parsed.locationName}`);
+  1322→                  } else {
+  1323→                    // list / get_info are informational — no toast, just console log
+  1324→                    console.log('[ChatPanel] Scenario info:', parsed.locationName || '(sin cambio)');
+  1325→                  }
+  1326→                } else if (parsed.type === 'character_start') {
+  1327→                  currentCharacterContent = '';
+  1328→                  const char = groupCharacters.find(c => c.id === parsed.characterId);
+  1329→                  currentCharacter = char || null;
+  1330→                  setStreamingCharacter(currentCharacter);
+  1331→                  setStreamingProgress({
+  1332→                    current: parsed.responseIndex,
+  1333→                    total: parsed.totalResponses
+  1334→                  });
+  1335→                  setStreamingContent('');
+  1336→                  
+  1337→                  // UNIFIED SPRITE SYSTEM: Start sprite generation for this character
+  1338→                  // Each character in the group gets independent sprite tracking
+  1339→                  if (currentCharacter) {
+  1340→                    console.log('[ChatPanel] Group - Starting sprite generation for:', currentCharacter.name);
+  1341→                    startSpriteGenerationForCharacter(currentCharacter.id);
+  1342→                    
+  1343→                    // Create a unique messageKey for this character's triggers
+  1344→                    const characterMessageKey = `${streamingMessageKeyRef.current}_${currentCharacter.id}`;
+  1345→                    // Reset triggers for this specific character
+  1346→                    resetTriggers(characterMessageKey, currentCharacter);
+  1347→                  }
+  1348→                } else if (parsed.type === 'token' && parsed.content) {
+  1349→                  currentCharacterContent += parsed.content;
+  1350→                  setStreamingContent(currentCharacterContent);
+  1351→                  // UNIFIED TRIGGER SYSTEM: Process sound + sprite triggers in single pass
+  1352→                  // CRITICAL: Use unique messageKey per character to avoid position conflicts
+  1353→                  const characterMessageKey = `${streamingMessageKeyRef.current}_${currentCharacter?.id || 'unknown'}`;
+  1354→                  try {
+  1355→                    processTriggers(currentCharacterContent, currentCharacter, characterMessageKey, groupCharacters);
+  1356→                  } catch (triggerError) {
+  1357→                    console.error('[ChatPanel] Group trigger processing error:', triggerError);
+  1358→                    // Don't throw - continue streaming even if triggers fail
+  1359→                  }
+  1360→                  try {
+  1361→                    scanForBackgroundTriggers(currentCharacterContent, streamingMessageKeyRef.current);
+  1362→                  } catch (bgError) {
+  1363→                    console.error('[ChatPanel] Group background trigger error:', bgError);
+  1364→                    // Don't throw - continue streaming even if background triggers fail
+  1365→                  }
+  1366→                } else if (parsed.type === 'character_done') {
+  1367→                  if (parsed.fullContent && activeSessionId && isStillActive()) {
+  1368→                    // FASE 4: Generate micro-reactions for group chat
+  1369→                    let microReactions: MicroReaction[] | undefined;
+  1370→                    if (isGroupMode && activeGroup) {
+  1371→                      const otherChars = groupCharacters.filter(c => c.id !== parsed.characterId);
+  1372→                      const speakerChar = groupCharacters.find(c => c.id === parsed.characterId);
+  1373→                      if (speakerChar && otherChars.length > 0 && speakerChar.microReactionConfig?.enabled) {
+  1374→                        microReactions = generateMicroReactions(
+  1375→                          parsed.characterId,
+  1376→                          parsed.characterName || speakerChar.name,
+  1377→                          parsed.fullContent,
+  1378→                          otherChars,
+  1379→                          speakerChar.microReactionConfig,
+  1380→                        );
+  1381→                      }
+  1382→                    }
+  1383→
+  1384→                    addMessage(activeSessionId, {
+  1385→                      characterId: parsed.characterId,
+  1386→                      role: 'assistant',
+  1387→                      content: parsed.fullContent,
+  1388→                      isDeleted: false,
+  1389→                      swipeId: generateId(),
+  1390→                      swipeIndex: 0,
+  1391→                      isNarratorMessage: parsed.isNarrator || false,
+  1392→                      metadata: {
+  1393→                        promptData: parsed.promptSections || [],
+  1394→                        microReactions: microReactions && microReactions.length > 0 ? microReactions : undefined,
+  1395→                      }
+  1396→                    });
+  1397→
+  1398→                    // Tick inventory consumable effects after each character response in group
+  1399→                    const invState = useTavernStore.getState();
+  1400→                    if (invState.inventorySettings.enabled && activePersona?.id) {
+  1401→                      const expiredMessages = invState.tickEffects(activePersona.id);
+  1402→                      if (expiredMessages.length > 0) {
+  1403→                        invState.removeExpiredEffects(activePersona.id);
+  1404→                        for (const msg of expiredMessages) {
+  1405→                          toast.info(msg);
+  1406→                        }
+  1407→                      }
+  1408→                    }
+  1409→
+  1410→                    // FASE 2: Check solicitud expiration after each group character turn
+  1411→                    const expirationState = useTavernStore.getState();
+  1412→                    const currentTurnCount = expirationState.getTurnCount?.(activeSessionId!) || 0;
+  1413→                    expirationState.expireSolicitudes?.(activeSessionId!, currentTurnCount);
+  1414→                  }
+  1415→                  
+  1416→                  // UNIFIED SPRITE SYSTEM: End sprite generation for this character
+  1417→                  // This properly handles the return to idle if trigger was activated
+  1418→                  // IMPORTANT: Only end for the character that just finished, not others
+  1419→                  const finishedChar = groupCharacters.find(c => c.id === parsed.characterId);
+  1420→                  if (finishedChar) {
+  1421→                    console.log('[ChatPanel] Group - Ending sprite generation for:', finishedChar.name);
+  1422→                    
+  1423→                    // CRITICAL: Complete any pending partial matches (key:value at end of text)
+  1424→                    // This ensures trigger sprites like "sprite:test01" are properly detected
+  1425→                    // Use unique messageKey per character to avoid position conflicts
+  1426→                    const characterMessageKey = `${streamingMessageKeyRef.current}_${finishedChar.id}`;
+  1427→                    completeTriggersPartialMatches(characterMessageKey, finishedChar, groupCharacters);
+  1428→                    
+  1429→                    const ttsExpected = !!(ttsConfig?.enabled && ttsConfig?.autoGeneration && isTTSConnected);
+  1430→                    endSpriteGenerationForCharacterWithTTS(finishedChar.id, ttsExpected);
+  1431→                  }
+  1432→                  
+  1433→                  setStreamingContent('');
+  1434→                  setStreamingCharacter(null);
+  1435→                } else if (parsed.type === 'character_error') {
+  1436→                  chatLogger.error(`Character ${parsed.characterName} error`, { error: parsed.error });
+  1437→                  if (activeSessionId && isStillActive()) {
+  1438→                    addMessage(activeSessionId, {
+  1439→                      characterId: parsed.characterId,
+  1440→                      role: 'system',
+  1441→                      content: `⚠️ ${parsed.characterName}: ${parsed.error}`,
+  1442→                      isDeleted: false,
+  1443→                      swipeId: generateId(),
+  1444→                      swipeIndex: 0
+  1445→                    });
+  1446→                  }
+  1447→                } else if (parsed.type === 'done') {
+  1448→                  // Group stream done - capture shouldExtract flag and responses
+  1449→                  groupShouldExtract = !!parsed.shouldExtract;
+  1450→                  groupShouldEvaluateEmotion = !!parsed.shouldEvaluateEmotion;
+  1451→                  groupResponses = (parsed.responses || []) as Array<{ characterId: string; characterName: string; content: string }>;
+  1452→                } else if (parsed.type === 'error') {
+  1453→                  // Preserve any accumulated group content before throwing
+  1454→                  if (accumulatedContent.trim() && activeSessionId && isStillActive()) {
+  1455→                    chatLogger.warn('Group stream error with partial content', {
+  1456→                      contentLength: accumulatedContent.length,
+  1457→                      error: parsed.error,
+  1458→                    });
+  1459→                  }
+  1460→                  throw new Error(parsed.error || 'Error en la generación del servidor');
+  1461→                }
+  1462→              } catch (parseError) {
+  1463→                if (parseError instanceof Error && !parseError.message.includes('JSON')) {
+  1464→                  throw parseError;
+  1465→                }
+  1466→                chatLogger.debug('Failed to parse SSE data (group)', { data });
+  1467→              }
+  1468→            }
+  1469→          }
+  1470→        } finally {
+  1471→          reader.releaseLock();
+  1472→        }
+  1473→        
+  1474→        setStreamingProgress(null);
+  1475→
+  1476→        // THRESHOLD MESSAGE EFFECTS: evaluate at end of the group turn.
+  1477→        // Scans every group member (+ persona) for crossed 'message' thresholds.
+  1478→        if (isStillActive() && activeSessionId) {
+  1479→          runThresholdMessageScanRef.current?.();
+  1480→        }
+  1481→
+  1482→        // Client-side memory extraction for group chat
+  1483→        // Triggered after the stream is fully processed, if server flagged shouldExtract
+  1484→        if (groupShouldExtract && isStillActive() && activeSessionId) {
+  1485→          const extractableChars = groupResponses.filter(r => r.content && r.content.length > 50);
+  1486→          if (extractableChars.length > 0 && !memoryExtractionInFlight) {
+  1487→            memoryExtractionInFlight = true;
+  1488→            (window as unknown as { __tfMemoryExtractionInFlight?: boolean }).__tfMemoryExtractionInFlight = true;
+  1489→            const charNames = extractableChars.map(r => r.characterName).join(', ');
+  1490→            setMemoryExtractingInfo({ active: true, characterNames: charNames });
+  1491→            
+  1492→            // Run extraction asynchronously (don't block the UI)
+  1493→            (async () => {
+  1494→              try {
+  1495→                const state = useTavernStore.getState();
+  1496→                const currentLLMConfig = state.llmConfigs.find(c => c.isActive);
+  1497→                const embeddingsChat = state.settings.embeddingsChat;
+  1498→                const currentSession = state.sessions.find(s => s.id === activeSessionId);
+  1499→                const sessionMsgs = currentSession?.messages || [];
+  1500→                const personaName = activePersona?.name || 'User';
+  1501→                
+  1502→                if (!currentLLMConfig) return;
+  1503→                
+  1504→                // Memory V2: recent exchange window for merged extraction.
+  1505→                // Sized by the user-facing "Profundidad de contexto" setting
+  1506→                // (0 = only the last response, N = N recent user+assistant pairs).
+  1507→                const extractionContextDepth = embeddingsChat.memoryExtractionContextDepth ?? 2;
+  1508→                const extractionWindow = Math.max(1, extractionContextDepth * 2 + 1);
+  1509→                
+  1510→                let totalSaved = 0;
+  1511→                
+  1512→                // Extract last user message for user-memory extraction
+  1513→                // FIX off-by-one: slice(-2,-1) took the PREVIOUS user message.
+  1514→                const lastUserMsg = sessionMsgs
+  1515→                  .filter(m => m.role === 'user' && !m.isDeleted)
+  1516→                  .slice(-1)[0]?.content;
+  1517→                
+  1518→                for (const resp of extractableChars) {
+  1519→                  try {
+  1520→                    const extractionResponse = await fetch('/api/embeddings/extract-memory', {
+  1521→                      method: 'POST',
+  1522→                      headers: { 'Content-Type': 'application/json' },
+  1523→                      body: JSON.stringify({
+  1524→                        lastMessage: resp.content,
+  1525→                        characterName: resp.characterName,
+  1526→                        characterId: resp.characterId,
+  1527→                        sessionId: activeSessionId,
+  1528→                        groupId: activeGroupId,
+  1529→                        userName: personaName,
+  1530→                        lastUserMessage: lastUserMsg,
+  1531→                        // Memory V2: recent exchange window + unified pipeline flag
+  1532→                        recentMessages: sessionMsgs
+  1533→                          .filter(m => !m.isDeleted && (m.role === 'user' || m.role === 'assistant'))
+  1534→                          .slice(-extractionWindow)
+  1535→                          .map(m => ({ role: m.role, content: m.content })),
+  1536→                        memoryV2Enabled: embeddingsChat.memoryV2Enabled !== false,
+  1537→                        llmConfig: {
+  1538→                          provider: currentLLMConfig.provider,
+  1539→                          endpoint: currentLLMConfig.endpoint,
+  1540→                          apiKey: currentLLMConfig.apiKey,
+  1541→                          model: currentLLMConfig.model,
+  1542→                          parameters: currentLLMConfig.parameters,
+  1543→                        },
+  1544→                        minImportance: embeddingsChat.memoryExtractionMinImportance || 2,
+  1545→                        extractionModelConfig: embeddingsChat.extractionModelEnabled ? {
+  1546→                          extractionModelEnabled: true,
+  1547→                          extractionModelProvider: embeddingsChat.extractionModelProvider,
+  1548→                          extractionModelEndpoint: embeddingsChat.extractionModelEndpoint,
+  1549→                          extractionModelApiKey: embeddingsChat.extractionModelApiKey,
+  1550→                          extractionModelName: embeddingsChat.extractionModelName,
+  1551→                        } : undefined,
+  1552→                      }),
+  1553→                    });
+  1554→                    
+  1555→                    if (extractionResponse.ok) {
+  1556→                      const result = await extractionResponse.json();
+  1557→                      if (result.success) {
+  1558→                        // Route returns {count, added, updated, deleted, skipped} — there is no `saved` field.
+  1559→                        totalSaved += result.count || 0;
+  1560→                        console.log(`[Memory] Group extraction result for ${resp.characterName}: extracted=${result.count}, added=${result.added}, updated=${result.updated}`);
+  1561→                        
+  1562→                      }
+  1563→                    }
+  1564→                  } catch (err) {
+  1565→                    console.warn(`[Memory] Group extraction failed for ${resp.characterName}:`, err);
+  1566→                  }
+  1567→                }
+  1568→                
+  1569→                if (totalSaved > 0) {
+  1570→                  toast.success(`🧠 ${totalSaved} memorias extraídas automáticamente`);
+  1571→                }
+  1572→              } catch (err) {
+  1573→                console.warn('[Memory] Group client-side extraction failed:', err);
+  1574→              } finally {
+  1575→                setMemoryExtractingInfo(prev => ({ ...prev, active: false }));
+  1576→                memoryExtractionInFlight = false;
+  1577→                (window as unknown as { __tfMemoryExtractionInFlight?: boolean }).__tfMemoryExtractionInFlight = false;
+  1578→              }
+  1579→            })();
+  1580→          }
+  1581→        }
+  1582→
+  1583→        // FASE 5: Emotional state evaluation for group chat
+  1584→        // Evaluate emotional states for each character that has emotional config enabled
+  1585→        if (groupShouldEvaluateEmotion && isStillActive() && activeSessionId) {
+  1586→          const emotionChars = groupResponses.filter(r => r.content && r.content.length > 20);
+  1587→          if (emotionChars.length > 0) {
+  1588→            (async () => {
+  1589→              try {
+  1590→                const state = useTavernStore.getState();
+  1591→                const currentLLMConfig = state.llmConfigs.find(c => c.isActive);
+  1592→                if (!currentLLMConfig) return;
+  1593→
+  1594→                const currentSession = state.sessions.find(s => s.id === activeSessionId);
+  1595→                const sessionMsgs = currentSession?.messages || [];
+  1596→                const groupSessionStats = currentSession?.sessionStats;
+  1597→
+  1598→                for (const resp of emotionChars) {
+  1599→                  const char = characters.find(c => c.id === resp.characterId);
+  1600→                  if (!char?.emotionalConfig?.enabled) continue;
+  1601→
+  1602→                  const currentState = groupSessionStats?.characterStats?.[char.id]?.emotionalState
+  1603→                    || char.emotionalConfig.initialState
+  1604→                    || 'neutral';
+  1605→
+  1606→                  const turnCount = groupSessionStats?.characterStats?.[char.id]?.emotionalStateTurnCount || 0;
+  1607→                  const interval = char.emotionalConfig.evaluationInterval || 1;
+  1608→                  if (turnCount % interval !== 0) continue;
+  1609→
+  1610→                  try {
+  1611→                    const emotionResponse = await fetch('/api/chat/emotion', {
+  1612→                      method: 'POST',
+  1613→                      headers: { 'Content-Type': 'application/json' },
+  1614→                      body: JSON.stringify({
+  1615→                        character: char,
+  1616→                        messages: sessionMsgs,
+  1617→                        llmConfig: {
+  1618→                          provider: currentLLMConfig.provider,
+  1619→                          endpoint: currentLLMConfig.endpoint,
+  1620→                          apiKey: currentLLMConfig.apiKey,
+  1621→                          model: currentLLMConfig.model,
+  1622→                          parameters: currentLLMConfig.parameters,
+  1623→                        },
+  1624→                        currentState,
+  1625→                        personality: char.personality,
+  1626→                      }),
+  1627→                    });
+  1628→
+  1629→                    if (emotionResponse.ok) {
+  1630→                      const result = await emotionResponse.json();
+  1631→                      if (result.shouldUpdate && result.evaluation) {
+  1632→                        const store = useTavernStore.getState();
+  1633→                        store.updateEmotionalState?.(
+  1634→                          activeSessionId!,
+  1635→                          char.id,
+  1636→                          result.evaluation.newState,
+  1637→                          result.evaluation.previousState,
+  1638→                        );
+  1639→                      }
+  1640→                    }
+  1641→                  } catch (charErr) {
+  1642→                    console.warn(`[Emotion] Group evaluation failed for ${resp.characterName}:`, charErr);
+  1643→                  }
+  1644→                }
+  1645→              } catch (err) {
+  1646→                console.warn('[Emotion] Group evaluation failed:', err);
+  1647→              }
+  1648→            })();
+  1649→          }
+  1650→        }
+  1651→        
+  1652→        return;
+  1653→      }
+  1654→
+  1655→      // Single character chat
+  1656→      if (!activeCharacter) return;
+  1657→
+  1658→      // Get active lorebooks for prompt injection
+  1659→      const activeLorebooks = lorebooks.filter(lb => effectiveLorebookIds.includes(lb.id) && activeLorebookIds.includes(lb.id));
+  1660→      
+  1661→      // Get session stats for attribute values
+  1662→      const sessionStats = currentSession?.sessionStats;
+  1663→
+  1664→      if (useStreaming) {
+  1665→        // Build allCharacters array including persona as pseudo-character for peticiones/solicitudes
+  1666→        const allCharactersWithPersona = [
+  1667→          ...characters,
+  1668→          ...(activePersona?.statsConfig?.enabled ? [{
+  1669→            id: '__user__',
+  1670→            name: activePersona.name || 'User',
+  1671→            statsConfig: activePersona.statsConfig,
+  1672→          }] as CharacterCard[] : []),
+  1673→        ];
+  1674→
+  1675→        // ===== DEBUG: Lorebook Attribute Resolution Tracing =====
+  1676→        console.group('%c[Lorebook DEBUG] Frontend → Backend Data', 'color: #e65100; font-weight: bold');
+  1677→        console.log('%c--- Lorebook Selection Debug ---', 'color: #d32f2f; font-weight: bold', {
+  1678→          isGroupMode,
+  1679→          characterId: activeCharacter?.id,
+  1680→          characterName: activeCharacter?.name,
+  1681→          characterLorebookIds: activeCharacter?.lorebookIds,
+  1682→          effectiveLorebookIds,
+  1683→          activeLorebookIds,
+  1684→          allLorebookIds: lorebooks.map(lb => ({ id: lb.id, name: lb.name, active: lb.active })),
+  1685→          activeLorebooksCount: activeLorebooks.length,
+  1686→        });
+  1687→        console.log('%c--- Active Lorebooks ---', 'color: #1565c0; font-weight: bold', activeLorebooks.map(lb => ({
+  1688→
+  1689→          id: lb.id,
+  1690→          name: lb.name,
+  1691→          active: lb.active,
+  1692→          entries: lb.entries.filter(e => e.entryType === 'attribute').map(e => ({
+  1693→            entryType: e.entryType,
+  1694→            disable: e.disable,
+  1695→            attributeConfig: e.attributeConfig ? {
+  1696→              characterId: e.attributeConfig.characterId,
+  1697→              attributeKey: e.attributeConfig.attributeKey,
+  1698→              injectionKey: e.attributeConfig.injectionKey,
+  1699→              mode: e.attributeConfig.mode,
+  1700→              staticCondition: e.attributeConfig.staticCondition,
+  1701→              dynamicConditions: e.attributeConfig.dynamicConditions?.map(dc => ({
+  1702→                operator: dc.operator,
+  1703→                value: dc.value,
+  1704→                content: dc.content?.slice(0, 80),
+  1705→              })),
+  1706→            } : null,
+  1707→          })),
+  1708→        })));
+  1709→        console.log('%c--- Session Stats ---', 'color: #1565c0; font-weight: bold', {
+  1710→          hasSessionStats: !!sessionStats,
+  1711→          initialized: sessionStats?.initialized,
+  1712→          characterStatsKeys: sessionStats ? Object.keys(sessionStats.characterStats || {}) : [],
+  1713→          userStats: sessionStats?.characterStats?.['__user__']
+  1714→            ? {
+  1715→                hasAttrValues: !!sessionStats.characterStats['__user__'].attributeValues,
+  1716→                attributes: { ...sessionStats.characterStats['__user__'].attributeValues },
+  1717→              }
+  1718→            : '(no __user__ stats)',
+  1719→          charStats: sessionStats?.characterStats?.[activeCharacter?.id]
+  1720→            ? {
+  1721→                hasAttrValues: !!sessionStats.characterStats[activeCharacter!.id].attributeValues,
+  1722→                attributes: { ...sessionStats.characterStats[activeCharacter!.id].attributeValues },
+  1723→              }
+  1724→            : `(no stats for char ${activeCharacter?.id})`,
+  1725→        });
+  1726→        console.log('%c--- All Characters (with Persona) ---', 'color: #1565c0; font-weight: bold', allCharactersWithPersona.map(c => ({
+  1727→          id: c.id,
+  1728→          name: c.name,
+  1729→          hasStatsConfig: !!c.statsConfig,
+  1730→          attributes: c.statsConfig?.attributes?.map(a => ({ key: a.key, name: a.name })),
+  1731→        })));
+  1732→        console.groupEnd();
+  1733→        // ===== END DEBUG =====
+  1734→
+  1735→        const response = await fetch('/api/chat/stream', {
+  1736→          method: 'POST',
+  1737→          headers: { 'Content-Type': 'application/json' },
+  1738→          body: JSON.stringify({
+  1739→            message: userMessage.trim(),
+  1740→            sessionId: activeSessionId,
+  1741→            characterId: activeCharacter.id,
+  1742→            character: activeCharacter,
+  1743→            messages: currentMessages.filter((m: { isDeleted: boolean }) => !m.isDeleted),
+  1744→            llmConfig: activeLLMConfig,
+  1745→            userName: activePersona?.name || 'User',
+  1746→            persona: activePersona,
+  1747→            contextConfig,
+  1748→            lorebooks: activeLorebooks,
+  1749→            sessionStats,  // Pass session stats for attribute values
+  1750→            sessionQuests: currentSessionQuests,  // Pass session quests (freshly read)
+  1751→            questTemplates: latestQuestTemplates,  // Pass quest templates (freshly read)
+  1752→            questSettings: latestQuestSettings,  // Pass quest settings (freshly read)
+  1753→            hudContext: activeHUDContext,  // Pass HUD context for prompt injection
+  1754→            summary: activeSession?.summary,  // Pass session summary (single, not array)
+  1755→            allCharacters: allCharactersWithPersona,  // Pass all characters + persona for peticiones/solicitudes
+  1756→            soundTriggers,  // Pass sound triggers for {{sonidos}} resolution
+  1757→            settings,  // Pass settings for {{sonidos}} template
+  1758→            embeddingsChat: {
+  1759→              ...settings.embeddingsChat,
+  1760→              customNamespaces: activeCharacter?.embeddingNamespaces,
+  1761→            },  // Pass embeddings chat settings + character namespace override
+  1762→            toolsSettings: settings.tools,  // Pass tool calling configuration
+  1763→            scenarios: useTavernStore.getState().scenarios,  // ESCENARIO V3: App scenario library for manage_escenario + {{escenario}}
+  1764→            inventoryData: (() => {
+  1765→              // CRITICAL: Re-read store state fresh to ensure we have the latest
+  1766→              // equipment/consumable data. When equipItem/useConsumable runs,
+  1767→              // it saves to session JSON BEFORE this code executes (300ms delay).
+  1768→              const invState = useTavernStore.getState();
+  1769→              const invSettings = invState.inventorySettings;
+  1770→              if (!invSettings.enabled) return undefined;
+  1771→              const personaId = activePersona?.id || 'default';
+  1772→              // Re-read session from fresh store state to get updated sessionEquipment & activeConsumableEffects
+  1773→              const freshSession = invState.sessions.find((s: any) => s.id === activeSessionId);
+  1774→              return {
+  1775→                personaItems: invState.getPersonaItems(personaId),
+  1776→                sessionEquipment: freshSession?.sessionEquipment || [],
+  1777→                activeEffects: freshSession?.activeConsumableEffects || invState.activeConsumableEffects.filter(e => e.personaId === personaId),
+  1778→                currency: activePersona?.currency ?? 0,
+  1779→                currencyName: activePersona?.currencyName || invSettings.currencyName,
+  1780→                currencyIcon: activePersona?.currencyIcon || invSettings.currencyIcon,
+  1781→                // Slots are owned by the persona (global slots removed) — resolve
+  1782→                // them here so {{slots}} and prompt building use the right source
+  1783→                inventorySettings: { ...invSettings, equipmentSlots: activePersona?.equipmentSlots || [] },
+  1784→              };
+  1785→            })(),  // Pass inventory data for {{slots}} key resolution
+  1786→          })
+  1787→        });
+  1788→
+  1789→        if (!response.ok) {
+  1790→          const errorData = await response.json().catch(() => ({ error: response.statusText || t('chat.error.streaming') }));
+  1791→          throw new Error(errorData.error || t('chat.error.streaming'));
+  1792→        }
+  1793→
+  1794→        const reader = response.body?.getReader();
+  1795→        if (!reader) throw new Error('No response body');
+  1796→
+  1797→        const decoder = new TextDecoder();
+  1798→        let accumulatedContent = '';
+  1799→        let buffer = '';
+  1800→        let promptSections: { type: string; label: string; content: string; color: string }[] = [];
+  1801→
+  1802→        try {
+  1803→          while (true) {
+  1804→            // Check if generation was cancelled
+  1805→            if (!isStillActive()) {
+  1806→              reader.cancel();
+  1807→              break;
+  1808→            }
+  1809→            
+  1810→            const { done, value } = await reader.read();
+  1811→            if (done) break;
+  1812→
+  1813→            buffer += decoder.decode(value, { stream: true });
+  1814→            const messages = buffer.split('\n\n');
+  1815→            buffer = messages.pop() || '';
+  1816→
+  1817→            for (const message of messages) {
+  1818→              const dataMatch = message.match(/^data: (.+)$/s);
+  1819→              if (!dataMatch) continue;
+  1820→              
+  1821→              const data = dataMatch[1];
+  1822→              
+  1823→              try {
+  1824→                const parsed = JSON.parse(data);
+  1825→                
+  1826→                if (parsed.type === 'prompt_data' && parsed.promptSections) {
+  1827→                  // Capture prompt sections for metadata
+  1828→                  promptSections = parsed.promptSections;
+  1829→                } else if (parsed.type === 'lorebook_debug') {
+  1830→                  // DEBUG: Backend lorebook attribute resolution results
+  1831→                  console.group('%c[Lorebook DEBUG] Backend Resolution Results', 'color: #e65100; font-weight: bold');
+  1832→                  console.log('%c--- Final Keys ---', 'color: #2e7d32; font-weight: bold', parsed.lorebookAttributeKeys);
+  1833→                  console.log('%c--- Per-Entry Debug ---', 'color: #2e7d32; font-weight: bold', parsed.debugEntries);
+  1834→                  if (parsed.debugEntries) {
+  1835→                    for (const entry of parsed.debugEntries) {
+  1836→                      const statusColor = entry.finalResult === '(empty)' ? '#c62828' : '#2e7d32';
+  1837→                      console.log(
+  1838→                        `%c[${entry.attributeValue === null ? '⚠ NOT FOUND' : entry.conditionResults.some(c => c.matched) ? '✓ MATCHED' : '✗ NO MATCH'}] ` +
+  1839→                        `{{${entry.injectionKey}}} | char=${entry.characterId}→${entry.resolvedCharId} | ` +
+  1840→                        `attr=${entry.attributeKey} | value=${JSON.stringify(entry.attributeValue)} | ` +
+  1841→                        `mode=${entry.mode}`,
+  1842→                        `color: ${statusColor}; font-weight: bold`
+  1843→                      );
+  1844→                      if (entry.conditionResults.length > 0) {
+  1845→                        for (const cr of entry.conditionResults) {
+  1846→                          const cColor = cr.matched ? '#2e7d32' : '#c62828';
+  1847→                          console.log(`  %c  ${cr.evaluationDetail}  content: "${(cr.content || '').slice(0, 60)}"`, `color: ${cColor}`);
+  1848→                        }
+  1849→                      }
+  1850→                    }
+  1851→                  }
+  1852→                  console.log('%c--- Available Stats ---', 'color: #2e7d32; font-weight: bold', parsed.availableStats);
+  1853→                  console.groupEnd();
+  1854→                } else if (parsed.type === 'embeddings_context' && parsed.data) {
+  1855→                  // Embeddings context was retrieved
+  1856→                  setEmbeddingsContexts(prev => [...prev, parsed.data]);
+  1857→                } else if (parsed.type === 'memory_extracting') {
+  1858→                  // Memory extraction is running in background
+  1859→                  const label = parsed.characterName || '';
+  1860→                  if (label) {
+  1861→                    setMemoryExtractingInfo({ active: true, characterNames: label });
+  1862→                    setTimeout(() => setMemoryExtractingInfo(prev => ({ ...prev, active: false })), 8000);
+  1863→                  }
+  1864→                } else if (parsed.type === 'tool_call_start') {
+  1865→                  // Tool call detected - show indicator
+  1866→                  console.log('[ChatPanel] Tool call started:', parsed.toolName);
+  1867→                  setToolCallInfo({
+  1868→                    active: true,
+  1869→                    toolName: parsed.toolName,
+  1870→                    toolLabel: parsed.toolLabel,
+  1871→                    toolIcon: parsed.toolIcon,
+  1872→                    params: parsed.params,
+  1873→                    phase: 'executing',
+  1874→                    callId: parsed.callId,
+  1875→                  });
+  1876→                } else if (parsed.type === 'tool_call_result') {
+  1877→                  // Tool execution completed
+  1878→                  console.log('[ChatPanel] Tool call result:', parsed.toolName, parsed.success);
+  1879→                  setToolCallInfo(prev => ({
+  1880→                    ...prev,
+  1881→                    active: true,
+  1882→                    result: { success: parsed.success, displayMessage: parsed.displayMessage, duration: parsed.duration || 0 },
+  1883→                    phase: 'done',
+  1884→                    callId: parsed.callId,
+  1885→                  }));
+  1886→                  setTimeout(() => setToolCallInfo(prev => ({ ...prev, active: false, phase: 'idle' })), 5000);
+  1887→                } else if (parsed.type === 'tool_call_error') {
+  1888→                  // Tool call error
+  1889→                  console.log('[ChatPanel] Tool call error:', parsed.error);
+  1890→                  setToolCallInfo(prev => ({
+  1891→                    ...prev,
+  1892→                    active: true,
+  1893→                    result: { success: false, displayMessage: parsed.error, duration: 0 },
+  1894→                    phase: 'error',
+  1895→                    callId: parsed.callId,
+  1896→                  }));
+  1897→                  setTimeout(() => setToolCallInfo(prev => ({ ...prev, active: false, phase: 'idle' })), 5000);
+  1898→                } else if (parsed.type === 'quest_activation') {
+  1899→                  // Quest objective was completed by a tool - execute on client side
+  1900→                  console.log('[ChatPanel] Quest activation from tool:', parsed.toolName, parsed.activationType, parsed.key);
+  1901→                  // Execute the objective completion on the CLIENT where the store has real data.
+  1902→                  // store.completeObjective handles everything:
+  1903→                  //   - Marks objective as completed
+  1904→                  //   - Executes objective rewards (attribute, trigger, objective chain)
+  1905→                  //   - Auto-completes quest if all required objectives done
+  1906→                  //   - Executes quest rewards on auto-completion
+  1907→                  //   - Activates quest chain if defined
+  1908→                  //   - Adds notifications
+  1909→                  if (parsed.activationType === 'complete_objective' && parsed.metadata && !parsed.metadata.alreadyCompleted) {
+  1910→                    const store = useTavernStore.getState();
+  1911→                    store.completeObjective?.(
+  1912→                      activeSessionId,
+  1913→                      parsed.metadata.questTemplateId,
+  1914→                      parsed.metadata.objectiveId,
+  1915→                      parsed.metadata.characterId,
+  1916→                    );
+  1917→                  }
+  1918→                  // Show immediate toast feedback (store notifications handle quest completion separately)
+  1919→                  if (!parsed.metadata?.alreadyCompleted && parsed.metadata?.objectiveName) {
+  1920→                    toast.success(`Objetivo completado: ${parsed.metadata.objectiveName}`);
+  1921→                  }
+  1922→                } else if (parsed.type === 'action_activation') {
+  1923→                  // Action/skill activated by tool - execute on client side
+  1924→                  console.log('[ChatPanel] Action activation from tool:', parsed.toolName, parsed.skillName);
+  1925→                  const store = useTavernStore.getState();
+  1926→                  store.activateSkillByTool?.(
+  1927→                    activeSessionId,
+  1928→                    parsed.characterId,
+  1929→                    parsed.skillName,
+  1930→                    parsed.skillDescription || '',
+  1931→                    parsed.activationCosts || [],
+  1932→                    parsed.activationRewards || [],
+  1933→                    parsed.skillCompletedDescription || '',
+  1934→                  );
+  1935→                  toast.success(`⚔️ Acción: ${parsed.skillName}`);
+  1936→                } else if (parsed.type === 'scene_activation') {
+  1937→                  // Scene change (enter/leave/focus) triggered by manage_scene tool - execute on client side
+  1938→                  console.log('[ChatPanel] Scene activation from tool:', parsed.toolName, parsed.action, parsed.characterName, 'present:', parsed.present);
+  1939→                  const store = useTavernStore.getState();
+  1940→                  const sceneSession = (store.sessions as Array<{ id: string; groupId?: string }>)?.find(s => s.id === activeSessionId);
+  1941→                  if (sceneSession?.groupId) {
+  1942→                    if (parsed.activationType === 'scene_change') {
+  1943→                      store.applySceneChange?.(sceneSession.groupId, parsed.characterId, !!parsed.present);
+  1944→                    }
+  1945→                    const eventType = parsed.action === 'enter' ? 'scene_enter'
+  1946→                      : parsed.action === 'leave' ? 'scene_leave'
+  1947→                      : 'scene_focus';
+  1948→                    const defaultDesc = parsed.action === 'enter'
+  1949→                      ? `${parsed.characterName} entró a la escena`
+  1950→                      : parsed.action === 'leave'
+  1951→                        ? `${parsed.characterName} salió de la escena`
+  1952→                        : `La atención se centra en ${parsed.characterName}`;
+  1953→                    store.pushSessionEvent?.(activeSessionId, {
+  1954→                      type: eventType,
+  1955→                      description: parsed.narrative || defaultDesc,
+  1956→                      characterId: parsed.characterId,
+  1957→                      characterName: parsed.characterName,
+  1958→                    });
+  1959→                    const icon = parsed.action === 'enter' ? '🚪➡️' : parsed.action === 'leave' ? '🚪⬅️' : '🎭';
+  1960→                    const byTxt = parsed.byCharacterName && parsed.byCharacterName !== parsed.characterName ? ` (por ${parsed.byCharacterName})` : '';
+  1961→                    toast.success(`${icon} ${parsed.characterName} ${parsed.action === 'enter' ? 'entró a' : parsed.action === 'leave' ? 'salió de' : 'es el foco de'} la escena${byTxt}`);
+  1962→                  }
+  1963→                } else if (parsed.type === 'relationship_activation') {
+  1964→                  // Relationship bond changed via manage_relationship tool - execute on client side
+  1965→                  console.log('[ChatPanel] Relationship activation from tool:', parsed.toolName, parsed.aName, '↔', parsed.bName, parsed.prevPoints, '→', parsed.newPoints);
+  1966→                  const store = useTavernStore.getState();
+  1967→                  const relResult = store.updateRelationship?.(
+  1968→                    activeSessionId,
+  1969→                    parsed.aId,
+  1970→                    parsed.bId,
+  1971→                    {
+  1972→                      set: parsed.newPoints,
+  1973→                      reason: parsed.reason || undefined,
+  1974→                    },
+  1975→                    { aName: parsed.aName, bName: parsed.bName },
+  1976→                  );
+  1977→                  if (relResult) {
+  1978→                    const up = (parsed.newPoints ?? 0) > (parsed.prevPoints ?? 0);
+  1979→                    toast.success(`💜 ${parsed.aName} ↔ ${parsed.bName}: ${relResult.stageLabel} (${parsed.newPoints}/100) ${up ? '▲' : '▼'}`);
+  1980→                  }
+  1981→                } else if (parsed.type === 'check_activation') {
+  1982→                  // Dice check resolved via skill_check tool - log event + toast
+  1983→                  console.log('[ChatPanel] Check activation from tool:', parsed.toolName, parsed.statName, parsed.total, 'vs', parsed.dc, '→', parsed.outcome);
+  1984→                  const store = useTavernStore.getState();
+  1985→                  const who = parsed.characterName || 'Usuario';
+  1986→                  const attempt = parsed.narrative || `tirada de ${parsed.statName || 'habilidad'}`;
+  1987→                  store.pushSessionEvent?.(activeSessionId, {
+  1988→                    type: 'skill_check',
+  1989→                    description: `${who} intentó ${attempt}: ${parsed.outcomeLabel} (${parsed.total} vs CD ${parsed.dc})`,
+  1990→                    characterId: parsed.characterId,
+  1991→                    characterName: parsed.characterName,
+  1992→                  });
+  1993→                  const icon = parsed.outcome === 'critical_success' ? '🎲✨' : parsed.outcome === 'critical_failure' ? '🎲💥' : '🎲';
+  1994→                  toast.info(`${icon} ${parsed.outcomeLabel}: ${parsed.total} vs CD ${parsed.dc}`);
+  1995→                } else if (parsed.type === 'time_activation') {
+  1996→                  // World time activation — execute on client side
+  1997→                  console.log('[ChatPanel] Time activation:', parsed.toolName, parsed.activationType, parsed.minutes || parsed.hour || parsed.season);
+  1998→                  const store = useTavernStore.getState();
+  1999→                  if (parsed.activationType === 'advance' && typeof parsed.minutes === 'number') {
+  2000→                    store.setWorldTime?.(activeSessionId, { minutes: parsed.minutes });
+
+[showing lines 1-2000 of 3225; use offset=2001 with limit to continue reading]

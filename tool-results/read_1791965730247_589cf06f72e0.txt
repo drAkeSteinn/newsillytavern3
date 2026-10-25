@@ -1,0 +1,679 @@
+     1→'use client';
+     2→
+     3→// ============================================
+     4→// Relationship Panel — visual bond graph + MANUAL EDITING
+     5→// ============================================
+     6→//
+     7→// Shows the relationships of the active session as a radial SVG graph:
+     8→// the user (persona) at the center, characters around it, and edges
+     9→// labeled with bond points (0-100) and stage. Includes character↔character
+    10→// bonds (group chats) and a legend.
+    11→//
+    12→// EDITING (manual): every bond in the list can be edited (slider 0-100,
+    13→// quick ±, reason) or deleted via statsSlice.updateRelationship /
+    14→// removeRelationship. New bonds can be created manually between the user
+    15→// and/or session characters. Changes mirror `relacion`/`relacion_etapa`
+    16→// into both parties' attributeValues and log an event, so lorebooks,
+    17→// sprites, skills and proactive keep working.
+    18→
+    19→import { useMemo, useState } from 'react';
+    20→import { toast } from 'sonner';
+    21→import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+    22→import { Badge } from '@/components/ui/badge';
+    23→import { Button } from '@/components/ui/button';
+    24→import { Input } from '@/components/ui/input';
+    25→import { Slider } from '@/components/ui/slider';
+    26→import { Label } from '@/components/ui/label';
+    27→import { Separator } from '@/components/ui/separator';
+    28→import {
+    29→  Select,
+    30→  SelectContent,
+    31→  SelectItem,
+    32→  SelectTrigger,
+    33→  SelectValue,
+    34→} from '@/components/ui/select';
+    35→import { Pencil, Trash2, X, Check, Plus, Undo2 } from 'lucide-react';
+    36→import { useTavernStore } from '@/store';
+    37→import type { ChatSession, SessionStats } from '@/types';
+    38→import {
+    39→  RELATIONSHIP_STAGES,
+    40→  getRelationship,
+    41→  computeRelationshipStage,
+    42→  relationshipStageLabel,
+    43→  DEFAULT_RELATIONSHIP_POINTS,
+    44→  type RelationshipStage,
+    45→} from '@/lib/relationships';
+    46→
+    47→interface RelationshipPanelProps {
+    48→  open: boolean;
+    49→  onOpenChange: (open: boolean) => void;
+    50→  activeSession: ChatSession | null | undefined;
+    51→}
+    52→
+    53→const STAGE_COLORS: Record<string, { stroke: string; text: string; badge: string }> = {
+    54→  extranos: { stroke: '#9ca3af', text: 'text-gray-400', badge: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
+    55→  conocidos: { stroke: '#38bdf8', text: 'text-violet-400', badge: 'bg-violet-500/15 text-violet-400 border-violet-500/30' },
+    56→  amigos: { stroke: '#34d399', text: 'text-emerald-400', badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+    57→  intimos: { stroke: '#e879f9', text: 'text-fuchsia-400', badge: 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30' },
+    58→  pareja: { stroke: '#fb7185', text: 'text-rose-400', badge: 'bg-rose-500/15 text-rose-400 border-rose-500/30' },
+    59→};
+    60→
+    61→function stageColor(stageKey: string) {
+    62→  return STAGE_COLORS[stageKey] || STAGE_COLORS.extranos;
+    63→}
+    64→
+    65→function initialsOf(name: string): string {
+    66→  return name.split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
+    67→}
+    68→
+    69→// Local import helper to avoid circular import concerns in getRelationship key building
+    70→function getRelationshipKey(aId: string, bId: string): string {
+    71→  return [aId, bId].sort().join('|');
+    72→}
+    73→
+    74→/** Editable bond card: view mode ↔ edit mode */
+    75→function BondCard({
+    76→  aId,
+    77→  aName,
+    78→  bId,
+    79→  bName,
+    80→  points,
+    81→  stage,
+    82→  reason,
+    83→  sessionId,
+    84→  stageLabels,
+    85→}: {
+    86→  aId: string;
+    87→  aName: string;
+    88→  bId: string;
+    89→  bName: string;
+    90→  points: number;
+    91→  stage: RelationshipStage;
+    92→  reason?: string;
+    93→  sessionId: string;
+    94→  stageLabels?: import('@/lib/relationships').RelationshipStageLabels;
+    95→}) {
+    96→  const [editing, setEditing] = useState(false);
+    97→  const [draft, setDraft] = useState(points);
+    98→  const [draftReason, setDraftReason] = useState('');
+    99→  const [confirmDelete, setConfirmDelete] = useState(false);
+   100→  const color = stageColor(stage.key);
+   101→
+   102→  const startEdit = () => {
+   103→    setDraft(points);
+   104→    setDraftReason('');
+   105→    setEditing(true);
+   106→  };
+   107→
+   108→  const save = () => {
+   109→    const clamped = Math.min(100, Math.max(0, Math.round(draft)));
+   110→    if (clamped === points) {
+   111→      setEditing(false);
+   112→      return;
+   113→    }
+   114→    useTavernStore.getState().updateRelationship(sessionId, aId, bId, {
+   115→      set: clamped,
+   116→      reason: draftReason.trim() || 'Ajuste manual desde el panel de relaciones',
+   117→    }, { aName, bName });
+   118→    toast.success(`Relación ${aName} ↔ ${bName}: ${points} → ${clamped}`);
+   119→    setEditing(false);
+   120→  };
+   121→
+   122→  const quickAdjust = (delta: number) => {
+   123→    setDraft(v => Math.min(100, Math.max(0, v + delta)));
+   124→  };
+   125→
+   126→  const remove = () => {
+   127→    useTavernStore.getState().removeRelationship(sessionId, aId, bId);
+   128→    toast.success(`Vínculo ${aName} ↔ ${bName} eliminado`);
+   129→    setConfirmDelete(false);
+   130→    setEditing(false);
+   131→  };
+   132→
+   133→  if (!editing) {
+   134→    return (
+   135→      <div className="p-2 rounded-lg border bg-muted/20 group">
+   136→        <div className="flex items-center justify-between gap-2">
+   137→          <div className="flex items-center gap-1.5 min-w-0">
+   138→            <span className="text-xs font-medium truncate">
+   139→              {aName}
+   140→              <span className="text-muted-foreground"> ↔ </span>
+   141→              {bName}
+   142→            </span>
+   143→          </div>
+   144→          <div className="flex items-center gap-1 shrink-0">
+   145→            <Badge variant="outline" className={`text-[10px] ${color.badge}`}>
+   146→              {stage.label}
+   147→            </Badge>
+   148→            <Button
+   149→              variant="ghost"
+   150→              size="icon"
+   151→              className="h-6 w-6"
+   152→              onClick={startEdit}
+   153→              aria-label={`Editar relación ${aName} ↔ ${bName}`}
+   154→            >
+   155→              <Pencil className="h-3 w-3" />
+   156→            </Button>
+   157→          </div>
+   158→        </div>
+   159→        <div className="mt-1.5 flex items-center gap-2">
+   160→          <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
+   161→            <div
+   162→              className="h-full rounded-full transition-all"
+   163→              style={{ width: `${points}%`, backgroundColor: color.stroke }}
+   164→            />
+   165→          </div>
+   166→          <span className={`text-[10px] tabular-nums ${color.text}`}>{points}/100</span>
+   167→        </div>
+   168→        {reason && (
+   169→          <p className="text-[10px] text-muted-foreground mt-1 truncate">Último cambio: {reason}</p>
+   170→        )}
+   171→      </div>
+   172→    );
+   173→  }
+   174→
+   175→  // ── Edit mode ──
+   176→  const draftStage = computeRelationshipStage(draft, stageLabels);
+   177→  const draftColor = stageColor(draftStage.key);
+   178→
+   179→  return (
+   180→    <div className="p-2.5 rounded-lg border-2 border-primary/40 bg-muted/30 space-y-2.5">
+   181→      <div className="flex items-center justify-between gap-2">
+   182→        <span className="text-xs font-semibold truncate">
+   183→          {aName}
+   184→          <span className="text-muted-foreground"> ↔ </span>
+   185→          {bName}
+   186→        </span>
+   187→        <Badge variant="outline" className={`text-[10px] ${draftColor.badge}`}>
+   188→          {draftStage.label}
+   189→        </Badge>
+   190→      </div>
+   191→
+   192→      {/* Slider + numeric input */}
+   193→      <div className="flex items-center gap-2">
+   194→        <Slider
+   195→          value={[draft]}
+   196→          min={0}
+   197→          max={100}
+   198→          step={1}
+   199→          onValueChange={(vals) => setDraft(vals[0] ?? 0)}
+   200→          className="flex-1 [&_[data-slot=slider-range]]:bg-current"
+   201→          style={{ color: draftColor.stroke }}
+   202→          aria-label={`Nivel de relación ${aName} ↔ ${bName}`}
+   203→        />
+   204→        <Input
+   205→          type="number"
+   206→          min={0}
+   207→          max={100}
+   208→          value={draft}
+   209→          onChange={(e) => {
+   210→            const v = parseInt(e.target.value, 10);
+   211→            if (!Number.isNaN(v)) setDraft(Math.min(100, Math.max(0, v)));
+   212→          }}
+   213→          className="w-16 h-7 text-xs tabular-nums text-center"
+   214→          aria-label="Puntos de relación (0-100)"
+   215→        />
+   216→      </div>
+   217→
+   218→      {/* Quick adjust */}
+   219→      <div className="flex items-center gap-1">
+   220→        <span className="text-[10px] text-muted-foreground mr-1">Ajuste:</span>
+   221→        {[-10, -5, +5, +10].map(d => (
+   222→          <Button
+   223→            key={d}
+   224→            variant="outline"
+   225→            size="sm"
+   226→            className="h-6 px-1.5 text-[10px] tabular-nums"
+   227→            onClick={() => quickAdjust(d)}
+   228→          >
+   229→            {d > 0 ? `+${d}` : d}
+   230→          </Button>
+   231→        ))}
+   232→        <span className="text-[10px] text-muted-foreground ml-auto">
+   233→          {points} → <strong style={{ color: draftColor.stroke }}>{draft}</strong>
+   234→        </span>
+   235→      </div>
+   236→
+   237→      {/* Reason */}
+   238→      <Input
+   239→        value={draftReason}
+   240→        onChange={(e) => setDraftReason(e.target.value)}
+   241→        placeholder="Motivo (opcional)…"
+   242→        className="h-7 text-xs"
+   243→      />
+   244→
+   245→      {/* Actions */}
+   246→      <div className="flex items-center justify-between gap-1.5">
+   247→        {confirmDelete ? (
+   248→          <div className="flex items-center gap-1">
+   249→            <span className="text-[10px] text-destructive">¿Eliminar vínculo?</span>
+   250→            <Button variant="destructive" size="sm" className="h-6 px-2 text-[10px]" onClick={remove}>
+   251→              Sí, eliminar
+   252→            </Button>
+   253→            <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setConfirmDelete(false)}>
+   254→              No
+   255→            </Button>
+   256→          </div>
+   257→        ) : (
+   258→          <Button
+   259→            variant="ghost"
+   260→            size="sm"
+   261→            className="h-6 px-2 text-[10px] text-destructive hover:text-destructive"
+   262→            onClick={() => setConfirmDelete(true)}
+   263→          >
+   264→            <Trash2 className="h-3 w-3 mr-1" /> Eliminar
+   265→          </Button>
+   266→        )}
+   267→        <div className="flex items-center gap-1">
+   268→          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setEditing(false)}>
+   269→            <X className="h-3 w-3 mr-1" /> Cancelar
+   270→          </Button>
+   271→          <Button size="sm" className="h-6 px-2 text-[10px]" onClick={save} disabled={draft === points}>
+   272→            <Check className="h-3 w-3 mr-1" /> Guardar
+   273→          </Button>
+   274→        </div>
+   275→      </div>
+   276→    </div>
+   277→  );
+   278→}
+   279→
+   280→export function RelationshipPanel({ open, onOpenChange, activeSession }: RelationshipPanelProps) {
+   281→  const characters = useTavernStore((state) => state.characters);
+   282→  const personas = useTavernStore((state) => state.personas);
+   283→  const activePersonaId = useTavernStore((state) => state.activePersonaId);
+   284→
+   285→  // ── Create-bond form state ──
+   286→  const [showCreate, setShowCreate] = useState(false);
+   287→  const [newA, setNewA] = useState<string>('');
+   288→  const [newB, setNewB] = useState<string>('');
+   289→  // Custom bond stage labels for the new bond: prefer the non-user party's labels
+   290→  const newStageLabels = (newA === '__user__' ? newB : newA)
+   291→    ? characters.find(c => c.id === (newA === '__user__' ? newB : newA))?.relationshipStageLabels
+   292→    : undefined;
+   293→  // Session's primary character labels (for the legend)
+   294→  const primaryCharLabels = activeSession?.characterId
+   295→    ? characters.find(c => c.id === activeSession.characterId)?.relationshipStageLabels
+   296→    : undefined;
+   297→  const [newPoints, setNewPoints] = useState<number>(DEFAULT_RELATIONSHIP_POINTS);
+   298→
+   299→  const userName = personas.find(p => p.id === activePersonaId)?.name || 'Usuario';
+   300→  const sessionId = activeSession?.id || '';
+   301→
+   302→  const graph = useMemo(() => {
+   303→    if (!activeSession) return null;
+   304→    const stats = (activeSession as { sessionStats?: SessionStats }).sessionStats;
+   305→    if (!stats) return null;
+   306→
+   307→    // Nodes: user + session characters (group members or single character)
+   308→    let charIds: string[] = [];
+   309→    if (activeSession.groupId) {
+   310→      const group = useTavernStore.getState().getGroupById?.(activeSession.groupId);
+   311→      charIds = (group?.members || []).filter(m => !m.isNarrator).map(m => m.characterId);
+   312→    } else if (activeSession.characterId) {
+   313→      charIds = [activeSession.characterId];
+   314→    }
+   315→    // Include any character with stats or bonds in this session
+   316→    for (const cid of Object.keys(stats.characterStats || {})) {
+   317→      if (cid !== '__user__' && !charIds.includes(cid)) charIds.push(cid);
+   318→    }
+   319→    const nodes = charIds
+   320→      .map(id => characters.find(c => c.id === id))
+   321→      .filter((c): c is NonNullable<typeof c> => !!c);
+   322→
+   323→    // Edges: user↔char and char↔char
+   324→    interface Edge {
+   325→      key: string;
+   326→      aId: string; aName: string;
+   327→      bId: string; bName: string;
+   328→      points: number;
+   329→      stage: RelationshipStage;
+   330→      reason?: string;
+   331→    }
+   332→    const edges: Edge[] = [];
+   333→    const rels = stats.relationships as Record<string, { points?: number; lastReason?: string }> | undefined;
+   334→
+   335→    for (const char of nodes) {
+   336→      const bond = getRelationship(rels, char.id, '__user__', char.relationshipStageLabels);
+   337→      const mirror = stats.characterStats?.[char.id]?.attributeValues?.['relacion'];
+   338→      const mirrorNum = typeof mirror === 'number' ? mirror : parseFloat(String(mirror ?? '')) || null;
+   339→      const points = bond?.points ?? (Number.isFinite(mirrorNum) ? (mirrorNum as number) : null);
+   340→      if (points !== null) {
+   341→        const stage = bond?.stage ?? computeRelationshipStage(points, char.relationshipStageLabels);
+   342→        edges.push({
+   343→          key: `u-${char.id}`, aId: '__user__', aName: userName,
+   344→          bId: char.id, bName: char.name, points,
+   345→          stage, reason: rels?.[getRelationshipKey(char.id, '__user__')]?.lastReason,
+   346→        });
+   347→      }
+   348→    }
+   349→    for (let i = 0; i < nodes.length; i++) {
+   350→      for (let j = i + 1; j < nodes.length; j++) {
+   351→        const bond = getRelationship(rels, nodes[i].id, nodes[j].id, nodes[i].relationshipStageLabels);
+   352→        if (bond) {
+   353→          edges.push({
+   354→            key: `${nodes[i].id}-${nodes[j].id}`,
+   355→            aId: nodes[i].id, aName: nodes[i].name,
+   356→            bId: nodes[j].id, bName: nodes[j].name,
+   357→            points: bond.points, stage: bond.stage,
+   358→            reason: rels?.[getRelationshipKey(nodes[i].id, nodes[j].id)]?.lastReason,
+   359→          });
+   360→        }
+   361→      }
+   362→    }
+   363→
+   364→    return { nodes, edges, userName, stats };
+   365→  }, [activeSession, characters, userName]);
+   366→
+   367→  // Radial layout
+   368→  const layout = useMemo(() => {
+   369→    if (!graph) return null;
+   370→    const W = 360, H = 380, cx = W / 2, cy = H / 2, r = 130;
+   371→    const positions = new Map<string, { x: number; y: number }>();
+   372→    positions.set('__user__', { x: cx, y: cy });
+   373→    graph.nodes.forEach((node, i) => {
+   374→      const angle = (2 * Math.PI * i) / Math.max(1, graph.nodes.length) - Math.PI / 2;
+   375→      positions.set(node.id, {
+   376→        x: cx + r * Math.cos(angle),
+   377→        y: cy + r * 0.82 * Math.sin(angle),
+   378→      });
+   379→    });
+   380→    return { W, H, cx, cy, positions };
+   381→  }, [graph]);
+   382→
+   383→  const userAvatar = personas.find(p => p.id === activePersonaId)?.avatar;
+   384→
+   385→  // ── Create bond: entity options + available pairs ──
+   386→  const entityOptions = useMemo(() => {
+   387→    const opts: { id: string; name: string; isUser: boolean }[] = [
+   388→      { id: '__user__', name: userName, isUser: true },
+   389→    ];
+   390→    for (const node of graph?.nodes || []) {
+   391→      opts.push({ id: node.id, name: node.name, isUser: false });
+   392→    }
+   393→    return opts;
+   394→  }, [graph, userName]);
+   395→
+   396→  const existingPairKeys = useMemo(
+   397→    () => new Set((graph?.edges || []).map(e => getRelationshipKey(e.aId, e.bId))),
+   398→    [graph]
+   399→  );
+   400→
+   401→  const availablePairs = useMemo(() => {
+   402→    const pairs: { a: string; b: string; label: string }[] = [];
+   403→    for (let i = 0; i < entityOptions.length; i++) {
+   404→      for (let j = i + 1; j < entityOptions.length; j++) {
+   405→        const a = entityOptions[i];
+   406→        const b = entityOptions[j];
+   407→        const key = getRelationshipKey(a.id, b.id);
+   408→        if (!existingPairKeys.has(key)) {
+   409→          pairs.push({ a: a.id, b: b.id, label: `${a.name} ↔ ${b.name}` });
+   410→        }
+   411→      }
+   412→    }
+   413→    return pairs;
+   414→  }, [entityOptions, existingPairKeys]);
+   415→
+   416→  const createBond = () => {
+   417→    if (!newA || !newB || newA === newB || !sessionId) return;
+   418→    const aName = newA === '__user__' ? userName : entityOptions.find(e => e.id === newA)?.name || newA;
+   419→    const bName = newB === '__user__' ? userName : entityOptions.find(e => e.id === newB)?.name || newB;
+   420→    useTavernStore.getState().updateRelationship(sessionId, newA, newB, {
+   421→      set: Math.min(100, Math.max(0, Math.round(newPoints))),
+   422→      reason: 'Vínculo creado manualmente',
+   423→    }, { aName, bName });
+   424→    toast.success(`Vínculo creado: ${aName} ↔ ${bName} (${Math.round(newPoints)}/100)`);
+   425→    setShowCreate(false);
+   426→    setNewA('');
+   427→    setNewB('');
+   428→    setNewPoints(DEFAULT_RELATIONSHIP_POINTS);
+   429→  };
+   430→
+   431→  return (
+   432→    <Dialog open={open} onOpenChange={onOpenChange}>
+   433→      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+   434→        <DialogHeader>
+   435→          <DialogTitle className="flex items-center gap-2 text-base">
+   436→            💜 Relaciones
+   437→            {graph && (
+   438→              <span className="text-xs font-normal text-muted-foreground">
+   439→                {graph.edges.length} vínculo{graph.edges.length !== 1 ? 's' : ''}
+   440→              </span>
+   441→            )}
+   442→          </DialogTitle>
+   443→        </DialogHeader>
+   444→
+   445→        {(!graph || graph.nodes.length === 0) ? (
+   446→          <div className="py-6 text-center space-y-3">
+   447→            <p className="text-sm text-muted-foreground">
+   448→              Aún no hay vínculos en esta sesión.
+   449→            </p>
+   450→            <p className="text-xs text-muted-foreground">
+   451→              Se crean con la tool <code>manage_relationship</code>, el token <code>[rel:+10 motivo]</code>,
+   452→              al interactuar… o créalos manualmente aquí.
+   453→            </p>
+   454→            {sessionId && (
+   455→              <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
+   456→                <Plus className="h-3.5 w-3.5 mr-1" /> Crear vínculo manualmente
+   457→              </Button>
+   458→            )}
+   459→          </div>
+   460→        ) : (
+   461→          <>
+   462→            {/* Radial graph */}
+   463→            {layout && (
+   464→              <svg viewBox={`0 0 ${layout.W} ${layout.H}`} className="w-full select-none" role="img" aria-label="Grafo de relaciones">
+   465→                {/* Edges */}
+   466→                {graph.edges.map(edge => {
+   467→                  const pa = layout.positions.get(edge.aId);
+   468→                  const pb = layout.positions.get(edge.bId);
+   469→                  if (!pa || !pb) return null;
+   470→                  const color = stageColor(edge.stage.key);
+   471→                  const midX = (pa.x + pb.x) / 2;
+   472→                  const midY = (pa.y + pb.y) / 2;
+   473→                  const isUserEdge = edge.aId === '__user__' || edge.bId === '__user__';
+   474→                  return (
+   475→                    <g key={edge.key}>
+   476→                      <line
+   477→                        x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
+   478→                        stroke={color.stroke}
+   479→                        strokeWidth={isUserEdge ? 2 + (edge.points / 100) * 3 : 1.5}
+   480→                        strokeOpacity={0.75}
+   481→                        strokeLinecap="round"
+   482→                      />
+   483→                      <rect
+   484→                        x={midX - 21} y={midY - 9} width={42} height={18} rx={9}
+   485→                        fill="hsl(var(--card))" stroke={color.stroke} strokeOpacity={0.5}
+   486→                      />
+   487→                      <text
+   488→                        x={midX} y={midY + 4}
+   489→                        textAnchor="middle" fontSize={11}
+   490→                        fill={color.stroke} fontWeight={600}
+   491→                      >
+   492→                        {edge.points}
+   493→                      </text>
+   494→                    </g>
+   495→                  );
+   496→                })}
+   497→
+   498→                {/* Character nodes */}
+   499→                {graph.nodes.map(node => {
+   500→                  const pos = layout.positions.get(node.id);
+   501→                  if (!pos) return null;
+   502→                  return (
+   503→                    <g key={node.id}>
+   504→                      <circle cx={pos.x} cy={pos.y} r={22} fill="hsl(var(--card))" stroke="hsl(var(--border))" />
+   505→                      {node.avatar ? (
+   506→                        <image x={pos.x - 16} y={pos.y - 16} width={32} height={32} href={node.avatar} clipPath="circle()" style={{ clipPath: 'circle(16px)' }} />
+   507→                      ) : (
+   508→                        <text x={pos.x} y={pos.y + 5} textAnchor="middle" fontSize={14} fill="hsl(var(--muted-foreground))">
+   509→                          {initialsOf(node.name)}
+   510→                        </text>
+   511→                      )}
+   512→                      <text x={pos.x} y={pos.y + 36} textAnchor="middle" fontSize={11} fill="hsl(var(--foreground))">
+   513→                        {node.name.length > 14 ? node.name.slice(0, 13) + '…' : node.name}
+   514→                      </text>
+   515→                    </g>
+   516→                  );
+   517→                })}
+   518→
+   519→                {/* User node (center) */}
+   520→                <g>
+   521→                  <circle cx={layout.cx} cy={layout.cy} r={26} fill="hsl(var(--primary) / 0.15)" stroke="hsl(var(--primary))" strokeWidth={2} />
+   522→                  <text x={layout.cx} y={layout.cy + 6} textAnchor="middle" fontSize={16} fill="hsl(var(--primary))" fontWeight={700}>
+   523→                    {initialsOf(graph.userName)}
+   524→                  </text>
+   525→                  <text x={layout.cx} y={layout.cy + 44} textAnchor="middle" fontSize={11} fontWeight={600} fill="hsl(var(--primary))">
+   526→                    {graph.userName}
+   527→                  </text>
+   528→                </g>
+   529→              </svg>
+   530→            )}
+   531→
+   532→            {/* Bond list — EDITABLE */}
+   533→            <div className="space-y-2 mt-2">
+   534→              <div className="flex items-center justify-between">
+   535→                <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   536→                  Vínculos (clic en ✏️ para editar)
+   537→                </Label>
+   538→                {!showCreate && (
+   539→                  <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setShowCreate(true)}>
+   540→                    <Plus className="h-3 w-3 mr-0.5" /> Nuevo
+   541→                  </Button>
+   542→                )}
+   543→              </div>
+   544→
+   545→              {graph.edges
+   546→                .slice()
+   547→                .sort((a, b) => b.points - a.points)
+   548→                .map(edge => (
+   549→                  <BondCard
+   550→                    key={edge.key}
+   551→                    aId={edge.aId}
+   552→                    aName={edge.aName}
+   553→                    bId={edge.bId}
+   554→                    bName={edge.bName}
+   555→                    points={edge.points}
+   556→                    stage={edge.stage}
+   557→                    reason={edge.reason}
+   558→                    sessionId={sessionId}
+   559→                    stageLabels={edge.bId === '__user__' ? characters.find(c => c.id === edge.aId)?.relationshipStageLabels : characters.find(c => c.id === edge.bId)?.relationshipStageLabels}
+   560→                  />
+   561→                ))}
+   562→            </div>
+   563→
+   564→            {/* Create bond form */}
+   565→            {showCreate && (
+   566→              <div className="mt-3 p-3 rounded-lg border-2 border-dashed border-primary/40 space-y-2.5">
+   567→                <div className="flex items-center justify-between">
+   568→                  <Label className="text-xs font-semibold">Nuevo vínculo</Label>
+   569→                  <Button
+   570→                    variant="ghost"
+   571→                    size="icon"
+   572→                    className="h-6 w-6"
+   573→                    onClick={() => { setShowCreate(false); setNewA(''); setNewB(''); }}
+   574→                    aria-label="Cancelar creación"
+   575→                  >
+   576→                    <X className="h-3 w-3" />
+   577→                  </Button>
+   578→                </div>
+   579→
+   580→                {availablePairs.length === 0 ? (
+   581→                  <p className="text-[11px] text-muted-foreground py-2 text-center">
+   582→                    No quedan pares disponibles: {entityOptions.length < 2
+   583→                      ? 'se necesita al menos 1 personaje en la sesión.'
+   584→                      : 'todas las combinaciones ya tienen vínculo.'}
+   585→                  </p>
+   586→                ) : (
+   587→                  <>
+   588→                    <div className="space-y-1.5">
+   589→                      <Select value={newA} onValueChange={(v) => { setNewA(v); if (v === newB) setNewB(''); }}>
+   590→                        <SelectTrigger className="h-8 text-xs">
+   591→                          <SelectValue placeholder="Entidad A…" />
+   592→                        </SelectTrigger>
+   593→                        <SelectContent>
+   594→                          {entityOptions.map(e => (
+   595→                            <SelectItem key={e.id} value={e.id} disabled={e.id === newB}>
+   596→                              {e.isUser ? `👤 ${e.name}` : e.name}
+   597→                            </SelectItem>
+   598→                          ))}
+   599→                        </SelectContent>
+   600→                      </Select>
+   601→                      <div className="flex items-center justify-center">
+   602→                        <span className="text-[10px] text-muted-foreground">↕</span>
+   603→                      </div>
+   604→                      <Select value={newB} onValueChange={(v) => { setNewB(v); if (v === newA) setNewA(''); }}>
+   605→                        <SelectTrigger className="h-8 text-xs">
+   606→                          <SelectValue placeholder="Entidad B…" />
+   607→                        </SelectTrigger>
+   608→                        <SelectContent>
+   609→                          {entityOptions.map(e => (
+   610→                            <SelectItem key={e.id} value={e.id} disabled={e.id === newA}>
+   611→                              {e.isUser ? `👤 ${e.name}` : e.name}
+   612→                            </SelectItem>
+   613→                          ))}
+   614→                        </SelectContent>
+   615→                      </Select>
+   616→                    </div>
+   617→
+   618→                    {/* Initial points */}
+   619→                    <div className="space-y-1">
+   620→                      <div className="flex items-center justify-between">
+   621→                        <Label className="text-[10px] text-muted-foreground">Nivel inicial</Label>
+   622→                        <span className="text-[10px] tabular-nums" style={{ color: stageColor(computeRelationshipStage(newPoints, newStageLabels).key).stroke }}>
+   623→                          {Math.round(newPoints)} — {computeRelationshipStage(newPoints, newStageLabels).label}
+   624→                        </span>
+   625→                      </div>
+   626→                      <Slider
+   627→                        value={[newPoints]}
+   628→                        min={0}
+   629→                        max={100}
+   630→                        step={1}
+   631→                        onValueChange={(vals) => setNewPoints(vals[0] ?? DEFAULT_RELATIONSHIP_POINTS)}
+   632→                        aria-label="Nivel inicial del vínculo"
+   633→                      />
+   634→                      <p className="text-[9px] text-muted-foreground">
+   635→                        Por defecto {DEFAULT_RELATIONSHIP_POINTS}/100 ({computeRelationshipStage(DEFAULT_RELATIONSHIP_POINTS, newStageLabels).label}).
+   636→                      </p>
+   637→                    </div>
+   638→
+   639→                    <Button
+   640→                      size="sm"
+   641→                      className="w-full h-8 text-xs"
+   642→                      disabled={!newA || !newB || newA === newB}
+   643→                      onClick={createBond}
+   644→                    >
+   645→                      <Plus className="h-3.5 w-3.5 mr-1" /> Crear vínculo
+   646→                    </Button>
+   647→                  </>
+   648→                )}
+   649→              </div>
+   650→            )}
+   651→
+   652→            <Separator className="mt-3" />
+   653→
+   654→            {/* Legend — uses the session's primary character custom labels when available */}
+   655→            <div className="flex flex-wrap gap-1.5 pt-1 pb-1">
+   656→              {RELATIONSHIP_STAGES.map(stage => {
+   657→                const color = stageColor(stage.key);
+   658→                const legendLabel = relationshipStageLabel(stage, primaryCharLabels);
+   659→                return (
+   660→                  <Badge key={stage.key} variant="outline" className={`text-[9px] ${color.badge}`}>
+   661→                    {stage.min}-{stage.max} {legendLabel}
+   662→                  </Badge>
+   663→                );
+   664→              })}
+   665→              <Badge variant="outline" className="text-[9px] bg-muted/30 text-muted-foreground border-border">
+   666→                <Undo2 className="h-2.5 w-2.5 mr-0.5" /> Nuevos: {DEFAULT_RELATIONSHIP_POINTS}/100
+   667→              </Badge>
+   668→            </div>
+   669→          </>
+   670→        )}
+   671→
+   672→        {userAvatar && !graph && (
+   673→          <span className="sr-only">{userAvatar}</span>
+   674→        )}
+   675→      </DialogContent>
+   676→    </Dialog>
+   677→  );
+   678→}
+   679→

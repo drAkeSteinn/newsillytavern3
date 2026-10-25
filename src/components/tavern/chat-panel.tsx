@@ -508,8 +508,18 @@ export function ChatPanel() {
   // Scene mode (chatbox collapse controlled from the SceneDock)
   const [isSceneMode, setIsSceneMode] = useState(false);
 
-  // Auto atmosphere: scene lighting follows the world clock's day moment (opt-in)
-  useAutoAtmosphere(worldClock);
+  // Auto atmosphere: scene lighting follows the REAL system time (opt-in).
+  // The hook re-runs after each assistant reply so the grading updates as
+  // real time crosses day-moment boundaries during a conversation.
+  const lastAssistantKey = useMemo(() => {
+    const msgs = activeSession?.messages || [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'assistant' && !m.isDeleted) return m.id;
+    }
+    return null;
+  }, [activeSession?.messages]);
+  useAutoAtmosphere(lastAssistantKey);
 
   // First-use onboarding hints (only for features present in this context)
   const onboardingHints = useMemo<OnboardingHintDef[]>(() => {
@@ -596,18 +606,9 @@ export function ChatPanel() {
                 toast.success(`💜 ${speakerName || '?'} ↔ ${bName || 'Usuario'}: ${result.stageLabel} (${result.points}/100)`);
               }
             }
-          } else if (action.kind === 'tiempo') {
-            if (action.mode === 'advance' && action.minutes && action.minutes > 0) {
-              store.setWorldTime?.(activeSessionId, { minutes: action.minutes });
-              toast.info(`🕐 El tiempo avanza ${action.minutes >= 60 ? `${Math.round(action.minutes / 60)}h` : `${action.minutes}m`}`);
-            } else if (action.mode === 'hour' && typeof action.hour === 'number') {
-              store.setWorldTime?.(activeSessionId, { hour: action.hour, minute: action.minute });
-              toast.info(`🕐 El tiempo salta a las ${String(action.hour).padStart(2, '0')}:${String(action.minute || 0).padStart(2, '0')}`);
-            } else if (action.mode === 'season' && action.season) {
-              store.setWorldTime?.(activeSessionId, { season: action.season });
-              toast.info(`🕐 Estación: ${action.season}`);
-            }
           }
+          // NOTE: [tiempo:] branch removed — the app uses the real system time,
+          // so the LLM can no longer change it via tokens.
         } catch (err) {
           console.warn('[TextActions] action failed:', err);
         }
@@ -1235,19 +1236,9 @@ export function ChatPanel() {
                   const icon = parsed.outcome === 'critical_success' ? '🎲✨' : parsed.outcome === 'critical_failure' ? '🎲💥' : '🎲';
                   toast.info(`${icon} ${parsed.outcomeLabel}: ${parsed.total} vs CD ${parsed.dc}`);
                 } else if (parsed.type === 'time_activation') {
-                  // World time changed via manage_time tool - execute on client side
-                  console.log('[ChatPanel] Time activation from tool:', parsed.toolName, parsed.activationType, parsed.minutes || parsed.hour || parsed.season);
-                  const store = useTavernStore.getState();
-                  if (parsed.activationType === 'advance' && typeof parsed.minutes === 'number') {
-                    store.setWorldTime?.(activeSessionId, { minutes: parsed.minutes });
-                    toast.info(`🕐 El tiempo avanza ${parsed.minutes >= 60 ? `${Math.round(parsed.minutes / 60)}h` : `${parsed.minutes}m`}`);
-                  } else if (parsed.activationType === 'set_hour' && typeof parsed.hour === 'number') {
-                    store.setWorldTime?.(activeSessionId, { hour: parsed.hour, minute: parsed.minute });
-                    toast.info(`🕐 El tiempo salta a las ${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute || 0).padStart(2, '0')}`);
-                  } else if (parsed.activationType === 'set_season' && parsed.season) {
-                    store.setWorldTime?.(activeSessionId, { season: parsed.season });
-                    toast.info(`🕐 Estación: ${parsed.season}`);
-                  }
+                  // NOTE: dead code — manage_time tool was removed; the app now
+                  // uses the real system time. Kept as a no-op for back-compat
+                  // with any stale server events.
                 } else if (parsed.type === 'stat_activation') {
                   // Stat modified by tool - execute on client side.
                   // Delta-aware: '+'/'-' operators replay on the CLIENT's
@@ -1993,19 +1984,9 @@ export function ChatPanel() {
                   const icon = parsed.outcome === 'critical_success' ? '🎲✨' : parsed.outcome === 'critical_failure' ? '🎲💥' : '🎲';
                   toast.info(`${icon} ${parsed.outcomeLabel}: ${parsed.total} vs CD ${parsed.dc}`);
                 } else if (parsed.type === 'time_activation') {
-                  // World time changed via manage_time tool - execute on client side
-                  console.log('[ChatPanel] Time activation from tool:', parsed.toolName, parsed.activationType, parsed.minutes || parsed.hour || parsed.season);
-                  const store = useTavernStore.getState();
-                  if (parsed.activationType === 'advance' && typeof parsed.minutes === 'number') {
-                    store.setWorldTime?.(activeSessionId, { minutes: parsed.minutes });
-                    toast.info(`🕐 El tiempo avanza ${parsed.minutes >= 60 ? `${Math.round(parsed.minutes / 60)}h` : `${parsed.minutes}m`}`);
-                  } else if (parsed.activationType === 'set_hour' && typeof parsed.hour === 'number') {
-                    store.setWorldTime?.(activeSessionId, { hour: parsed.hour, minute: parsed.minute });
-                    toast.info(`🕐 El tiempo salta a las ${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute || 0).padStart(2, '0')}`);
-                  } else if (parsed.activationType === 'set_season' && parsed.season) {
-                    store.setWorldTime?.(activeSessionId, { season: parsed.season });
-                    toast.info(`🕐 Estación: ${parsed.season}`);
-                  }
+                  // NOTE: dead code — manage_time tool was removed; the app now
+                  // uses the real system time. Kept as a no-op for back-compat
+                  // with any stale server events.
                 } else if (parsed.type === 'stat_activation') {
                   // Stat modified by tool - execute on client side.
                   // Delta-aware: '+'/'-' operators replay on the CLIENT's
@@ -2322,6 +2303,36 @@ export function ChatPanel() {
                           console.warn('[Emotion] Evaluation failed:', err);
                         }
                       })();
+                    }
+                  }
+
+                  // Archive recent sessionStats.eventLog entries to Memory V2 so
+                  // they survive beyond the short {{last_events}} window. Dedup
+                  // by sourceMessageId avoids re-archiving the same event across
+                  // turns. Runs async after the turn completes.
+                  if (cleanedMessage && isStillActive() && activeSessionId && (activeCharacter || activeGroupId)) {
+                    try {
+                      const archiveState = useTavernStore.getState();
+                      const session = archiveState.sessions?.find(s => s.id === activeSessionId);
+                      const eventLog = session?.sessionStats?.eventLog || [];
+                      if (eventLog.length > 0) {
+                        // Only archive events from the last few turns to avoid
+                        // re-processing the whole history every turn.
+                        const recentEvents = eventLog.slice(-8);
+                        fetch('/api/memory/v2', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            action: 'archive-events',
+                            sessionId: activeSessionId,
+                            charId: activeCharacterId || undefined,
+                            groupId: activeGroupId || undefined,
+                            eventLog: recentEvents,
+                          }),
+                        }).catch((e) => console.warn('[Memory] event archiving failed:', e));
+                      }
+                    } catch (e) {
+                      console.warn('[Memory] event archiving skipped:', e);
                     }
                   }
                 }

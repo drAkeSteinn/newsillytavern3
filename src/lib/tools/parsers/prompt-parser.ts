@@ -35,10 +35,10 @@ import type { ParsedToolCall } from '../types';
 // timestamps like [12:30] can never be mistaken for a tool call.
 
 const DEFAULT_KNOWN_TOOL_NAMES = [
-  'roll_dice', 'search_memory', 'get_weather', 'search_web', 'set_reminder',
+  'search_memory', 'set_reminder',
   'modify_stat', 'check_stat', 'manage_quest', 'manage_solicitud', 'manage_memory',
   'manage_action', 'manage_scene', 'manage_relationship', 'skill_check',
-  'manage_time', 'manage_wardrobe', 'manage_escenario',
+  'manage_wardrobe', 'manage_escenario',
 ];
 
 /** normalized tool name -> canonical registered name */

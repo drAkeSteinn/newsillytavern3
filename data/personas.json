@@ -6,7 +6,7 @@
     "avatar": "",
     "isActive": true,
     "createdAt": "2026-03-01T21:37:31.485Z",
-    "updatedAt": "2026-10-13T09:11:37.193Z",
+    "updatedAt": "2026-10-23T08:21:10.876Z",
     "statsConfig": {
       "enabled": true,
       "attributes": [
@@ -135,7 +135,7 @@
       },
       {
         "itemId": "past-003",
-        "quantity": 1,
+        "quantity": 2,
         "equipped": false
       },
       {
@@ -145,6 +145,11 @@
       },
       {
         "itemId": "past-002",
+        "quantity": 1,
+        "equipped": false
+      },
+      {
+        "itemId": "leche-006",
         "quantity": 1,
         "equipped": false
       }

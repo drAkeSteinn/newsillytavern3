@@ -1583,13 +1583,11 @@ export function NovelChatBox({
               </TooltipProvider>
             )}
 
-            {/* Session Action Bar: relationships / director / world clock */}
-            {(onOpenRelationships || onRunDirector || onSetWorldTime) && (
+            {/* Session Action Bar: relationships / director / real-time clock */}
+            {(onOpenRelationships || onRunDirector) && (
               <SessionActionBar
                 onOpenRelationships={() => onOpenRelationships?.()}
                 onRunDirector={() => onRunDirector?.()}
-                worldClock={worldClock}
-                onSetWorldTime={(u) => onSetWorldTime?.(u)}
                 compact
               />
             )}

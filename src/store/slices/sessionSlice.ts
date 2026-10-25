@@ -1282,14 +1282,9 @@ export const createSessionSlice = (set: any, get: any): SessionSlice => ({
       };
     });
 
-    // World clock: advance fictional time on every USER turn
-    if ((message as { role?: string }).role === 'user') {
-      try {
-        get().advanceWorldTime?.(sessionId, 1);
-      } catch (e) {
-        console.warn('[WorldTime] advance failed:', e);
-      }
-    }
+    // NOTE: fictional world-clock auto-advance removed — the app now uses the
+    // real system time. The atmosphere hook recomputes the moment from
+    // `new Date()` after each assistant reply (see use-auto-atmosphere.ts).
   },
 
   updateMessage: (sessionId, messageId, content) => set((state: any) => ({

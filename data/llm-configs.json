@@ -68,7 +68,7 @@
     "provider": "lm-studio",
     "endpoint": "http://localhost:1234/v1",
     "apiKey": "",
-    "model": "loaded",
+    "model": "qwen3.5-9b-uncensored-hauhaucs-aggressive",
     "parameters": {
       "temperature": 0.7,
       "topP": 0.9,

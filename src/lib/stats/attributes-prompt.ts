@@ -30,6 +30,12 @@
 import type { CharacterCard } from '@/types';
 import type { ResolvedStats } from '@/types';
 import type { AttributeDefinition } from '@/types';
+import type { SessionStats } from '@/types';
+import {
+  getRelationship,
+  DEFAULT_RELATIONSHIP_POINTS,
+  computeRelationshipStage,
+} from '@/lib/relationships';
 
 /** Max characters allowed for one essence line (token budget guard). */
 const ESSENCE_MAX_LENGTH = 600;
@@ -66,18 +72,49 @@ function minimalTypeHint(attr: AttributeDefinition): string {
 }
 
 /**
+ * Compute the current bond with the user for a character (mirrors the
+ * {{relacion}} / {{relacion_etapa}} key resolution). Falls back to the
+ * default bond (15/100 — Extraños) when no explicit record exists, so the
+ * LLM always sees a relationship value inside the attributes block.
+ */
+function resolveUserBondLine(
+  character: CharacterCard | undefined,
+  sessionStats: SessionStats | null | undefined,
+  characterId: string | undefined,
+  userName?: string
+): string | null {
+  if (!character) return null;
+  const customLabels = character.relationshipStageLabels;
+  const bond = sessionStats?.relationships
+    ? getRelationship(sessionStats.relationships, characterId || '__char__', '__user__', customLabels)
+    : null;
+  const points = bond?.points ?? DEFAULT_RELATIONSHIP_POINTS;
+  const stage = bond?.stage ?? computeRelationshipStage(points, customLabels);
+  const target = userName && userName.trim() ? userName : 'el usuario';
+  return `  - Relación con ${target} (key: relacion): ${points}/100 — ${stage.label} (gestiónala con [rel:+N motivo] o la herramienta manage_relationship, NO con modify_stat)`;
+}
+
+/**
  * First part of the block (the {{attributes}} key content):
  *
  * [GESTIÓN DE ATRIBUTOS]
  * Atributos actuales del personaje:
  *   - Lujuria (key: lujuria): Lujuria: (5/100)
  *   - Adicción (key: adiccion): Adicción: (0/100) 👑 PRINCIPAL
+ *   - Relación con {user} (key: relacion): 15/100 — Conocidos
+ *
+ * The relationship (bond with the user) is now listed as part of the
+ * attributes block so the LLM manages it there, since it already mirrors
+ * into attributeValues as `relacion` / `relacion_etapa`.
  *
  * Returns null when the stats system is disabled or has no attributes.
  */
 export function buildAttributesListBlock(
   character: CharacterCard | undefined,
-  resolvedStats: ResolvedStats | null | undefined
+  resolvedStats: ResolvedStats | null | undefined,
+  sessionStats?: SessionStats | null,
+  characterId?: string,
+  userName?: string
 ): string | null {
   if (!character || !isAttributesSystemAvailable(character, resolvedStats)) return null;
 
@@ -87,6 +124,10 @@ export function buildAttributesListBlock(
     const mainTag = a.isMain ? ' 👑 PRINCIPAL' : '';
     return `  - ${a.name} (key: ${a.key}): ${formatted}${mainTag}`;
   });
+
+  // Append the relationship (bond with the user) as part of the attributes block.
+  const bondLine = resolveUserBondLine(character, sessionStats ?? null, characterId, userName);
+  if (bondLine) attrLines.push(bondLine);
 
   return `[GESTIÓN DE ATRIBUTOS]\nAtributos actuales del personaje:\n${attrLines.join('\n')}`;
 }

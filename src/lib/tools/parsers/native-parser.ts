@@ -58,9 +58,9 @@ export function hasToolCalls(accumulator: ToolCallAccumulator): boolean {
 // Used by: OpenAI, vLLM, LM Studio, Z.ai, custom
 //
 // Streaming delta format:
-// data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}
-// data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city"}}]}}]}
-// data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":\"Tokio\"}"}}]}}]}
+// data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"set_reminder","arguments":""}}]}}]}
+// data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"content"}}]}}]}
+// data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":\"recordar\"}"}}]}}]}
 // data: {"choices":[{"finish_reason":"tool_calls","delta":{}}]}
 
 /**
@@ -230,7 +230,7 @@ export function buildToolMessagesForOpenAI(
 // ============================================
 //
 // Ollama /api/chat streaming with tools:
-// {"model":"...","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Tokio"}}}]},"done":false}
+// {"model":"...","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"set_reminder","arguments":{"content":"recordar"}}}]},"done":false}
 // {"model":"...","message":{"role":"assistant","content":""},"done":true}
 
 export interface OllamaToolCallDelta {
@@ -283,7 +283,7 @@ export function processOllamaToolDelta(
  * 
  * Example from Ollama docs:
  * { role: "assistant", content: "", tool_calls: [{ function: { name, arguments } }] }
- * { role: "tool", content: "result text", tool_name: "get_weather" }
+ * { role: "tool", content: "result text", tool_name: "set_reminder" }
  */
 export function buildToolMessagesForOllama(
   toolCalls: NativeToolCall[],
@@ -326,8 +326,8 @@ export function buildToolMessagesForOllama(
 // ============================================
 //
 // Anthropic streams tool_use content blocks:
-// data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_abc","name":"get_weather"}}
-// data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"Tokio\"}"}}
+// data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_abc","name":"set_reminder"}}
+// data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"content\":\"recordar\"}"}}
 // data: {"type":"content_block_stop","index":1}
 // data: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
 

@@ -737,7 +737,7 @@ export async function POST(request: NextRequest) {
     // Extract tools settings for tool/action system (native tool calling only)
     const toolsSettings: ToolsSettings = {
       enabled: body.toolsSettings?.enabled ?? true,
-      maxToolCallsPerTurn: body.toolsSettings?.maxToolCallsPerTurn ?? 2,
+      maxToolCallsPerTurn: body.toolsSettings?.maxToolCallsPerTurn ?? 4,
       characterConfigs: body.toolsSettings?.characterConfigs || [],
       usePromptBasedFallback: body.toolsSettings?.usePromptBasedFallback ?? false,
       disabledTools: body.toolsSettings?.disabledTools || [],

@@ -171,8 +171,7 @@ export function buildPromptBasedToolsSection(
   const lines: string[] = [
     '[HERRAMIENTAS DISPONIBLES]',
     `Eres un personaje en un roleplay${charRef}. Las herramientas te permiten realizar acciones en el mundo del roleplay:`,
-    '- Buscar información en internet o en tu memoria',
-    '- Tirar dados para resolver acciones',
+    '- Buscar información en tu memoria',
     '- Modificar stats del personaje (vida, experiencia, etc.)',
     '- Gestionar misiones y objetivos',
     '- Crear recordatorios',
@@ -180,7 +179,6 @@ export function buildPromptBasedToolsSection(
     '',
     'INSTRUCCIONES IMPORTANTES:',
     '- USA HERRAMIENTAS para cualquier acción que tenga consecuencias en el mundo del roleplay',
-    '- USA HERRAMIENTAS cuando necesites información que no conoces (clima, datos, etc.)',
     '- NUNCA inventes respuestas: usa las herramientas disponibles',
     '- USA HERRAMIENTAS DE STATS cuando ganes/perdas experiencia, salud, etc.',
     '- USA HERRAMIENTAS DE QUESTS para reportar progreso en misiones',
@@ -197,7 +195,7 @@ export function buildPromptBasedToolsSection(
     '',
     'Ejemplos de uso:',
     '```tool_call',
-    '{"name": "roll_dice", "parameters": {"dice": "1d20", "label": "Ataque"}}',
+    '{"name": "set_reminder", "parameters": {"content": "Recordar que el personaje odia los lunes"}}',
     '```',
     '```tool_call',
     '{"name": "modify_stat", "parameters": {"changes": [{"stat_name": "atributo_a", "new_value": "+150", "reason": "Derroté al dragón"}, {"stat_name": "atributo_b", "new_value": "-20", "reason": "La pelea me agotó"}]}}',
@@ -257,7 +255,7 @@ export function buildNativeToolsReminder(): string {
     'Tienes herramientas disponibles mediante function calling nativo (mecanismo tools de la API) y ESTÁN ACTIVAS en este turno.',
     '- Las herramientas son la ÚNICA forma de afectar el mundo: la narrativa NUNCA reemplaza a la herramienta. Si narras un cambio sin invocar la herramienta, el cambio SE PIERDE.',
     '- CADA TURNO, al terminar tu respuesta, repasa la escena: si algo justificó cambiar un atributo (deseo, energía, estados, hambre, relación...), invoca "modify_stat" con el parámetro "changes" EN LA MISMA RESPUESTA. Si nada lo justifica, no la llames ese turno.',
-    '- Usa las demás herramientas ACTIVAMENTE cuando la escena lo justifique (manage_action para acciones, manage_wardrobe para ropa, manage_time para saltos temporales, manage_memory para eventos importantes...). No esperes a que el usuario lo pida.',
+    '- Usa las demás herramientas ACTIVAMENTE cuando la escena lo justifique (manage_action para acciones, manage_wardrobe para ropa, manage_memory para eventos importantes...). No esperes a que el usuario lo pida.',
     '- NUNCA escribas una llamada de herramienta como texto visible (por ejemplo: [modifystat:...], ```tool_call```, {"name": ...}).',
     '- Cuando quieras usar una herramienta, EMITE LA LLAMADA NATIVA junto a tu narrativa; tu texto visible debe ser solo narrativa y diálogo en personaje.',
     '- Si ya emitiste una llamada nativa, NO la repitas ni la describas en el texto de tu respuesta.',
@@ -434,7 +432,7 @@ export function summarizeToolResult(result: ToolExecutionResult, params?: Record
 
   // Fallback: if no specific activation was detected, show the displayMessage (first 2 lines)
   if (parts.length === 0) {
-    // For tools like roll_dice, search_web, search_memory, get_weather, set_reminder, etc.
+    // For tools like search_memory, set_reminder, etc.
     // Use the displayMessage which already has a human-readable summary
     const msg = result.displayMessage?.trim();
     if (msg) {
@@ -452,10 +450,7 @@ export function summarizeToolResult(result: ToolExecutionResult, params?: Record
 // Auto-register all built-in tools
 // ============================================
 
-import { rollDiceTool, rollDiceExecutor } from './tools/roll-dice';
 import { searchMemoryTool, searchMemoryExecutor } from './tools/search-memory';
-import { getWeatherTool, getWeatherExecutor } from './tools/get-weather';
-import { searchWebTool, searchWebExecutor } from './tools/search-web';
 import { setReminderTool, setReminderExecutor } from './tools/set-reminder';
 import { modifyStatTool, modifyStatExecutor } from './tools/modify-stat';
 import { checkStatTool, checkStatExecutor } from './tools/check-stat';
@@ -466,15 +461,11 @@ import { manageActionTool, manageActionExecutor } from './tools/manage-action';
 import { manageSceneTool, manageSceneExecutor } from './tools/manage-scene';
 import { manageRelationshipTool, manageRelationshipExecutor } from './tools/manage-relationship';
 import { skillCheckTool, skillCheckExecutor } from './tools/skill-check';
-import { manageTimeTool, manageTimeExecutor } from './tools/manage-time';
 import { manageWardrobeTool, manageWardrobeExecutor } from './tools/manage-wardrobe';
 import { manageScenarioTool, manageScenarioExecutor } from './tools/manage-scenario';
 
 // Register built-in tools
-registerTool(rollDiceTool, rollDiceExecutor);
 registerTool(searchMemoryTool, searchMemoryExecutor);
-registerTool(getWeatherTool, getWeatherExecutor);
-registerTool(searchWebTool, searchWebExecutor);
 registerTool(setReminderTool, setReminderExecutor);
 registerTool(modifyStatTool, modifyStatExecutor);
 registerTool(checkStatTool, checkStatExecutor);
@@ -485,7 +476,6 @@ registerTool(manageActionTool, manageActionExecutor);
 registerTool(manageSceneTool, manageSceneExecutor);
 registerTool(manageRelationshipTool, manageRelationshipExecutor);
 registerTool(skillCheckTool, skillCheckExecutor);
-registerTool(manageTimeTool, manageTimeExecutor);
 registerTool(manageWardrobeTool, manageWardrobeExecutor);
 registerTool(manageScenarioTool, manageScenarioExecutor);
 

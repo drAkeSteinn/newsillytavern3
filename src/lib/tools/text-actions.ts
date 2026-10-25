@@ -1,25 +1,24 @@
 // ============================================
-// Text Actions — NO tool-calling required
+// Text Actions — client-side token scanner
 // ============================================
 //
-// Universal fallback so important mechanics (dice checks, relationships,
-// world time) work even when tool calling is DISABLED in the Tools panel.
-// The LLM simply writes tokens inside its response text; this scanner
-// (running client-side on the finished message) detects and executes them
-// through the same store actions the tools use.
+// Scanner for inline tokens the LLM may write inside its response text.
+// Runs client-side on the finished message and executes them through the
+// same store actions the tools use.
+//
+// NOTE: The hardcoded prompt section that taught the LLM these tokens
+// ([ACCIONES DE TEXTO — FUNCIONAN SIEMPRE]) was REMOVED. The [rel:] token
+// is still documented to the LLM via the {{attributes_rulz}} block, so the
+// scanner is kept to honour tokens that may still appear in responses.
 //
 // Supported tokens (case-insensitive, Spanish-friendly):
 //   [check:stat:dificultad]   → dice check vs stat (easy|medium|hard|extreme|1-25)
 //   [check:stat]              → check with default difficulty (medium)
 //   [rel:+10 motivo]          → bond with the user +10 (also -N or =N)
 //   [rel:Nombre:+10 motivo]   → bond with another character
-//   [tiempo:+2h] / [+90m]     → advance world time
-//   [tiempo:22:00]            → jump to hour
-//   [tiempo:estacion:invierno]→ set season
 //
-// Mirrors the app's dual-path philosophy: stats, skills, quests, items and
-// sprites already work via text detection; now checks/relationships/time
-// do too.
+// NOTE: [tiempo:...] tokens were removed when the app switched to the real
+// system time — the LLM can no longer advance or change the clock.
 
 export interface TextCheckAction {
   kind: 'check';
@@ -83,31 +82,9 @@ export function parseTextActions(content: string): TextAction[] {
     });
   }
 
-  // [tiempo:+2h] / [tiempo:+90m] / [tiempo:22:00] / [tiempo:22] / [tiempo:estacion:invierno]
-  const timeRe = /\[tiempo:([^\]]+)\]/gi;
-  while ((m = timeRe.exec(content)) !== null) {
-    const arg = m[1].trim().toLowerCase();
-    if (arg.startsWith('estacion:')) {
-      actions.push({ kind: 'tiempo', mode: 'season', season: arg.slice(9).trim(), raw: m[0] });
-      continue;
-    }
-    const adv = arg.match(/^([+\-]?)(\d+)\s*(h|hr|hora|horas)$/);
-    if (adv) {
-      const mins = parseInt(adv[2], 10) * 60 * (adv[1] === '-' ? -1 : 1);
-      actions.push({ kind: 'tiempo', mode: 'advance', minutes: mins, raw: m[0] });
-      continue;
-    }
-    const advM = arg.match(/^([+\-]?)(\d+)\s*(m|min|minuto|minutos)$/);
-    if (advM) {
-      const mins = parseInt(advM[2], 10) * (advM[1] === '-' ? -1 : 1);
-      actions.push({ kind: 'tiempo', mode: 'advance', minutes: mins, raw: m[0] });
-      continue;
-    }
-    const hour = arg.match(/^(\d{1,2})(?::(\d{2}))?$/);
-    if (hour) {
-      actions.push({ kind: 'tiempo', mode: 'hour', hour: parseInt(hour[1], 10), minute: hour[2] ? parseInt(hour[2], 10) : 0, raw: m[0] });
-    }
-  }
+  // NOTE: [tiempo:...] parser removed — the app now uses the real system time,
+  // so the LLM can no longer advance or change it via tokens. Only [check:]
+  // and [rel:] are still parsed (the latter is documented in {{attributes_rulz}}).
 
   return actions;
 }
@@ -120,18 +97,4 @@ function normalizeDifficulty(d: string): string {
     case 'extrema': return 'extreme';
     default: return d;
   }
-}
-
-/** Instruction block injected into prompts so the LLM knows the tokens.
- *  Kept compact (~90 tokens). Always included — this is the universal path
- *  that works with ANY provider, even those without tool calling. */
-export function buildTextActionsSection(): string {
-  return [
-    '[ACCIONES DE TEXTO — FUNCIONAN SIEMPRE]',
-    'Además de tus herramientas, puedes incluir estos tokens EN TU RESPUESTA (el sistema los ejecuta automáticamente):',
-    '- [check:stat:dificultad] — Resuelve una acción INCiertA con dados (d20 + stat del personaje indicado vs CD). Dificultades: easy/medium/hard/extreme o una CD numérica (5-25). Ejemplos: [check:fuerza:hard], [check:autocontrol], [check:carisma:14]. Úsalo SIEMPRE que el resultado de una acción no esté garantizado (convencer, seducir, resistir, forcejear, esconderse…), especialmente acciones del usuario. El sistema tira los dados; TÚ narras el resultado según el outcome que se te devuelva.',
-    '- [rel:+N motivo] / [rel:-N motivo] / [rel:=N] — Cambia tu vínculo (relación) con el usuario. Ejemplos: [rel:+10 le regaló su flor favorita], [rel:-15 lo descubrió mintiendo]. Para otro personaje: [rel:Nombre:+10].',
-    '- [tiempo:+2h] / [tiempo:+90m] / [tiempo:22:00] / [tiempo:estacion:invierno] — Avanza o cambia el tiempo del mundo cuando la escena lo requiera (dormir, esperar, viajar).',
-    'Estos tokens son tu vía principal cuando NO tienes herramientas disponibles; con herramientas también puedes usarlos.',
-  ].join('\n');
 }

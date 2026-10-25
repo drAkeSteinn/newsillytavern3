@@ -2,8 +2,6 @@
 // Prompt Builder - Unified prompt construction
 // ============================================
 
-import { formatWorldClock, createDefaultWorldClock } from '@/lib/world/time';
-import { buildTextActionsSection } from '@/lib/tools/text-actions';
 import type {
   CharacterCard,
   ChatMessage,
@@ -481,25 +479,9 @@ export function buildSystemPrompt(
     color: SECTION_COLORS.system
   });
 
-  // World Time (fictional clock) — compact context so the LLM knows when the scene happens
-  const worldClock = sessionStats?.worldClock;
-  if (!worldClock || worldClock.enabled !== false) {
-    sections.push({
-      type: 'scenario',
-      label: 'World Time',
-      content: `[TIEMPO DEL MUNDO] ${formatWorldClock(worldClock || createDefaultWorldClock())} (avanza ${worldClock?.minutesPerTurn || 20} min por turno)`,
-      color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    });
-  }
-
-  // Text Actions — universal fallback tokens ([check:] [rel:] [tiempo:]) that work
-  // even when tool calling is disabled or the provider lacks tool support
-  sections.push({
-    type: 'system',
-    label: 'Text Actions',
-    content: buildTextActionsSection(),
-    color: SECTION_COLORS.system
-  });
+  // NOTE: [TIEMPO DEL MUNDO] section removed — the app now uses the real
+  // system time (see {{time}}, {{hora}}, {{momento}} keys in key-resolver).
+  // The fictional world clock is no longer injected into the prompt.
 
   // Lorebook position 0: After system prompt
   if (lorebookPlan?.position0Section) {
@@ -1219,24 +1201,8 @@ export function buildGroupSystemPrompt(
     });
   }
 
-  // World Time (fictional clock) — group builder
-  const worldClock = sessionStats?.worldClock;
-  if (!worldClock || worldClock.enabled !== false) {
-    sections.push({
-      type: 'scenario',
-      label: 'World Time',
-      content: `[TIEMPO DEL MUNDO] ${formatWorldClock(worldClock || createDefaultWorldClock())} (avanza ${worldClock?.minutesPerTurn || 20} min por turno)`,
-      color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    });
-  }
-
-  // Text Actions — universal fallback tokens
-  sections.push({
-    type: 'system',
-    label: 'Text Actions',
-    content: buildTextActionsSection(),
-    color: SECTION_COLORS.system
-  });
+  // NOTE: [TIEMPO DEL MUNDO] section removed — the app now uses the real
+  // system time. See the 1-to-1 builder for the same note.
 
   // Lorebook position 0: After system prompt
   if (lorebookPlan?.position0Section) {

@@ -24,8 +24,8 @@ export const manageMemoryTool: ToolDefinition = {
     properties: {
       action: {
         type: 'string',
-        description: 'Acción: save_memory (guardar), update_relationship (actualizar relación), get_memories (ver recuerdos recientes)',
-        enum: ['save_memory', 'update_relationship', 'get_memories', 'save_note'],
+        description: 'Acción: save_memory (guardar), get_memories (ver recuerdos recientes), save_note (guardar nota)',
+        enum: ['save_memory', 'get_memories', 'save_note'],
         required: true,
       },
       memory_type: {
@@ -186,77 +186,6 @@ export async function manageMemoryExecutor(
         };
       }
 
-      case 'update_relationship': {
-        if (!subject) {
-          return {
-            success: false,
-            toolName: 'manage_memory',
-            result: null,
-            displayMessage: 'Para actualizar una relación, especifica subject (nombre del otro personaje).',
-            error: 'Missing required parameter: subject',
-          };
-        }
-
-        const sentimentLabel = sentiment > 50 ? 'aliado cercano'
-          : sentiment > 20 ? 'amigo'
-          : sentiment > 0 ? 'conocido'
-          : sentiment > -20 ? 'neutral'
-          : sentiment > -50 ? 'desconfiado'
-          : 'enemigo';
-
-        const sentimentChange = sentiment > 0 ? `+${sentiment}` : `${sentiment}`;
-
-        // Sanitize narrative so relationships also reference the persona by name
-        const sanitizedNarrative = personalizeMemoryContent(narrative, context.userName);
-
-        const relationshipContent = sanitizedNarrative
-          ? `${context.characterName} siente que su relación con ${subject} es: ${sentimentLabel}. ${sanitizedNarrative} (cambio de sentimiento: ${sentimentChange})`
-          : `${context.characterName} siente que su relación con ${subject} es: ${sentimentLabel} (cambio de sentimiento: ${sentimentChange})`;
-
-        await store.add({
-          id: '',
-          type: 'relacion',
-          content: relationshipContent,
-          subject: subject === context.userName ? 'usuario' : 'mundo',
-          charId: context.characterId,
-          groupId: context.groupId || '',
-          sessionId: context.sessionId || '',
-          source: 'curada',
-          importance: toV2Importance(Math.abs(sentiment) > 50 ? 4 : 3),
-          eventDate: new Date().toISOString(),
-        });
-
-        console.log(`[manage_memory] Saved V2 relationship for ${context.characterName}: ${subject}`);
-
-        const lines = [
-          '💜 **Relación Actualizada:**',
-          `Personaje: ${subject}`,
-          `Cambio: ${sentimentChange}`,
-          `Estado actual: ${sentimentLabel}`,
-        ];
-
-        if (narrative) {
-          lines.push(`Razón: ${narrative}`);
-        }
-
-        lines.push('');
-        lines.push('La relación ha sido actualizada en la memoria del personaje.');
-
-        return {
-          success: true,
-          toolName: 'manage_memory',
-          result: {
-            action: 'update_relationship',
-            subject,
-            sentimentDelta: sentiment,
-            sentimentLabel,
-            characterId: context.characterId,
-            sessionId: context.sessionId,
-          },
-          displayMessage: lines.join('\n'),
-        };
-      }
-
       case 'get_memories': {
         const records = await store.list({
           charId: context.characterId,
@@ -299,7 +228,7 @@ export async function manageMemoryExecutor(
           success: false,
           toolName: 'manage_memory',
           result: null,
-          displayMessage: `Acción desconocida: ${action}. Acciones: save_memory, update_relationship, get_memories`,
+          displayMessage: `Acción desconocida: ${action}. Acciones: save_memory, get_memories, save_note`,
           error: `Unknown action: ${action}`,
         };
     }

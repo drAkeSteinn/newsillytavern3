@@ -1,6 +1,6 @@
 =========================================
 HP App LanceDB Windows unified start/install log
-Fecha: 13/10/2026 19:47:28.45
+Fecha: 22/10/2026 23:56:46.52
 Puerto: 3000
 APP_URL: http://localhost:3000
 LANCEDB_PLATFORM: win32-x64-msvc

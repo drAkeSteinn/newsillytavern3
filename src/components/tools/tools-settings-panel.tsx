@@ -51,16 +51,6 @@ import { DEFAULT_TOOLS_SETTINGS } from '@/types';
 
 const BUILT_IN_TOOLS: ToolDefinition[] = [
   {
-    id: 'roll_dice',
-    name: 'roll_dice',
-    label: 'Tirar Dados',
-    icon: 'Dices',
-    description: 'Tira dados para resolver acciones aleatorias (ej: 1d20, 2d6). Ideal para RPGs y juegos de rol.',
-    category: 'in_character',
-    parameters: { type: 'object', properties: { dice: { type: 'string', description: 'Notación (ej: 1d20)', required: true }, label: { type: 'string', description: 'Descripción', required: false } }, required: ['dice'] },
-    permissionMode: 'auto',
-  },
-  {
     id: 'search_memory',
     name: 'search_memory',
     label: 'Buscar Memoria',
@@ -68,26 +58,6 @@ const BUILT_IN_TOOLS: ToolDefinition[] = [
     description: 'Busca en tu memoria información sobre un tema específico. Útil para recordar conversaciones pasadas.',
     category: 'cognitive',
     parameters: { type: 'object', properties: { query: { type: 'string', description: 'Qué buscar', required: true }, max_results: { type: 'number', description: 'Cuántos resultados (default: 5)', required: false } }, required: ['query'] },
-    permissionMode: 'auto',
-  },
-  {
-    id: 'get_weather',
-    name: 'get_weather',
-    label: 'Consultar Clima',
-    icon: 'CloudSun',
-    description: 'Obtén el clima actual de una ciudad. El LLM la usa cuando el usuario pregunta sobre el tiempo.',
-    category: 'real_world',
-    parameters: { type: 'object', properties: { city: { type: 'string', description: 'Ciudad', required: true }, units: { type: 'string', description: 'metric o imperial', required: false } }, required: ['city'] },
-    permissionMode: 'auto',
-  },
-  {
-    id: 'search_web',
-    name: 'search_web',
-    label: 'Buscar en Internet',
-    icon: 'Globe',
-    description: 'Busca información actualizada en internet. Se activa cuando el LLM necesita datos que no tiene.',
-    category: 'real_world',
-    parameters: { type: 'object', properties: { query: { type: 'string', description: 'Qué buscar', required: true }, max_results: { type: 'number', description: 'Cuántos resultados (default: 3)', required: false } }, required: ['query'] },
     permissionMode: 'auto',
   },
   {
@@ -656,13 +626,13 @@ export function ToolsSettingsPanel() {
               </div>
 
               <div className="mt-3 p-2.5 bg-background rounded-md border space-y-1.5">
-                <p className="text-[10px] font-medium text-muted-foreground">Ejemplo: El usuario pregunta &quot;¿Qué clima hace en Tokyo?&quot;</p>
+                <p className="text-[10px] font-medium text-muted-foreground">Ejemplo: El usuario dice &quot;Recuérdame nuestra cita del viernes&quot;</p>
                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 flex-wrap">
                   <Badge variant="secondary" className="text-[9px] px-1.5 py-0">API envía tools al LLM</Badge>
                   <ArrowRight className="w-3 h-3 text-muted-foreground/40" />
-                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0">LLM responde: tool_call(get_weather, city=&quot;Tokyo&quot;)</Badge>
+                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0">LLM responde: tool_call(set_reminder, content=&quot;Cita del viernes con el usuario&quot;)</Badge>
                   <ArrowRight className="w-3 h-3 text-muted-foreground/40" />
-                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">LLM genera: &quot;En Tokyo hace 22°C con cielo despejado&quot;</Badge>
+                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">LLM genera: &quot;He guardado el recordatorio de nuestra cita del viernes&quot;</Badge>
                 </div>
               </div>
 
@@ -701,7 +671,7 @@ export function ToolsSettingsPanel() {
                 <p className="text-[10px] font-medium text-muted-foreground">Ejemplo: El modelo escribe en su respuesta:</p>
                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 flex-wrap">
                   <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">{'```tool_call```'}</Badge>
-                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{'{ "name": "get_weather", "parameters": { "city": "Tokyo" } }'}</Badge>
+                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{'{ "name": "set_reminder", "parameters": { "content": "Cita del viernes" } }'}</Badge>
                   <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">{'```'}</Badge>
                 </div>
               </div>

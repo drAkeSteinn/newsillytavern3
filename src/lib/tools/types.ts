@@ -272,7 +272,7 @@ export interface CharacterToolConfig {
 export interface ToolsSettings {
   /** Master switch for the entire tool system */
   enabled: boolean;
-  /** Maximum tool calls per turn (default: 2) */
+  /** Maximum tool calls per turn (default: 4) */
   maxToolCallsPerTurn: number;
   /** Per-character tool configs */
   characterConfigs: CharacterToolConfig[];
@@ -280,7 +280,7 @@ export interface ToolsSettings {
 
 export const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
   enabled: true,
-  maxToolCallsPerTurn: 2,
+  maxToolCallsPerTurn: 4,
   characterConfigs: [],
 };
 

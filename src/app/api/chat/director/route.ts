@@ -49,7 +49,6 @@ const DIRECTOR_ALLOWED_TOOL_IDS = [
   'manage_scene',     // bring characters in/out of scene (groups)
   'manage_relationship', // adjust relationship points based on world events
   'manage_memory',    // persist major world events as long-term memories
-  'manage_time',      // advance world time during cooldown events
   'manage_quest',     // spawn quests from world events
 ];
 
@@ -68,7 +67,6 @@ Además de proponer el evento del mundo, PUEDES usar herramientas (tool calling)
 - "manage_scene": En chats de grupo, haz que un personaje entre o salga de la escena si el evento del mundo lo provoca (ej: alguien llama a la puerta → entra un personaje; alguien se va molestx → sale).
 - "manage_relationship": Ajusta puntos de relación entre personajes si el evento crea o resuelve tensión entre ellos.
 - "manage_memory": Crea un recuerdo persistente para eventos importantes (severity 'major') que los personajes deberían recordar a largo plazo.
-- "manage_time": Avanza el tiempo del mundo si el evento implica un salto temporal (ej: "pasan dos horas").
 - "manage_quest": Activa un quest o completa un objetivo si el evento del mundo lo dispara.
 
 USA LAS HERRAMIENTAS ACTIVAMENTE cuando tengan sentido narrativo, pero no fuerces su uso. El evento del mundo (world_event en JSON) es obligatorio; las herramientas son opcionales y complementarias.`;

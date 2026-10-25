@@ -224,8 +224,15 @@ function getVariableValue(varName: string, context: KeyResolutionContext): strin
     case 'scenario':
       return context.character?.scenario;
     case 'attributes':
-      // Truthy when the stats system is enabled with ≥1 attribute
-      return buildAttributesListBlock(context.character, context.resolvedStats ?? null) || undefined;
+      // Truthy when the stats system is enabled with ≥1 attribute.
+      // Now also includes the relationship (bond with user) line.
+      return buildAttributesListBlock(
+        context.character,
+        context.resolvedStats ?? null,
+        context.sessionStats ?? null,
+        context.characterId,
+        context.user
+      ) || undefined;
     case 'attributes_rulz':
       // Truthy when the stats system is enabled with ≥1 attribute
       return buildAttributesRulesBlock(context.character) || undefined;
@@ -330,17 +337,24 @@ export function resolveEventKeys(
     result = result.replace(/\{estado\}/g, emotionalState || '');
   }
 
-  // {{hora}} / {{momento}} / {{dia}} / {{estacion}} / {{tiempo_mundo}} — world clock
-  const worldClock = sessionStats?.worldClock;
-  const wTotal = worldClock?.totalMinutes;
-  const wHour = computeHour(wTotal ?? 20 * 60);
-  const wMoment = computeMoment(wHour);
-  const wMinute = computeMinute(wTotal ?? 0);
-  result = result.replace(/\{\{hora\}\}/gi, formatWorldHour(wTotal ?? 20 * 60));
-  result = result.replace(/\{\{momento\}\}/gi, wMoment);
-  result = result.replace(/\{\{dia\}\}/gi, String(computeDay(wTotal ?? 20 * 60)));
-  result = result.replace(/\{\{estacion\}\}/gi, worldClock?.season || 'primavera');
-  result = result.replace(/\{\{tiempo_mundo\}\}/gi, worldClock ? formatWorldClock(worldClock) : '');
+  // {{hora}} / {{momento}} / {{dia}} / {{estacion}} / {{tiempo_mundo}} — REAL system time.
+  // Previously these keys resolved to a fictional "world clock" that advanced N minutes
+  // per turn. The app now uses the real system clock so the LLM, lorebooks and
+  // atmosphere all reason about the actual time of day. The season is derived from
+  // the real calendar month (no manual setting).
+  const now = new Date();
+  const rHour = now.getHours();
+  const rMinute = now.getMinutes();
+  const rMoment = computeMoment(rHour);
+  const rDay = Math.max(1, Math.ceil(Date.now() / 86_400_000)); // day number since epoch (1-based)
+  const SEASONS_BY_MONTH = ['invierno', 'invierno', 'primavera', 'primavera', 'primavera', 'verano', 'verano', 'verano', 'otoño', 'otoño', 'otoño', 'invierno'] as const;
+  const rSeason = SEASONS_BY_MONTH[now.getMonth()];
+  const rHourLabel = `${String(rHour).padStart(2, '0')}:${String(rMinute).padStart(2, '0')}`;
+  result = result.replace(/\{\{hora\}\}/gi, rHourLabel);
+  result = result.replace(/\{\{momento\}\}/gi, rMoment);
+  result = result.replace(/\{\{dia\}\}/gi, String(rDay));
+  result = result.replace(/\{\{estacion\}\}/gi, rSeason);
+  result = result.replace(/\{\{tiempo_mundo\}\}/gi, `${rHourLabel} (${rMoment}, ${rSeason})`);
 
   // {{last_events}} (legacy alias: {{eventos}}) — recent scene events block
   {
@@ -902,7 +916,13 @@ export function resolveAttributesKeysInText(
   // Fast exit when neither key is present
   if (!/\{\{attributes(?:_rulz)?\}\}/i.test(text)) return text;
 
-  const listBlock = buildAttributesListBlock(context.character, context.resolvedStats ?? null);
+  const listBlock = buildAttributesListBlock(
+    context.character,
+    context.resolvedStats ?? null,
+    context.sessionStats ?? null,
+    context.characterId,
+    context.user
+  );
   const rulesBlock = buildAttributesRulesBlock(context.character);
 
   return text

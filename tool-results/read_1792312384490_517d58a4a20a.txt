@@ -1,0 +1,1170 @@
+     1→'use client';
+     2→
+     3→import { useTavernStore } from '@/store/tavern-store';
+     4→import { Button } from '@/components/ui/button';
+     5→import { Input } from '@/components/ui/input';
+     6→import { Label } from '@/components/ui/label';
+     7→import { Switch } from '@/components/ui/switch';
+     8→import { Slider } from '@/components/ui/slider';
+     9→import { Textarea } from '@/components/ui/textarea';
+    10→import { Separator } from '@/components/ui/separator';
+    11→import {
+    12→  Card,
+    13→  CardContent,
+    14→  CardDescription,
+    15→  CardHeader,
+    16→  CardTitle,
+    17→} from '@/components/ui/card';
+    18→import {
+    19→  Collapsible,
+    20→  CollapsibleContent,
+    21→  CollapsibleTrigger,
+    22→} from '@/components/ui/collapsible';
+    23→import {
+    24→  AlertDialog,
+    25→  AlertDialogAction,
+    26→  AlertDialogCancel,
+    27→  AlertDialogContent,
+    28→  AlertDialogDescription,
+    29→  AlertDialogFooter,
+    30→  AlertDialogHeader,
+    31→  AlertDialogTitle,
+    32→  AlertDialogTrigger,
+    33→} from '@/components/ui/alert-dialog';
+    34→import {
+    35→  Select,
+    36→  SelectContent,
+    37→  SelectItem,
+    38→  SelectTrigger,
+    39→  SelectValue,
+    40→} from '@/components/ui/select';
+    41→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    42→import {
+    43→  Brain,
+    44→  MessageSquare,
+    45→  Users,
+    46→  Settings2,
+    47→  RotateCcw,
+    48→  ChevronDown,
+    49→  FileText,
+    50→  Save,
+    51→  Sparkles,
+    52→  Clock,
+    53→  Info,
+    54→  Database,
+    55→  User,
+    56→  Layers,
+    57→  Settings,
+    58→  Pencil,
+    59→  Eye,
+    60→  Trash2,
+    61→  AlertTriangle,
+    62→  History,
+    63→  Activity,
+    64→  RefreshCw,
+    65→  DatabaseZap,
+    66→} from 'lucide-react';
+    67→import { useState, useCallback, useEffect } from 'react';
+    68→import { cn } from '@/lib/utils';
+    69→import { DEFAULT_SUMMARY_SETTINGS } from '@/types';
+    70→import { toast } from 'sonner';
+    71→import { DEFAULT_EMBEDDINGS_CHAT } from '@/lib/embeddings/constants';
+    72→import { SummaryViewer } from '@/components/memory/summary-viewer';
+    73→
+    74→// ============================================
+    75→// Preview data for extraction prompts
+    76→// ============================================
+    77→
+    78→const NORMAL_PREVIEW = {
+    79→  characterName: 'Alvar',
+    80→  chatContext: 'Contexto reciente de la conversación:\n  Alex: "Me acabo de mudar a la costa, tengo un gato llamado Milo"\n  Alvar: "¡Qué genial! ¿Y cómo te va adaptando?"\n',
+    81→  lastMessage: '"Milo se lleva súper bien con los vecinos."',
+    82→};
+    83→
+    84→const GROUP_PREVIEW = {
+    85→  characterName: 'Kai',
+    86→  chatContext: 'Contexto reciente del grupo:\n  Alex: "¿Qué opinan del plan de Luna?"\n  Luna: "Yo creo que deberíamos ir por la ruta norte, es más segura."\n  Rex: "No me fío, la última vez que fuimos por ahí casi nos atrapan."\n',
+    87→  lastMessage: '"Rex tiene razón en desconfiar, pero yo prefiero arriesgarme. Además, Kai tiene contactos en el norte que podrían ayudarnos."',
+    88→};
+    89→
+    90→// ============================================
+    91→// Sub-tab 1: Resúmenes
+    92→// ============================================
+    93→
+    94→function ResumenesTab() {
+    95→  const summarySettings = useTavernStore((s) => s.summarySettings);
+    96→  const setSummarySettings = useTavernStore((s) => s.setSummarySettings);
+    97→  const activeSessionId = useTavernStore((s) => s.activeSessionId);
+    98→
+    99→  const [promptEditorOpen, setPromptEditorOpen] = useState(false);
+   100→
+   101→  // Ensure promptTemplate exists with default fallback
+   102→  const promptTemplate = summarySettings.promptTemplate ?? DEFAULT_SUMMARY_SETTINGS.promptTemplate ?? '';
+   103→  const [localPrompt, setLocalPrompt] = useState(promptTemplate);
+   104→
+   105→  // Update local prompt when settings change
+   106→  const handlePromptSave = useCallback(() => {
+   107→    setSummarySettings({ promptTemplate: localPrompt });
+   108→    setPromptEditorOpen(false);
+   109→  }, [localPrompt, setSummarySettings]);
+   110→
+   111→  // Reset prompt to default
+   112→  const handleResetPrompt = useCallback(() => {
+   113→    const defaultPrompt = DEFAULT_SUMMARY_SETTINGS.promptTemplate ?? '';
+   114→    setLocalPrompt(defaultPrompt);
+   115→    setSummarySettings({ promptTemplate: defaultPrompt });
+   116→  }, [setSummarySettings]);
+   117→
+   118→  return (
+   119→    <div className="space-y-6">
+   120→      {/* Summary Viewer */}
+   121→      <SummaryViewer sessionId={activeSessionId ?? undefined} />
+   122→
+   123→      {/* Main Enable/Disable */}
+   124→      <Card className="border-2">
+   125→        <CardHeader className="pb-3">
+   126→          <CardTitle className="flex items-center gap-2 text-lg">
+   127→            <Brain className="w-5 h-5 text-purple-500" />
+   128→            Sistema de Memoria y Resúmenes
+   129→          </CardTitle>
+   130→          <CardDescription>
+   131→            Genera resúmenes automáticos de la conversación para mantener contexto en chats largos.
+   132→          </CardDescription>
+   133→        </CardHeader>
+   134→        <CardContent>
+   135→          <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+   136→            <div className="space-y-0.5">
+   137→              <Label className="text-base font-medium">Activar Memoria</Label>
+   138→              <p className="text-sm text-muted-foreground">
+   139→                Genera resúmenes automáticos cuando la conversación alcance el límite configurado.
+   140→              </p>
+   141→            </div>
+   142→            <Switch
+   143→              checked={summarySettings.enabled}
+   144→              onCheckedChange={(enabled) => setSummarySettings({ enabled })}
+   145→            />
+   146→          </div>
+   147→        </CardContent>
+   148→      </Card>
+   149→
+   150→      {/* Message Interval Settings */}
+   151→      <Card>
+   152→        <CardHeader className="pb-3">
+   153→          <CardTitle className="flex items-center gap-2 text-base">
+   154→            <Clock className="w-4 h-4 text-violet-500" />
+   155→            Intervalo de Resúmenes
+   156→          </CardTitle>
+   157→          <CardDescription>
+   158→            Define cada cuántos mensajes se generarán resúmenes automáticamente.
+   159→          </CardDescription>
+   160→        </CardHeader>
+   161→        <CardContent className="space-y-6">
+   162→          {/* Normal Chat Interval */}
+   163→          <div className="space-y-3">
+   164→            <div className="flex items-center justify-between">
+   165→              <div className="flex items-center gap-2">
+   166→                <MessageSquare className="w-4 h-4 text-muted-foreground" />
+   167→                <Label className="font-medium">Chat Normal</Label>
+   168→              </div>
+   169→              <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
+   170→                {summarySettings.normalChatInterval} mensajes
+   171→              </span>
+   172→            </div>
+   173→            <Slider
+   174→              value={[summarySettings.normalChatInterval]}
+   175→              min={5}
+   176→              max={50}
+   177→              step={5}
+   178→              disabled={!summarySettings.enabled}
+   179→              onValueChange={([normalChatInterval]) =>
+   180→                setSummarySettings({ normalChatInterval })
+   181→              }
+   182→            />
+   183→            <p className="text-xs text-muted-foreground">
+   184→              Se generará un resumen cada {summarySettings.normalChatInterval} mensajes en chats individuales.
+   185→            </p>
+   186→          </div>
+   187→
+   188→          {/* Group Chat Interval */}
+   189→          <div className="space-y-3">
+   190→            <div className="flex items-center justify-between">
+   191→              <div className="flex items-center gap-2">
+   192→                <Users className="w-4 h-4 text-muted-foreground" />
+   193→                <Label className="font-medium">Chat Grupal</Label>
+   194→              </div>
+   195→              <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
+   196→                {summarySettings.groupChatInterval} mensajes
+   197→              </span>
+   198→            </div>
+   199→            <Slider
+   200→              value={[summarySettings.groupChatInterval]}
+   201→              min={5}
+   202→              max={40}
+   203→              step={5}
+   204→              disabled={!summarySettings.enabled}
+   205→              onValueChange={([groupChatInterval]) =>
+   206→                setSummarySettings({ groupChatInterval })
+   207→              }
+   208→            />
+   209→            <p className="text-xs text-muted-foreground">
+   210→              Se generará un resumen cada {summarySettings.groupChatInterval} mensajes en chats grupales.
+   211→            </p>
+   212→          </div>
+   213→        </CardContent>
+   214→      </Card>
+   215→
+   216→      {/* Summary Settings */}
+   217→      <Card>
+   218→        <CardHeader className="pb-3">
+   219→          <CardTitle className="flex items-center gap-2 text-base">
+   220→            <Settings2 className="w-4 h-4 text-green-500" />
+   221→            Configuración de Resumen
+   222→          </CardTitle>
+   223→        </CardHeader>
+   224→        <CardContent className="space-y-4">
+   225→          {/* Messages to keep */}
+   226→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   227→            <div className="space-y-2">
+   228→              <Label className="text-sm">Mensajes recientes a conservar</Label>
+   229→              <Input
+   230→                type="number"
+   231→                value={summarySettings.keepRecentMessages}
+   232→                onChange={(e) =>
+   233→                  setSummarySettings({ keepRecentMessages: parseInt(e.target.value) || 10 })
+   234→                }
+   235→                disabled={!summarySettings.enabled}
+   236→                min={5}
+   237→                max={50}
+   238→                className="h-9"
+   239→              />
+   240→              <p className="text-xs text-muted-foreground">
+   241→                Estos mensajes no se incluirán en el resumen.
+   242→              </p>
+   243→            </div>
+   244→            <div className="space-y-2">
+   245→              <Label className="text-sm">Tokens máx. del resumen</Label>
+   246→              <Input
+   247→                type="number"
+   248→                value={summarySettings.maxSummaryTokens}
+   249→                onChange={(e) =>
+   250→                  setSummarySettings({ maxSummaryTokens: parseInt(e.target.value) || 500 })
+   251→                }
+   252→                disabled={!summarySettings.enabled}
+   253→                min={100}
+   254→                max={2000}
+   255→                step={100}
+   256→                className="h-9"
+   257→              />
+   258→              <p className="text-xs text-muted-foreground">
+   259→                Límite de tokens para el resumen generado.
+   260→              </p>
+   261→            </div>
+   262→          </div>
+   263→
+   264→          {/* Behavior toggles */}
+   265→          <div className="space-y-3 pt-2">
+   266→            <label className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50">
+   267→              <div className="space-y-0.5">
+   268→                <Label className="text-sm">Resumir al fin de turno</Label>
+   269→                <p className="text-xs text-muted-foreground">
+   270→                  Generar resumen después de que todos los personajes respondan (grupos).
+   271→                </p>
+   272→              </div>
+   273→              <Switch
+   274→                checked={summarySettings.summarizeOnTurnEnd}
+   275→                onCheckedChange={(summarizeOnTurnEnd) =>
+   276→                  setSummarySettings({ summarizeOnTurnEnd })
+   277→                }
+   278→                disabled={!summarySettings.enabled}
+   279→              />
+   280→            </label>
+   281→
+   282→            <label className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50">
+   283→              <div className="space-y-0.5">
+   284→                <Label className="text-sm">Incluir pensamientos internos</Label>
+   285→                <p className="text-xs text-muted-foreground">
+   286→                  Incluir pensamientos y reflexiones de los personajes en el resumen.
+   287→                </p>
+   288→              </div>
+   289→              <Switch
+   290→                checked={summarySettings.includeCharacterThoughts}
+   291→                onCheckedChange={(includeCharacterThoughts) =>
+   292→                  setSummarySettings({ includeCharacterThoughts })
+   293→                }
+   294→                disabled={!summarySettings.enabled}
+   295→              />
+   296→            </label>
+   297→
+   298→            <label className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50">
+   299→              <div className="space-y-0.5">
+   300→                <Label className="text-sm">Preservar momentos emocionales</Label>
+   301→                <p className="text-xs text-muted-foreground">
+   302→                  Destacar momentos emocionales importantes en el resumen.
+   303→                </p>
+   304→              </div>
+   305→              <Switch
+   306→                checked={summarySettings.preserveEmotionalMoments}
+   307→                onCheckedChange={(preserveEmotionalMoments) =>
+   308→                  setSummarySettings({ preserveEmotionalMoments })
+   309→                }
+   310→                disabled={!summarySettings.enabled}
+   311→              />
+   312→            </label>
+   313→          </div>
+   314→        </CardContent>
+   315→      </Card>
+   316→
+   317→      {/* Prompt Template Editor */}
+   318→      <Card>
+   319→        <CardHeader className="pb-3">
+   320→          <CardTitle className="flex items-center gap-2 text-base">
+   321→            <FileText className="w-4 h-4 text-violet-500" />
+   322→            Prompt de Resumen
+   323→          </CardTitle>
+   324→          <CardDescription>
+   325→            Personaliza el prompt que se envía al LLM para generar resúmenes.
+   326→          </CardDescription>
+   327→        </CardHeader>
+   328→        <CardContent>
+   329→          <Collapsible open={promptEditorOpen} onOpenChange={setPromptEditorOpen}>
+   330→            <CollapsibleTrigger asChild>
+   331→              <Button
+   332→                variant="outline"
+   333→                className="w-full justify-between"
+   334→                disabled={!summarySettings.enabled}
+   335→              >
+   336→                <span className="flex items-center gap-2">
+   337→                  <Sparkles className="w-4 h-4" />
+   338→                  Editar Prompt Personalizado
+   339→                </span>
+   340→                <ChevronDown className={cn(
+   341→                  "w-4 h-4 transition-transform",
+   342→                  promptEditorOpen && "rotate-180"
+   343→                )} />
+   344→              </Button>
+   345→            </CollapsibleTrigger>
+   346→            <CollapsibleContent className="mt-4 space-y-4">
+   347→              <div className="p-3 rounded-lg bg-violet-500/10 border border-violet-500/20 text-sm">
+   348→                <div className="flex items-start gap-2">
+   349→                  <Info className="w-4 h-4 text-violet-500 mt-0.5 flex-shrink-0" />
+   350→                  <div className="text-xs text-violet-600 dark:text-violet-400 space-y-1">
+   351→                    <p><strong>Variables disponibles:</strong></p>
+   352→                    <ul className="list-disc list-inside space-y-0.5">
+   353→                      <li><code className="bg-violet-500/20 px-1 rounded">{'{{conversation}}'}</code> - Se reemplaza con la conversación a resumir</li>
+   354→                    </ul>
+   355→                  </div>
+   356→                </div>
+   357→              </div>
+   358→
+   359→              <Textarea
+   360→                value={localPrompt}
+   361→                onChange={(e) => setLocalPrompt(e.target.value)}
+   362→                disabled={!summarySettings.enabled}
+   363→                placeholder="Escribe tu prompt personalizado..."
+   364→                className="min-h-[200px] font-mono text-sm"
+   365→              />
+   366→
+   367→              <div className="flex items-center justify-between">
+   368→                <AlertDialog>
+   369→                  <AlertDialogTrigger asChild>
+   370→                    <Button
+   371→                      variant="outline"
+   372→                      size="sm"
+   373→                      disabled={!summarySettings.enabled}
+   374→                    >
+   375→                      <RotateCcw className="w-4 h-4 mr-2" />
+   376→                      Restaurar Default
+   377→                    </Button>
+   378→                  </AlertDialogTrigger>
+   379→                  <AlertDialogContent>
+   380→                    <AlertDialogHeader>
+   381→                      <AlertDialogTitle>¿Restaurar prompt por defecto?</AlertDialogTitle>
+   382→                      <AlertDialogDescription>
+   383→                        Esto reemplazará tu prompt personalizado con el prompt por defecto. Esta acción no se puede deshacer.
+   384→                      </AlertDialogDescription>
+   385→                    </AlertDialogHeader>
+   386→                    <AlertDialogFooter>
+   387→                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+   388→                      <AlertDialogAction onClick={handleResetPrompt}>
+   389→                        Restaurar
+   390→                      </AlertDialogAction>
+   391→                    </AlertDialogFooter>
+   392→                  </AlertDialogContent>
+   393→                </AlertDialog>
+   394→
+   395→                <Button
+   396→                  size="sm"
+   397→                  onClick={handlePromptSave}
+   398→                  disabled={!summarySettings.enabled || localPrompt === promptTemplate}
+   399→                >
+   400→                  <Save className="w-4 h-4 mr-2" />
+   401→                  Guardar Cambios
+   402→                </Button>
+   403→              </div>
+   404→            </CollapsibleContent>
+   405→          </Collapsible>
+   406→
+   407→          {/* Prompt Preview */}
+   408→          {!promptEditorOpen && (
+   409→            <div className="mt-3">
+   410→              <Label className="text-xs text-muted-foreground mb-2 block">Vista previa del prompt:</Label>
+   411→              <div className="p-3 rounded-lg bg-muted/50 text-xs font-mono max-h-[100px] overflow-y-auto text-muted-foreground">
+   412→                {promptTemplate.length > 300
+   413→                  ? `${promptTemplate.slice(0, 300)}...`
+   414→                  : promptTemplate
+   415→                }
+   416→              </div>
+   417→            </div>
+   418→          )}
+   419→        </CardContent>
+   420→      </Card>
+   421→    </div>
+   422→  );
+   423→}
+   424→
+   425→// Sub-tab 2: Extracción
+   426→// ============================================
+   427→
+   428→function ExtraccionTab() {
+   429→  const settings = useTavernStore((s) => s.settings);
+   430→  const embeddingsChat = settings.embeddingsChat ?? DEFAULT_EMBEDDINGS_CHAT;
+   431→  const updateSettings = useTavernStore((state) => state.updateSettings);
+   432→
+   433→  // Context settings with defaults
+   434→  const contextSettings = settings.context ?? {
+   435→    maxMessages: 50,
+   436→    maxTokens: 4096,
+   437→    keepFirstN: 1,
+   438→    keepLastN: 20,
+   439→  };
+   440→
+   441→  // Update context settings helper
+   442→  const updateContextSettings = useCallback((updates: Partial<typeof contextSettings>) => {
+   443→    updateSettings({
+   444→      context: { ...contextSettings, ...updates }
+   445→    });
+   446→  }, [contextSettings, updateSettings]);
+   447→
+   448→  return (
+   449→    <div className="space-y-6">
+   450→      {/* Note about needing Embeddings enabled */}
+   451→      <div className="bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg p-4">
+   452→        <div className="flex items-start gap-2">
+   453→          <Info className="w-4 h-4 text-fuchsia-500 mt-0.5 shrink-0" />
+   454→          <div className="space-y-1">
+   455→            <p className="text-sm font-medium text-fuchsia-600 dark:text-fuchsia-400">Requiere Embeddings</p>
+   456→            <p className="text-xs text-muted-foreground">
+   457→              Estos ajustes requieren la infraestructura de embeddings (Ollama + LanceDB). Configúralo en <strong>Ajustes → Conocimiento</strong>.
+   458→            </p>
+   459→          </div>
+   460→        </div>
+   461→      </div>
+   462→
+   463→      {/* Memory Extraction Section */}
+   464→      <Card>
+   465→        <CardHeader className="pb-3">
+   466→          <CardTitle className="flex items-center gap-2 text-base">
+   467→            <Brain className="w-4 h-4 text-violet-500" />
+   468→            Extracción Automática (Memoria V2)
+   469→          </CardTitle>
+   470→          <CardDescription>
+   471→            Memoria V2: tras cada N turnos, una única pasada LLM analiza el intercambio completo (usuario + personaje) y guarda hechos, eventos y emociones en la tienda unificada
+   472→          </CardDescription>
+   473→        </CardHeader>
+   474→        <CardContent className="space-y-4">
+   475→          <div className="flex items-center justify-between">
+   476→            <div className="space-y-0.5">
+   477→              <Label className="text-sm">Activar Extracción</Label>
+   478→              <p className="text-[10px] text-muted-foreground">
+   479→                Extrae automáticamente recuerdos (ops ADD/UPDATE/DELETE) del intercambio completo
+   480→              </p>
+   481→            </div>
+   482→            <Switch
+   483→              checked={!!embeddingsChat.memoryExtractionEnabled}
+   484→              onCheckedChange={(enabled) => {
+   485→                updateSettings({
+   486→                  embeddingsChat: { ...embeddingsChat, memoryExtractionEnabled: enabled },
+   487→                });
+   488→              }}
+   489→            />
+   490→          </div>
+   491→
+   492→          {embeddingsChat.memoryExtractionEnabled && (
+   493→            <div className="space-y-3 pl-1 border-l-2 border-violet-300/30">
+   494→              <div className="space-y-2">
+   495→                <Label className="text-xs">Frecuencia: cada {embeddingsChat.memoryExtractionFrequency || 5} turnos</Label>
+   496→                <Slider
+   497→                  value={[embeddingsChat.memoryExtractionFrequency || 5]}
+   498→                  min={1}
+   499→                  max={20}
+   500→                  step={1}
+   501→                  onValueChange={([v]) => {
+   502→                    updateSettings({
+   503→                      embeddingsChat: { ...embeddingsChat, memoryExtractionFrequency: v },
+   504→                    });
+   505→                  }}
+   506→                />
+   507→                <p className="text-[10px] text-muted-foreground">
+   508→                  Un turno = 1 mensaje del usuario + respuesta(s). Más frecuente = más contexto, pero más uso del LLM.
+   509→                </p>
+   510→              </div>
+   511→
+   512→              <div className="space-y-2">
+   513→                <Label className="text-xs">Importancia mínima: {embeddingsChat.memoryExtractionMinImportance || 2}/5</Label>
+   514→                <Slider
+   515→                  value={[embeddingsChat.memoryExtractionMinImportance || 2]}
+   516→                  min={1}
+   517→                  max={5}
+   518→                  step={1}
+   519→                  onValueChange={([v]) => {
+   520→                    updateSettings({
+   521→                      embeddingsChat: { ...embeddingsChat, memoryExtractionMinImportance: v },
+   522→                    });
+   523→                  }}
+   524→                />
+   525→                <p className="text-[10px] text-muted-foreground">
+   526→                  Solo se guardan hechos con importancia igual o mayor. Más alto = solo lo más relevante.
+   527→                </p>
+   528→              </div>
+   529→
+   530→              <div className="space-y-2">
+   531→                <Label className="text-xs">Profundidad de contexto: {embeddingsChat.memoryExtractionContextDepth ?? 2} mensajes</Label>
+   532→                <Slider
+   533→                  value={[embeddingsChat.memoryExtractionContextDepth ?? 2]}
+   534→                  min={0}
+   535→                  max={5}
+   536→                  step={1}
+   537→                  onValueChange={([v]) => {
+   538→                    updateSettings({
+   539→                      embeddingsChat: { ...embeddingsChat, memoryExtractionContextDepth: v },
+   540→                    });
+   541→                  }}
+   542→                />
+   543→                <p className="text-[10px] text-muted-foreground">
+   544→                  Cuántos mensajes recientes incluir como contexto para el LLM. 0 = solo la respuesta del personaje. Más contexto = mejor comprensión de referencias, pero más tokens.
+   545→                </p>
+   546→              </div>
+   547→
+   548→              <div className="bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-lg p-3">
+   549→                <div className="flex items-start gap-2">
+   550→                  <Brain className="w-4 h-4 text-fuchsia-500 mt-0.5 shrink-0" />
+   551→                  <div className="space-y-1">
+   552→                    <p className="text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400">Memoria con Contexto</p>
+   553→                    <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
+   554→                      <li>Se incluyen los últimos N mensajes como contexto para que el LLM entienda referencias implícitas</li>
+   555→                      <li>En grupo, cada personaje ve las respuestas de los demás para capturar dinámicas de conversación</li>
+   556→                      <li>La extracción es asíncrona — no afecta la velocidad de respuesta</li>
+   557→                    </ul>
+   558→                  </div>
+   559→                </div>
+   560→              </div>
+   561→
+   562→            </div>
+   563→          )}
+   564→        </CardContent>
+   565→      </Card>
+   566→
+   567→      {/* Separate Extraction Model Section */}
+   568→      {embeddingsChat.memoryExtractionEnabled && (
+   569→        <Card>
+   570→          <CardHeader className="pb-3">
+   571→            <CardTitle className="flex items-center gap-2 text-base">
+   572→              <Settings className="w-4 h-4 text-emerald-500" />
+   573→              Modelo de Extracción Separado
+   574→            </CardTitle>
+   575→            <CardDescription>
+   576→              Usa un modelo diferente (más rápido/barato) para extracción y consolidación de memoria
+   577→            </CardDescription>
+   578→          </CardHeader>
+   579→          <CardContent className="space-y-4">
+   580→            <div className="flex items-center justify-between">
+   581→              <div className="space-y-0.5">
+   582→                <Label className="text-sm">Usar modelo separado</Label>
+   583→                <p className="text-[10px] text-muted-foreground">
+   584→                  Desvía la carga de extracción a un modelo más eficiente
+   585→                </p>
+   586→              </div>
+   587→              <Switch
+   588→                checked={!!embeddingsChat.extractionModelEnabled}
+   589→                onCheckedChange={(enabled) => {
+   590→                  updateSettings({
+   591→                    embeddingsChat: { ...embeddingsChat, extractionModelEnabled: enabled },
+   592→                  });
+   593→                }}
+   594→              />
+   595→            </div>
+   596→
+   597→            {embeddingsChat.extractionModelEnabled && (
+   598→              <div className="space-y-3 pl-1 border-l-2 border-emerald-300/30">
+   599→                <div className="space-y-2">
+   600→                  <Label className="text-xs">Proveedor</Label>
+   601→                  <Select
+   602→                    value={embeddingsChat.extractionModelProvider || 'ollama'}
+   603→                    onValueChange={(v) => {
+   604→                      updateSettings({
+   605→                        embeddingsChat: { ...embeddingsChat, extractionModelProvider: v },
+   606→                      });
+   607→                    }}
+   608→                  >
+   609→                    <SelectTrigger className="h-8 text-sm">
+   610→                      <SelectValue />
+   611→                    </SelectTrigger>
+   612→                    <SelectContent>
+   613→                      <SelectItem value="ollama">Ollama (Local)</SelectItem>
+   614→                      <SelectItem value="openai">OpenAI</SelectItem>
+   615→                      <SelectItem value="grok">Grok (xAI)</SelectItem>
+   616→                      <SelectItem value="anthropic">Anthropic</SelectItem>
+   617→                      <SelectItem value="z-ai">Z-AI</SelectItem>
+   618→                      <SelectItem value="lm-studio">LM Studio</SelectItem>
+   619→                      <SelectItem value="text-generation-webui">Text Generation WebUI</SelectItem>
+   620→                      <SelectItem value="custom">Custom</SelectItem>
+   621→                    </SelectContent>
+   622→                  </Select>
+   623→                </div>
+   624→
+   625→                {/* Endpoint (for providers that need it) */}
+   626→                {!['z-ai'].includes(embeddingsChat.extractionModelProvider || 'ollama') && (
+   627→                  <div className="space-y-2">
+   628→                    <Label className="text-xs">Endpoint</Label>
+   629→                    <Input
+   630→                      type="text"
+   631→                      value={embeddingsChat.extractionModelEndpoint || 'http://localhost:11434'}
+   632→                      onChange={(e) => {
+   633→                        updateSettings({
+   634→                          embeddingsChat: { ...embeddingsChat, extractionModelEndpoint: e.target.value },
+   635→                        });
+   636→                      }}
+   637→                      className="h-8 text-sm"
+   638→                      placeholder="http://localhost:11434"
+   639→                    />
+   640→                    <p className="text-[10px] text-muted-foreground">
+   641→                      URL del servidor del modelo de extracción
+   642→                    </p>
+   643→                  </div>
+   644→                )}
+   645→
+   646→                {/* API Key (for providers that need it) */}
+   647→                {['openai', 'grok', 'anthropic', 'custom'].includes(embeddingsChat.extractionModelProvider || 'ollama') && (
+   648→                  <div className="space-y-2">
+   649→                    <Label className="text-xs">API Key</Label>
+   650→                    <Input
+   651→                      type="password"
+   652→                      value={embeddingsChat.extractionModelApiKey || ''}
+   653→                      onChange={(e) => {
+   654→                        updateSettings({
+   655→                          embeddingsChat: { ...embeddingsChat, extractionModelApiKey: e.target.value },
+   656→                        });
+   657→                      }}
+   658→                      className="h-8 text-sm"
+   659→                      placeholder="sk-..."
+   660→                    />
+   661→                    <p className="text-[10px] text-muted-foreground">
+   662→                      Clave API para el proveedor seleccionado
+   663→                    </p>
+   664→                  </div>
+   665→                )}
+   666→
+   667→                {/* Model name */}
+   668→                <div className="space-y-2">
+   669→                  <Label className="text-xs">Modelo</Label>
+   670→                  <Input
+   671→                    type="text"
+   672→                    value={embeddingsChat.extractionModelName || 'llama3.1:8b'}
+   673→                    onChange={(e) => {
+   674→                      updateSettings({
+   675→                        embeddingsChat: { ...embeddingsChat, extractionModelName: e.target.value },
+   676→                      });
+   677→                    }}
+   678→                    className="h-8 text-sm"
+   679→                    placeholder="llama3.1:8b"
+   680→                  />
+   681→                  <p className="text-[10px] text-muted-foreground">
+   682→                    Nombre del modelo para extracción. Se recomienda un modelo rápido y barato (ej: llama3.1:8b, gpt-4o-mini)
+   683→                  </p>
+   684→                </div>
+   685→
+   686→                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
+   687→                  <div className="flex items-start gap-2">
+   688→                    <Settings className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+   689→                    <div className="space-y-1">
+   690→                      <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Modelo Separado</p>
+   691→                      <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
+   692→                        <li>La extracción y consolidación de memoria usan este modelo en lugar del modelo de chat</li>
+   693→                        <li>Ideal para usar un modelo local (Ollama) o barato (gpt-4o-mini) para tareas de fondo</li>
+   694→                        <li>Ahorra tokens y costo al no usar el modelo principal de chat para extracción</li>
+   695→                        <li>El modelo de extracción solo necesita entender texto y generar JSON</li>
+   696→                      </ul>
+   697→                    </div>
+   698→                  </div>
+   699→                </div>
+   700→              </div>
+   701→            )}
+   702→          </CardContent>
+   703→        </Card>
+   704→      )}
+   705→
+   706→      {/* Search Context Depth */}
+   707→      <Card>
+   708→        <CardHeader className="pb-3">
+   709→          <CardTitle className="flex items-center gap-2 text-base">
+   710→            <MessageSquare className="w-4 h-4 text-fuchsia-500" />
+   711→            Contexto de Búsqueda
+   712→          </CardTitle>
+   713→          <CardDescription>
+   714→            Configura cuánto contexto se usa al buscar embeddings relevantes
+   715→          </CardDescription>
+   716→        </CardHeader>
+   717→        <CardContent className="space-y-4">
+   718→          <div className="space-y-2">
+   719→            <Label className="text-xs">Contexto de búsqueda: {embeddingsChat.searchContextDepth ?? 1} mensajes</Label>
+   720→            <Slider
+   721→              value={[embeddingsChat.searchContextDepth ?? 1]}
+   722→              min={0}
+   723→              max={5}
+   724→              step={1}
+   725→              onValueChange={([v]) => {
+   726→                updateSettings({
+   727→                  embeddingsChat: { ...embeddingsChat, searchContextDepth: v },
+   728→                });
+   729→              }}
+   730→            />
+   731→            <p className="text-[10px] text-muted-foreground">
+   732→              Mensajes recientes que se agregan a tu pregunta para enriquecer la búsqueda de embeddings. 0 = solo tu mensaje. Valores altos = mejores resultados con referencias implícitas ("¿recuerdas eso?").
+   733→            </p>
+   734→          </div>
+   735→        </CardContent>
+   736→      </Card>
+   737→
+   738→      {/* How it works info box */}
+   739→      <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg p-3">
+   740→        <div className="flex items-start gap-2">
+   741→          <Brain className="w-4 h-4 text-violet-500 mt-0.5 shrink-0" />
+   742→          <div className="space-y-1">
+   743→            <p className="text-xs font-medium text-violet-600 dark:text-violet-400">Cómo funciona</p>
+   744→            <ul className="text-[10px] text-muted-foreground space-y-0.5 list-disc list-inside">
+   745→              <li>Cuando envías un mensaje, el sistema genera un vector embedding de tu texto</li>
+   746→              <li>Si hay contexto de búsqueda, se concatena con tu mensaje para encontrar resultados más relevantes</li>
+   747→              <li>Busca en los namespaces seleccionados embeddings similares</li>
+   748→              <li>Los mejores resultados se inyectan en el prompt de la IA como contexto</li>
+   749→              <li>La IA usa este contexto para generar respuestas más informadas</li>
+   750→            </ul>
+   751→          </div>
+   752→        </div>
+   753→      </div>
+   754→
+   755→      {/* NOTE (Memory V2): los prompts de extracción legacy fueron eliminados. La extracción V2 usa un prompt interno optimizado (merged pass, ops ADD/UPDATE/DELETE). */}
+   756→    </div>
+   757→  );
+   758→}
+   759→
+   760→// ============================================
+   761→// Main Panel Component
+   762→// ============================================
+   763→
+   764→export function MemorySettingsPanel() {
+   765→  return (
+   766→    <div className="space-y-4">
+   767→      <Tabs defaultValue="resumenes" className="w-full">
+   768→        <TabsList className="grid w-full grid-cols-3">
+   769→          <TabsTrigger value="resumenes" className="flex items-center gap-1.5 text-xs sm:text-sm">
+   770→            <FileText className="w-3.5 h-3.5" />
+   771→            <span className="hidden sm:inline">Resúmenes</span>
+   772→            <span className="sm:hidden">Resum.</span>
+   773→          </TabsTrigger>
+   774→          <TabsTrigger value="extraccion" className="flex items-center gap-1.5 text-xs sm:text-sm">
+   775→            <Brain className="w-3.5 h-3.5" />
+   776→            <span className="hidden sm:inline">Extracción y Contexto</span>
+   777→            <span className="sm:hidden">Ext. Ctx.</span>
+   778→          </TabsTrigger>
+   779→          <TabsTrigger value="v2" className="flex items-center gap-1.5 text-xs sm:text-sm">
+   780→            <DatabaseZap className="w-3.5 h-3.5" />
+   781→            <span className="hidden sm:inline">Memoria V2</span>
+   782→            <span className="sm:hidden">V2</span>
+   783→          </TabsTrigger>
+   784→        </TabsList>
+   785→
+   786→        <TabsContent value="resumenes" className="mt-4">
+   787→          <ResumenesTab />
+   788→        </TabsContent>
+   789→
+   790→        <TabsContent value="extraccion" className="mt-4">
+   791→          <ExtraccionTab />
+   792→        </TabsContent>
+   793→
+   794→        <TabsContent value="v2" className="mt-4">
+   795→          <MemoryV2Tab />
+   796→        </TabsContent>
+   797→      </Tabs>
+   798→    </div>
+   799→  );
+   800→}
+   801→
+   802→// ============================================
+   803→// Memory V2 Tab — unified memory system status
+   804→// ============================================
+   805→// Health (backend/model/dim/counts), manual legacy→V2 migration and reinit
+   806→// after model changes. Records browser for the active character.
+   807→
+   808→interface V2HealthData {
+   809→  backend: 'lancedb' | 'json';
+   810→  lancedbNative: boolean;
+   811→  model: string;
+   812→  dimension: number;
+   813→  meta: { model: string; dimension: number; needsReembed: boolean } | null;
+   814→  counts: { total: number; active: number; superseded: number; byType: Record<string, number> };
+   815→  ollama?: { reachable: boolean; model: string; dimension: number; contextLength?: number };
+   816→  error?: string;
+   817→}
+   818→
+   819→interface V2RecordLite {
+   820→  id: string;
+   821→  type: string;
+   822→  content: string;
+   823→  source: 'auto' | 'curada';
+   824→  importance: number;
+   825→  eventDate: string;
+   826→  supersededBy: string;
+   827→}
+   828→
+   829→const V2_TYPE_LABELS: Record<string, string> = {
+   830→  evento: 'Eventos',
+   831→  hecho: 'Hechos',
+   832→  preferencia: 'Preferencias',
+   833→  relacion: 'Relación',
+   834→  nota: 'Notas',
+   835→  resumen_escena: 'Resúmenes de escena',
+   836→};
+   837→
+   838→function MemoryV2Tab() {
+   839→  const settings = useTavernStore((s) => (s.settings as any)?.embeddingsChat) || DEFAULT_EMBEDDINGS_CHAT;
+   840→  const updateSettings = useTavernStore((s) => s.updateSettings);
+   841→  const activeCharacterId = useTavernStore((s) => s.activeCharacterId);
+   842→  const activeCharacter = useTavernStore((s) => s.characters)?.find((c: any) => c.id === activeCharacterId);
+   843→
+   844→  const [health, setHealth] = useState<V2HealthData | null>(null);
+   845→  const [records, setRecords] = useState<V2RecordLite[]>([]);
+   846→  const [loading, setLoading] = useState(false);
+   847→  const [migrating, setMigrating] = useState(false);
+   848→  const [reiniting, setReiniting] = useState(false);
+   849→  const [searchQuery, setSearchQuery] = useState('');
+   850→  const [searchResults, setSearchResults] = useState<V2RecordLite[] | null>(null);
+   851→
+   852→  const updateEmbeddingsChat = (updates: Record<string, unknown>) => {
+   853→    updateSettings({
+   854→      embeddingsChat: { ...settings, ...updates },
+   855→    } as any);
+   856→  };
+   857→
+   858→  const loadHealth = useCallback(async () => {
+   859→    setLoading(true);
+   860→    try {
+   861→      const res = await fetch('/api/memory/v2?action=health');
+   862→      const data = await res.json();
+   863→      if (data.success) setHealth(data.health);
+   864→    } catch {
+   865→      /* silent */
+   866→    } finally {
+   867→      setLoading(false);
+   868→    }
+   869→  }, []);
+   870→
+   871→  const loadRecords = useCallback(async () => {
+   872→    if (!activeCharacterId) return;
+   873→    try {
+   874→      const res = await fetch(`/api/memory/v2?action=records&charId=${encodeURIComponent(activeCharacterId)}&limit=200`);
+   875→      const data = await res.json();
+   876→      if (data.success) setRecords(data.records || []);
+   877→    } catch {
+   878→      /* silent */
+   879→    }
+   880→  }, [activeCharacterId]);
+   881→
+   882→  // Initial load
+   883→  useEffect(() => {
+   884→    loadHealth();
+   885→    loadRecords();
+   886→  }, [loadHealth, loadRecords]);
+   887→
+   888→  const runMigration = async () => {
+   889→    setMigrating(true);
+   890→    try {
+   891→      const res = await fetch('/api/memory/v2', {
+   892→        method: 'POST',
+   893→        headers: { 'Content-Type': 'application/json' },
+   894→        body: JSON.stringify({ action: 'migrate', charId: activeCharacterId || undefined }),
+   895→      });
+   896→      const data = await res.json();
+   897→      if (data.success) {
+   898→        toast.success(`Migración completada: ${data.migrated} nuevos, ${data.skipped} ya existentes`);
+   899→        loadHealth();
+   900→        loadRecords();
+   901→      } else {
+   902→        toast.error(data.error || 'Migración fallida');
+   903→      }
+   904→    } catch {
+   905→      toast.error('Error de red durante la migración');
+   906→    } finally {
+   907→      setMigrating(false);
+   908→    }
+   909→  };
+   910→
+   911→  const runReinit = async () => {
+   912→    setReiniting(true);
+   913→    try {
+   914→      const res = await fetch('/api/memory/v2', {
+   915→        method: 'POST',
+   916→        headers: { 'Content-Type': 'application/json' },
+   917→        body: JSON.stringify({ action: 'reinit' }),
+   918→      });
+   919→      const data = await res.json();
+   920→      if (data.success) {
+   921→        setHealth(data.health);
+   922→        toast.success(`Store reinicializado (backend: ${data.health?.backend || '?'})`);
+   923→        loadRecords();
+   924→      }
+   925→    } catch {
+   926→      toast.error('Error reinicializando el store');
+   927→    } finally {
+   928→      setReiniting(false);
+   929→    }
+   930→  };
+   931→
+   932→  const runSearch = async () => {
+   933→    if (!activeCharacterId || !searchQuery.trim()) return;
+   934→    setLoading(true);
+   935→    try {
+   936→      const res = await fetch(`/api/memory/v2?action=search&charId=${encodeURIComponent(activeCharacterId)}&query=${encodeURIComponent(searchQuery)}&limit=8`);
+   937→      const data = await res.json();
+   938→      if (data.success) {
+   939→        setSearchResults(data.results || []);
+   940→      }
+   941→    } catch {
+   942→      /* silent */
+   943→    } finally {
+   944→      setLoading(false);
+   945→    }
+   946→  };
+   947→
+   948→  const v2On = settings.memoryV2Enabled !== false;
+   949→
+   950→  return (
+   951→    <div className="space-y-4">
+   952→      {/* Toggle */}
+   953→      <Card>
+   954→        <CardHeader className="pb-3">
+   955→          <CardTitle className="flex items-center gap-2 text-base">
+   956→            <DatabaseZap className="w-4 h-4" />
+   957→            Memoria V2 (Sistema Unificado)
+   958→          </CardTitle>
+   959→          <CardDescription>
+   960→            Un solo almacén con extracción unificada (ADD/UPDATE/DELETE), fechas absolutas, eventos first-class e
+   961→            inyección particionada [HECHOS]/[EVENTOS]/[RELACIÓN]. Reemplaza la doble capa Memoria del Personaje + embeddings.
+   962→          </CardDescription>
+   963→        </CardHeader>
+   964→        <CardContent className="space-y-3">
+   965→          <div className="flex items-center justify-between">
+   966→            <div>
+   967→              <Label className="text-sm font-medium">Memoria V2 activada</Label>
+   968→              <p className="text-xs text-muted-foreground">
+   969→                Interruptor maestro único del sistema de memoria (hechos, eventos, emociones):
+   970→                controla la inyección en el prompt, la extracción automática y las tools del LLM.
+   971→                No depende de ningún otro ajuste. El Conocimiento (archivos indexados) y los
+   972→                Resúmenes (compresión de contexto) siguen funcionando por separado aunque la desactives.
+   973→              </p>
+   974→            </div>
+   975→            <Switch
+   976→              checked={v2On}
+   977→              onCheckedChange={(checked) => updateEmbeddingsChat({ memoryV2Enabled: checked })}
+   978→            />
+   979→          </div>
+   980→
+   981→          <div className="flex items-center justify-between border-t border-border/40 pt-3">
+   982→            <div>
+   983→              <Label className="text-sm font-medium">Memoria entre sesiones</Label>
+   984→              <p className="text-xs text-muted-foreground">
+   985→                Al buscar recuerdos que inyectar, incluye también los guardados en sesiones
+   986→                anteriores de este personaje (y de este grupo). Desactívalo para que cada sesión
+   987→                tenga una memoria aislada — útil para roles independientes con el mismo personaje.
+   988→              </p>
+   989→            </div>
+   990→            <Switch
+   991→              checked={settings.crossSessionMemory !== false}
+   992→              onCheckedChange={(checked) => updateEmbeddingsChat({ crossSessionMemory: checked })}
+   993→            />
+   994→          </div>
+   995→        </CardContent>
+   996→      </Card>
+   997→
+   998→      {/* Health */}
+   999→      <Card>
+  1000→        <CardHeader className="pb-3">
+  1001→          <CardTitle className="flex items-center justify-between text-base">
+  1002→            <span className="flex items-center gap-2">
+  1003→              <Activity className="w-4 h-4" />
+  1004→              Estado del Store
+  1005→            </span>
+  1006→            <div className="flex gap-1.5">
+  1007→              <Button variant="outline" size="sm" onClick={loadHealth} disabled={loading}>
+  1008→                <RefreshCw className={cn('w-3.5 h-3.5 mr-1', loading && 'animate-spin')} />
+  1009→                Actualizar
+  1010→              </Button>
+  1011→              <Button variant="outline" size="sm" onClick={runReinit} disabled={reiniting}>
+  1012→                <RotateCcw className={cn('w-3.5 h-3.5 mr-1', reiniting && 'animate-spin')} />
+  1013→                Reinit
+  1014→              </Button>
+  1015→            </div>
+  1016→          </CardTitle>
+  1017→        </CardHeader>
+  1018→        <CardContent className="space-y-3">
+  1019→          {health ? (
+  1020→            <>
+  1021→              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+  1022→                <div>
+  1023→                  <p className="text-muted-foreground text-xs">Backend activo</p>
+  1024→                  <p className={cn('font-medium', health.backend === 'lancedb' ? 'text-green-600' : 'text-fuchsia-600')}>
+  1025→                    {health.backend === 'lancedb' ? 'LanceDB (vectores)' : 'JSON (fallback léxico)'}
+  1026→                  </p>
+  1027→                </div>
+  1028→                <div>
+  1029→                  <p className="text-muted-foreground text-xs">Módulo nativo</p>
+  1030→                  <p className={cn('font-medium', health.lancedbNative ? 'text-green-600' : 'text-red-600')}>
+  1031→                    {health.lancedbNative ? 'Disponible' : 'No disponible'}
+  1032→                  </p>
+  1033→                </div>
+  1034→                <div>
+  1035→                  <p className="text-muted-foreground text-xs">Modelo / Dim</p>
+  1036→                  <p className="font-medium truncate">{health.model} · {health.dimension}d</p>
+  1037→                </div>
+  1038→                <div>
+  1039→                  <p className="text-muted-foreground text-xs">Ollama</p>
+  1040→                  <p className={cn('font-medium', health.ollama?.reachable ? 'text-green-600' : 'text-red-600')}>
+  1041→                    {health.ollama?.reachable ? 'Conectado' : 'Sin conexión'}
+  1042→                  </p>
+  1043→                </div>
+  1044→                <div>
+  1045→                  <p className="text-muted-foreground text-xs">Registros activos</p>
+  1046→                  <p className="font-medium">{health.counts.active} <span className="text-muted-foreground text-xs">({health.counts.total} totales, {health.counts.superseded} archivados)</span></p>
+  1047→                </div>
+  1048→                <div>
+  1049→                  <p className="text-muted-foreground text-xs">Por tipo</p>
+  1050→                  <p className="font-medium text-xs leading-4">
+  1051→                    {Object.entries(health.counts.byType).map(([t, n]) => `${V2_TYPE_LABELS[t] || t}: ${n}`).join(' · ') || '—'}
+  1052→                  </p>
+  1053→                </div>
+  1054→              </div>
+  1055→              {health.meta?.needsReembed && (
+  1056→                <div className="flex items-start gap-2 p-2.5 rounded-md bg-fuchsia-500/10 border border-fuchsia-500/30 text-xs">
+  1057→                  <AlertTriangle className="w-3.5 h-3.5 text-fuchsia-500 mt-0.5 shrink-0" />
+  1058→                  <span>
+  1059→                    Cambio de modelo pendiente de re-embed (Ollama no estaba disponible). Pulsa <b>Reinit</b> cuando Ollama
+  1060→                    esté activo para regenerar los vectores.
+  1061→                  </span>
+  1062→                </div>
+  1063→              )}
+  1064→              {health.error && (
+  1065→                <p className="text-xs text-muted-foreground">Aviso de init: {health.error}</p>
+  1066→              )}
+  1067→            </>
+  1068→          ) : (
+  1069→            <p className="text-sm text-muted-foreground">Cargando estado…</p>
+  1070→          )}
+  1071→        </CardContent>
+  1072→      </Card>
+  1073→
+  1074→      {/* Migration */}
+  1075→      <Card>
+  1076→        <CardHeader className="pb-3">
+  1077→          <CardTitle className="flex items-center gap-2 text-base">
+  1078→            <Database className="w-4 h-4" />
+  1079→            Migración Legacy → V2
+  1080→          </CardTitle>
+  1081→          <CardDescription>
+  1082→            Importa la Memoria del Personaje (data/memory.json) y los embeddings legacy (namespaces) al store unificado.
+  1083→            Es idempotente: los registros ya migrados se omiten.
+  1084→          </CardDescription>
+  1085→        </CardHeader>
+  1086→        <CardContent>
+  1087→          <Button size="sm" onClick={runMigration} disabled={migrating}>
+  1088→            <DatabaseZap className={cn('w-3.5 h-3.5 mr-1.5', migrating && 'animate-pulse')} />
+  1089→            {migrating ? 'Migrando…' : 'Migrar datos legacy'}
+  1090→          </Button>
+  1091→        </CardContent>
+  1092→      </Card>
+  1093→
+  1094→      {/* Records browser + debug search */}
+  1095→      <Card>
+  1096→        <CardHeader className="pb-3">
+  1097→          <CardTitle className="text-base">Registros V2 de {activeCharacter?.name || '…'}</CardTitle>
+  1098→          <CardDescription>Lo que el personaje realmente recuerda (store unificado, activeOnly).</CardDescription>
+  1099→        </CardHeader>
+  1100→        <CardContent className="space-y-3">
+  1101→          <div className="flex gap-2">
+  1102→            <Input
+  1103→              placeholder="Buscar en la memoria (debug: prueba el reranking)…"
+  1104→              value={searchQuery}
+  1105→              onChange={(e) => setSearchQuery(e.target.value)}
+  1106→              onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+  1107→              className="text-sm"
+  1108→            />
+  1109→            <Button size="sm" variant="outline" onClick={runSearch} disabled={!searchQuery.trim() || loading}>
+  1110→              Buscar
+  1111→            </Button>
+  1112→          </div>
+  1113→
+  1114→          {searchResults && (
+  1115→            <div className="space-y-1.5">
+  1116→              <p className="text-xs font-medium text-muted-foreground">Resultados de búsqueda ({searchResults.length})</p>
+  1117→              <div className="max-h-40 overflow-y-auto space-y-1">
+  1118→                {searchResults.length === 0 && <p className="text-xs text-muted-foreground">Sin resultados.</p>}
+  1119→                {searchResults.map((r) => (
+  1120→                  <div key={r.id} className="text-xs p-2 rounded bg-muted/50">
+  1121→                    <span className="font-medium">{r.type}</span> · score {(r as any).score?.toFixed(2) || '?'}
+  1122→                    <p>{r.content}</p>
+  1123→                  </div>
+  1124→                ))}
+  1125→              </div>
+  1126→            </div>
+  1127→          )}
+  1128→
+  1129→          <Separator />
+  1130→
+  1131→          <div className="max-h-96 overflow-y-auto space-y-3 custom-scrollbar">
+  1132→            {records.length === 0 ? (
+  1133→              <p className="text-xs text-muted-foreground">
+  1134→                Sin registros V2 todavía. Se crean automáticamente con la extracción de memoria, o migra los datos legacy.
+  1135→              </p>
+  1136→            ) : (
+  1137→              Object.entries(
+  1138→                records.reduce<Record<string, V2RecordLite[]>>((acc, r) => {
+  1139→                  (acc[r.type] ||= []).push(r);
+  1140→                  return acc;
+  1141→                }, {})
+  1142→              ).map(([type, recs]) => (
+  1143→                <div key={type} className="space-y-1">
+  1144→                  <p className="text-xs font-semibold">{V2_TYPE_LABELS[type] || type} ({recs.length})</p>
+  1145→                  {recs.map((r) => (
+  1146→                    <div key={r.id} className="text-xs p-2 rounded border bg-background">
+  1147→                      <div className="flex items-center gap-1.5 mb-0.5">
+  1148→                        {r.source === 'curada' && (
+  1149→                          <span className="px-1 py-0.5 rounded bg-violet-500/15 text-violet-600 dark:text-violet-300 text-[10px] font-medium">
+  1150→                            fijado
+  1151→                          </span>
+  1152→                        )}
+  1153→                        <span className="text-muted-foreground">
+  1154→                          {r.eventDate ? new Date(r.eventDate).toLocaleDateString('es-MX') : '—'}
+  1155→                        </span>
+  1156→                      </div>
+  1157→                      <p>{r.content}</p>
+  1158→                    </div>
+  1159→                  ))}
+  1160→                </div>
+  1161→              ))
+  1162→            )}
+  1163→          </div>
+  1164→        </CardContent>
+  1165→      </Card>
+  1166→    </div>
+  1167→  );
+  1168→}
+  1169→
+  1170→

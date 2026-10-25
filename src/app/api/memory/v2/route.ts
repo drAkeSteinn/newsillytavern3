@@ -24,6 +24,9 @@ export const maxDuration = 120;
  *   reinit                          → reset store state (after model change / recovery)
  *   import-records { records }      → bulk restore from backup (merge by id: existing
  *                                    ids are SKIPPED, missing ones re-embedded and added)
+ *   export-md  { charId?, groupId?, activeOnly? } → records as a markdown string (human-readable backup)
+ *   import-md  { markdown, charId?, groupId?, sessionId?, mode? } → parse MD and add records (mode='replace'|'append', default 'append')
+ *   archive-events { sessionId, charId, eventLog } → archive sessionStats.eventLog entries to V2 (auto, dedup by sourceMessageId)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -34,6 +37,29 @@ export async function GET(request: NextRequest) {
     const sessionId = searchParams.get('sessionId') || '';
     const query = searchParams.get('query') || '';
     const limit = parseInt(searchParams.get('limit') || '100', 10);
+
+    if (action === 'export-md') {
+      // Human-readable markdown export. Scope: charId/groupId if provided, else ALL records.
+      const { getV2 } = await import('@/lib/memory/v2');
+      const { exportRecordsToMarkdown } = await import('@/lib/memory/v2');
+      const store = await getV2();
+      const activeOnly = searchParams.get('includeArchived') !== '1';
+      const records = await store.list({
+        charId: charId || undefined,
+        groupId: groupId || undefined,
+        crossSession: true,
+        activeOnly,
+        limit: 100000,
+        orderBy: 'recent',
+      });
+      const md = exportRecordsToMarkdown(records);
+      return NextResponse.json({
+        success: true,
+        markdown: md,
+        total: records.length,
+        activeOnly,
+      });
+    }
 
     if (action === 'health') {
       const { v2Health, isMemoryV2Enabled } = await import('@/lib/memory/v2');
@@ -335,6 +361,137 @@ export async function POST(request: NextRequest) {
         }
       }
       return NextResponse.json({ success: true, added, skipped, invalid, total: records.length });
+    }
+
+    if (action === 'import-md') {
+      // Parse markdown into V2 records and add them. mode='append' (default)
+      // just adds new records; mode='replace' first wipes all records in scope
+      // (charId/groupId) then adds the parsed ones.
+      const { markdown, charId, groupId, sessionId, mode } = body;
+      if (!markdown || typeof markdown !== 'string') {
+        return NextResponse.json({ error: 'markdown (string) required' }, { status: 400 });
+      }
+      const { getV2, parseMarkdownToEntries, entriesToRecords } = await import('@/lib/memory/v2');
+      const store = await getV2();
+      const entries = parseMarkdownToEntries(markdown);
+      if (entries.length === 0) {
+        return NextResponse.json({ success: true, added: 0, skipped: 0, message: 'No se encontraron memorias en el markdown.' });
+      }
+      // Optional: wipe scope first when mode='replace'
+      let wiped = 0;
+      if (mode === 'replace' && (charId || groupId)) {
+        for (let pass = 0; pass < 20; pass++) {
+          const existing = await store.list({
+            charId: charId || undefined,
+            groupId: groupId || undefined,
+            crossSession: true,
+            activeOnly: false,
+            limit: 500,
+            orderBy: 'recent',
+          });
+          if (!existing.length) break;
+          const n = await store.hardDeleteMany(existing.map(r => r.id));
+          wiped += n;
+          if (n < existing.length) break;
+        }
+      }
+      // Convert entries to record payloads and add them. The store re-embeds
+      // content automatically (embedding model available) or falls back to JSON.
+      const records = entriesToRecords(entries, { charId, groupId, sessionId });
+      let added = 0;
+      let failed = 0;
+      for (const rec of records) {
+        try {
+          await store.add(rec);
+          added++;
+        } catch (err) {
+          console.error('[MemoryV2 API] import-md: failed to add one record:', err);
+          failed++;
+        }
+      }
+      return NextResponse.json({
+        success: true,
+        added,
+        failed,
+        wiped,
+        totalParsed: entries.length,
+      });
+    }
+
+    if (action === 'archive-events') {
+      // Archive sessionStats.eventLog entries to V2 so they survive beyond the
+      // short {{last_events}} window. Dedup by sourceMessageId avoids
+      // re-archiving the same event across turns.
+      const { sessionId: sid, charId: cid, groupId: gid, eventLog } = body;
+      if (!sid || !Array.isArray(eventLog) || eventLog.length === 0) {
+        return NextResponse.json({ error: 'sessionId and eventLog (non-empty array) required' }, { status: 400 });
+      }
+      const { getV2 } = await import('@/lib/memory/v2');
+      const store = await getV2();
+      const t = new Date().toISOString();
+      let added = 0;
+      let skipped = 0;
+      // Fetch existing sourceMessageIds for this character to dedup
+      const existing = await store.list({
+        charId: cid || undefined,
+        groupId: gid || undefined,
+        crossSession: false,
+        activeOnly: true,
+        limit: 10000,
+        orderBy: 'recent',
+      });
+      const seenSourceIds = new Set<string>();
+      for (const r of existing) {
+        if (r.sourceMessageId) seenSourceIds.add(r.sourceMessageId);
+      }
+      for (const ev of eventLog) {
+        const description = String(ev?.description || '').trim();
+        if (!description || description.length < 15) {
+          skipped++;
+          continue;
+        }
+        const sourceMessageId = ev?.id ? `evt:${String(ev.id)}` : `evt:${sid}:${ev?.turn || 0}:${description.slice(0, 30)}`;
+        if (seenSourceIds.has(sourceMessageId)) {
+          skipped++;
+          continue;
+        }
+        seenSourceIds.add(sourceMessageId);
+        // Map event log types to V2 types
+        const evType = String(ev?.type || 'custom');
+        let v2Type: 'evento' | 'hecho' | 'relacion' | 'nota' = 'evento';
+        if (evType === 'relationship') v2Type = 'relacion';
+        else if (evType === 'scene_enter' || evType === 'scene_leave') v2Type = 'evento';
+        else if (evType === 'custom' || evType === 'action') v2Type = 'evento';
+        const importance = ev?.severity === 'major' ? 0.8 : 0.4;
+        const eventDate = ev?.timestamp ? new Date(ev.timestamp).toISOString() : t;
+        try {
+          await store.add({
+            id: '',
+            type: v2Type,
+            content: description,
+            subject: 'personaje',
+            charId: cid || '',
+            groupId: gid || '',
+            sessionId: sid || '',
+            source: 'auto',
+            importance,
+            heat: 1,
+            eventDate,
+            createdAt: t,
+            updatedAt: t,
+            lastAccessedAt: t,
+            accessCount: 0,
+            linkedIds: [],
+            supersededBy: '',
+            sourceMessageId,
+          });
+          added++;
+        } catch (addErr) {
+          console.error('[MemoryV2 API] archive-events: failed to add:', addErr);
+          skipped++;
+        }
+      }
+      return NextResponse.json({ success: true, added, skipped, total: eventLog.length });
     }
 
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
